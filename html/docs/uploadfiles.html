@@ -1,0 +1,174 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" style="display:flex;height:100%;flex-direction:column;">
+<head>
+	<meta charset="utf-8" />
+	<title>Upload files</title>
+	<base href='../' />
+	<link rel="stylesheet" href="res/style.css" />
+</head>
+<body style="padding-bottom:3px;align-items:center">
+	<div class="topbanner">
+		<div style="align-self:stretch;width:960px;display:flex; flex-direction: row;">
+			<div style="flex:99999">
+				<label>RichTextEditor Demo</label>
+			</div>
+			<div>
+				<a target="_blank" href="https://richtexteditor.com/">Home</a>
+				&nbsp;
+				<a target="_blank" href="https://richtexteditor.com/pricing.aspx">Pricing</a>
+			</div>
+		</div>
+	</div>
+	<div style="margin:auto;padding:12px 6px 36px;max-width:960px;">
+		
+	<div class="hs-docs-content-divider">
+		<h1>Upload files</h1>
+		<p>
+			Developer must write custom uploading handler to upload files.
+		</p>
+	</div>
+
+
+
+	<div class="hs-docs-content-divider">
+
+
+		<h2 class="hs-docs-heading">Syntax:</h2>
+		<div>
+			window.rte_file_upload_handler=function(file, callback, optionalIndex, optionalFiles) {...}
+		</div>
+		<div>
+			Or:
+		</div>
+		<div>
+			rteconfig.file_upload_handler=function(file, callback, optionalIndex, optionalFiles) {...}
+		</div>
+		<h6>file</h6>
+		<p><code class="highlighter-rouge">Type: String</code></p>
+		<p><code class="highlighter-rouge">a dom File object which contains name/size/type , works with XHR/Blob API</code></p>
+		<h6>callback</h6>
+		<p><code class="highlighter-rouge">Type: Function callback(url,errormsg)</code></p>
+		<p><code class="highlighter-rouge">Developer shall invoke callback when file being uploaded or error occursed.</code></p>
+		<br />
+		<p>
+			Developer shall use XMLHttpRequest to upload files to server , and return the path of the file.
+		</p>
+		<p>
+			Please check our intergration demos from <a href="docs//download.html">downloaded packages.</a>
+		</p>
+	</div>
+	<div class="hs-docs-content-divider">
+
+		<h2 class="hs-docs-heading">Template Javascript Code:
+		</h2>
+		<p>
+			<div style="text-align: center;"></div>
+			<p>
+				<div class="dp-highlighter">
+					<div class="bar"></div>
+					<ol start="1" class="dp-c">
+						<li class="alt"><span><span class="keyword">var</span><span>&nbsp;uploadhandlerpath&nbsp;=&nbsp;</span><span class="string">"/imageupload.ashx"</span><span>;&nbsp;&nbsp;</span></span></li>
+						<li class=""><span>&nbsp;&nbsp;</span></li>
+						<li class="alt"><span>&nbsp;&nbsp;</span></li>
+						<li class=""><span><span class="keyword">function</span><span>&nbsp;rte_file_upload_handler(file,&nbsp;callback,&nbsp;optionalIndex,&nbsp;optionalFiles)&nbsp;{&nbsp;&nbsp;</span></span></li>
+						<li class="alt"><span>&nbsp;&nbsp;</span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">function</span><span>&nbsp;append(parent,&nbsp;tagname,&nbsp;csstext)&nbsp;{&nbsp;&nbsp;</span></span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">var</span><span>&nbsp;tag&nbsp;=&nbsp;parent.ownerDocument.createElement(tagname);&nbsp;&nbsp;</span></span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">if</span><span>&nbsp;(csstext)&nbsp;tag.style.cssText&nbsp;=&nbsp;csstext;&nbsp;&nbsp;</span></span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;parent.appendChild(tag);&nbsp;&nbsp;</span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">return</span><span>&nbsp;tag;&nbsp;&nbsp;</span></span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;}&nbsp;&nbsp;</span></li>
+						<li class=""><span>&nbsp;&nbsp;</span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">var</span><span>&nbsp;uploadcancelled&nbsp;=&nbsp;</span><span class="keyword">false</span><span>;&nbsp;&nbsp;</span></span></li>
+						<li class=""><span>&nbsp;&nbsp;</span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">var</span><span>&nbsp;dialogouter&nbsp;=&nbsp;append(document.body,&nbsp;</span><span class="string">"div"</span><span>,&nbsp;</span><span class="string">"display:flex;align-items:center;justify-content:center;z-index:999999;position:fixed;left:0px;top:0px;width:100%;height:100%;background-color:rgba(128,128,128,0.5)"</span><span>);&nbsp;&nbsp;</span></span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">var</span><span>&nbsp;dialoginner&nbsp;=&nbsp;append(dialogouter,&nbsp;</span><span class="string">"div"</span><span>,&nbsp;</span><span class="string">"background-color:white;border:solid&nbsp;1px&nbsp;gray;border-radius:15px;padding:15px;min-width:200px;box-shadow:2px&nbsp;2px&nbsp;6px&nbsp;#7777"</span><span>);&nbsp;&nbsp;</span></span></li>
+						<li class="alt"><span>&nbsp;&nbsp;</span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">var</span><span>&nbsp;line1&nbsp;=&nbsp;append(dialoginner,&nbsp;</span><span class="string">"div"</span><span>,&nbsp;</span><span class="string">"text-align:center;font-size:1.2em;margin:0.5em;"</span><span>);&nbsp;&nbsp;</span></span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;line1.innerText&nbsp;=&nbsp;<span class="string">"Uploading..."</span><span>;&nbsp;&nbsp;</span></span></li>
+						<li class=""><span>&nbsp;&nbsp;</span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">var</span><span>&nbsp;totalsize&nbsp;=&nbsp;file.size;&nbsp;&nbsp;</span></span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">var</span><span>&nbsp;sentsize&nbsp;=&nbsp;0;&nbsp;&nbsp;</span></span></li>
+						<li class="alt"><span>&nbsp;&nbsp;</span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">if</span><span>&nbsp;(optionalFiles&nbsp;&amp;&amp;&nbsp;optionalFiles.length&nbsp;&gt;&nbsp;1)&nbsp;{&nbsp;&nbsp;</span></span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;totalsize&nbsp;=&nbsp;0;&nbsp;&nbsp;</span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">for</span><span>&nbsp;(</span><span class="keyword">var</span><span>&nbsp;i&nbsp;=&nbsp;0;&nbsp;i&nbsp;&lt;&nbsp;optionalFiles.length;&nbsp;i++)&nbsp;{&nbsp;&nbsp;</span></span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;totalsize&nbsp;+=&nbsp;optionalFiles[i].size;&nbsp;&nbsp;</span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">if</span><span>&nbsp;(i&nbsp;&lt;&nbsp;optionalIndex)&nbsp;sentsize&nbsp;=&nbsp;totalsize;&nbsp;&nbsp;</span></span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}&nbsp;&nbsp;</span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;console.log(totalsize,&nbsp;optionalIndex,&nbsp;optionalFiles)&nbsp;&nbsp;</span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;line1.innerText&nbsp;=&nbsp;<span class="string">"Uploading..."</span><span>&nbsp;+&nbsp;(optionalIndex&nbsp;+&nbsp;1)&nbsp;+&nbsp;</span><span class="string">"/"</span><span>&nbsp;+&nbsp;optionalFiles.length;&nbsp;&nbsp;</span></span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;}&nbsp;&nbsp;</span></li>
+						<li class="alt"><span>&nbsp;&nbsp;</span></li>
+						<li class=""><span>&nbsp;&nbsp;</span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">var</span><span>&nbsp;line2&nbsp;=&nbsp;append(dialoginner,&nbsp;</span><span class="string">"div"</span><span>,&nbsp;</span><span class="string">"text-align:center;font-size:1.0em;margin:0.5em;"</span><span>);&nbsp;&nbsp;</span></span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;line2.innerText&nbsp;=&nbsp;<span class="string">"0%"</span><span>;&nbsp;&nbsp;</span></span></li>
+						<li class="alt"><span>&nbsp;&nbsp;</span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">var</span><span>&nbsp;progressbar&nbsp;=&nbsp;append(dialoginner,&nbsp;</span><span class="string">"div"</span><span>,&nbsp;</span><span class="string">"border:solid&nbsp;1px&nbsp;gray;margin:0.5em;"</span><span>);&nbsp;&nbsp;</span></span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">var</span><span>&nbsp;progressbg&nbsp;=&nbsp;append(progressbar,&nbsp;</span><span class="string">"div"</span><span>,&nbsp;</span><span class="string">"height:12px"</span><span>);&nbsp;&nbsp;</span></span></li>
+						<li class=""><span>&nbsp;&nbsp;</span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">var</span><span>&nbsp;line3&nbsp;=&nbsp;append(dialoginner,&nbsp;</span><span class="string">"div"</span><span>,&nbsp;</span><span class="string">"text-align:center;font-size:1.0em;margin:0.5em;"</span><span>);&nbsp;&nbsp;</span></span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">var</span><span>&nbsp;btn&nbsp;=&nbsp;append(line3,&nbsp;</span><span class="string">"button"</span><span>);&nbsp;&nbsp;</span></span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;btn.className&nbsp;=&nbsp;<span class="string">"btn&nbsp;btn-primary"</span><span>;&nbsp;&nbsp;</span></span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;btn.innerText&nbsp;=&nbsp;<span class="string">"cancel"</span><span>;&nbsp;&nbsp;</span></span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;btn.onclick&nbsp;=&nbsp;<span class="keyword">function</span><span>&nbsp;()&nbsp;{&nbsp;&nbsp;</span></span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;uploadcancelled&nbsp;=&nbsp;<span class="keyword">true</span><span>;&nbsp;&nbsp;</span></span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;xh.abort();&nbsp;&nbsp;</span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;}&nbsp;&nbsp;</span></li>
+						<li class="alt"><span>&nbsp;&nbsp;</span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">var</span><span>&nbsp;xh&nbsp;=&nbsp;</span><span class="keyword">new</span><span>&nbsp;XMLHttpRequest();&nbsp;&nbsp;</span></span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;xh.open(<span class="string">"POST"</span><span>,&nbsp;uploadhandlerpath&nbsp;+&nbsp;</span><span class="string">"?name="</span><span>&nbsp;+&nbsp;encodeURIComponent(file.name)&nbsp;+&nbsp;</span><span class="string">"&amp;type="</span><span>&nbsp;+&nbsp;encodeURIComponent(file.type)&nbsp;+&nbsp;</span><span class="string">"&amp;size="</span><span>&nbsp;+&nbsp;file.size,&nbsp;</span><span class="keyword">true</span><span>);&nbsp;&nbsp;</span></span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;xh.onload&nbsp;=&nbsp;xh.onabort&nbsp;=&nbsp;xh.onerror&nbsp;=&nbsp;<span class="keyword">function</span><span>&nbsp;(pe)&nbsp;{&nbsp;&nbsp;</span></span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;console.log(pe);&nbsp;&nbsp;</span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;console.log(xh);&nbsp;&nbsp;</span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;dialogouter.parentNode.removeChild(dialogouter);&nbsp;&nbsp;</span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">if</span><span>&nbsp;(pe.type&nbsp;==&nbsp;</span><span class="string">"load"</span><span>)&nbsp;{&nbsp;&nbsp;</span></span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">if</span><span>&nbsp;(xh.status&nbsp;!=&nbsp;200)&nbsp;{&nbsp;&nbsp;</span></span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;console.log(<span class="string">"uploaderror"</span><span>,&nbsp;pe);&nbsp;&nbsp;</span></span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">if</span><span>&nbsp;(xh.responseText.startsWith(</span><span class="string">"ERROR:"</span><span>))&nbsp;{&nbsp;&nbsp;</span></span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;callback(<span class="keyword">null</span><span>,&nbsp;</span><span class="string">"http-error-"</span><span>&nbsp;+&nbsp;xh.responseText.substring(6));&nbsp;&nbsp;</span></span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}&nbsp;&nbsp;</span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">else</span><span>&nbsp;{&nbsp;&nbsp;</span></span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;callback(<span class="keyword">null</span><span>,&nbsp;</span><span class="string">"http-error-"</span><span>&nbsp;+&nbsp;xh.status);&nbsp;&nbsp;</span></span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}&nbsp;&nbsp;</span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}&nbsp;&nbsp;</span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">else</span><span>&nbsp;</span><span class="keyword">if</span><span>&nbsp;(xh.responseText.startsWith(</span><span class="string">"READY:"</span><span>))&nbsp;{&nbsp;&nbsp;</span></span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;console.log(<span class="string">"File&nbsp;uploaded&nbsp;to&nbsp;"</span><span>&nbsp;+&nbsp;xh.responseText.substring(6));&nbsp;&nbsp;</span></span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;callback(xh.responseText.substring(6));&nbsp;&nbsp;</span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}&nbsp;&nbsp;</span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">else</span><span>&nbsp;{&nbsp;&nbsp;</span></span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;callback(<span class="keyword">null</span><span>,&nbsp;</span><span class="string">"http-error-"</span><span>&nbsp;+&nbsp;xh.responseText);&nbsp;&nbsp;</span></span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}&nbsp;&nbsp;</span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}&nbsp;&nbsp;</span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">else</span><span>&nbsp;</span><span class="keyword">if</span><span>&nbsp;(uploadcancelled)&nbsp;{&nbsp;&nbsp;</span></span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;console.log(<span class="string">"uploadcancelled"</span><span>,&nbsp;pe);&nbsp;&nbsp;</span></span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;callback(<span class="keyword">null</span><span>,&nbsp;</span><span class="string">"cancelled"</span><span>);&nbsp;&nbsp;</span></span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}&nbsp;&nbsp;</span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">else</span><span>&nbsp;{&nbsp;&nbsp;</span></span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;console.log(<span class="string">"uploaderror"</span><span>,&nbsp;pe);&nbsp;&nbsp;</span></span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;callback(<span class="keyword">null</span><span>,&nbsp;pe.type);&nbsp;&nbsp;</span></span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}&nbsp;&nbsp;</span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;}&nbsp;&nbsp;</span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;xh.upload.onprogress&nbsp;=&nbsp;<span class="keyword">function</span><span>&nbsp;(pe)&nbsp;{&nbsp;&nbsp;</span></span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;console.log(pe);&nbsp;&nbsp;</span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="comment">//pe.total</span><span>&nbsp;&nbsp;</span></span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">var</span><span>&nbsp;percent&nbsp;=&nbsp;Math.floor(100&nbsp;*&nbsp;(sentsize&nbsp;+&nbsp;pe.loaded)&nbsp;/&nbsp;totalsize);&nbsp;&nbsp;</span></span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;line2.innerText&nbsp;=&nbsp;percent&nbsp;+&nbsp;<span class="string">"%"</span><span>;&nbsp;&nbsp;</span></span></li>
+						<li class=""><span>&nbsp;&nbsp;</span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;progressbg.style.cssText&nbsp;=&nbsp;<span class="string">"background-color:green;width:"</span><span>&nbsp;+&nbsp;(percent&nbsp;*&nbsp;progressbar.offsetWidth&nbsp;/&nbsp;100)&nbsp;+&nbsp;</span><span class="string">"px;height:12px;"</span><span>;&nbsp;&nbsp;</span></span></li>
+						<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;}&nbsp;&nbsp;</span></li>
+						<li class="alt"><span>&nbsp;&nbsp;&nbsp;&nbsp;xh.send(file);&nbsp;&nbsp;</span></li>
+						<li class=""><span>}&nbsp;&nbsp;</span></li>
+					</ol>
+				</div>
+			</p>
+
+		</p>
+
+	</div>
+
+	</div>
+	<script src="res/patch.js"></script>
+</body>
+</html>

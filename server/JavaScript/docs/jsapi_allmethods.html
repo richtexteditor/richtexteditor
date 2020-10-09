@@ -1,0 +1,236 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" style="display:flex;height:100%;flex-direction:column;">
+<head>
+	<meta charset="utf-8" />
+	<title>All Methods</title>
+	<base href='../' />
+	<link rel="stylesheet" href="res/style.css" />
+</head>
+<body style="padding-bottom:3px;align-items:center">
+	<div class="topbanner">
+		<div style="align-self:stretch;width:960px;display:flex; flex-direction: row;">
+			<div style="flex:99999">
+				<label>RichTextEditor Demo</label>
+			</div>
+			<div>
+				<a target="_blank" href="https://richtexteditor.com/">Home</a>
+				&nbsp;
+				<a target="_blank" href="https://richtexteditor.com/pricing.aspx">Pricing</a>
+			</div>
+		</div>
+	</div>
+	<div style="margin:auto;padding:12px 6px 36px;max-width:960px;">
+		
+	<h2 class="mb-4">RichTextEditor Methods</h2>
+	<p class="mb-4">RichTextEditor exposes the following methods.</p>	
+	<div class="hs-docs-content-divider">
+        <table class="table table-bordered table-striped">
+            <thead>
+                <tr>
+                    <th>Method</th>
+                    <th>Description</th>
+                </tr>
+            </thead>
+            <tbody>
+
+			<tr>
+				<td><a href="docs/jsapi_execCommand.html">execCommand(cmd,value)</a></td>
+				<td>Executes a command on the current selection, or the given range.</td>
+			</tr>
+
+			<tr>
+				<td><a href="docs/jsapi_attachEvent.html">attachEvent(name,handler)</a></td>
+				<td>Registers an event handler.You can interact with it once the editor is loaded and running.</td>
+			</tr>
+			<tr>
+				<td><a href="docs/jsapi_detachEvent.html">detachEvent(name,handler)</a></td>
+				<td>Removes an EventHandler from an event.</td>
+			</tr>
+
+			<tr>
+				<td><a href="docs/jsapi_getHTMLCode.html">getHTMLCode()</a></td>
+				<td>This method is used for retrieving the content of RichTextEditor as HTML.</td>
+			</tr>
+
+			<tr>
+				<td><a href="docs/jsapi_setHTMLCode.html">setHTMLCode(html)</a></td>
+				<td>This method is used for setting the content of RichTextEditor.</td>
+			</tr>
+
+			<tr>
+				<td><a href="docs/jsapi_getReadOnly.html">getReadOnly()</a></td>
+				<td>Returns a value indicating whether the editor's state is read-only on the client-side.</td>
+			</tr>
+
+			<tr>
+				<td><a href="docs/jsapi_setReadOnly.html">setReadOnly(bReadOnly)</a></td>
+				<td>Allows you to enable/disable read-only mode.</td>
+			</tr>
+
+			<tr>
+				<td><a href="docs/jsapi_isCommandEnabled.html">isCommandEnabled(cmd)</a></td>
+				<td>Gets whether the specified command is enabled.</td>
+			</tr>
+
+			<tr>
+				<td><a href="docs/jsapi_isCommandActive.html">isCommandActive(cmd)</a></td>
+				<td>Checks whether this command can currently be performed.</td>
+			</tr>
+
+			<tr>
+				<td><a href="docs/jsapi_focus.html">focus() </a></td>
+				<td>Attempt to set the focus of the editor content window.</td>
+			</tr>
+
+			<tr>
+				<td><a href="docs/jsapi_setContentCssText.html">setContentCssText(text) </a></td>
+				<td>This method is used for setting inline CSS text that will be used by the editable area.</td>
+			</tr>
+
+			<tr>
+				<td><a href="docs/jsapi_insertRootParagraph.html">insertRootParagraph(tagname) </a></td>
+				<td>This method is used for inserting a new paragraph at the bottom of editor.</td>
+			</tr>
+
+			<tr>
+				<td><a href="docs/jsapi_insertByTagName.html">insertByTagName(tagName) </a></td>
+				<td>Inserts an element by tag name.</td>
+			</tr>
+
+			<tr>
+				<td><a href="docs/jsapi_surroundByTagName.html">surroundByTagName(tagName) </a></td>
+				<td>Get the content of selection and place it into an element. Then insert this new element.</td>
+			</tr>
+
+			<tr>
+				<td><a href="docs/jsapi_insertElement.html">insertElement(element) </a></td>
+				<td>Inserts an element. This element must be created by editor.document.</td>
+			</tr>
+
+			<tr>
+				<td><a href="docs/jsapi_surroundElement.html">surroundElement(element)</a></td>
+				<td>Creates an element using editor.document. Places the content of selection into the element.  Then insert this new element.</td>
+			</tr>
+
+			<tr>
+				<td><a href="docs/jsapi_insertText.html">insertText(text) </a></td>
+				<td>This method is used for inserting the specified plain text into editor document.</td>
+			</tr>
+
+			<tr>
+				<td><a href="docs/jsapi_insertHTML.html">insertHTML(text)</a></td>
+				<td>This method is used for inserting the specified HTML into a range within an editor document. If anything is selected, the selection is replaced with the new HTML and text. </td>
+			</tr>
+
+
+			<tr>
+				<td><a href="docs/jsapi_selectControl.html">selectControl(element) </a></td>
+				<td>Selects a control.</td>
+			</tr>
+
+			<tr>
+				<td><a href="docs/jsapi_selectDoc.html">selectDoc(bStart) </a></td>
+				<td>Selects the document. The bStart is a boolean value: true moves the selection to its start, false to its end. If omitted, it defaults to false.  </td>
+			</tr>
+
+			<tr>
+				<td><a href="docs/jsapi_collapse.html">collapse(bStart) </a></td>
+				<td>Collapses the current selection to a single point. The bStart is a boolean value: true collapses the Range to its start, false to its end. If omitted, it defaults to false.  </td>
+			</tr>
+
+			<tr>
+				<td><a href="docs/jsapi_delete.html">delete() </a></td>
+				<td>Deletes a selection.</td>
+			</tr>
+
+			<tr>
+				<td><a href="docs/jsapi_commitBookmark.html">commitBookmark() </a></td>
+				<td>Creates a bookmark for undo record.</td>
+			</tr>
+
+			<tr>
+				<td><a href="docs/jsapi_clearHistory.html">clearHistory() </a></td>
+				<td>Clears all undo/redo records.</td>
+			</tr>
+
+			<tr>
+				<td><a href="docs/jsapi_notifySelectionChange.html">notifySelectionChange()  </a></td>
+				<td>Notifies the editor about any content change.</td>
+			</tr>
+
+			<tr>
+				<td><a href="docs/jsapi_htmlEncode.html">htmlEncode(text) </a></td>
+				<td>Converts a string into an HTML-encoded string.</td>
+			</tr>
+
+			<tr>
+				<td><a href="docs/jsapi_htmlDecode.html">htmlDecode(html) </a></td>
+				<td>Converts a string that has been HTML-encoded for HTTP transmission into a decoded string.</td>
+			</tr>
+
+			<tr>
+				<td><a href="docs/jsapi_getSelection.html">getSelection()</a></td>
+				<td>Returns the editor.selection object.</td>
+			</tr>
+
+			<tr>
+				<td><a href="docs/jsapi_getDocument.html">getDocument()</a></td>
+				<td>Returns the editor.document object.</td>
+			</tr>
+
+			<tr>
+				<td><a href="docs/jsapi_getEditable.html">getEditable() </a></td>
+				<td>Returns the root element of the editable area.</td>
+			</tr>
+
+			<tr>
+				<td><a href="docs/jsapi_getPlainText.html">getPlainText() </a></td>
+				<td>Returns the editor.document.body.innerText object.</td>
+			</tr>
+
+			<tr>
+				<td><a href="docs/jsapi_getSelectedControl.html">getSelectedControl() </a></td>
+				<td>Returns the selected control object.</td>
+			</tr>
+
+			<tr>
+				<td><a href="docs/jsapi_getSelectionElement.html">getSelectionElement() </a></td>
+				<td>Returns the selected element object.</td>
+			</tr>
+
+			<tr>
+				<td><a href="docs/jsapi_getSelectedText.html">getSelectedText() </a></td>
+				<td>Returns the selected plain text.</td>
+			</tr>
+
+			<tr>
+				<td><a href="docs/jsapi_createToolbarButton.html">createToolbarButton(cmd)</a></td>
+				<td>Creating a button in toolbar with default styles. For details, please refer to plugin example.</td>
+			</tr>
+			<tr>
+				<td><a href="docs/jsapi_createToolbarDropDown.html">createToolbarDropDown(cmd)</a></td>
+				<td>Creating a dropDown in toolbar with default styles. For details, please refer to plugin example.</td>
+			</tr>
+			<tr>
+				<td><a href="docs/jsapi_createDialog.html">createDialog(title,className)</a></td>
+				<td>Creating a dialog with default styles. For details, please refer to plugin example.</td>
+			</tr>
+			<tr>
+				<td><a href="docs/jsapi_closeCurrentPopup.html">closeCurrentPopup()</a></td>
+				<td>Attempt to close all popups/dropdowns/menus/dialogs.</td>
+			</tr>
+			<tr>
+				<td><a href="docs/jsapi_setImageForCommand.html">setImageForCommand(element,cmdname)</a></td>
+				<td>Adds an image (svg or png) for cmdname to the element.</td>
+			</tr>
+
+				</tbody>
+		</table>
+
+	</div>
+
+	</div>
+	<script src="res/patch.js"></script>
+</body>
+</html>

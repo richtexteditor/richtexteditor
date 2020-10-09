@@ -1,0 +1,69 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" style="display:flex;height:100%;flex-direction:column;">
+<head>
+	<meta charset="utf-8" />
+	<title>Setting the max length</title>
+	<base href='../' />
+	<link rel="stylesheet" href="res/style.css" />
+</head>
+<body style="padding-bottom:3px;align-items:center">
+	<div class="topbanner">
+		<div style="align-self:stretch;width:960px;display:flex; flex-direction: row;">
+			<div style="flex:99999">
+				<label>RichTextEditor Demo</label>
+			</div>
+			<div>
+				<a target="_blank" href="https://richtexteditor.com/">Home</a>
+				&nbsp;
+				<a target="_blank" href="https://richtexteditor.com/pricing.aspx">Pricing</a>
+			</div>
+		</div>
+	</div>
+	<div style="margin:auto;padding:12px 6px 36px;max-width:960px;">
+		
+	<h2>maxHTMLLength and maxTextLength</h2>
+	<p class="mb-4">Richtexteditor allows you use maxHTMLLength or maxTextLength to limit the length of the user's input.</p>
+	<p>In this example, maxHTMLLength is set to 200. </p>
+	<div class="hs-docs-content-divider">
+		
+
+		<link rel="stylesheet" href="richtexteditor/rte_theme_default.css" />
+		<script type="text/javascript" src="richtexteditor/rte.js"></script>
+<script>RTE_DefaultConfig.url_base='richtexteditor'</script>
+		<script type="text/javascript" src='richtexteditor/plugins/all_plugins.js'></script>
+
+		<div id="div_editor1">You can sets the maximum number of characters including the HTML tags allowed in the RichTextEditor. Default is -1, indicating no maximum.</div>
+
+		<script>
+			var editor1 = new RichTextEditor("#div_editor1", { maxHTMLLength: 200 });
+		</script>
+
+
+		
+	</div>
+	<div class="hs-docs-content-divider">
+
+		<h3>Demo Code:</h3>
+		<pre class="editordemocode rounded language-html">&lt;link rel=&quot;stylesheet&quot; href=&quot;/richtexteditor/rte_theme_default.css&quot; /&gt;
+&lt;script type=&quot;text/javascript&quot; src=&quot;/richtexteditor/rte.js&quot;&gt;&lt;/script&gt;
+&lt;script type=&quot;text/javascript&quot; src=&#39;/richtexteditor/plugins/all_plugins.js&#39;&gt;&lt;/script&gt;
+
+&lt;div id=&quot;div_editor1&quot;&gt;You can sets the maximum number of characters including the HTML tags allowed in the RichTextEditor. Default is -1, indicating no maximum.&lt;/div&gt;
+
+&lt;script&gt;
+	var editor1 = new RichTextEditor(&quot;#div_editor1&quot;, { maxHTMLLength: 200 });
+&lt;/script&gt;</pre>
+
+	</div>
+	<div class="hs-docs-content-divider relative-links">
+		<h3 class="relative-links">Relative Links</h3>
+		<ul class="relative-links">
+			<li><a href="docs/configuration-reference.html">all-configs</a></li>
+		</ul>
+	</div>
+
+	</div>
+	<script src="res/patch.js"></script>
+</body>
+</html>

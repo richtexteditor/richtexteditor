@@ -1,0 +1,77 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" style="display:flex;height:100%;flex-direction:column;">
+<head>
+	<meta charset="utf-8" />
+	<title>Built-In Plugins</title>
+	<base href='../' />
+	<link rel="stylesheet" href="res/style.css" />
+</head>
+<body style="padding-bottom:3px;align-items:center">
+	<div class="topbanner">
+		<div style="align-self:stretch;width:960px;display:flex; flex-direction: row;">
+			<div style="flex:99999">
+				<label>RichTextEditor Demo</label>
+			</div>
+			<div>
+				<a target="_blank" href="https://richtexteditor.com/">Home</a>
+				&nbsp;
+				<a target="_blank" href="https://richtexteditor.com/pricing.aspx">Pricing</a>
+			</div>
+		</div>
+	</div>
+	<div style="margin:auto;padding:12px 6px 36px;max-width:960px;">
+		
+	<h3>Built-In Plugins</h3>
+	<p class="mb-4">
+		RichTextEditor supports plugins. You can use built-in plugins or build your own. Plugins call APIs to communicate with the editor. When an operation is performed by the user or when content is changed by code, the editor will trigger events for the plugins to handle.
+	</p>
+	<div class="hs-docs-content-divider">
+		
+		<link rel="stylesheet" href="richtexteditor/rte_theme_default.css" />
+		<script type="text/javascript" src="richtexteditor/rte.js"></script>
+<script>RTE_DefaultConfig.url_base='richtexteditor'</script>
+		<script type="text/javascript" src='richtexteditor/plugins/all_plugins.js'></script>
+		<div id="div_editor1">
+			<p>This example demonstrates 5 built-in plugins.</p>
+		</div>
+		<script>
+			var editor1cfg = {}
+			editor1cfg.toolbar = editor1cfg.toolbarMobile = "mytoolbar";
+			editor1cfg.toolbar_mytoolbar = "{html2pdf,insertemoji,insertcode,insertgallery,inserttemplate}";
+			var editor1 = new RichTextEditor("#div_editor1", editor1cfg);
+		</script>
+
+		
+	</div>
+	<div class="hs-docs-content-divider">
+
+		<h3>Demo Code:</h3>
+		<pre class="editordemocode rounded language-html">&lt;link rel=&quot;stylesheet&quot; href=&quot;/richtexteditor/rte_theme_default.css&quot; /&gt;
+&lt;script type=&quot;text/javascript&quot; src=&quot;/richtexteditor/rte.js&quot;&gt;&lt;/script&gt;
+&lt;script type=&quot;text/javascript&quot; src=&#39;/richtexteditor/plugins/all_plugins.js&#39;&gt;&lt;/script&gt;
+&lt;div id=&quot;div_editor1&quot;&gt;
+	&lt;p&gt;This example demonstrates 5 built-in plugins.&lt;/p&gt;
+&lt;/div&gt;
+&lt;script&gt;
+	var editor1cfg = {}
+	editor1cfg.toolbar = editor1cfg.toolbarMobile = &quot;mytoolbar&quot;;
+	editor1cfg.toolbar_mytoolbar = &quot;{html2pdf,insertemoji,insertcode,insertgallery,inserttemplate}&quot;;
+	var editor1 = new RichTextEditor(&quot;#div_editor1&quot;, editor1cfg);
+&lt;/script&gt;</pre>
+
+	</div>
+
+
+	<div class="hs-docs-content-divider relative-links">
+		<h3 class="relative-links">Relative Links</h3>
+		<ul class="relative-links">
+			<li><a href="docs/cmd_allcommands.html">Use JavaScript API</a></li>
+		</ul>
+	</div>
+
+
+	</div>
+	<script src="res/patch.js"></script>
+</body>
+</html>

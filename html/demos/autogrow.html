@@ -1,0 +1,107 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" style="display:flex;height:100%;flex-direction:column;">
+<head>
+	<meta charset="utf-8" />
+	<title>Editor Auto Grow</title>
+	<base href='../' />
+	<link rel="stylesheet" href="res/style.css" />
+</head>
+<body style="padding-bottom:3px;align-items:center">
+	<div class="topbanner">
+		<div style="align-self:stretch;width:960px;display:flex; flex-direction: row;">
+			<div style="flex:99999">
+				<label>RichTextEditor Demo</label>
+			</div>
+			<div>
+				<a target="_blank" href="https://richtexteditor.com/">Home</a>
+				&nbsp;
+				<a target="_blank" href="https://richtexteditor.com/pricing.aspx">Pricing</a>
+			</div>
+		</div>
+	</div>
+	<div style="margin:auto;padding:12px 6px 36px;max-width:960px;">
+		
+	<h2>Auto Grow</h2>
+	<p class="mb-4">
+		Using the Auto grow feature( min-height:400px;max-height:800px ) to make the Editor change its height based on the content. The Editor will now grow and shrink in height to match the content inside. It will never shrink smaller than the current height config option.
+	</p>
+	<div class="hs-docs-content-divider">
+		
+
+		<link rel="stylesheet" href="richtexteditor/rte_theme_default.css" />
+		<script type="text/javascript" src="richtexteditor/rte.js"></script>
+<script>RTE_DefaultConfig.url_base='richtexteditor'</script>
+		<script type="text/javascript" src='richtexteditor/plugins/all_plugins.js'></script>
+
+		<div id="div_editor1" style="min-height:400px;max-height:800px">
+			<h2>Automatic Editor Height Adjustment to Content. </h2>
+			<table>
+				<tr>
+					<td>
+						<p>
+							<img src="/uploads/j0262681.jpg" alt="" /></p>
+					</td>
+					<td>
+						<p>Rich Text Editor is the industry-leading online html editor. It enables content contributors easily create and publish HTML anywhere: on the desktop and on mobile.</p>
+					</td>
+				</tr>
+				<tr>
+					<td>
+						<p>
+							<img src="/uploads/PH02366J.jpg" alt="" /></p>
+					</td>
+					<td>
+						<p>Rich Text Editor toolbar is completely configurable and it is also effortless to implement. You just need a couple lines of code to add this editor to web applications.</p>
+					</td>
+				</tr>
+			</table>
+		</div>
+
+		<script>
+			var editor1 = new RichTextEditor("#div_editor1", { editorResizeMode: "height" });
+		</script>
+
+		
+	</div>
+	<div class="hs-docs-content-divider">
+
+		<h3>Demo Code:</h3>
+		<pre class="editordemocode rounded language-html">&lt;link rel=&quot;stylesheet&quot; href=&quot;/richtexteditor/rte_theme_default.css&quot; /&gt;
+&lt;script type=&quot;text/javascript&quot; src=&quot;/richtexteditor/rte.js&quot;&gt;&lt;/script&gt;
+&lt;script type=&quot;text/javascript&quot; src=&#39;/richtexteditor/plugins/all_plugins.js&#39;&gt;&lt;/script&gt;
+
+&lt;div id=&quot;div_editor1&quot; style=&quot;min-height:400px;max-height:800px&quot;&gt;
+	&lt;h2&gt;Automatic Editor Height Adjustment to Content. &lt;/h2&gt;
+	&lt;table&gt;
+		&lt;tr&gt;
+			&lt;td&gt;
+				&lt;p&gt;
+					&lt;img src=&quot;/uploads/j0262681.jpg&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+			&lt;/td&gt;
+			&lt;td&gt;
+				&lt;p&gt;Rich Text Editor is the industry-leading online html editor. It enables content contributors easily create and publish HTML anywhere: on the desktop and on mobile.&lt;/p&gt;
+			&lt;/td&gt;
+		&lt;/tr&gt;
+		&lt;tr&gt;
+			&lt;td&gt;
+				&lt;p&gt;
+					&lt;img src=&quot;/uploads/PH02366J.jpg&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+			&lt;/td&gt;
+			&lt;td&gt;
+				&lt;p&gt;Rich Text Editor toolbar is completely configurable and it is also effortless to implement. You just need a couple lines of code to add this editor to web applications.&lt;/p&gt;
+			&lt;/td&gt;
+		&lt;/tr&gt;
+	&lt;/table&gt;
+&lt;/div&gt;
+
+&lt;script&gt;
+	var editor1 = new RichTextEditor(&quot;#div_editor1&quot;, { editorResizeMode: &quot;height&quot; });
+&lt;/script&gt;</pre>
+
+	</div>
+
+	</div>
+	<script src="res/patch.js"></script>
+</body>
+</html>

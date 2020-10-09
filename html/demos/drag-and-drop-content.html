@@ -1,0 +1,68 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" style="display:flex;height:100%;flex-direction:column;">
+<head>
+	<meta charset="utf-8" />
+	<title>Drag & drop Content</title>
+	<base href='../' />
+	<link rel="stylesheet" href="res/style.css" />
+</head>
+<body style="padding-bottom:3px;align-items:center">
+	<div class="topbanner">
+		<div style="align-self:stretch;width:960px;display:flex; flex-direction: row;">
+			<div style="flex:99999">
+				<label>RichTextEditor Demo</label>
+			</div>
+			<div>
+				<a target="_blank" href="https://richtexteditor.com/">Home</a>
+				&nbsp;
+				<a target="_blank" href="https://richtexteditor.com/pricing.aspx">Pricing</a>
+			</div>
+		</div>
+	</div>
+	<div style="margin:auto;padding:12px 6px 36px;max-width:960px;">
+		
+	<h2>Drag and drop content</h2>
+	<p class="mb-4">
+		Drag and drop editing allows you to select text from web and then insert the selected text by dragging it into the editor.
+	</p>
+	<h4>Try it:</h4>
+	<ul class="hs-docs-list-md">
+		<li>Cake marzipan bonbon. Jujubes biscuit halvah. Brownie toffee pudding biscuit jujubes cookie croissant. Candy jelly beans cotton candy marshmallow bear claw chocolate cake pastry jelly.</li>
+		<li>Sweet marshmallow chocolate. Oat cake tootsie roll sweet roll jelly topping gingerbread cake. Apple pie cake sugar plum.</li>
+	</ul>
+	<div class="hs-docs-content-divider">
+		
+		<link rel="stylesheet" href="richtexteditor/rte_theme_default.css" />
+		<script type="text/javascript" src="richtexteditor/rte.js"></script>
+<script>RTE_DefaultConfig.url_base='richtexteditor'</script>
+		<script type="text/javascript" src='richtexteditor/plugins/all_plugins.js'></script>
+		<div id="div_editor1">
+			<p>Drag the content above and insert them into the editor.</p>
+		</div>
+
+		<script>
+			var editor1 = new RichTextEditor("#div_editor1");
+		</script>
+		
+	</div>
+	<div class="mt-4">
+
+		<h3>Demo Code:</h3>
+		<pre class="editordemocode rounded language-html">&lt;link rel=&quot;stylesheet&quot; href=&quot;/richtexteditor/rte_theme_default.css&quot; /&gt;
+&lt;script type=&quot;text/javascript&quot; src=&quot;/richtexteditor/rte.js&quot;&gt;&lt;/script&gt;
+&lt;script type=&quot;text/javascript&quot; src=&#39;/richtexteditor/plugins/all_plugins.js&#39;&gt;&lt;/script&gt;
+&lt;div id=&quot;div_editor1&quot;&gt;
+	&lt;p&gt;Drag the content above and insert them into the editor.&lt;/p&gt;
+&lt;/div&gt;
+
+&lt;script&gt;
+	var editor1 = new RichTextEditor(&quot;#div_editor1&quot;);
+&lt;/script&gt;</pre>
+
+	</div>
+
+	</div>
+	<script src="res/patch.js"></script>
+</body>
+</html>

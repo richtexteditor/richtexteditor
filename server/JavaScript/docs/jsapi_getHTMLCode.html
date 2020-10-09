@@ -1,0 +1,58 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" style="display:flex;height:100%;flex-direction:column;">
+<head>
+	<meta charset="utf-8" />
+	<title>getHTMLCode</title>
+	<base href='../' />
+	<link rel="stylesheet" href="res/style.css" />
+</head>
+<body style="padding-bottom:3px;align-items:center">
+	<div class="topbanner">
+		<div style="align-self:stretch;width:960px;display:flex; flex-direction: row;">
+			<div style="flex:99999">
+				<label>RichTextEditor Demo</label>
+			</div>
+			<div>
+				<a target="_blank" href="https://richtexteditor.com/">Home</a>
+				&nbsp;
+				<a target="_blank" href="https://richtexteditor.com/pricing.aspx">Pricing</a>
+			</div>
+		</div>
+	</div>
+	<div style="margin:auto;padding:12px 6px 36px;max-width:960px;">
+		
+	<h2 class="mb-4">editor.getHTMLCode()</h2>
+	<p class="mb-4">This method is used for retrieving the content of RichTextEditor as HTML.</p>
+    <div class="hs-docs-content-divider">
+        <h4>Syntax</h4>
+        <p>
+            <code class="highlighter-rouge">editor.getHTMLCode()</code>
+        </p>
+		<h6>Return value</h6>
+		<p><code class="highlighter-rouge">Type: String</code></p>
+        <p><code class="highlighter-rouge">The string contents of the editor with formatting data. </code></p>
+        <p><code class="highlighter-rouge"> Output filters are used to strip-out internal content created during the editing process (such as allowScriptCode , tagAllowList , tagBlockList...). </code></p>
+    </div>
+    <div class="hs-docs-content-divider">
+        <div>
+            <h2 class="hs-docs-heading">Example:</h2>
+            <div class="dp-highlighter">
+                <div class="bar"></div>
+                <ol start="1" class="dp-c">
+                    <li class="alt"><span><span class="keyword">var</span><span>&nbsp;editor1&nbsp;=&nbsp;</span><span class="keyword">new</span><span>&nbsp;RichTextEditor(</span><span class="string">"#div_editor1"</span><span>);&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></span></li>
+                    <li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></li>
+                    <li class="alt"><span>editor1.setHTMLCode(<span class="string">"&lt;p&gt;&lt;b&gt;Hello&lt;/b&gt;&nbsp;World&lt;/p&gt;&lt;p&gt;Click&nbsp;the&nbsp;button&nbsp;below&nbsp;to&nbsp;show&nbsp;this&nbsp;HTML&nbsp;code&lt;/p&gt;"</span><span>);&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></span></li>
+                    <li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></li>
+                    <li class="alt"><span><span class="keyword">function</span><span>&nbsp;btnShowHTMLCode()&nbsp;{&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></span></li>
+                    <li class=""><span>&nbsp;&nbsp;&nbsp;alert(editor1.getHTMLCode())&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></li>
+                    <li class="alt"><span>}&nbsp;&nbsp;&nbsp;</span></li>
+                </ol>
+            </div>
+        </div>
+    </div>
+
+	</div>
+	<script src="res/patch.js"></script>
+</body>
+</html>

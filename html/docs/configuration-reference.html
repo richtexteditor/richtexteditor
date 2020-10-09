@@ -1,0 +1,428 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" style="display:flex;height:100%;flex-direction:column;">
+<head>
+	<meta charset="utf-8" />
+	<title>Configuration Reference</title>
+	<base href='../' />
+	<link rel="stylesheet" href="res/style.css" />
+</head>
+<body style="padding-bottom:3px;align-items:center">
+	<div class="topbanner">
+		<div style="align-self:stretch;width:960px;display:flex; flex-direction: row;">
+			<div style="flex:99999">
+				<label>RichTextEditor Demo</label>
+			</div>
+			<div>
+				<a target="_blank" href="https://richtexteditor.com/">Home</a>
+				&nbsp;
+				<a target="_blank" href="https://richtexteditor.com/pricing.aspx">Pricing</a>
+			</div>
+		</div>
+	</div>
+	<div style="margin:auto;padding:12px 6px 36px;max-width:960px;">
+		
+	<h2 class="mb-6">Configuration Reference</h2>
+	<p class="mb-6">Here is a list of editor configurations.  See <a href="docs/configuration.html">Configuration</a> to learn about how to set up configurations.</p>
+	<div class="hs-docs-content-divider">
+
+		<table class="table table-bordered table-striped">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Default</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+			<tbody>
+			<tr>
+				<td>skin</td>
+				<td>default</td>
+				<td>Default, rounded-corner, gray or blue. Sets the skin for how the toolbar is draw. Create your custom skin or choose from predefined skins.</td>
+			</tr>
+			<tr>
+				<td>toolbar</td>
+				<td>default</td>
+				<td>Default, basic or full. Auto configures the toolbar with a set of buttons on desktop.</td>
+			</tr>
+			<tr>
+				<td>toolbarMobile</td>
+				<td>mobile</td>
+				<td>The toolbar set on mobile devices.</td>
+			</tr>
+			<tr>
+				<td>maxWidthForMobile</td>
+				<td>992</td>
+				<td>When the screen (browser window) gets smaller than 992, editor should have mobile toolbar.</td>
+			</tr>
+			<tr>
+				<td>timeoutAddToUndo</td>
+				<td>900</td>
+				<td>When uses types fast, wait 900ms to add undo item. </td>
+			</tr>
+			<tr>
+				<td>enableDragDrop</td>
+				<td>true</td>
+				<td>Enables or disables drag-and-drop support for the editor.</td>
+			</tr>
+			<tr>
+				<td>enableObjectResizing</td>
+				<td>true</td>
+				<td>Specifies whether or not to allow the users resize an object winthin the RichTextEditor.</td>
+			</tr>
+			<tr>
+				<td>readOnly</td>
+				<td>false</td>
+				<td>Gets or sets a value which indicates whether the RichTextEditor should be an active HTML editor, or a read-only document viewer.</td>
+			</tr>
+			<tr>
+				<td>focusOnLoad</td>
+				<td>false</td>
+				<td>Specifies whether the editor grabs focus when the page loads. If this property is set to true then the editor will take focus, if it is set to false it will not.</td>
+			</tr>
+			<tr>
+				<td>allowScriptCode</td>
+				<td>false</td>
+				<td>Specifies whether to strip all script elements and script contents from the html to prevent javaScript injection. When this property is set to false (the default) Rich Text Editor strips all script elements and script contents from the html.</td>
+			</tr>
+			<tr>
+				<td>tagWhiteList</td>
+				<td>[]</td>
+				<td>The white list contains a list of tags that can be used in the editor.</td>
+			</tr>
+			<tr>
+				<td>tagBlackList</td>
+				<td>[]</td>
+				<td>The black list contains a list of tags that cannot be used in the editor.</td>
+			</tr>
+			<tr>
+				<td>maxHTMLLength</td>
+				<td>0</td>
+				<td>Gets or sets the maximum number of characters including the HTML tags allowed in the RichTextEditor. Default is -1, indicating no maximum.</td>
+			</tr>
+			<tr>
+				<td>maxTextLength</td>
+				<td>0</td>
+				<td>Gets or sets the maximum number of characters excluding the HTML tags allowed in the RichTextEditor. Default is -1, indicating no maximum.</td>
+			</tr>
+			<tr>
+				<td>editorResizeMode</td>
+				<td>both" </td>
+				<td>both, height or none。 Gets or sets the resize mode.</td>
+			</tr>
+			<tr>
+				<td>toggleBorder</td>
+				<td>true</td>
+				<td>Specifies the ToggleBorder state. ToggleBorder is a handy function which allows you to see the borders without setting things to border = 1 or something like that in code.</td>
+			</tr>
+			<tr>
+				<td>showSelectedBlock</td>
+				<td>true</td>
+				<td>Specifies whether or not to display the selected block winthin the RichTextEditor.</td>
+			</tr>
+			<tr>
+				<td>showFloatTextToolBar</td>
+				<td>false</td>
+				<td>Specifies whether to display the FloatTextToolBar thar is defined by config.controltoolbar_TEXT.</td>
+			</tr>
+			<tr>
+				<td>showFloatLinkToolBar</td>
+				<td>false</td>
+				<td>Specifies whether to display the FloatLinkToolBar thar is defined by config.controltoolbar_A.</td>
+			</tr>
+			<tr>
+				<td>showFloatImageToolBbar</td>
+				<td>false</td>
+				<td>Specifies whether to display the FloatImageToolBbar thar is defined by config.controltoolbar_IMG.</td>
+			</tr>
+			<tr>
+				<td>showFloatTableToolBar</td>
+				<td>false</td>
+				<td>Specifies whether to display the FloatTableToolBar thar is defined by config.controltoolbar_TD.</td>
+			</tr>
+			<tr>
+				<td>showFloatParagraph</td>
+				<td>true</td>
+				<td>Specifies whether to display the FloatParagraph on the left side.</td>
+			</tr>
+			<tr>
+				<td>floatParagraphPos</td>
+				<td>left </td>
+				<td>Left or right. Gets or sets the position of FloatParagraph.</td>
+			</tr>
+			<tr>
+				<td>floatParagraphPosX</td>
+				<td>0</td>
+				<td>A Number, representing the horizontal coordinate of FloatParagraph, in pixels.</td>
+			</tr>
+			<tr>
+				<td>floatParagraphPosY</td>
+				<td>0</td>
+				<td>A Number, representing the vertical coordinate of FloatParagraph, in pixels.</td>
+			</tr>
+			<tr>
+				<td>showPlusButton</td>
+				<td>true</td>
+				<td>Specifies whether to display the editor plus button.</td>
+			</tr>
+			<tr>
+				<td>showTagList</td>
+				<td>true</td>
+				<td>Specifies whether to display the tag selector in the editor bottom bar.</td>
+			</tr>
+			<tr>
+				<td>showStatistics</td>
+				<td>true</td>
+				<td>Specifies whether to display the content statistics in the editor bottom bar.</td>
+			</tr>
+			<tr>
+				<td>tabSpaces</td>
+				<td>4</td>
+				<td>Gets or sets the number of spaces to be inserted when the user hits the "tab" key.</td>
+			</tr>
+			<tr>
+				<td>enterKeyTag</td>
+				<td>p</td>
+				<td>Determines what happens when the "enter" key is pressed in the editor. div, p or br.</td>
+			</tr>
+			<tr>
+				<td>paragraphClass</td>
+				<td>paragraph</td>
+				<td>The specified class name will be added to the paragraph automatically when to create a new paragraph.</td>
+			</tr>
+			<tr>
+				<td>insertTableTag</td>
+				<td>&lt;table&gt;&lt;/table&gt;</td>
+				<td>Default table attributes when inserting a table./td>
+			</tr>
+			<tr>
+				<td>insertRowTag</td>
+				<td>&lt;tr&gt;&lt;/tr&gt;</td>
+				<td>Default row attributes when creating table row.</td>
+			</tr>
+			<tr>
+				<td>insertCellTag</td>
+				<td>&lt;td&gt;&lt;br/&gt;&lt;/td&gt;</td>
+				<td>Default cell attributes when inserting a cell.</td>
+			</tr>
+			<tr>
+				<td>url_base</td>
+				<td>/richtexteditor</td>
+				<td>Specifies a base URL of richtexteditor.</td>
+			</tr>
+			<tr>
+				<td>contentCssUrl</td>
+				<td>%url_base%/runtime/<br />
+					richtexteditor_content.css</td>
+				<td>Specifies the location of the style sheet that will be used by the editable area.</td>
+			</tr>
+			<tr>
+				<td>previewCssUrl</td>
+				<td>%url_base%/runtime/<br />
+					richtexteditor_preview.css</td>
+				<td>Specifies the location of the style sheet that will be used by the preview window.</td>
+			</tr>
+			<tr>
+				<td>previewScriptUrl</td>
+				<td>%url_base%/runtime/<br />
+					richtexteditor_preview.js</td>
+				<td>Specifies the location of javascript file that will be used by the preview window.</td>
+			</tr>
+			<tr>
+				<td>contentCssText</td>
+				<td>""</td>
+				<td>Gets or sets inline CSS text that will be used by the editable area. For example, "body{background-color:#eee}".</td>
+			</tr>
+			<tr>
+				<td>previewCssText</td>
+				<td>""</td>
+				<td>Gets or sets inline CSS text that will be used by the preview window. For example, "body{background-color:#eee}".</td>
+			</tr>
+			<tr>
+				<td>editorBodyCssClass</td>
+				<td>""</td>
+				<td>Gets or sets the class of editing area to switch styles.</td>
+			</tr>
+			<tr>
+				<td>editorBodyCssText</td>
+				<td>""</td>
+				<td>Gets or sets inline CSS text that will be used by the editable body.</td>
+			</tr>
+			<tr>
+				<td>editablePaddingTop</td>
+				<td>2</td>
+				<td>Sets the top padding (space) of the editable area.</td>
+			</tr>
+			<tr>
+				<td>editablePaddingBottom</td>
+				<td>2</td>
+				<td>Sets the bottom padding (space) of the editable area.</td>
+			</tr>
+			<tr>
+				<td>editablePaddingLeft</td>
+				<td>2</td>
+				<td>Sets the left padding (space) of the editable area.</td>
+			</tr>
+			<tr>
+				<td>editablePaddingRight</td>
+				<td>2</td>
+				<td>Sets the right padding (space) of the editable area.</td>
+			</tr>
+			<tr>
+				<td>zIndexFullPage</td>
+				<td>9999</td>
+				<td>Set the z-index for the editor opens in fullscreen mode.</td>
+			</tr>
+			<tr>
+				<td>zIndexFloat</td>
+				<td>99999</td>
+				<td>Set the z-index for the editor float toolbar.</td>
+			</tr>
+			<tr>
+				<td>zIndexDialog</td>
+				<td>999999</td>
+				<td>Set the z-index for the editor dialog.</td>
+			</tr>
+			<tr>
+				<td>zIndexDropDown</td>
+				<td>9999999</td>
+				<td>Set the z-index for the editor dropDown.</td>
+			</tr>
+			<tr>
+				<td>fontNameDropDownMinWidth</td>
+				<td>90px</td>
+				<td>Set the min-width for the fontname dropDown.</td>
+			</tr>
+			<tr>
+				<td>fontNameDropDownMaxWidth</td>
+				<td>110px</td>
+				<td>Set the max-width for the fontname dropDown.</td>
+
+			</tr>
+			<tr>
+				<td>tooltipAttribute</td>
+				<td>rte-tooltip</td>
+				<td>Set the attribute for the editor tooltip.</td>
+			</tr>
+			<tr>
+				<td>controlSelectionClass</td>
+				<td>rte-control-selected</td>
+				<td>Set the Class for the editor control selection.</td>
+			</tr>
+			<tr>
+				<td>controlSelectionMargin</td>
+				<td>7</td>
+				<td>Set the Margin for the editor control selection.</td>
+			</tr>
+			</tbody>
+		</table>
+	</div>
+	<h3 class="mb-6">Dropdown Customization</h3>
+	<div class="hs-docs-content-divider">
+        <table class="table table-bordered table-striped">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Default</th>
+                    <th>Description</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>paragraphItems</td>
+                    <td>Normal,H1,H2,H3,H4,H5,H6</td>
+                    <td>A predefined set of format blocks.</td>
+                </tr>
+                <tr>
+                    <td>fontSizeItems</td>
+                    <td>8,9,10,11,12,13,14,16,<br />18,24,36,48,60,72,96</td>
+                    <td>A predefined set of font sizes.</td>
+                </tr>
+                <tr>
+                    <td>fontNameItems</td>
+                    <td>Arial,Arial Black,Comic Sans MS,<br />Courier New,Tahoma,Georgia,Helvetica,<br /> Segoe UI,Sans-Serif,Impact,<br />Times New Roman,Verdana</td>
+                    <td>A predefined set of font names.</td>
+                </tr>
+                <tr>
+                    <td>lineHeightItems</td>
+                    <td>100%,150%,200%,250%,300%,<br />350%,400%,450%,500%,600%</td>
+                    <td> A predefined set of line height items.</td>
+                </tr>
+                <tr>
+                    <td>inlineStyles</td>
+                    <td>[["Red", "color:red", "color:red"], <br />["Bold", "font-weight:bold", "font-weight:bold"], <br />["Mark", "my-cls-mark"],<br /> ["Warning", "my-cls-warning"]]</td>
+                    <td>Default CSS styles for inline styles dropdown. <br />
+						[text,css style, display style]</td>
+                </tr>
+                <tr>
+                    <td>paragraphStyles</td>
+                    <td>[["Red", "color:red"], <br />["Bold", "font-weight:bold"], <br />["Quote", "my-cls-quote"],<br /> ["LargeCenter", "my-cls-largecenter"]]</td>
+                    <td>Default CSS styles for paragraph styles dropdown. <br />
+						[text,css style, display style]
+                    </td>
+                </tr>
+                <tr>
+                    <td>imageStyles</td>
+                    <td>[["Border", "border:solid 1px gray"], <br />["Shadow", "box-shadow:0 0 8px gray"], <br />["Margin10", "margin:10px"], <br />["Padding:10", "padding:10px"]]</td>
+                    <td>Default CSS styles for image Styles dropdown.<br />
+						[text,css style]
+                    </td>
+                </tr>
+                <tr>
+                    <td>linkStyles</td>
+                    <td>[["Margin10", "margin:10px"], <br />["Padding:10", "padding:10px"], <br />["BigText", "font-size:36px"]]</td>
+                    <td>Default CSS styles for link Styles dropdown.<br />
+						[text,css style]</td>
+                </tr>
+                <tr>
+                    <td>galleryImages</td>
+                    <td>[
+	"http://richtexteditor.com/uploads/1.jpg",<br />
+	"http://richtexteditor.com/uploads/2.jpg",<br />
+	"http://richtexteditor.com/uploads/3.jpg",<br />
+	"http://richtexteditor.com/uploads/4.jpg",<br />
+	"http://richtexteditor.com/uploads/5.jpg",<br />
+	"http://richtexteditor.com/uploads/6.jpg"<br />
+]	// For insert image by URL</td>
+                    <td>Default images for gallery Images dialog.</td>
+                </tr>
+                <tr>
+                    <td>htmlTemplates</td>
+                    <td>
+					["My Doc 1", "&lt;h3&gt;Title 1&lt;/h3&gt;"],<br />
+					["My Doc 2", "&lt;h3&gt;Title 2&lt;/h3&gt;"]</td>
+                    <td>Default html Templates for html Templates dialog. </td>
+                </tr>
+                <tr>
+                    <td>characterItems</td>
+                    <td></td>
+                    <td>A predefined set of characters.</td>
+                </tr>
+                <tr>
+                    <td>foreColorItems</td>
+                    <td></td>
+                    <td>A predefined set of fore colors.</td>
+                </tr>
+                <tr>
+                    <td>backColorItems</td>
+                    <td></td>
+                    <td>A predefined set of background colors.</td>
+                </tr>
+                <tr>
+                    <td>linkItems</td>
+                    <td></td>
+                    <td>A predefined set of links for link dialog.</td>
+                </tr>
+                <tr>
+                    <td>imageItems</td>
+                    <td></td>
+                    <td>Default images for inserting image by URL dialog. </td>
+                </tr>
+            </tbody>
+        </table>
+	</div>
+
+	</div>
+	<script src="res/patch.js"></script>
+</body>
+</html>

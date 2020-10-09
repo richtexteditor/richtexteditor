@@ -1,0 +1,69 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" style="display:flex;height:100%;flex-direction:column;">
+<head>
+	<meta charset="utf-8" />
+	<title>Installation (textarea)</title>
+	<base href='../' />
+	<link rel="stylesheet" href="res/style.css" />
+</head>
+<body style="padding-bottom:3px;align-items:center">
+	<div class="topbanner">
+		<div style="align-self:stretch;width:960px;display:flex; flex-direction: row;">
+			<div style="flex:99999">
+				<label>RichTextEditor Demo</label>
+			</div>
+			<div>
+				<a target="_blank" href="https://richtexteditor.com/">Home</a>
+				&nbsp;
+				<a target="_blank" href="https://richtexteditor.com/pricing.aspx">Pricing</a>
+			</div>
+		</div>
+	</div>
+	<div style="margin:auto;padding:12px 6px 36px;max-width:960px;">
+		
+	<h2 class="mb-6">Richtexteditor Installation</h2>
+	<h5>1. Compiled JS & CSS</h5>
+	<p>Compiled CSS, JS
+The fastest way to get Richtexteditor is to download the precompiled and minified versions of CSS and JavaScript. </p>
+	<p><a class="btn btn-outline-primary btn-wide transition-3d-hover mr-2" href="docs//download.html">Download</a></p>
+	<div class="hs-docs-content-divider">
+		<div>
+			<h5>2. Include the JS & CSS:</h5>
+			<div class="dp-highlighter">
+				<div class="bar"></div>
+				<ol start="1" class="dp-xml">
+					<li class="alt"><span><span class="tag">&lt;</span><span class="tag-name">link</span><span>&nbsp;</span><span class="attribute">rel</span><span>=</span><span class="attribute-value">"stylesheet"</span><span>&nbsp;</span><span class="attribute">href</span><span>=</span><span class="attribute-value">"richtexteditor/rte_theme_default.css"</span><span>&nbsp;</span><span class="tag">/&gt;</span><span>&nbsp;&nbsp;</span></span></li>
+					<li class="alt"><span><span class="tag">&lt;</span><span class="tag-name">script</span><span>&nbsp;</span><span class="attribute">type</span><span>=</span><span class="attribute-value">"text/javascript"</span><span>&nbsp;</span><span class="attribute">src</span><span>=</span><span class="attribute-value">"richtexteditor/rte.js"</span><span class="tag">&gt;</span><span class="tag">&lt;/</span><span class="tag-name">script</span><span class="tag">&gt;</span><span>&nbsp;&nbsp;</span></span></li>
+<script>RTE_DefaultConfig.url_base='richtexteditor'</script>
+					<li class=""><span><span class="tag">&lt;</span><span class="tag-name">script</span><span>&nbsp;</span><span class="attribute">type</span><span>=</span><span class="attribute-value">"text/javascript"</span><span>&nbsp;</span><span class="attribute">src</span><span>=</span><span class="attribute-value">'richtexteditor/plugins/all_plugins.js'</span><span class="tag">&gt;</span><span class="tag">&lt;/</span><span class="tag-name">script</span><span class="tag">&gt;</span><span>&nbsp;&nbsp;</span></span></li>
+				</ol>
+			</div>
+			<h5>3. Create a new TEXTAREA element with all of the content that you want inside the Editor.</h5>
+			<div class="dp-highlighter">
+				<div class="bar"></div>
+				<ol start="1" class="dp-xml">
+					<li class="alt"><span><span class="tag">&lt;textarea</span>&nbsp;<span class="attribute">id</span><span>=</span><span class="attribute-value">"inp_editor1"</span><span>&nbsp;</span><span class="tag">&gt;</span></span></li>
+					<li class="alt"><span>&nbsp;&amp;lt;p&amp;gt;Initial Document Content&amp;lt;/p&amp;gt;&nbsp;</span></li>
+					<li class=""><span><span class="tag">&lt;/textarea&gt;</span>&nbsp;&nbsp;</span></li>
+				</ol>
+			</div>
+			<h5>4. Replace &lt;textarea id="inp_editor1"&gt; with a richtexteditor instance.</h5>
+			
+			<div class="dp-highlighter">
+				<div class="bar"></div>
+				<ol start="1" class="dp-xml">
+					<li class="alt"><span><span class="tag">&lt;</span><span class="tag-name">script</span><span class="tag">&gt;</span><span>&nbsp;&nbsp;</span></span></li>
+					<li class=""><span>&nbsp;&nbsp;&nbsp;&nbsp;var&nbsp;<span class="attribute">editor1</span><span>&nbsp;=&nbsp;</span><span class="attribute-value">new</span><span>&nbsp;RichTextEditor("#inp_editor1");&nbsp;&nbsp;</span></span></li>
+					<li class="alt"><span><span class="tag">&lt;/</span><span class="tag-name">script</span><span class="tag">&gt;</span><span>&nbsp;&nbsp;</span></span></li>
+				</ol>
+			</div>
+			
+		</div>
+	</div>
+	
+
+	</div>
+	<script src="res/patch.js"></script>
+</body>
+</html>

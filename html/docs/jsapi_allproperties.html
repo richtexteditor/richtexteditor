@@ -1,0 +1,78 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" style="display:flex;height:100%;flex-direction:column;">
+<head>
+	<meta charset="utf-8" />
+	<title>All Properties</title>
+	<base href='../' />
+	<link rel="stylesheet" href="res/style.css" />
+</head>
+<body style="padding-bottom:3px;align-items:center">
+	<div class="topbanner">
+		<div style="align-self:stretch;width:960px;display:flex; flex-direction: row;">
+			<div style="flex:99999">
+				<label>RichTextEditor Demo</label>
+			</div>
+			<div>
+				<a target="_blank" href="https://richtexteditor.com/">Home</a>
+				&nbsp;
+				<a target="_blank" href="https://richtexteditor.com/pricing.aspx">Pricing</a>
+			</div>
+		</div>
+	</div>
+	<div style="margin:auto;padding:12px 6px 36px;max-width:960px;">
+		
+	<h2 class="mb-4">RichTextEditor Properties</h2>
+	<p class="mb-4">A list of read-only properties that you can use to retrieve editor related objects.</p>
+	<div class="hs-docs-content-divider">
+        <table class="table table-bordered table-striped">
+            <thead>
+                <tr>
+                    <th>Property</th>
+                    <th>Description</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>editor.config</td>
+                    <td>Stores all configurations specific to this editor instance.</td>
+                </tr>
+
+                <tr>
+                    <td>editor.container</td>
+                    <td>Returns the external &lt;div&gt; element which contains the editor instance.</td>
+                </tr>
+
+                <tr>
+                    <td>editor.iframe</td>
+                    <td>Returns the iframe object of the editor instance.</td>
+                </tr>
+
+                <tr>
+                    <td>editor.document </td>
+                    <td>Returns the active editor document object of the editor instance.</td>
+                </tr>
+
+                <tr>
+                    <td>editor.window </td>
+                    <td>Returns the active editor window object of the editor instance.</td>
+                </tr>
+
+                <tr>
+                    <td>editor.selection</td>
+                    <td>Returns the selection object of the editor instance.</td>
+                </tr>
+            </tbody>
+        </table>
+
+		<br />
+		<br />
+
+
+
+	</div>
+
+	</div>
+	<script src="res/patch.js"></script>
+</body>
+</html>

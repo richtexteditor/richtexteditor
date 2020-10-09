@@ -1,0 +1,45 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" style="display:flex;height:100%;flex-direction:column;">
+<head>
+	<meta charset="utf-8" />
+	<title>surroundElement</title>
+	<base href='../' />
+	<link rel="stylesheet" href="res/style.css" />
+</head>
+<body style="padding-bottom:3px;align-items:center">
+	<div class="topbanner">
+		<div style="align-self:stretch;width:960px;display:flex; flex-direction: row;">
+			<div style="flex:99999">
+				<label>RichTextEditor Demo</label>
+			</div>
+			<div>
+				<a target="_blank" href="https://richtexteditor.com/">Home</a>
+				&nbsp;
+				<a target="_blank" href="https://richtexteditor.com/pricing.aspx">Pricing</a>
+			</div>
+		</div>
+	</div>
+	<div style="margin:auto;padding:12px 6px 36px;max-width:960px;">
+		
+	<h2 class="mb-4">editor.surroundElement(element)</h2>
+	<p class="mb-4">Creates an element using editor.document. Places the content of selection into the element. Then insert this new element.</p>
+    <div class="hs-docs-content-divider">
+        <h4>Syntax</h4>
+        <p>
+            <code class="highlighter-rouge">editor.surroundElement(element)</code>
+        </p>
+		<h6>Parameter</h6>
+		<p><code class="highlighter-rouge">Type: HTMLElement</code></p>
+        <p><code class="highlighter-rouge">Required. The new element to insert.</code></p>
+    </div>
+	<div class="hs-docs-content-divider">
+		<div>
+			<h2  class="hs-docs-heading">Example:</h2><div class="dp-highlighter"><div class="bar"></div><ol start="1" class="dp-c"><li class="alt"><span><span class="keyword">var</span><span>&nbsp;editor1&nbsp;=&nbsp;</span><span class="keyword">new</span><span>&nbsp;RichTextEditor(</span><span class="string">"#div_editor1"</span><span>);&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></span></li><li class=""><span>editor1.setHTMLCode(<span class="string">"hello&nbsp;world"</span><span>);&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></span></li><li class="alt"><span>editor1.selectDoc();&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></li><li class=""><span><span class="keyword">var</span><span>&nbsp;element=editor1.document.createElement(</span><span class="string">"BLOCKQUOTE"</span><span>);&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></span></li><li class="alt"><span>editor1.surroundElement(element);&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></li></ol></div>
+		</div>	
+	</div>
+
+	</div>
+	<script src="res/patch.js"></script>
+</body>
+</html>

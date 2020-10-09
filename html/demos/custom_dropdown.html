@@ -1,0 +1,280 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" style="display:flex;height:100%;flex-direction:column;">
+<head>
+	<meta charset="utf-8" />
+	<title>Custom Dropdown</title>
+	<base href='../' />
+	<link rel="stylesheet" href="res/style.css" />
+</head>
+<body style="padding-bottom:3px;align-items:center">
+	<div class="topbanner">
+		<div style="align-self:stretch;width:960px;display:flex; flex-direction: row;">
+			<div style="flex:99999">
+				<label>RichTextEditor Demo</label>
+			</div>
+			<div>
+				<a target="_blank" href="https://richtexteditor.com/">Home</a>
+				&nbsp;
+				<a target="_blank" href="https://richtexteditor.com/pricing.aspx">Pricing</a>
+			</div>
+		</div>
+	</div>
+	<div style="margin:auto;padding:12px 6px 36px;max-width:960px;">
+		
+	<h3>Add custom dropDown</h3>
+	<p class="mb-4">
+		Rich Text Editor allows you extend the functions of the editor. You can create new custom dropDowns and add them to the editor's toolbar list.
+	</p>
+	<div class="hs-docs-content-divider">
+		<h3>Menu drop down </h3>
+		<link rel="stylesheet" href="richtexteditor/rte_theme_default.css" />
+		<script type="text/javascript" src="richtexteditor/rte.js"></script>
+<script>RTE_DefaultConfig.url_base='richtexteditor'</script>
+		<script type="text/javascript" src='richtexteditor/plugins/all_plugins.js'></script>
+
+		
+
+		<div id="div_editor1">
+			<p>This example demonstrates how to create a custom dropDown.</p>
+		</div>
+
+		<script>
+			var editor1cfg = {}
+			editor1cfg.svgCode_menu_mymenu = '<svg viewBox="-2 -2 20 20" fill="#5F6368" style="width: 100%; height: 100%;"><path fill-rule="evenodd" d="M8 0a1 1 0 0 1 1 1v5.268l4.562-2.634a1 1 0 1 1 1 1.732L10 8l4.562 2.634a1 1 0 1 1-1 1.732L9 9.732V15a1 1 0 1 1-2 0V9.732l-4.562 2.634a1 1 0 1 1-1-1.732L6 8 1.438 5.366a1 1 0 0 1 1-1.732L7 6.268V1a1 1 0 0 1 1-1z" clip-rule="evenodd"></path></svg>';
+			editor1cfg.toolbar = "mytoolbar";
+			editor1cfg.toolbar_mytoolbar = "{bold,italic}|{fontname,fontsize}|{forecolor,backcolor}|removeformat|menu_mymenu"
+				+ "#{undo,redo,fullscreenenter,fullscreenexit,togglemore}";
+			editor1cfg.subtoolbar_mymenu = 'inserttable,insertimage,insertcode';
+			var editor1 = new RichTextEditor("#div_editor1", editor1cfg);
+		</script>
+
+		
+	</div>
+	<div class="hs-docs-content-divider">
+
+		<h3>Demo Code:</h3>
+		<pre class="editordemocode rounded language-html">&lt;div id=&quot;div_editor1&quot;&gt;
+	&lt;p&gt;This example demonstrates how to create a custom dropDown.&lt;/p&gt;
+&lt;/div&gt;
+
+&lt;script&gt;
+	var editor1cfg = {}
+	editor1cfg.svgCode_menu_mymenu = &#39;&lt;svg viewBox=&quot;-2 -2 20 20&quot; fill=&quot;#5F6368&quot; style=&quot;width: 100%; height: 100%;&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M8 0a1 1 0 0 1 1 1v5.268l4.562-2.634a1 1 0 1 1 1 1.732L10 8l4.562 2.634a1 1 0 1 1-1 1.732L9 9.732V15a1 1 0 1 1-2 0V9.732l-4.562 2.634a1 1 0 1 1-1-1.732L6 8 1.438 5.366a1 1 0 0 1 1-1.732L7 6.268V1a1 1 0 0 1 1-1z&quot; clip-rule=&quot;evenodd&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&#39;;
+	editor1cfg.toolbar = &quot;mytoolbar&quot;;
+	editor1cfg.toolbar_mytoolbar = &quot;{bold,italic}|{fontname,fontsize}|{forecolor,backcolor}|removeformat|menu_mymenu&quot;
+		+ &quot;#{undo,redo,fullscreenenter,fullscreenexit,togglemore}&quot;;
+	editor1cfg.subtoolbar_mymenu = &#39;inserttable,insertimage,insertcode&#39;;
+	var editor1 = new RichTextEditor(&quot;#div_editor1&quot;, editor1cfg);
+&lt;/script&gt;</pre>
+
+	</div>
+
+	<div class="hs-docs-content-divider">
+
+
+		<h3>Panel drop down </h3>
+
+		
+
+		<div id="div_editor2">
+			<p>This example demonstrates how to create a panel dropDown.</p>
+		</div>
+
+		<script>
+			var editor2cfg = {}
+
+			editor2cfg.toolbarfactory_mydropdown = function (cmd, suffix) {
+				var editor = this;//Use this, maybe editor2 variable is not ready yet.
+				var option = {};
+				var inp;
+				option.fillinput = function (input) {
+					inp = input;
+					inp.innerText = "MyDropDown";
+					inp.style.overflowX = "hidden"
+				}
+				option.fillpanel = function (panel) {
+					panel.style.padding = '8px'
+					panel.innerHTML = "Hello<br/>World<br/>Gogo<br/>";
+
+					var btn = document.createElement("button");
+					btn.innerHTML = "button_b"
+					btn.className = "btn btn-primary";
+					btn.style.cssText = "height:32px;margin:2px;padding:0px 5px";
+					btn.onclick = function () {
+						editor.closeCurrentPopup();
+						console.log("my button clicked");
+						var p = editor2.insertRootParagraph("p");
+						p.innerHTML = "You clicked mybutton_b";
+						alert(p.innerHTML);
+						return false;
+					}
+
+					panel.appendChild(btn)
+				}
+
+				var btn = editor.createToolbarDropDown(option, cmd, suffix)
+				return btn;
+			}
+			editor2cfg.toolbar = "mytoolbar";
+			editor2cfg.toolbar_mytoolbar = "{bold,italic}|{fontname,fontsize}|{forecolor,backcolor}|removeformat|mydropdown"
+				+ "#{undo,redo,fullscreenenter,fullscreenexit,togglemore}";
+			editor2cfg.subtoolbar_mymenu = 'inserttable,insertimage,insertcode';
+
+			var editor2 = new RichTextEditor("#div_editor2", editor2cfg);
+		</script>
+
+
+		
+	</div>
+	<div class="hs-docs-content-divider">
+
+		<h3>Demo Code:</h3>
+		<pre class="editordemocode rounded language-html">&lt;div id=&quot;div_editor2&quot;&gt;
+	&lt;p&gt;This example demonstrates how to create a panel dropDown.&lt;/p&gt;
+&lt;/div&gt;
+
+&lt;script&gt;
+	var editor2cfg = {}
+
+	editor2cfg.toolbarfactory_mydropdown = function (cmd, suffix) {
+		var editor = this;//Use this, maybe editor2 variable is not ready yet.
+		var option = {};
+		var inp;
+		option.fillinput = function (input) {
+			inp = input;
+			inp.innerText = &quot;MyDropDown&quot;;
+			inp.style.overflowX = &quot;hidden&quot;
+		}
+		option.fillpanel = function (panel) {
+			panel.style.padding = &#39;8px&#39;
+			panel.innerHTML = &quot;Hello&lt;br/&gt;World&lt;br/&gt;Gogo&lt;br/&gt;&quot;;
+
+			var btn = document.createElement(&quot;button&quot;);
+			btn.innerHTML = &quot;button_b&quot;
+			btn.className = &quot;btn btn-primary&quot;;
+			btn.style.cssText = &quot;height:32px;margin:2px;padding:0px 5px&quot;;
+			btn.onclick = function () {
+				editor.closeCurrentPopup();
+				console.log(&quot;my button clicked&quot;);
+				var p = editor2.insertRootParagraph(&quot;p&quot;);
+				p.innerHTML = &quot;You clicked mybutton_b&quot;;
+				alert(p.innerHTML);
+				return false;
+			}
+
+			panel.appendChild(btn)
+		}
+
+		var btn = editor.createToolbarDropDown(option, cmd, suffix)
+		return btn;
+	}
+	editor2cfg.toolbar = &quot;mytoolbar&quot;;
+	editor2cfg.toolbar_mytoolbar = &quot;{bold,italic}|{fontname,fontsize}|{forecolor,backcolor}|removeformat|mydropdown&quot;
+		+ &quot;#{undo,redo,fullscreenenter,fullscreenexit,togglemore}&quot;;
+	editor2cfg.subtoolbar_mymenu = &#39;inserttable,insertimage,insertcode&#39;;
+
+	var editor2 = new RichTextEditor(&quot;#div_editor2&quot;, editor2cfg);
+&lt;/script&gt;</pre>
+
+	</div>
+
+	<div class="hs-docs-content-divider">
+		
+
+		<h3>Select drop down </h3>
+		<div id="div_editor3"></div>
+
+		<script>
+			var editor3cfg = {}
+			editor3cfg.toolbarfactory_myselect = function (cmd, suffix) {
+				var sel = document.createElement("select");
+				sel.style.cssText = "height:32px;margin:2px;padding:0px 5px";
+				function addOption(text, value) {
+					var option = document.createElement("option");
+					option.innerText = text;
+					option.setAttribute("value", value);
+					option.rawValue = value;
+					sel.appendChild(option);
+				}
+				addOption("Select an item...")
+				addOption("Red title", "red");
+				addOption("Blue content", "blue");
+				sel.onclick = function (e) {
+					//the select will get focus , editor will lost focus
+					e.stopPropagation();//prevent editor get focus automatically
+				}
+				sel.onchange = function () {
+					var option = sel.options[sel.selectedIndex];
+					var val = option.rawValue;
+					sel.selectedIndex = 0;
+					editor3.insertHTML("<span style='color:" + val + "'>You selected " + val + "</span>")
+				}
+				return sel;
+			}
+			editor3cfg.toolbar = "mytoolbar";
+			editor3cfg.toolbar_mytoolbar = "{bold,italic}|{fontname,fontsize}|{forecolor,backcolor}|removeformat|myselect"
+				+ "#{undo,redo,fullscreenenter,fullscreenexit,togglemore}";
+
+			var editor3 = new RichTextEditor("#div_editor3", editor3cfg);
+		</script>
+
+		
+	</div>
+	<div class="hs-docs-content-divider">
+
+		<h3>Demo Code:</h3>
+		<pre class="editordemocode rounded language-html">&lt;h3&gt;Select drop down &lt;/h3&gt;
+&lt;div id=&quot;div_editor3&quot;&gt;&lt;/div&gt;
+
+&lt;script&gt;
+	var editor3cfg = {}
+	editor3cfg.toolbarfactory_myselect = function (cmd, suffix) {
+		var sel = document.createElement(&quot;select&quot;);
+		sel.style.cssText = &quot;height:32px;margin:2px;padding:0px 5px&quot;;
+		function addOption(text, value) {
+			var option = document.createElement(&quot;option&quot;);
+			option.innerText = text;
+			option.setAttribute(&quot;value&quot;, value);
+			option.rawValue = value;
+			sel.appendChild(option);
+		}
+		addOption(&quot;Select an item...&quot;)
+		addOption(&quot;Red title&quot;, &quot;red&quot;);
+		addOption(&quot;Blue content&quot;, &quot;blue&quot;);
+		sel.onclick = function (e) {
+			//the select will get focus , editor will lost focus
+			e.stopPropagation();//prevent editor get focus automatically
+		}
+		sel.onchange = function () {
+			var option = sel.options[sel.selectedIndex];
+			var val = option.rawValue;
+			sel.selectedIndex = 0;
+			editor3.insertHTML(&quot;&lt;span style=&#39;color:&quot; + val + &quot;&#39;&gt;You selected &quot; + val + &quot;&lt;/span&gt;&quot;)
+		}
+		return sel;
+	}
+	editor3cfg.toolbar = &quot;mytoolbar&quot;;
+	editor3cfg.toolbar_mytoolbar = &quot;{bold,italic}|{fontname,fontsize}|{forecolor,backcolor}|removeformat|myselect&quot;
+		+ &quot;#{undo,redo,fullscreenenter,fullscreenexit,togglemore}&quot;;
+
+	var editor3 = new RichTextEditor(&quot;#div_editor3&quot;, editor3cfg);
+&lt;/script&gt;</pre>
+
+	</div>
+
+
+
+	<div class="hs-docs-content-divider relative-links">
+		<h3 class="relative-links">Relative Links</h3>
+		<ul class="relative-links">
+			<li><a href="docs/cmd_allcommands.html">Use JavaScript API</a></li>
+		</ul>
+	</div>
+
+
+
+	</div>
+	<script src="res/patch.js"></script>
+</body>
+</html>

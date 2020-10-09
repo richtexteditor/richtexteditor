@@ -1,0 +1,89 @@
+﻿@page
+@model PrivacyModel
+@inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment _env; 
+
+@functions{
+	string GetHtmlFileCode()
+	{
+		string fullpath = GetHtmlFilePath();
+		if (!System.IO.File.Exists(fullpath))
+			return "<b>No saved data yet</b>";
+		return System.IO.File.ReadAllText(fullpath);
+	}
+	string GetHtmlFilePath()
+	{
+		string filename = "/usertyped_htmlcontent.html";
+		string fullpath = System.IO.Path.Combine(_env.WebRootPath, filename.TrimStart('/'));
+		return fullpath;
+	}
+}
+
+@{
+	ViewData["Title"] = "Ajax Mode";
+
+	ViewData["HtmlCode"] = GetHtmlFileCode();
+}
+
+
+
+<link rel="stylesheet" href="/richtexteditor/rte_theme_default.css" />
+<script type="text/javascript" src="/richtexteditor/rte.js"></script>
+<script type="text/javascript" src='/richtexteditor/plugins/all_plugins.js'></script>
+<script type="text/javascript" src="/rte-upload.js"></script>
+
+<div class="text-center">
+	<h1 class="display-4">Welcome</h1>
+
+
+	<div id="div_editor1" class="richtexteditor" style="width: 960px;margin:0 auto;">
+	</div>
+
+	<div style="margin:0 auto;padding:24px;">
+		<button class="btn btn-primary" onclick="DoAjaxSave(); return false;">Submit</button>
+	</div>
+
+	<div>
+		Server saved HTML code : <br /> (/usertyped_htmlcontent.html , Refresh page to check again)
+	</div>
+	<div id="div_savedhtml" style="border:solid 1px gray;margin:10px;padding:10px;">
+		@Html.Raw(ViewData["HtmlCode"])
+	</div>
+
+	<script>
+		var div_savedhtml = document.getElementById("div_savedhtml");
+
+		var editor1 = new RichTextEditor(document.getElementById("div_editor1"));
+		editor1.setHTMLCode(div_savedhtml.innerHTML);
+
+		function DoAjaxSave() {
+			var code = editor1.getHTMLCode();
+			var xh = new XMLHttpRequest();
+			xh.open("POST", "/Home/AjaxSaveHandler", true);
+			xh.onload = function () {
+				DoAjaxLoad();
+			}
+			var formdata = new FormData();
+			formdata.append("htmlcode", code);
+			xh.send(formdata);
+		}
+
+		function DoAjaxLoad() {
+
+			div_savedhtml.innerText = "Loading...";
+
+			var xh = new XMLHttpRequest();
+			xh.open("POST", "/Home/AjaxLoadHandler", true);
+			xh.onload = function () {
+				var code = xh.responseText;
+				div_savedhtml.innerHTML = code;
+			}
+			var formdata = new FormData();
+			formdata.append("id", 123);
+			xh.send(formdata);
+		}
+
+	</script>
+
+
+
+</div>

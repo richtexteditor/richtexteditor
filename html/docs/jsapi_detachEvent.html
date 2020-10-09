@@ -1,0 +1,60 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" style="display:flex;height:100%;flex-direction:column;">
+<head>
+	<meta charset="utf-8" />
+	<title>detachEvent</title>
+	<base href='../' />
+	<link rel="stylesheet" href="res/style.css" />
+</head>
+<body style="padding-bottom:3px;align-items:center">
+	<div class="topbanner">
+		<div style="align-self:stretch;width:960px;display:flex; flex-direction: row;">
+			<div style="flex:99999">
+				<label>RichTextEditor Demo</label>
+			</div>
+			<div>
+				<a target="_blank" href="https://richtexteditor.com/">Home</a>
+				&nbsp;
+				<a target="_blank" href="https://richtexteditor.com/pricing.aspx">Pricing</a>
+			</div>
+		</div>
+	</div>
+	<div style="margin:auto;padding:12px 6px 36px;max-width:960px;">
+		
+	<h2 class="mb-4">editor.detachEvent()</h2>
+	<p class="mb-4">Removes the specified event handler that was registered earlier with the attachEvent method.</p>
+    <div class="hs-docs-content-divider">
+        <h4>Syntax</h4>
+        <p>
+            <code class="highlighter-rouge">editor.detachEvent(eventName,eventHandler)</code>
+        </p>
+		<h6>eventName</h6>
+		<p><code class="highlighter-rouge">Type: String</code></p>
+		<p><code class="highlighter-rouge">specifies the name of the event that is listened by the event handler.</code></p>
+		<h6>eventHandler</h6>
+		<p><code class="highlighter-rouge">Type: function</code></p>
+		<p><code class="highlighter-rouge">Reference to the event handler function to remove.</code></p>
+    </div>
+	<div class="hs-docs-content-divider">
+
+		<h2 class="hs-docs-heading">Related Links
+		</h2>
+		<p>
+			<a href="docs/jsapi_attachEvent.html">attachEvent</a>
+		</p>
+		<p>
+			<a href="docs/event_change.html">Event change</a>
+		</p>
+		<p>
+			<a href="docs/event_selectionchange.html">Event selectionchange</a>
+		</p>
+		<p>
+			<a href="docs/event_exec_command.html">Event exec_command</a>
+		</p>
+	</div>
+
+	</div>
+	<script src="res/patch.js"></script>
+</body>
+</html>

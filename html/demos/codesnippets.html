@@ -1,0 +1,159 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" style="display:flex;height:100%;flex-direction:column;">
+<head>
+	<meta charset="utf-8" />
+	<title>Code Snippets</title>
+	<base href='../' />
+	<link rel="stylesheet" href="res/style.css" />
+</head>
+<body style="padding-bottom:3px;align-items:center">
+	<div class="topbanner">
+		<div style="align-self:stretch;width:960px;display:flex; flex-direction: row;">
+			<div style="flex:99999">
+				<label>RichTextEditor Demo</label>
+			</div>
+			<div>
+				<a target="_blank" href="https://richtexteditor.com/">Home</a>
+				&nbsp;
+				<a target="_blank" href="https://richtexteditor.com/pricing.aspx">Pricing</a>
+			</div>
+		</div>
+	</div>
+	<div style="margin:auto;padding:12px 6px 36px;max-width:960px;">
+		
+	<h2>Code Snippets</h2>
+	<p class="mb-4">
+		This example shows you how to create a custom code snippets dropdown that allows you add predefined code snippets into the current selection.
+	</p>
+	<div class="hs-docs-content-divider">
+		
+
+		<link rel="stylesheet" href="richtexteditor/rte_theme_default.css" />
+		<script type="text/javascript" src="richtexteditor/rte.js"></script>
+<script>RTE_DefaultConfig.url_base='richtexteditor'</script>
+		<script type="text/javascript" src='richtexteditor/plugins/all_plugins.js'></script>
+
+		<div id="div_editor2">
+			<p>Hello world!</p>
+			<p><img src='images/editor-image.png' /></p>
+		</div>
+
+		<style>
+			.code-snippet-item {
+				padding: 5px;
+			}
+
+				.code-snippet-item:hover {
+					background-color: #b6ff00;
+				}
+		</style>
+		<script>
+			var editor2cfg = {}
+
+			editor2cfg.toolbarfactory_mydropdown = function (cmd, suffix) {
+				var editor = this;//Use this, maybe editor2 variable is not ready yet.
+				var option = {};
+				var inp;
+				option.fillinput = function (input) {
+					inp = input;
+					inp.innerText = "Code Snippets";
+					inp.style.overflowX = "hidden"
+				}
+				option.fillpanel = function (panel) {
+					panel.style.padding = '8px'
+
+					function CreateItem(name, code) {
+						var div = panel.appendChild(document.createElement("div"));
+						div.className = "code-snippet-item";
+						div.innerText = name;
+						div.onclick = function () {
+							editor.insertHTML(code);
+						}
+					}
+
+					CreateItem("Welcome", "<b>Welcome to our website.</b>");
+					CreateItem("Copyright", "<b>Copyright (c) MyCompany. All right reversed.</b>");
+
+				}
+
+				var btn = editor.createToolbarDropDown(option, cmd, suffix)
+				return btn;
+			}
+			editor2cfg.toolbar = "mytoolbar";
+			editor2cfg.toolbar_mytoolbar = "{bold,italic}|{fontname,fontsize}|{forecolor,backcolor}|removeformat|mydropdown"
+				+ "#{undo,redo,fullscreenenter,fullscreenexit,togglemore}";
+			editor2cfg.subtoolbar_mymenu = 'inserttable,insertimage,insertcode';
+
+			var editor2 = new RichTextEditor("#div_editor2", editor2cfg);
+		</script>
+
+		
+	</div>
+	<div class="hs-docs-content-divider">
+
+		<h3>Demo Code:</h3>
+		<pre class="editordemocode rounded language-html">&lt;link rel=&quot;stylesheet&quot; href=&quot;/richtexteditor/rte_theme_default.css&quot; /&gt;
+&lt;script type=&quot;text/javascript&quot; src=&quot;/richtexteditor/rte.js&quot;&gt;&lt;/script&gt;
+&lt;script type=&quot;text/javascript&quot; src=&#39;/richtexteditor/plugins/all_plugins.js&#39;&gt;&lt;/script&gt;
+
+&lt;div id=&quot;div_editor2&quot;&gt;
+	&lt;p&gt;Hello world!&lt;/p&gt;
+	&lt;p&gt;&lt;img src=&#39;/images/editor-image.png&#39; /&gt;&lt;/p&gt;
+&lt;/div&gt;
+
+&lt;style&gt;
+	.code-snippet-item {
+		padding: 5px;
+	}
+
+		.code-snippet-item:hover {
+			background-color: #b6ff00;
+		}
+&lt;/style&gt;
+&lt;script&gt;
+	var editor2cfg = {}
+
+	editor2cfg.toolbarfactory_mydropdown = function (cmd, suffix) {
+		var editor = this;//Use this, maybe editor2 variable is not ready yet.
+		var option = {};
+		var inp;
+		option.fillinput = function (input) {
+			inp = input;
+			inp.innerText = &quot;Code Snippets&quot;;
+			inp.style.overflowX = &quot;hidden&quot;
+		}
+		option.fillpanel = function (panel) {
+			panel.style.padding = &#39;8px&#39;
+
+			function CreateItem(name, code) {
+				var div = panel.appendChild(document.createElement(&quot;div&quot;));
+				div.className = &quot;code-snippet-item&quot;;
+				div.innerText = name;
+				div.onclick = function () {
+					editor.insertHTML(code);
+				}
+			}
+
+			CreateItem(&quot;Welcome&quot;, &quot;&lt;b&gt;Welcome to our website.&lt;/b&gt;&quot;);
+			CreateItem(&quot;Copyright&quot;, &quot;&lt;b&gt;Copyright (c) MyCompany. All right reversed.&lt;/b&gt;&quot;);
+
+		}
+
+		var btn = editor.createToolbarDropDown(option, cmd, suffix)
+		return btn;
+	}
+	editor2cfg.toolbar = &quot;mytoolbar&quot;;
+	editor2cfg.toolbar_mytoolbar = &quot;{bold,italic}|{fontname,fontsize}|{forecolor,backcolor}|removeformat|mydropdown&quot;
+		+ &quot;#{undo,redo,fullscreenenter,fullscreenexit,togglemore}&quot;;
+	editor2cfg.subtoolbar_mymenu = &#39;inserttable,insertimage,insertcode&#39;;
+
+	var editor2 = new RichTextEditor(&quot;#div_editor2&quot;, editor2cfg);
+&lt;/script&gt;</pre>
+
+	</div>
+
+	</div>
+	<script src="res/patch.js"></script>
+</body>
+</html>

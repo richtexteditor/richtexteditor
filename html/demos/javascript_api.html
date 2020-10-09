@@ -1,0 +1,404 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" style="display:flex;height:100%;flex-direction:column;">
+<head>
+	<meta charset="utf-8" />
+	<title>JavaScript API</title>
+	<base href='../' />
+	<link rel="stylesheet" href="res/style.css" />
+</head>
+<body style="padding-bottom:3px;align-items:center">
+	<div class="topbanner">
+		<div style="align-self:stretch;width:960px;display:flex; flex-direction: row;">
+			<div style="flex:99999">
+				<label>RichTextEditor Demo</label>
+			</div>
+			<div>
+				<a target="_blank" href="https://richtexteditor.com/">Home</a>
+				&nbsp;
+				<a target="_blank" href="https://richtexteditor.com/pricing.aspx">Pricing</a>
+			</div>
+		</div>
+	</div>
+	<div style="margin:auto;padding:12px 6px 36px;max-width:960px;">
+		
+	<style>
+		.buttons button {
+			margin: 5px;
+		}
+	</style>
+
+	<h2>JavaScript API</h2>
+	<p class="mb-4">
+		This example shows you how to use RichTextEditor JavaScript API to customize the application.
+	</p>
+	<div class="hs-docs-content-divider">
+		
+
+		<link rel="stylesheet" href="richtexteditor/rte_theme_default.css" />
+		<script type="text/javascript" src="richtexteditor/rte.js"></script>
+<script>RTE_DefaultConfig.url_base='richtexteditor'</script>
+		<script type="text/javascript" src='richtexteditor/plugins/all_plugins.js'></script>
+
+		<div id="div_editor1" style="height: 260px"></div>
+		<script>
+			var editor1cfg = {}
+			var editor1 = new RichTextEditor("#div_editor1", editor1cfg);
+			editor1.setHTMLCode("<p>Hello World</p>")
+		</script>
+		<br />
+		<p>
+			<button class='btn btn-primary' onclick="event.preventDefault();Do_GetText();return false;">Get Text</button>
+			<button class='btn btn-primary' onclick="event.preventDefault();Do_GetHTML();return false;">Get HTML</button>
+			<button class='btn btn-primary' onclick="event.preventDefault();Do_SetHTML();return false;">Set HTML</button>
+			<button class='btn btn-primary' onclick="event.preventDefault();Do_SetText();return false;">Set Text</button>
+		</p>
+		<p>
+			<textarea id="ta1" class="form-control" rows="3"></textarea>
+		</p>
+		<br />
+
+		<div class="buttons">
+
+			<button class='btn btn-soft-primary btn-sm' onclick="Do_Focus()">Focus</button>
+
+			<button class='btn btn-soft-primary btn-sm' onclick="Do_Exec('cut')">Cut</button>
+
+			<button class='btn btn-soft-primary btn-sm' onclick="Do_Exec('copy')">Copy</button>
+
+			<button class='btn btn-soft-primary btn-sm' onclick="Do_Delete()">Delete</button>
+
+
+			<button class='btn btn-soft-primary btn-sm' onclick="Do_InsertText()">Insert Text</button>
+
+			<button class='btn btn-soft-primary btn-sm' onclick="Do_InsertHTML()">Insert HTML</button>
+
+			<button class='btn btn-soft-primary btn-sm' onclick="Do_Collapse(true)">Collapse Start</button>
+
+			<button class='btn btn-soft-primary btn-sm' onclick="Do_Collapse(false)">Collapse End</button>
+
+			<button class='btn btn-soft-primary btn-sm' onclick="Do_SelectDoc(true)">Select Doc Start</button>
+
+			<button class='btn btn-soft-primary btn-sm' onclick="Do_SelectDoc(false)">Select Doc End</button>
+
+			<button class='btn btn-soft-primary btn-sm' onclick="Do_SelectDoc('all')">Select Doc All</button>
+
+			<button class='btn btn-soft-primary btn-sm' onclick="Do_CreateInsertNode()">CreateNode and Insert</button>
+
+			<button class='btn btn-soft-primary btn-sm' onclick="Do_InsertImage()">Insert Image</button>
+
+			<button class='btn btn-soft-primary btn-sm' onclick="Do_GetSelectionType()">Get Selection Type</button>
+
+			<hr />
+			<button class='btn btn-soft-primary btn-sm' onclick="Do_InsertImageAsNewParagraph()">Insert Centered Image</button>
+
+			<button class='btn btn-soft-primary btn-sm' onclick="Do_toggleSubToolbar()">toggleSubToolbar</button>
+
+
+
+		</div>
+
+
+		<script type="text/javascript">
+
+			function Do_GetText() {
+				ta1.value = editor1.getPlainText();
+				editor1.focus();
+			}
+			function Do_GetHTML() {
+				ta1.value = editor1.getHTMLCode();
+				editor1.focus();
+			}
+			function Do_SetHTML() {
+				editor1.setHTMLCode(ta1.value);
+				editor1.focus();
+			}
+			function Do_SetText() {
+				editor1.setPlainText(ta1.value);
+				editor1.focus();
+			}
+
+			document.onclick = function (event) {
+				if (event.target.nodeName == 'BUTTON')
+					event.preventDefault();
+			}
+
+			function Do_Focus() {
+				editor1.focus();
+			}
+
+			function Do_Exec(name, val) {
+				editor1.execCommand(name, val)
+				editor1.focus();
+			}
+
+			function Do_Delete() {
+				editor1.delete();
+				editor1.focus();
+			}
+
+			function Do_InsertText() {
+				editor1.insertText("hello world");
+				editor1.focus();
+			}
+
+			function Do_InsertHTML() {
+				editor1.insertHTML("hello <b>world</b> !!");
+				editor1.focus();
+			}
+
+			function Do_Collapse(bstart) {
+				editor1.collapse(bstart);
+				editor1.focus();
+			}
+
+			function Do_SelectDoc(type) {
+				editor1.selectDoc(type);
+				editor1.focus();
+			}
+
+			function Do_CreateInsertNode() {
+				var df = editor1.insertByTagName("table");
+				df.style.cssText = "width:300px;margin:15px;border:solid 1px gray;background-color:wheat;border-collapse:collapse";
+				df.innerHTML = "<tr><td></td></tr><tr><td>hello <b>world</b> !!</td></tr>"
+				editor1.focus();
+			}
+
+			function Do_InsertImage() {
+				var img = editor1.insertByTagName("img");
+				img.style.cssText = "display:inline-block;margin:15px;padding:15px;border:solid 1px gray;background-color:wheat;max-width:200px";
+				img.src = "/assets/img/160x160/img27.png";
+				editor1.selectControl(img);
+				editor1.focus();
+			}
+
+			function Do_GetSelectionType() {
+				var ctrl = editor1.getSelectedControl();
+				if (ctrl != null) {
+					alert("control");
+					return;
+				}
+				var text = editor1.getSelectedText();
+				if (text != null) {
+					alert("text");
+					return;
+				}
+				alert("none");
+			}
+
+			function Do_InsertImageAsNewParagraph() {
+				var rp = editor1.insertRootParagraph();
+				rp.style.cssText = "text-align:center;"
+				var img = rp.ownerDocument.createElement("img");
+				img.style.cssText = "display:inline-block;margin:15px;padding:15px;border:solid 1px gray;background-color:wheat;max-width:200px";
+				rp.appendChild(img);
+				img.src = "/assets/img/160x160/img27.png";
+				editor1.selectControl(img);
+				editor1.focus();
+			}
+
+			function Do_toggleSubToolbar() {
+				editor1.__toggleSubToolbar("more");
+				editor1.focus();
+			}
+
+			editor1.getEditable().ownerDocument.addEventListener("selectionchange", function (event) {
+				//console.log(event);
+				//console.log(document.getSelection())
+			})
+
+		</script>
+
+		
+
+
+
+	</div>
+
+	<div class="hs-docs-content-divider">
+
+		<h3>Demo Code:</h3>
+		<pre class="editordemocode rounded language-html">&lt;link rel=&quot;stylesheet&quot; href=&quot;/richtexteditor/rte_theme_default.css&quot; /&gt;
+&lt;script type=&quot;text/javascript&quot; src=&quot;/richtexteditor/rte.js&quot;&gt;&lt;/script&gt;
+&lt;script type=&quot;text/javascript&quot; src=&#39;/richtexteditor/plugins/all_plugins.js&#39;&gt;&lt;/script&gt;
+
+&lt;div id=&quot;div_editor1&quot; style=&quot;height: 260px&quot;&gt;&lt;/div&gt;
+&lt;script&gt;
+	var editor1cfg = {}
+	var editor1 = new RichTextEditor(&quot;#div_editor1&quot;, editor1cfg);
+	editor1.setHTMLCode(&quot;&lt;p&gt;Hello World&lt;/p&gt;&quot;)
+&lt;/script&gt;
+&lt;br /&gt;
+&lt;p&gt;
+	&lt;button class=&#39;btn btn-primary&#39; onclick=&quot;event.preventDefault();Do_GetText();return false;&quot;&gt;Get Text&lt;/button&gt;
+	&lt;button class=&#39;btn btn-primary&#39; onclick=&quot;event.preventDefault();Do_GetHTML();return false;&quot;&gt;Get HTML&lt;/button&gt;
+	&lt;button class=&#39;btn btn-primary&#39; onclick=&quot;event.preventDefault();Do_SetHTML();return false;&quot;&gt;Set HTML&lt;/button&gt;
+	&lt;button class=&#39;btn btn-primary&#39; onclick=&quot;event.preventDefault();Do_SetText();return false;&quot;&gt;Set Text&lt;/button&gt;
+&lt;/p&gt;
+&lt;p&gt;
+	&lt;textarea id=&quot;ta1&quot; class=&quot;form-control&quot; rows=&quot;3&quot;&gt;&lt;/textarea&gt;
+&lt;/p&gt;
+&lt;br /&gt;
+
+&lt;div class=&quot;buttons&quot;&gt;
+
+	&lt;button class=&#39;btn btn-soft-primary btn-sm&#39; onclick=&quot;Do_Focus()&quot;&gt;Focus&lt;/button&gt;
+
+	&lt;button class=&#39;btn btn-soft-primary btn-sm&#39; onclick=&quot;Do_Exec(&#39;cut&#39;)&quot;&gt;Cut&lt;/button&gt;
+
+	&lt;button class=&#39;btn btn-soft-primary btn-sm&#39; onclick=&quot;Do_Exec(&#39;copy&#39;)&quot;&gt;Copy&lt;/button&gt;
+
+	&lt;button class=&#39;btn btn-soft-primary btn-sm&#39; onclick=&quot;Do_Delete()&quot;&gt;Delete&lt;/button&gt;
+
+	&lt;button class=&#39;btn btn-soft-primary btn-sm&#39; onclick=&quot;Do_InsertText()&quot;&gt;Insert Text&lt;/button&gt;
+
+	&lt;button class=&#39;btn btn-soft-primary btn-sm&#39; onclick=&quot;Do_InsertHTML()&quot;&gt;Insert HTML&lt;/button&gt;
+
+	&lt;button class=&#39;btn btn-soft-primary btn-sm&#39; onclick=&quot;Do_Collapse(true)&quot;&gt;Collapse Start&lt;/button&gt;
+
+	&lt;button class=&#39;btn btn-soft-primary btn-sm&#39; onclick=&quot;Do_Collapse(false)&quot;&gt;Collapse End&lt;/button&gt;
+
+	&lt;button class=&#39;btn btn-soft-primary btn-sm&#39; onclick=&quot;Do_SelectDoc(true)&quot;&gt;Select Doc Start&lt;/button&gt;
+
+	&lt;button class=&#39;btn btn-soft-primary btn-sm&#39; onclick=&quot;Do_SelectDoc(false)&quot;&gt;Select Doc End&lt;/button&gt;
+
+	&lt;button class=&#39;btn btn-soft-primary btn-sm&#39; onclick=&quot;Do_SelectDoc(&#39;all&#39;)&quot;&gt;Select Doc All&lt;/button&gt;
+
+	&lt;button class=&#39;btn btn-soft-primary btn-sm&#39; onclick=&quot;Do_CreateInsertNode()&quot;&gt;CreateNode and Insert&lt;/button&gt;
+
+	&lt;button class=&#39;btn btn-soft-primary btn-sm&#39; onclick=&quot;Do_InsertImage()&quot;&gt;Insert Image&lt;/button&gt;
+
+	&lt;button class=&#39;btn btn-soft-primary btn-sm&#39; onclick=&quot;Do_GetSelectionType()&quot;&gt;Get Selection Type&lt;/button&gt;
+
+	&lt;hr /&gt;
+	&lt;button class=&#39;btn btn-soft-primary btn-sm&#39; onclick=&quot;Do_InsertImageAsNewParagraph()&quot;&gt;Insert Centered Image&lt;/button&gt;
+
+	&lt;button class=&#39;btn btn-soft-primary btn-sm&#39; onclick=&quot;Do_toggleSubToolbar()&quot;&gt;toggleSubToolbar&lt;/button&gt;
+
+&lt;/div&gt;
+
+&lt;script type=&quot;text/javascript&quot;&gt;
+
+	function Do_GetText() {
+		ta1.value = editor1.getPlainText();
+		editor1.focus();
+	}
+	function Do_GetHTML() {
+		ta1.value = editor1.getHTMLCode();
+		editor1.focus();
+	}
+	function Do_SetHTML() {
+		editor1.setHTMLCode(ta1.value);
+		editor1.focus();
+	}
+	function Do_SetText() {
+		editor1.setPlainText(ta1.value);
+		editor1.focus();
+	}
+
+	document.onclick = function (event) {
+		if (event.target.nodeName == &#39;BUTTON&#39;)
+			event.preventDefault();
+	}
+
+	function Do_Focus() {
+		editor1.focus();
+	}
+
+	function Do_Exec(name, val) {
+		editor1.execCommand(name, val)
+		editor1.focus();
+	}
+
+	function Do_Delete() {
+		editor1.delete();
+		editor1.focus();
+	}
+
+	function Do_InsertText() {
+		editor1.insertText(&quot;hello world&quot;);
+		editor1.focus();
+	}
+
+	function Do_InsertHTML() {
+		editor1.insertHTML(&quot;hello &lt;b&gt;world&lt;/b&gt; !!&quot;);
+		editor1.focus();
+	}
+
+	function Do_Collapse(bstart) {
+		editor1.collapse(bstart);
+		editor1.focus();
+	}
+
+	function Do_SelectDoc(type) {
+		editor1.selectDoc(type);
+		editor1.focus();
+	}
+
+	function Do_CreateInsertNode() {
+		var df = editor1.insertByTagName(&quot;table&quot;);
+		df.style.cssText = &quot;width:300px;margin:15px;border:solid 1px gray;background-color:wheat;border-collapse:collapse&quot;;
+		df.innerHTML = &quot;&lt;tr&gt;&lt;td&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;hello &lt;b&gt;world&lt;/b&gt; !!&lt;/td&gt;&lt;/tr&gt;&quot;
+		editor1.focus();
+	}
+
+	function Do_InsertImage() {
+		var img = editor1.insertByTagName(&quot;img&quot;);
+		img.style.cssText = &quot;display:inline-block;margin:15px;padding:15px;border:solid 1px gray;background-color:wheat;max-width:200px&quot;;
+		img.src = &quot;/assets/img/160x160/img27.png&quot;;
+		editor1.selectControl(img);
+		editor1.focus();
+	}
+
+	function Do_GetSelectionType() {
+		var ctrl = editor1.getSelectedControl();
+		if (ctrl != null) {
+			alert(&quot;control&quot;);
+			return;
+		}
+		var text = editor1.getSelectedText();
+		if (text != null) {
+			alert(&quot;text&quot;);
+			return;
+		}
+		alert(&quot;none&quot;);
+	}
+
+	function Do_InsertImageAsNewParagraph() {
+		var rp = editor1.insertRootParagraph();
+		rp.style.cssText = &quot;text-align:center;&quot;
+		var img = rp.ownerDocument.createElement(&quot;img&quot;);
+		img.style.cssText = &quot;display:inline-block;margin:15px;padding:15px;border:solid 1px gray;background-color:wheat;max-width:200px&quot;;
+		rp.appendChild(img);
+		img.src = &quot;/assets/img/160x160/img27.png&quot;;
+		editor1.selectControl(img);
+		editor1.focus();
+	}
+
+	function Do_toggleSubToolbar() {
+		editor1.__toggleSubToolbar(&quot;more&quot;);
+		editor1.focus();
+	}
+
+	editor1.getEditable().ownerDocument.addEventListener(&quot;selectionchange&quot;, function (event) {
+		//console.log(event);
+		//console.log(document.getSelection())
+	})
+
+&lt;/script&gt;</pre>
+
+	</div>
+
+
+
+	<div class="hs-docs-content-divider relative-links">
+		<h3 class="relative-links">Relative Links</h3>
+		<ul class="relative-links">
+			<li><a href="docs/cmd_allcommands.html">Use JavaScript API</a></li>
+		</ul>
+	</div>
+
+	</div>
+	<script src="res/patch.js"></script>
+</body>
+</html>

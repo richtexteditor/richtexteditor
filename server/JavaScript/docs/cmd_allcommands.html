@@ -1,0 +1,220 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" style="display:flex;height:100%;flex-direction:column;">
+<head>
+	<meta charset="utf-8" />
+	<title>All Commands</title>
+	<base href='../' />
+	<link rel="stylesheet" href="res/style.css" />
+</head>
+<body style="padding-bottom:3px;align-items:center">
+	<div class="topbanner">
+		<div style="align-self:stretch;width:960px;display:flex; flex-direction: row;">
+			<div style="flex:99999">
+				<label>RichTextEditor Demo</label>
+			</div>
+			<div>
+				<a target="_blank" href="https://richtexteditor.com/">Home</a>
+				&nbsp;
+				<a target="_blank" href="https://richtexteditor.com/pricing.aspx">Pricing</a>
+			</div>
+		</div>
+	</div>
+	<div style="margin:auto;padding:12px 6px 36px;max-width:960px;">
+		
+	<h2 class="mb-4">editor.execCommand()</h2>
+	<p class="mb-4">Editor object exposes an execCommand method to run commands that manipulate the current editable region.</p>
+    <div class="hs-docs-content-divider">
+        <h4>Syntax</h4>
+        <p>
+            <code class="highlighter-rouge">editor.execCommand(<em>command</em>,<em>optionalValue</em>)</code>
+        </p>
+		<h6>command</h6>
+		<p><code class="highlighter-rouge">Specifies the name of the command to execute on the selected section.</code></p>
+		<h6>value</h6>
+		<p><code class="highlighter-rouge">Some commands need a value to be completed.</code></p>
+    </div>
+
+	
+
+
+
+	<div class="hs-docs-content-divider">
+		
+		<table class="table table-bordered table-striped">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+			<tbody>
+			<tr>
+				<td>bold</td>
+				<td>Toggles bold on/off for the selection or at the insertion point.</td>
+			</tr>
+			<tr>
+				<td>italic</td>
+				<td>Toggles italics on/off for the selection or at the insertion point.</td>
+			</tr>
+			<tr>
+				<td>underline</td>
+				<td>Toggles underline on/off for the selection or at the insertion point.</td>
+			</tr>
+
+			<tr>
+				<td>strike</td>
+				<td>Toggles strikethrough on/off for the selection or at the insertion point.</td>
+			</tr>
+			<tr>
+				<td>fontname</td>
+				<td>Changes the font name for the selection or at the insertion point. This requires a font name string (like "Arial") as a value argument.</td>
+			</tr>
+			<tr>
+				<td>fontsize</td>
+				<td>Changes the font size for the selection or at the insertion point. This requires an integer as a value argument.</td>
+			</tr>
+			<tr>
+				<td>forecolor</td>
+				<td>Changes a font color for the selection or at the insertion point. This requires a hexadecimal color value string as a value argument.</td>
+			</tr>
+			<tr>
+				<td>backcolor</td>
+				<td>Changes the document background color. It affects the background color of the containing block instead. This requires a color value string to be passed in as a value argument. </td>
+			</tr>
+			<tr>
+				<td>superscript</td>
+				<td>Toggles superscript on/off for the selection or at the insertion point.</td>
+			</tr>
+			<tr>
+				<td>subscript</td>
+				<td>Toggles subscript on/off for the selection or at the insertion point.</td>
+			</tr>
+			<tr>
+				<td>removeformat</td>
+				<td>Removes all formatting from the current selection.</td>
+			</tr>
+			<tr>
+				<td>justifyleft</td>
+				<td>Justifies the selection or insertion point to the left.</td>
+			</tr>
+			<tr>
+				<td>justifycenter</td>
+				<td>Centers the selection or insertion point.</td>
+			</tr>
+			<tr>
+				<td>justifyright</td>
+				<td>Right-justifies the selection or the insertion point.</td>
+			</tr>
+			<tr>
+				<td>justifyfull</td>
+				<td>Justifies the selection or insertion point.</td>
+			</tr>
+			<tr>
+				<td>indent</td>
+				<td>Indents the line containing the selection or insertion point. </td>
+			</tr>
+			<tr>
+				<td>outdent</td>
+				<td>Outdents the line containing the selection or insertion point.</td>
+			</tr>
+			<tr>
+				<td>insertblockquote</td>
+				<td>Creates a blockquote for the selection or at the insertion point.</td>
+			</tr>
+			<tr>
+				<td>insertorderedlist</td>
+				<td>Creates a numbered ordered list for the selection or at the insertion point.</td>
+			</tr>
+			<tr>
+				<td>insertunorderedlist</td>
+				<td>Creates a bulleted unordered list for the selection or at the insertion point.</td>
+			</tr>
+			<tr>
+				<td>inserthorizontalrule</td>
+				<td>Inserts a &lt;hr/&gt; element at the insertion point, or replaces the selection with it.</td>
+			</tr>
+			<tr>
+				<td>insertdate</td>
+				<td>Inserts the current date and time at the insertion point.</td>
+			</tr>
+			<tr>
+				<td>code</td>
+				<td>Switchs to Source Code Mode to edit the HTML Directly.</td>
+			</tr>
+			<tr>
+				<td>fullscreenenter</td>
+				<td>Makes the Rich Text Editor enter full-screen mode.</td>
+			</tr>
+			<tr>
+				<td>fullscreenexit</td>
+				<td>Makes the Rich Text Editor exit full-screen mode.</td>
+			</tr>
+			<tr>
+				<td>selectall</td>
+				<td>Selects all of the content of the editable region.</td>
+			</tr>
+			<tr>
+				<td>newdoc</td>
+				<td>Creates a new document.</td>
+			</tr>
+			<tr>
+				<td>save</td>
+				<td>Saves the active content in the editor's content area.</td>
+			</tr>
+			<tr>
+				<td>undo</td>
+				<td>Undoes the last executed command.</td>
+			</tr>
+			<tr>
+				<td>redo</td>
+				<td>Redoes the previous undo command.</td>
+			</tr>
+			<tr>
+				<td>insertlink</td>
+				<td>Adds a link to the selection.</td>
+			</tr>
+			<tr>
+				<td>insertchars</td>
+				<td>Inserts a special character from a predefined list.</td>
+			</tr>
+			<tr>
+				<td>inserttable</td>
+				<td>Inserts a table into your document.</td>
+			</tr>
+			<tr>
+				<td>insertimage</td>
+				<td>Inserts an image at the selected position in the editor and allows you to set it's properties.</td>
+			</tr>
+			<tr>
+				<td>insertvideo</td>
+				<td>Inserts a video at the selected position.</td>
+			</tr>
+			<tr>
+				<td>insertcode</td>
+				<td>Allows you to easily post syntax highlighted code.</td>
+			</tr>
+			<tr>
+				<td>html2pdf</td>
+				<td>Saves the active content in the editor's content area to a PDF file.</td>
+			</tr>
+			<tr>
+				<td>print</td>
+				<td>Prints the current page.</td>
+			</tr>
+			<tr>
+				<td>preview</td>
+				<td>Peviews the current page.</td>
+			</tr>
+			<tr>
+				<td>find</td>
+				<td>Finds and allows replacements of text in the editor's content area.</td>
+			</tr>
+			</tbody>
+		</table>
+	</div>
+
+	</div>
+	<script src="res/patch.js"></script>
+</body>
+</html>

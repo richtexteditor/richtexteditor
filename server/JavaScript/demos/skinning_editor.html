@@ -1,0 +1,177 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" style="display:flex;height:100%;flex-direction:column;">
+<head>
+	<meta charset="utf-8" />
+	<title>Skinning RichTextEditor</title>
+	<base href='../' />
+	<link rel="stylesheet" href="res/style.css" />
+</head>
+<body style="padding-bottom:3px;align-items:center">
+	<div class="topbanner">
+		<div style="align-self:stretch;width:960px;display:flex; flex-direction: row;">
+			<div style="flex:99999">
+				<label>RichTextEditor Demo</label>
+			</div>
+			<div>
+				<a target="_blank" href="https://richtexteditor.com/">Home</a>
+				&nbsp;
+				<a target="_blank" href="https://richtexteditor.com/pricing.aspx">Pricing</a>
+			</div>
+		</div>
+	</div>
+	<div style="margin:auto;padding:12px 6px 36px;max-width:960px;">
+		
+	<h2>Skinning Editor</h2>
+	<p class="mb-4">
+		RichTextEditor skinning is done via CSS (rte_theme_default.css). Rich Text Editor provides several built-in skins that are ready to use. You can choose from several predefined skins or create your own.
+	</p>
+	<div class="hs-docs-content-divider">
+		
+
+		<link rel="stylesheet" href="richtexteditor/rte_theme_default.css" />
+		<script type="text/javascript" src="richtexteditor/rte.js"></script>
+<script>RTE_DefaultConfig.url_base='richtexteditor'</script>
+		<script type="text/javascript" src='richtexteditor/plugins/all_plugins.js'></script>
+
+		<div id="div_editor1">
+			<p>​​​​​​​Rounded Corner Theme</p>
+		</div>
+
+		<script>
+			var editor1 = new RichTextEditor("#div_editor1", { skin: "rounded-corner", toolbar: "basic" });
+		</script>
+		<br />
+		<br />
+
+		<div id="div_editor2">
+			<p>​​​​​​​Gray Theme</p>
+		</div>
+
+		<script>
+			var editor2 = new RichTextEditor("#div_editor2", { skin: "gray", toolbar: "basic" });
+		</script>
+		<br />
+		<br />
+
+		<div id="div_editor3">
+			<p>​​​​​​​Blue Theme</p>
+		</div>
+
+		<script>
+			var editor3 = new RichTextEditor(document.getElementById("div_editor3"), { skin: "blue", toolbar: "basic" });
+		</script>
+		<br />
+		<br />
+
+		<style>
+			.purple_editor {
+				background-color: #b19cd9 !important;
+				border-color: #8470a8 !important;
+			}
+
+				.purple_editor rte-toolbar {
+					background-color: #b19cd9 !important;
+				}
+
+				.purple_editor rte-bottom {
+					background-color: #b19cd9 !important;
+				}
+
+				.purple_editor rte-dialog-inner {
+					background-color: #b19cd9 !important;
+				}
+
+				.purple_editor rte-line-spliter {
+					background-color: #b19cd9 !important;
+				}
+
+				.purple_editor rte-dialog-header {
+				}
+		</style>
+		<div id="div_editor4" class="richtexteditor purple_editor">
+			<p>Create a purple theme using css</p>
+		</div>
+		<script>
+			var editor4 = new RichTextEditor(document.getElementById("div_editor4"), { toolbar: "basic" });
+		</script>
+
+
+		
+
+		<br />
+		<br />
+	</div>
+	<div class="hs-docs-content-divider">
+		<h3>Demo Code:</h3>
+		<pre class="editordemocode rounded language-html">&lt;link rel=&quot;stylesheet&quot; href=&quot;/richtexteditor/rte_theme_default.css&quot; /&gt;
+&lt;script type=&quot;text/javascript&quot; src=&quot;/richtexteditor/rte.js&quot;&gt;&lt;/script&gt;
+&lt;script type=&quot;text/javascript&quot; src=&#39;/richtexteditor/plugins/all_plugins.js&#39;&gt;&lt;/script&gt;
+
+&lt;div id=&quot;div_editor1&quot;&gt;
+	&lt;p&gt;​​​​​​​Rounded Corner Theme&lt;/p&gt;
+&lt;/div&gt;
+
+&lt;script&gt;
+	var editor1 = new RichTextEditor(&quot;#div_editor1&quot;, { skin: &quot;rounded-corner&quot;, toolbar: &quot;basic&quot; });
+&lt;/script&gt;
+&lt;br /&gt;
+&lt;br /&gt;
+
+&lt;div id=&quot;div_editor2&quot;&gt;
+	&lt;p&gt;​​​​​​​Gray Theme&lt;/p&gt;
+&lt;/div&gt;
+
+&lt;script&gt;
+	var editor2 = new RichTextEditor(&quot;#div_editor2&quot;, { skin: &quot;gray&quot;, toolbar: &quot;basic&quot; });
+&lt;/script&gt;
+&lt;br /&gt;
+&lt;br /&gt;
+
+&lt;div id=&quot;div_editor3&quot;&gt;
+	&lt;p&gt;​​​​​​​Blue Theme&lt;/p&gt;
+&lt;/div&gt;
+
+&lt;script&gt;
+	var editor3 = new RichTextEditor(document.getElementById(&quot;div_editor3&quot;), { skin: &quot;blue&quot;, toolbar: &quot;basic&quot; });
+&lt;/script&gt;
+&lt;br /&gt;
+&lt;br /&gt;
+
+&lt;style&gt;
+	.purple_editor {
+		background-color: #b19cd9 !important;
+		border-color: #8470a8 !important;
+	}
+
+		.purple_editor rte-toolbar {
+			background-color: #b19cd9 !important;
+		}
+
+		.purple_editor rte-bottom {
+			background-color: #b19cd9 !important;
+		}
+
+		.purple_editor rte-dialog-inner {
+			background-color: #b19cd9 !important;
+		}
+
+		.purple_editor rte-line-spliter {
+			background-color: #b19cd9 !important;
+		}
+
+		.purple_editor rte-dialog-header {
+		}
+&lt;/style&gt;
+&lt;div id=&quot;div_editor4&quot; class=&quot;richtexteditor purple_editor&quot;&gt;
+	&lt;p&gt;Create a purple theme using css&lt;/p&gt;
+&lt;/div&gt;
+&lt;script&gt;
+	var editor4 = new RichTextEditor(document.getElementById(&quot;div_editor4&quot;), { toolbar: &quot;basic&quot; });
+&lt;/script&gt;</pre>
+	</div>
+
+	</div>
+	<script src="res/patch.js"></script>
+</body>
+</html>

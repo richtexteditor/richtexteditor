@@ -1,0 +1,181 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" style="display:flex;height:100%;flex-direction:column;">
+<head>
+	<meta charset="utf-8" />
+	<title>Custom Dialog</title>
+	<base href='../' />
+	<link rel="stylesheet" href="res/style.css" />
+</head>
+<body style="padding-bottom:3px;align-items:center">
+	<div class="topbanner">
+		<div style="align-self:stretch;width:960px;display:flex; flex-direction: row;">
+			<div style="flex:99999">
+				<label>RichTextEditor Demo</label>
+			</div>
+			<div>
+				<a target="_blank" href="https://richtexteditor.com/">Home</a>
+				&nbsp;
+				<a target="_blank" href="https://richtexteditor.com/pricing.aspx">Pricing</a>
+			</div>
+		</div>
+	</div>
+	<div style="margin:auto;padding:12px 6px 36px;max-width:960px;">
+		
+	<h3>Add custom dialog</h3>
+	<p class="mb-4">
+		Rich Text Editor allows you extend the functions of the editor. You can create new custom dialogs and add them to the editor's toolbar list.
+	</p>
+	<div class="hs-docs-content-divider">
+		
+
+		<link rel="stylesheet" href="richtexteditor/rte_theme_default.css" />
+		<script type="text/javascript" src="richtexteditor/rte.js"></script>
+<script>RTE_DefaultConfig.url_base='richtexteditor'</script>
+		<script type="text/javascript" src='richtexteditor/plugins/all_plugins.js'></script>
+
+
+		<div id="div_editor1">
+			<p>This example demonstrates how to create a custom dialog.</p>
+		</div>
+
+		<script>
+			var editor1cfg = {}
+			editor1cfg.svgCode_mydialog_a = '<svg viewBox="-2 -2 20 20" fill="#5F6368" style="width: 100%; height: 100%;"><path fill-rule="evenodd" d="M8 0a1 1 0 0 1 1 1v5.268l4.562-2.634a1 1 0 1 1 1 1.732L10 8l4.562 2.634a1 1 0 1 1-1 1.732L9 9.732V15a1 1 0 1 1-2 0V9.732l-4.562 2.634a1 1 0 1 1-1-1.732L6 8 1.438 5.366a1 1 0 0 1 1-1.732L7 6.268V1a1 1 0 0 1 1-1z" clip-rule="evenodd"></path></svg>';
+			editor1cfg.toolbar = "mytoolbar";
+			editor1cfg.toolbar_mytoolbar = "{bold,italic}|{fontname,fontsize}|{forecolor,backcolor}|removeformat|mydialog_a"
+				+ "#{undo,redo,fullscreenenter,fullscreenexit,togglemore}";
+			var editor1 = new RichTextEditor("#div_editor1", editor1cfg);
+
+
+			editor1.attachEvent("exec_command_mydialog_a", function (state, cmd, value) {
+				state.returnValue = true;//set it has been handled
+				console.log("my button clicked");
+
+				var editor = this;
+
+				var dialoginner = editor.createDialog("Insert Paragraph", "rte-dialog-insertcode");
+
+				var div1 = __Append(dialoginner, "div", "position:relative;text-align:center;");
+				var textarea = __Append(div1, "textarea", "width:300px;height:200px")
+
+				var divfooter = __Append(dialoginner, "rte-dialog-footer", null, "rte-dialog-footer-center");
+
+				var btn = __Append(divfooter, "rte-dialog-button")
+				btn.innerText = "Insert";
+
+				setTimeout(function () {
+					textarea.focus();
+				}, 300);
+
+				btn.onclick = function () {
+					if (!textarea.value.trim())
+						return;
+
+					dialoginner.close();
+
+					editor.selectDoc(false);
+
+					var p = editor.insertRootParagraph()
+					var ctag = __Append(p, "p");
+					ctag.style.cssText = 'margin:12px;padding:12px;border:dashed 1px gray;';
+					ctag.innerText = textarea.value;
+					editor.focus();
+
+					editor.selectDoc(false);
+				}
+
+			});
+
+			function __Append(parent, tagname, csstext, cssclass) {
+				var tag = parent.ownerDocument.createElement(tagname);
+				if (csstext) tag.style.cssText = csstext;
+				if (cssclass) tag.className = cssclass;
+				parent.appendChild(tag);
+				return tag;
+			}
+		</script>
+
+		
+	</div>
+	<div class="hs-docs-content-divider">
+
+		<h3>Demo Code:</h3>
+		<pre class="editordemocode rounded language-html">&lt;link rel=&quot;stylesheet&quot; href=&quot;/richtexteditor/rte_theme_default.css&quot; /&gt;
+&lt;script type=&quot;text/javascript&quot; src=&quot;/richtexteditor/rte.js&quot;&gt;&lt;/script&gt;
+&lt;script type=&quot;text/javascript&quot; src=&#39;/richtexteditor/plugins/all_plugins.js&#39;&gt;&lt;/script&gt;
+
+&lt;div id=&quot;div_editor1&quot;&gt;
+	&lt;p&gt;This example demonstrates how to create a custom dialog.&lt;/p&gt;
+&lt;/div&gt;
+
+&lt;script&gt;
+	var editor1cfg = {}
+	editor1cfg.svgCode_mydialog_a = &#39;&lt;svg viewBox=&quot;-2 -2 20 20&quot; fill=&quot;#5F6368&quot; style=&quot;width: 100%; height: 100%;&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M8 0a1 1 0 0 1 1 1v5.268l4.562-2.634a1 1 0 1 1 1 1.732L10 8l4.562 2.634a1 1 0 1 1-1 1.732L9 9.732V15a1 1 0 1 1-2 0V9.732l-4.562 2.634a1 1 0 1 1-1-1.732L6 8 1.438 5.366a1 1 0 0 1 1-1.732L7 6.268V1a1 1 0 0 1 1-1z&quot; clip-rule=&quot;evenodd&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&#39;;
+	editor1cfg.toolbar = &quot;mytoolbar&quot;;
+	editor1cfg.toolbar_mytoolbar = &quot;{bold,italic}|{fontname,fontsize}|{forecolor,backcolor}|removeformat|mydialog_a&quot;
+		+ &quot;#{undo,redo,fullscreenenter,fullscreenexit,togglemore}&quot;;
+	var editor1 = new RichTextEditor(&quot;#div_editor1&quot;, editor1cfg);
+
+	editor1.attachEvent(&quot;exec_command_mydialog_a&quot;, function (state, cmd, value) {
+		state.returnValue = true;//set it has been handled
+		console.log(&quot;my button clicked&quot;);
+
+		var editor = this;
+
+		var dialoginner = editor.createDialog(&quot;Insert Paragraph&quot;, &quot;rte-dialog-insertcode&quot;);
+
+		var div1 = __Append(dialoginner, &quot;div&quot;, &quot;position:relative;text-align:center;&quot;);
+		var textarea = __Append(div1, &quot;textarea&quot;, &quot;width:300px;height:200px&quot;)
+
+		var divfooter = __Append(dialoginner, &quot;rte-dialog-footer&quot;, null, &quot;rte-dialog-footer-center&quot;);
+
+		var btn = __Append(divfooter, &quot;rte-dialog-button&quot;)
+		btn.innerText = &quot;Insert&quot;;
+
+		setTimeout(function () {
+			textarea.focus();
+		}, 300);
+
+		btn.onclick = function () {
+			if (!textarea.value.trim())
+				return;
+
+			dialoginner.close();
+
+			editor.selectDoc(false);
+
+			var p = editor.insertRootParagraph()
+			var ctag = __Append(p, &quot;p&quot;);
+			ctag.style.cssText = &#39;margin:12px;padding:12px;border:dashed 1px gray;&#39;;
+			ctag.innerText = textarea.value;
+			editor.focus();
+
+			editor.selectDoc(false);
+		}
+
+	});
+
+	function __Append(parent, tagname, csstext, cssclass) {
+		var tag = parent.ownerDocument.createElement(tagname);
+		if (csstext) tag.style.cssText = csstext;
+		if (cssclass) tag.className = cssclass;
+		parent.appendChild(tag);
+		return tag;
+	}
+&lt;/script&gt;</pre>
+
+	</div>
+	<div class="hs-docs-content-divider relative-links">
+		<h3 class="relative-links">Relative Links</h3>
+		<ul class="relative-links">
+			<li><a href="docs/cmd_allcommands.html">Use JavaScript API</a></li>
+			<li><a href="docs/jsapi_attachEvent.html">attachEvent</a></li>
+			<li><a href="docs/jsapi_createDialog.html">createDialog</a></li>
+		</ul>
+	</div>
+
+	</div>
+	<script src="res/patch.js"></script>
+</body>
+</html>

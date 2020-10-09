@@ -1,0 +1,164 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" style="display:flex;height:100%;flex-direction:column;">
+<head>
+	<meta charset="utf-8" />
+	<title>Custom Button</title>
+	<base href='../' />
+	<link rel="stylesheet" href="res/style.css" />
+</head>
+<body style="padding-bottom:3px;align-items:center">
+	<div class="topbanner">
+		<div style="align-self:stretch;width:960px;display:flex; flex-direction: row;">
+			<div style="flex:99999">
+				<label>RichTextEditor Demo</label>
+			</div>
+			<div>
+				<a target="_blank" href="https://richtexteditor.com/">Home</a>
+				&nbsp;
+				<a target="_blank" href="https://richtexteditor.com/pricing.aspx">Pricing</a>
+			</div>
+		</div>
+	</div>
+	<div style="margin:auto;padding:12px 6px 36px;max-width:960px;">
+		
+	<h3>Add custom buttons</h3>
+	<p class="mb-4">
+		Rich Text Editor allows you extend the functions of the editor. You can create new custom buttons and add them to the editor's toolbar list.
+	</p>
+	<div class="hs-docs-content-divider">
+		<link rel="stylesheet" href="richtexteditor/rte_theme_default.css" />
+		<script type="text/javascript" src="richtexteditor/rte.js"></script>
+<script>RTE_DefaultConfig.url_base='richtexteditor'</script>
+		<script type="text/javascript" src='richtexteditor/plugins/all_plugins.js'></script>
+		
+		<div id="div_editor1">
+			<p>This example demonstrates how to create a custom button.</p>
+		</div>
+
+		<script>
+			var editor1cfg = {}
+			editor1cfg.svgCode_mybutton = '<svg viewBox="-2 -2 20 20" fill="#5F6368" style="width: 100%; height: 100%;"><path fill-rule="evenodd" d="M8 0a1 1 0 0 1 1 1v5.268l4.562-2.634a1 1 0 1 1 1 1.732L10 8l4.562 2.634a1 1 0 1 1-1 1.732L9 9.732V15a1 1 0 1 1-2 0V9.732l-4.562 2.634a1 1 0 1 1-1-1.732L6 8 1.438 5.366a1 1 0 0 1 1-1.732L7 6.268V1a1 1 0 0 1 1-1z" clip-rule="evenodd"></path></svg>';
+			editor1cfg.toolbar = "mytoolbar";
+			editor1cfg.toolbar_mytoolbar = "{bold,italic}|{forecolor,backcolor}|removeformat|mybutton"
+				+ "#{undo,redo,fullscreenenter,fullscreenexit,togglemore}";
+			var editor1 = new RichTextEditor("#div_editor1", editor1cfg);
+			editor1.attachEvent("exec_command_mybutton", function (state, cmd, value) {
+				state.returnValue = true;//set it has been handled
+				console.log("my button clicked");
+
+				var p = editor1.insertRootParagraph("p");
+				p.innerHTML = "You clicked mybutton";
+				alert(p.innerHTML);
+			});
+		</script>
+
+
+		
+	</div>
+	<div class="hs-docs-content-divider">
+
+		<h3>Demo Code:</h3>
+		<pre class="editordemocode rounded language-html">&lt;div id=&quot;div_editor1&quot;&gt;
+	&lt;p&gt;This example demonstrates how to create a custom button.&lt;/p&gt;
+&lt;/div&gt;
+
+&lt;script&gt;
+	var editor1cfg = {}
+	editor1cfg.svgCode_mybutton = &#39;&lt;svg viewBox=&quot;-2 -2 20 20&quot; fill=&quot;#5F6368&quot; style=&quot;width: 100%; height: 100%;&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M8 0a1 1 0 0 1 1 1v5.268l4.562-2.634a1 1 0 1 1 1 1.732L10 8l4.562 2.634a1 1 0 1 1-1 1.732L9 9.732V15a1 1 0 1 1-2 0V9.732l-4.562 2.634a1 1 0 1 1-1-1.732L6 8 1.438 5.366a1 1 0 0 1 1-1.732L7 6.268V1a1 1 0 0 1 1-1z&quot; clip-rule=&quot;evenodd&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&#39;;
+	editor1cfg.toolbar = &quot;mytoolbar&quot;;
+	editor1cfg.toolbar_mytoolbar = &quot;{bold,italic}|{forecolor,backcolor}|removeformat|mybutton&quot;
+		+ &quot;#{undo,redo,fullscreenenter,fullscreenexit,togglemore}&quot;;
+	var editor1 = new RichTextEditor(&quot;#div_editor1&quot;, editor1cfg);
+	editor1.attachEvent(&quot;exec_command_mybutton&quot;, function (state, cmd, value) {
+		state.returnValue = true;//set it has been handled
+		console.log(&quot;my button clicked&quot;);
+
+		var p = editor1.insertRootParagraph(&quot;p&quot;);
+		p.innerHTML = &quot;You clicked mybutton&quot;;
+		alert(p.innerHTML);
+	});
+&lt;/script&gt;</pre>
+
+	</div>
+
+
+	<div class="hs-docs-content-divider">
+
+		<p>Added the mybutton_b button - custom style </p>
+
+		
+
+		<div id="div_editor2">
+		</div>
+
+		<script>
+			var editor2cfg = {}
+			//define toolbarfactory_btnname to create your self button
+			editor2cfg.toolbarfactory_mybutton_b = function (cmd, suffix) {
+				var btn = document.createElement("button");
+				btn.innerHTML = "button_b"
+				btn.className = "btn btn-primary";
+				btn.style.cssText = "height:32px;margin:2px;padding:0px 5px";
+				btn.onclick = function () {
+					console.log("my button clicked");
+					var p = editor2.insertRootParagraph("p");
+					p.innerHTML = "You clicked mybutton_b";
+					alert(p.innerHTML);
+					return false;
+				}
+				return btn;
+			}
+			editor2cfg.toolbar = "mytoolbar";
+			editor2cfg.toolbar_mytoolbar = "{bold,italic}|{fontname,fontsize}|{forecolor,backcolor}|removeformat|mybutton_b"
+				+ "#{undo,redo,fullscreenenter,fullscreenexit,togglemore}";
+			var editor2 = new RichTextEditor("#div_editor2", editor2cfg);
+
+		</script>
+
+		
+	</div>
+	<div class="hs-docs-content-divider">
+
+		<h3>Demo Code:</h3>
+		<pre class="editordemocode rounded language-html">&lt;div id=&quot;div_editor2&quot;&gt;
+&lt;/div&gt;
+
+&lt;script&gt;
+	var editor2cfg = {}
+	//define toolbarfactory_btnname to create your self button
+	editor2cfg.toolbarfactory_mybutton_b = function (cmd, suffix) {
+		var btn = document.createElement(&quot;button&quot;);
+		btn.innerHTML = &quot;button_b&quot;
+		btn.className = &quot;btn btn-primary&quot;;
+		btn.style.cssText = &quot;height:32px;margin:2px;padding:0px 5px&quot;;
+		btn.onclick = function () {
+			console.log(&quot;my button clicked&quot;);
+			var p = editor2.insertRootParagraph(&quot;p&quot;);
+			p.innerHTML = &quot;You clicked mybutton_b&quot;;
+			alert(p.innerHTML);
+			return false;
+		}
+		return btn;
+	}
+	editor2cfg.toolbar = &quot;mytoolbar&quot;;
+	editor2cfg.toolbar_mytoolbar = &quot;{bold,italic}|{fontname,fontsize}|{forecolor,backcolor}|removeformat|mybutton_b&quot;
+		+ &quot;#{undo,redo,fullscreenenter,fullscreenexit,togglemore}&quot;;
+	var editor2 = new RichTextEditor(&quot;#div_editor2&quot;, editor2cfg);
+
+&lt;/script&gt;</pre>
+
+	</div>
+
+	<div class="hs-docs-content-divider relative-links">
+		<h3 class="relative-links">Relative Links</h3>
+		<ul class="relative-links">
+			<li><a href="docs/cmd_allcommands.html">Use JavaScript API</a></li>
+		</ul>
+	</div>
+
+
+	</div>
+	<script src="res/patch.js"></script>
+</body>
+</html>

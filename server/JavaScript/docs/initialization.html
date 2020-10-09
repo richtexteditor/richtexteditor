@@ -1,0 +1,87 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" style="display:flex;height:100%;flex-direction:column;">
+<head>
+	<meta charset="utf-8" />
+	<title>Initialization</title>
+	<base href='../' />
+	<link rel="stylesheet" href="res/style.css" />
+</head>
+<body style="padding-bottom:3px;align-items:center">
+	<div class="topbanner">
+		<div style="align-self:stretch;width:960px;display:flex; flex-direction: row;">
+			<div style="flex:99999">
+				<label>RichTextEditor Demo</label>
+			</div>
+			<div>
+				<a target="_blank" href="https://richtexteditor.com/">Home</a>
+				&nbsp;
+				<a target="_blank" href="https://richtexteditor.com/pricing.aspx">Pricing</a>
+			</div>
+		</div>
+	</div>
+	<div style="margin:auto;padding:12px 6px 36px;max-width:960px;">
+		
+	<h2 class="mb-4">Initialization</h2>
+    <p class="mb-4">RichTextEditor JavaScript global enables you to create, modify and interact with instances of the editor. This is the starting point for any integration. Creating an editor is done using the static <code class="highlighter-rouge">new()</code> method.</p>
+
+    <div class="hs-docs-content-divider">
+        <h4 class="hs-docs-heading">Creating an editor:</h4>
+        <div class="dp-highlighter">
+            <div class="bar"></div>
+            <ol start="1" class="dp-c">
+                <li class="alt"><span><span class="comments">&lt;!--&nbsp;Create a new DIV element that RichTextEditor should replace to your HTML page.&nbsp;--&gt;</span><span>&nbsp;&nbsp;</span></span></li>
+                <li class="alt"><span><span>&lt;div&nbsp;id=</span><span class="string">"div_editor1"</span><span>&gt;&lt;/div&gt;&nbsp;&nbsp;</span></span></li>
+            </ol>
+        </div>
+        <div class="dp-highlighter">
+            <div class="bar"></div>
+            <ol start="1" class="dp-c">
+                <li class="alt"><span><span class="comment">//Then call new() method to replace the matched element with RichTextEditor.</span><span>&nbsp;&nbsp;</span></span></li>
+                <li class=""><span><span class="keyword">var</span><span>&nbsp;editor1&nbsp;=&nbsp;</span><span class="keyword">new</span><span>&nbsp;RichTextEditor(</span><span class="string">"#div_editor1"</span><span>);&nbsp;&nbsp;</span></span></li>
+            </ol>
+        </div>
+
+        <h4>
+            Constructor definition :
+        </h4>
+        <p>
+            new RichTextEditor(elementOrQuery, config)
+        </p>
+        <h4>
+            Parameters:
+        </h4>
+        <p>
+            elementOrQuery : an element object , or "#id" , or ".classname" etc
+        </p>
+        <p>
+            config : options to initialize the editor 
+        </p>
+        <h4>
+            Remarks:
+        </h4>
+        <p>
+            The element could be &lt;div&gt; or &lt;textarea&gt; . <br />
+            If the element is &lt;div&gt; , the innerHTML of the &lt;div&gt; will be loaded as the initial document content. <br />
+            If the element is &lt;textarea&gt; , the value of the &lt;textarea&gt; will be loaded as the initial document content. <br />
+        </p>
+
+        <h4 class="hs-docs-heading mt-8">Interacting with the editor:</h4>
+        <div class="dp-highlighter">
+            <div class="bar"></div>
+            <ol start="1" class="dp-c">
+               <li class="alt"><span><span class="comment">//Setting the editor data</span><span>&nbsp;&nbsp;</span></span></li>
+                <li class="alt"><span><span>editor1.setHTMLCode(</span><span class="string">"&lt;p&gt;&lt;b&gt;Hello&lt;/b&gt;&nbsp;World&lt;/p&gt;&lt;p&gt;Click&nbsp;the&nbsp;button&nbsp;below&nbsp;to&nbsp;show&nbsp;this&nbsp;HTML&nbsp;code&lt;/p&gt;"</span><span>);&nbsp;&nbsp;</span></span></li>
+                <li class=""></li>
+                <li class="alt"><span><span class="keyword">function</span><span>&nbsp;btnShowHTMLCode()&nbsp;{&nbsp;&nbsp;</span></span></li>
+                <li class="alt"><span>&nbsp;&nbsp;<span class="comment">// Getting the editor data</span><span>&nbsp;&nbsp;</span></span></li>
+               <li class=""><span>&nbsp;&nbsp;alert(editor1.getHTMLCode())&nbsp;&nbsp;</span></li>
+                <li class=""><span>}</span></li>
+            </ol>
+        </div>
+    </div>
+
+	</div>
+	<script src="res/patch.js"></script>
+</body>
+</html>
