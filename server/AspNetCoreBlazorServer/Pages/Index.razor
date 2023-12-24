@@ -1,0 +1,47 @@
+﻿@page "/"
+
+@* for RTEJS_BlazorServer.RTEJS.RichTextEditor : <RichTextEditor/> *@
+@using RTEJS_BlazorServer.RTEJS
+
+@code
+{
+	string previewcode = "<b>Click button to show the editing code</b>";
+	string mycode = "Hello <b>World</b>!";
+
+	void ShowHtmlCode()
+	{
+		//TODO: filter mycode here , remove Malicious Code
+
+		previewcode = mycode;
+	}
+
+	string changedmsg = "";
+
+	void EditorCodeChanged(string newcode)
+	{
+		//mycode already be setted from @bind-HtmlCode="mycode"
+		changedmsg = "changed at " + DateTime.Now.ToString("HH:mm:ss") + " , " + mycode.Length + " chars";
+	}
+}
+
+<PageTitle>Index</PageTitle>
+
+<h1>Hello, world!</h1>
+
+<hr />
+RichTextEditor Demo:
+
+<RichTextEditor @bind-HtmlCode="mycode" OnHtmlCodeChanged="EditorCodeChanged" />
+
+<hr />
+<button @onclick="ShowHtmlCode">Show HtmlCode</button> @changedmsg
+
+<br />
+<br />
+<br />
+<div style="margin:12px;padding:12px;border:dotted 1px gray;">
+	@((MarkupString)previewcode)
+</div>
+
+
+

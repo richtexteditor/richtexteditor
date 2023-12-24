@@ -1,0 +1,189 @@
+﻿<div class="top-row ps-3 navbar navbar-dark">
+    <div class="container-fluid">
+        <a class="navbar-brand" href="">RTEJS_BlazorServer</a>
+        <button title="Navigation menu" class="navbar-toggler" @onclick="ToggleNavMenu">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+    </div>
+</div>
+
+<div class="@NavMenuCssClass" @onclick="ToggleNavMenu" style="height:calc( 100% - 56px );">
+    <nav class="flex-column scrollbg" style="height:100%;overflow-y:scroll">
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
+                <span class="oi oi-home" aria-hidden="true"></span> Home
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="basic_editor">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> Basic Editor
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="responsive">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> Responsive Toolbar
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="multiple-editors">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> Multiple editors
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="skinning_editor">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> Skinning RichTextEditor
+            </NavLink>
+        </div>
+         <div class="nav-item px-3">
+            <NavLink class="nav-link" href="table-support">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> Powerful table support
+            </NavLink>
+        </div>
+         <div class="nav-item px-3">
+            <NavLink class="nav-link" href="clean-code-on-paste">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> Cleaning pasted content
+            </NavLink>
+        </div>
+         <div class="nav-item px-3" style="display:none">
+            <NavLink class="nav-link" href="localization">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> UI language
+            </NavLink>
+        </div>
+         <div class="nav-item px-3">
+            <NavLink class="nav-link" href="maxlength">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> Setting the max length
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="editorsize">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> Editor Size
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="autogrow">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> Editor Auto Grow
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="resize">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> Resizing Customization
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="pastefromword">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> Paste from Word
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="pastefromexcel">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> Paste from Excel
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="plain-paste">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> Paste plain text
+            </NavLink>
+        </div>
+        <div class="nav-item px-3" style="display:none">
+            <NavLink class="nav-link" href="fileupload">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> File Upload
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="embedvideo">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> Embed Video
+            </NavLink>
+        </div>
+        <div class="nav-item px-3" style="display:none">
+            <NavLink class="nav-link" href="codesnippets">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> Code Snippets
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="drag-and-drop-images">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> Drag &amp; drop images
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="drag-and-drop-content">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> Drag &amp; drop Content
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="shortcuts">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> Keyboard Shortcuts
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="tabspaces">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> Tab Spaces
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="enterkey">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> Enter Key
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="built-in-plugins">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> Built-In Plugins
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="export-pdf">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> Export as PDF
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="getHTML">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> Get &amp; Set HTML
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="insert-html">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> Insert HTML Button
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="custom_toolbar">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> Custom Toolbar
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="custom_button">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> Custom Button
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="custom_dropdown">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> Custom Dropdown
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="custom_dialog">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> Custom Dialog
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="javascript_api">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> JavaScript API
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="readonly">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> Read-Only Mode
+            </NavLink>
+        </div>
+    </nav>
+</div>
+
+@code {
+    private bool collapseNavMenu = true;
+
+    private string? NavMenuCssClass => collapseNavMenu ? "collapse" : null;
+
+    private void ToggleNavMenu()
+    {
+        collapseNavMenu = !collapseNavMenu;
+    }
+}

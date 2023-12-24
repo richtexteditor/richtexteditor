@@ -1,0 +1,78 @@
+﻿@page "/editorsize"
+
+@* for RTEJS_BlazorServer.RTEJS.RichTextEditor : <RichTextEditor/> *@
+@using RTEJS_BlazorServer.RTEJS
+
+@code
+{
+	RTEConfig rtecfg = new RTEConfig() { toolbar="full" };
+	string? previewcode = "<b>Click button to show the editing code</b>";
+	string? mycode = null;//if binded value is null , the <InitHtml> template will be used
+	
+
+	void ShowHtmlCode()
+	{
+		//TODO: filter mycode here , remove Malicious Code
+
+		previewcode = mycode;
+	}
+
+	string changedmsg = "";
+
+	void EditorCodeChanged(string newcode)
+	{
+		//mycode already be setted from @bind-HtmlCode="mycode"
+		changedmsg = "changed at " + DateTime.Now.ToString("HH:mm:ss") + " , " + mycode.Length + " chars";
+	}
+}
+
+<PageTitle>Teplate</PageTitle>
+
+<h2>Editor Size</h2>
+<p class="mb-4">
+	You can use width, height, min-height, max-height css properties to set the size of rich text editor.
+</p>
+
+<hr />
+
+<RichTextEditor style="height: 300px" Config="rtecfg" @bind-HtmlCode="mycode" OnHtmlCodeChanged="EditorCodeChanged">
+	<InitHtml>
+		<h2>The height of rich text editor is set to 300px. </h2>
+		<table>
+			<tr>
+				<td>
+					<p>
+						<img src="/uploads/j0262681.jpg" alt="" />
+					</p>
+				</td>
+				<td>
+					<p>Rich Text Editor is the industry-leading online html editor. It enables content contributors easily create and publish HTML anywhere: on the desktop and on mobile.</p>
+				</td>
+			</tr>
+			<tr>
+				<td>
+					<p>
+						<img src="/uploads/PH02366J.jpg" alt="" />
+					</p>
+				</td>
+				<td>
+					<p>Rich Text Editor toolbar is completely configurable and it is also effortless to implement. You just need a couple lines of code to add this editor to web applications.</p>
+				</td>
+			</tr>
+		</table>
+	</InitHtml>
+</RichTextEditor>
+
+<hr />
+<button @onclick="ShowHtmlCode">Show HtmlCode</button> @changedmsg
+
+<br />
+<br />
+<br />
+<div style="margin:12px;padding:12px;border:dotted 1px gray;">
+	@((MarkupString)previewcode)
+</div>
+
+<br />
+<br />
+

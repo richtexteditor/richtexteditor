@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <link rel="icon" href="/favicon.ico">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="/richtexteditor/rte_theme_default.css" />  
+    <script type="text/javascript" src="/richtexteditor/rte.js"></script>  
+    <script type="text/javascript" src='/richtexteditor/plugins/all_plugins.js'></script> 
+    <title>RTE DEMO</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.js"></script>
+
+    <hr/>
+    <pre>
+Demo guide : 
+1 - copy /richtexteditor/  to folder 'public'
+2 - add 
+    /richtexteditor/rte_theme_default.css
+    /richtexteditor/rte.js
+    /richtexteditor/plugins/all_plugins.js
+      to index.html
+3 - in vue component , use ref to get element , and run var rte=new RichTextEditor(div);
+
+    </pre>
+
+  </body>
+</html>

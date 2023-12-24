@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.8.34309.116
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RTEJS_BlazorServer", "RTEJS_BlazorServer.csproj", "{6485DA7F-87DC-49BA-AE78-C51D896EF953}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{6485DA7F-87DC-49BA-AE78-C51D896EF953}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6485DA7F-87DC-49BA-AE78-C51D896EF953}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6485DA7F-87DC-49BA-AE78-C51D896EF953}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6485DA7F-87DC-49BA-AE78-C51D896EF953}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {609C9A68-1AAA-475C-82C2-57BABCB853E7}
+	EndGlobalSection
+EndGlobal

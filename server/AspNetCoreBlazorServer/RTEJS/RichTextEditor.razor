@@ -1,0 +1,66 @@
+﻿@using Microsoft.JSInterop
+@implements IDisposable
+@inject IJSRuntime JS
+
+<div @ref="rtediv" @attributes="@AdditionAttributes">
+	@InitHtml
+</div>
+
+@code {
+
+	ElementReference rtediv;
+
+	[Parameter(CaptureUnmatchedValues = true)]
+	public Dictionary<string, object> AdditionAttributes { get; set; }
+
+	[Parameter]
+	public RenderFragment InitHtml { get; set; }
+
+	[Parameter]
+	public RTEConfig? Config { get; set; }
+
+	[Parameter]
+	public string? HtmlCode { get; set; }
+
+	[Parameter]
+	public EventCallback<string> HtmlCodeChanged { get; set; }
+
+	[Parameter]
+	public EventCallback<string> OnHtmlCodeChanged { get; set; }
+
+	DotNetObjectReference<RichTextEditor>? objref;
+
+	[JSInvokable]
+	public void ClientEvent_HtmlCode(string htmlcode)
+	{
+		if (HtmlCode == htmlcode)
+			return;
+
+		HtmlCode = htmlcode;
+		HtmlCodeChanged.InvokeAsync(htmlcode);
+		OnHtmlCodeChanged.InvokeAsync(htmlcode);
+	}
+
+	protected override Task OnAfterRenderAsync(bool firstRender)
+	{
+		if (firstRender)
+		{
+			objref = DotNetObjectReference.Create(this);
+
+			JS.InvokeVoidAsync("RTEJS_Init", rtediv, objref, System.Text.Json.JsonSerializer.Serialize(this.Config), HtmlCode);
+		}
+
+		return base.OnAfterRenderAsync(firstRender);
+	}
+
+	public void Dispose()
+	{
+		if (objref != null)
+		{
+			objref.Dispose();
+			objref = null;
+			JS.InvokeVoidAsync("RTEJS_Dispose", rtediv);
+		}
+	}
+
+}
