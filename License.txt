@@ -1,0 +1,5 @@
+Rich Text Editor
+================
+
+You can purchase a Rich Text Editor license from: http://richtexteditor.com/pricing.aspx.
+For more informations regarding the license please read http://richtexteditor.com/license.aspx.
