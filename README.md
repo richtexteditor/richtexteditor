@@ -103,11 +103,11 @@ Explore the included demos to see the editor in action:
 
 **Rich Text Editors**
 
-[JavaScript Rich Text Editor](https://richtexteditor.com/) | [Rich Text Editor for ASP.NET](https://richtexteditor.net/) | [Rich Text Editor for PHP](https://phphtmleditor.com/) | [Rich Text Editor for Classic ASP](https://asp.richtexteditor.com/) | [Blazor Rich Text Editor](https://richtexteditor.com/blazor-rich-text-editor.aspx) | [RichTextBox](https://richtextbox.com/) | [RichTextBox for ASP.NET Core](https://richtextbox.com/)
+[JavaScript Rich Text Editor](https://richtexteditor.com/) | [Rich Text Editor for ASP.NET](https://richtexteditor.net/) | [Rich Text Editor for PHP](https://phphtmleditor.com/) | [Rich Text Editor for Classic ASP](https://asp.richtexteditor.com/) | [Blazor Rich Text Editor](https://richtexteditor.com/blazor-rich-text-editor.aspx) | [RichTextBox for ASP.NET Core](https://richtextbox.com/)
 
 **File Upload Components**
 
-[Ajax Uploader](https://ajaxuploader.com/) | [PHP File Uploader](https://phpfileuploader.com/) | [ASP Uploader](https://aspuploader.com/) | [CoreUpload](https://coreupload.com/) | [MultipleUpload](https://multipleupload.com/)
+[Ajax Uploader](https://ajaxuploader.com/) | [PHP File Uploader](https://phpfileuploader.com/) | [ASP Uploader](https://aspuploader.com/) | [CoreUpload - ASP.NET Core Upload](https://coreupload.com/) | [MultipleUpload - JavaScript Upload](https://multipleupload.com/)
 
 **Chat & Communication**
 
@@ -115,7 +115,7 @@ Explore the included demos to see the editor in action:
 
 **Developer Tools**
 
-[JavaScript Obfuscator](https://javascriptobfuscator.com/) | [Free .NET Obfuscator](https://freeobfuscator.com/) | [JavaScript Converter](https://javascriptconverter.com/)
+[JavaScript Obfuscator](https://javascriptobfuscator.com/) | [Free .NET Obfuscator](https://freeobfuscator.com/) | [JavaScript Converter - JavaScript to TypeScript](https://javascriptconverter.com/)
 
 ---
 
