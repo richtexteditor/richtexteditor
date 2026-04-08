@@ -99,6 +99,24 @@ Explore the included demos to see the editor in action:
 
 [Richscripts Inc](https://richtexteditor.com/aboutus.aspx) is a Canadian company established in 2003, specializing in high-quality, reusable web components and enterprise software solutions. With 33,000+ customers and over 1 million users worldwide, including Fortune 500 companies and global IT consultancies.
 
+### Our Products
+
+**Rich Text Editors**
+
+[JavaScript Rich Text Editor](https://richtexteditor.com/) | [Rich Text Editor for ASP.NET](https://richtexteditor.net/) | [Rich Text Editor for PHP](https://phphtmleditor.com/) | [Rich Text Editor for Classic ASP](https://asp.richtexteditor.com/) | [Blazor Rich Text Editor](https://richtexteditor.com/blazor-rich-text-editor.aspx) | [RichTextBox](https://richtextbox.com/) | [RichTextBox for ASP.NET Core](https://richtextbox.com/)
+
+**File Upload Components**
+
+[Ajax Uploader](https://ajaxuploader.com/) | [PHP File Uploader](https://phpfileuploader.com/) | [ASP Uploader](https://aspuploader.com/) | [CoreUpload](https://coreupload.com/) | [MultipleUpload](https://multipleupload.com/)
+
+**Chat & Communication**
+
+[MyLiveChat - Free Live Chat](https://www.mylivechat.com/) | [Dchat - AI Chatbot (Coming Soon)](https://dchat.com/) | [ZChat - On-Premises Live Chat](https://zchat.com/)
+
+**Developer Tools**
+
+[JavaScript Obfuscator](https://javascriptobfuscator.com/) | [Free .NET Obfuscator](https://freeobfuscator.com/) | [JavaScript Converter](https://javascriptconverter.com/)
+
 ---
 
 <p align="center">
