@@ -1,4 +1,4 @@
-﻿
+
 
 if (!RTE_DefaultConfig.svgCode_html2pdf) {
 	RTE_DefaultConfig.svgCode_html2pdf = '<svg viewBox="-2 -2 36 36" fill="#5F6368"><polygon points="30 11 30 9 22 9 22 23 24 23 24 17 29 17 29 15 24 15 24 11 30 11"></polygon><path d="M8,9H2V23H4V18H8a2,2,0,0,0,2-2V11A2,2,0,0,0,8,9Zm0,7H4V11H8Z"></path><path d="M16,23H12V9h4a4,4,0,0,1,4,4v6A4,4,0,0,1,16,23Zm-2-2h2a2,2,0,0,0,2-2V13a2,2,0,0,0-2-2H14Z"></path><title>PDF</title></svg>'
@@ -161,7 +161,9 @@ function RTE_Plugin_Html2PDF() {
 
 
 
-﻿
+
+
+
 
 if (!RTE_DefaultConfig.svgCode_imageeditor) {
 	RTE_DefaultConfig.svgCode_imageeditor = '<svg viewBox="-2 -2 20 20" fill="#5F6368"><style>.st0{fill:#f6f6f6}.st1{fill:#424242}.st2{fill:none}.st3{fill:#f0eff1}</style><path class="st0" d="M1 0v6H0v10h10v-1h6V0z" id="outline"/><g id="icon_x5F_bg"><path class="st1" d="M2 5h1v1H2zM2 3h1v1H2zM2 1h1v1H2zM4 1h1.001v1H4zM6 1h1v1H6zM8 1h1v1H8zM10 1h1v1h-1zM12 1h1v1h-1zM14 1h1v1h-1zM14 3h1v1h-1zM14 5h1v1h-1zM14 7h1v1h-1zM14 9h1v1h-1zM14 10.999h1V12h-1zM14 13h1v1h-1zM12 13h1v1h-1zM11 11V5H5v1H4V4h8v7z"/><circle class="st1" cx="6.192" cy="9.807" r=".807"/><path class="st1" d="M1 7v8h8V7H1zm1 7.001v-.28l2.537-1.463L7.554 14l.001.001H2zm6-.93l-3.463-1.982L2 12.491v-4.49h6v5.07zM10 13h1v1h-1z"/></g><g id="icon_x5F_fg"><path class="st2" d="M2 14h5.554v.001H2z"/><path class="st3" d="M11 5v6h-1V6H5V5z"/><path class="st3" d="M2 12.491l2.537-1.402L8 13.071v-5.07H2v4.49zM6.192 9a.807.807 0 1 1 .001 1.615A.807.807 0 0 1 6.192 9z"/><path class="st3" d="M2 13.721V14h5.554l-3.017-1.742z"/></g></svg>';
@@ -321,7 +323,9 @@ function RTE_Plugin_ImageEditor() {
 
 
 
-﻿
+
+
+
 if (!RTE_DefaultConfig.svgCode_insertcode) {
 	RTE_DefaultConfig.svgCode_insertcode = '<svg viewBox="-2 -2 20 20" fill="#5F6368"><path fill-rule="evenodd" d="M4 1h8a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V3a2 2 0 012-2zm0 1a1 1 0 00-1 1v10a1 1 0 001 1h8a1 1 0 001-1V3a1 1 0 00-1-1H4z" clip-rule="evenodd"/><path fill-rule="evenodd" d="M8.646 5.646a.5.5 0 01.708 0l2 2a.5.5 0 010 .708l-2 2a.5.5 0 01-.708-.708L10.293 8 8.646 6.354a.5.5 0 010-.708zm-1.292 0a.5.5 0 00-.708 0l-2 2a.5.5 0 000 .708l2 2a.5.5 0 00.708-.708L5.707 8l1.647-1.646a.5.5 0 000-.708z" clip-rule="evenodd"/></svg>';
 }
@@ -637,7 +641,9 @@ function RTE_Plugin_InsertCode() {
 
 
 
-﻿
+
+
+
 RTE_DefaultConfig.plugin_insertemoji = RTE_Plugin_InsertEmoji;
 
 function RTE_Plugin_InsertEmoji() {
@@ -895,168 +901,960 @@ function RTE_Plugin_InsertEmoji() {
 
 
 
-﻿
+
 
 RTE_DefaultConfig.plugin_insertgallery = RTE_Plugin_InsertGallery;
 
 function RTE_Plugin_InsertGallery() {
+    var obj = this;
+    var config;
+    var editor;
 
+    obj.PluginName = "InsertGallery";
 
+    obj.InitConfig = function (argconfig) {
+        config = argconfig;
+        if (!config.galleryImages) {
+            config.galleryImages = [];
+        }
+    };
 
-	var obj = this;
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
 
-	var config, editor;
+        editor.attachEvent("exec_command_insertgallery", function (state) {
+            state.returnValue = true;
+            obj.DoInsertGallery();
+        });
+    };
 
-	obj.PluginName = "InsertGallery";
+    function append(parent, tagName, cssText, className) {
+        var tag = parent.ownerDocument.createElement(tagName);
+        if (cssText) {
+            tag.style.cssText = cssText;
+        }
+        if (className) {
+            tag.className = className;
+        }
+        parent.appendChild(tag);
+        return tag;
+    }
 
-	obj.InitConfig = function (argconfig) {
-		config = argconfig;
-	}
-	obj.InitEditor = function (argeditor) {
-		editor = argeditor;
+    function clear(node) {
+        while (node.firstChild) {
+            node.removeChild(node.firstChild);
+        }
+    }
 
-		editor.attachEvent("exec_command_insertgallery", function (state, cmd, value) {
-			state.returnValue = true;
-			obj.DoInsertGallery();
-		});
+    function getFileName(url) {
+        var value = String(url || "").split("#")[0].split("?")[0];
+        var lastSlash = value.lastIndexOf("/");
+        var name = lastSlash >= 0 ? value.substring(lastSlash + 1) : value;
+        try {
+            name = decodeURIComponent(name);
+        } catch (ex) {
+        }
+        return name || "Image";
+    }
 
+    function getMetaText(item) {
+        if (item.meta) {
+            return item.meta;
+        }
+        if (item.alt) {
+            return item.alt;
+        }
+        return item.url;
+    }
 
-	}
+    function normalizeGalleryItem(item) {
+        var normalized = null;
 
-	function __Append(parent, tagname, csstext, cssclass) {
-		var tag = parent.ownerDocument.createElement(tagname);
-		if (csstext) tag.style.cssText = csstext;
-		if (cssclass) tag.className = cssclass;
-		parent.appendChild(tag);
-		return tag;
-	}
-	
-	obj.DoInsertGallery = function () {
+        if (typeof item === "string") {
+            normalized = {
+                url: item,
+                thumbnail: item,
+                name: getFileName(item)
+            };
+        } else if (item instanceof Array) {
+            normalized = {
+                url: item[0],
+                thumbnail: item[0],
+                name: item[1] || getFileName(item[0]),
+                meta: item[2] || ""
+            };
+        } else if (item && typeof item === "object") {
+            var url = item.url || item.src || item.href;
+            if (!url) {
+                return null;
+            }
 
-		var dialoginner = editor.createDialog(editor.getLangText("insertgallerytitle"), "rte-dialog-insertgallery");
-
-		var scrollpanel = __Append(dialoginner, "rte-insertgallery-scrollpanel", "overflow-y:auto;padding-bottom:32px;");
-		var container = __Append(scrollpanel, "rte-insertgallery-container", "display:flex;flex-wrap:wrap;");
-
-		container.focus();//focus to let ESC key close dialog
-
-		function CreateDiv(item) {
-			var url, text;
-			if (typeof (item) == "string") {
-				url = item;
-			} else if (item instanceof Array) {
-				url = item[0];
-				text = item[1];
-			}
-			else if (item && item.url) {
-				url = item.url;
-				text = item.text;
-			}
-			else {
-				return;
-			}
-
-			var divitem = __Append(container, "rte-insertgallery-image-item", "cursor:pointer;width:128px;height:128px;margin:12px;box-shadow:0 0 8px #ccc;display:flex;align-items:center;justify-content:center;")
-			var img = __Append(divitem, "img", "max-width:90%;max-height:90%;");
-			img.src = url;
-
-			divitem.onclick = function () {
-				editor.insertImageByUrl(url);
-				dialoginner.close();
-			}
+            normalized = {
+                url: url,
+                thumbnail: item.thumbnail || item.thumb || item.preview || url,
+                name: item.name || item.text || item.title || getFileName(url),
+                meta: item.meta || item.description || item.alt || ""
+            };
         }
 
-		for (var i = 0; i < config.galleryImages.length; i++) {
-			var item = config.galleryImages[i];
-			CreateDiv(item);
+        if (!normalized || !normalized.url) {
+            return null;
         }
 
-	}
+        if (!normalized.thumbnail) {
+            normalized.thumbnail = normalized.url;
+        }
+
+        if (!normalized.name) {
+            normalized.name = getFileName(normalized.url);
+        }
+
+        return normalized;
+    }
+
+    function uploadFiles(fileList, onUploaded, onFinished, onFailed) {
+        var files = [];
+        var handler = window.rte_file_upload_handler;
+        var i;
+
+        for (i = 0; i < fileList.length; i++) {
+            files.push(fileList[i]);
+        }
+
+        if (!files.length) {
+            onFinished();
+            return;
+        }
+
+        if (typeof handler !== "function") {
+            if (onFailed) {
+                onFailed("Upload handler is not configured.");
+            }
+            onFinished();
+            return;
+        }
+
+        var index = 0;
+
+        function next() {
+            if (index >= files.length) {
+                onFinished();
+                return;
+            }
+
+            var file = files[index];
+            handler(file, function (url, error) {
+                if (url) {
+                    onUploaded(url, file, index, files);
+                } else if (onFailed) {
+                    onFailed(error || ("Upload failed for " + file.name), file);
+                }
+
+                index++;
+                next();
+            }, index, files);
+        }
+
+        next();
+    }
+
+    obj.DoInsertGallery = function () {
+        var dialoginner = editor.createDialog(editor.getLangText("insertgallerytitle") || "Image gallery", "rte-dialog-insertgallery");
+        var closeDialog = typeof dialoginner.close === "function" ? function () {
+            dialoginner.close();
+        } : function () {
+            editor.closeCurrentPopup();
+        };
+
+        var browser = append(dialoginner, "div", "", "rte-gallery-browser");
+        var header = append(browser, "div", "", "rte-dialog-browser-header");
+        var kicker = append(header, "div", "", "rte-dialog-browser-kicker");
+        kicker.innerText = "Media Library";
+        var title = append(header, "div", "", "rte-dialog-browser-title");
+        title.innerText = "Image gallery";
+        var copy = append(header, "div", "", "rte-dialog-browser-copy");
+        copy.innerText = "Browse uploaded assets, filter by name, and insert the selected image into the editor.";
+
+        var toolbar = append(browser, "div", "", "rte-gallery-browser-toolbar");
+        var path = append(toolbar, "div", "", "rte-gallery-browser-path");
+        path.innerText = "/";
+        var type = append(toolbar, "div", "", "rte-gallery-browser-type");
+        type.innerText = "Image Files";
+
+        var uploadButton = append(toolbar, "button", "", "rte-gallery-browser-button");
+        uploadButton.type = "button";
+        uploadButton.innerText = "Upload";
+
+        var refreshButton = append(toolbar, "button", "", "rte-gallery-browser-button");
+        refreshButton.type = "button";
+        refreshButton.innerText = "Refresh";
+
+        var search = append(toolbar, "input", "", "rte-gallery-browser-search");
+        search.type = "search";
+        search.placeholder = "Search images";
+
+        var fileInput = append(toolbar, "input", "display:none;");
+        fileInput.type = "file";
+        fileInput.accept = "image/*,.jpg,.jpeg,.png,.gif,.bmp,.webp,.svg";
+        fileInput.multiple = true;
+
+        var status = append(browser, "div", "", "rte-gallery-browser-status");
+        var surface = append(browser, "div", "", "rte-gallery-browser-surface");
+        var grid = append(surface, "div", "", "rte-gallery-browser-grid");
+        var empty = append(surface, "div", "", "rte-gallery-browser-empty");
+        empty.innerText = "No images match this search. Upload a file or adjust the filter.";
+
+        var footer = append(browser, "div", "", "rte-gallery-browser-footer");
+        var footerText = append(footer, "div", "", "rte-gallery-browser-footer-text");
+        footerText.innerText = "Choose an image to enable insert.";
+
+        var cancelButton = append(footer, "button", "", "rte-gallery-browser-button");
+        cancelButton.type = "button";
+        cancelButton.innerText = "Cancel";
+
+        var insertButton = append(footer, "button", "", "rte-gallery-browser-button rte-gallery-browser-button-primary");
+        insertButton.type = "button";
+        insertButton.innerText = "Insert";
+        insertButton.disabled = true;
+
+        var selectedUrl = "";
+
+        function getNormalizedItems() {
+            var list = [];
+            var items = config.galleryImages || [];
+            var i;
+            for (i = 0; i < items.length; i++) {
+                var normalized = normalizeGalleryItem(items[i]);
+                if (normalized) {
+                    list.push(normalized);
+                }
+            }
+            return list;
+        }
+
+        function getFilteredItems() {
+            var keyword = search.value.replace(/^\s+|\s+$/g, "").toLowerCase();
+            var items = getNormalizedItems();
+            if (!keyword) {
+                return items;
+            }
+
+            return items.filter(function (item) {
+                return (item.name && item.name.toLowerCase().indexOf(keyword) >= 0)
+                    || (item.meta && item.meta.toLowerCase().indexOf(keyword) >= 0)
+                    || (item.url && item.url.toLowerCase().indexOf(keyword) >= 0);
+            });
+        }
+
+        function updateStatus(items) {
+            var selectedName = "";
+            var i;
+            for (i = 0; i < items.length; i++) {
+                if (items[i].url === selectedUrl) {
+                    selectedName = items[i].name;
+                    break;
+                }
+            }
+
+            status.innerText = items.length + " item" + (items.length === 1 ? "" : "s") + " available."
+                + (selectedName ? " " + selectedName + " selected." : " No image selected.");
+            footerText.innerText = selectedName ? ("Ready to insert " + selectedName + ".") : "Choose an image to enable insert.";
+            insertButton.disabled = !selectedName;
+        }
+
+        function insertSelected() {
+            if (!selectedUrl) {
+                return;
+            }
+            editor.insertImageByUrl(selectedUrl);
+            closeDialog();
+            editor.focus();
+        }
+
+        function render() {
+            clear(grid);
+            var items = getFilteredItems();
+            var i;
+
+            empty.style.display = items.length ? "none" : "block";
+
+            for (i = 0; i < items.length; i++) {
+                (function (item) {
+                    var card = append(grid, "button", "", "rte-gallery-browser-card");
+                    card.type = "button";
+                    if (item.url === selectedUrl) {
+                        card.classList.add("is-selected");
+                    }
+
+                    var selection = append(card, "div", "", "rte-gallery-browser-selection");
+                    selection.innerText = item.url === selectedUrl ? "Selected" : "";
+
+                    var thumb = append(card, "div", "", "rte-gallery-browser-thumbnail");
+                    var image = append(thumb, "img", "", "rte-gallery-browser-thumbnail-image");
+                    image.src = item.thumbnail;
+                    image.alt = item.name;
+
+                    var name = append(card, "div", "", "rte-gallery-browser-name");
+                    name.innerText = item.name;
+
+                    var meta = append(card, "div", "", "rte-gallery-browser-meta");
+                    meta.innerText = getMetaText(item);
+
+                    card.onclick = function () {
+                        selectedUrl = item.url;
+                        render();
+                    };
+
+                    card.ondblclick = function () {
+                        selectedUrl = item.url;
+                        insertSelected();
+                    };
+                })(items[i]);
+            }
+
+            if (selectedUrl) {
+                var stillVisible = false;
+                for (i = 0; i < items.length; i++) {
+                    if (items[i].url === selectedUrl) {
+                        stillVisible = true;
+                        break;
+                    }
+                }
+                if (!stillVisible) {
+                    selectedUrl = "";
+                }
+            }
+
+            updateStatus(items);
+        }
+
+        uploadButton.onclick = function () {
+            fileInput.click();
+        };
+
+        fileInput.onchange = function () {
+            var lastUploaded = "";
+            status.innerText = "Uploading images...";
+
+            uploadFiles(fileInput.files, function (url) {
+                lastUploaded = url;
+                config.galleryImages.unshift(url);
+            }, function () {
+                if (lastUploaded) {
+                    selectedUrl = lastUploaded;
+                }
+                fileInput.value = "";
+                render();
+            }, function (error) {
+                status.innerText = error || "Upload failed.";
+            });
+        };
+
+        refreshButton.onclick = render;
+        search.oninput = render;
+        cancelButton.onclick = closeDialog;
+        insertButton.onclick = insertSelected;
+
+        render();
+        search.focus();
+    };
 }
 
-
-
-
-﻿
 
 RTE_DefaultConfig.plugin_inserttemplate = RTE_Plugin_InsertTemplate;
 
 function RTE_Plugin_InsertTemplate() {
-
-
-
     var obj = this;
-
-    var config, editor;
+    var config;
+    var editor;
 
     obj.PluginName = "InsertTemplate";
 
     obj.InitConfig = function (argconfig) {
         config = argconfig;
-    }
+        if (!config.htmlTemplates) {
+            config.htmlTemplates = [];
+        }
+    };
+
     obj.InitEditor = function (argeditor) {
         editor = argeditor;
 
-        editor.attachEvent("exec_command_inserttemplate", function (state, cmd, value) {
+        editor.attachEvent("exec_command_inserttemplate", function (state) {
             state.returnValue = true;
             obj.DoInsertTemplate();
         });
+    };
 
-
-    }
-
-    function __Append(parent, tagname, csstext, cssclass) {
-        var tag = parent.ownerDocument.createElement(tagname);
-        if (csstext) tag.style.cssText = csstext;
-        if (cssclass) tag.className = cssclass;
+    function append(parent, tagName, cssText, className) {
+        var tag = parent.ownerDocument.createElement(tagName);
+        if (cssText) {
+            tag.style.cssText = cssText;
+        }
+        if (className) {
+            tag.className = className;
+        }
         parent.appendChild(tag);
         return tag;
     }
 
-    obj.DoInsertTemplate = function () {
-
-        var dialoginner = editor.createDialog(editor.getLangText("inserttemplatetitle"), "rte-dialog-inserttemplate");
-
-        var scrollpanel = __Append(dialoginner, "rte-inserttemplate-scrollpanel", "overflow-y:auto;padding-bottom:32px;");
-        var container = __Append(scrollpanel, "rte-inserttemplate-container", "display:flex;flex-wrap:wrap;");
-
-        container.focus();//focus to let ESC key close dialog
-
-        function CreateDiv(item) {
-            var text = item[0];
-            var html = item[1];
-            console.log(item, text, html);
-
-            var divitem = __Append(container, "rte-inserttemplate-image-item", "cursor:pointer;width:256px;height:256px;margin:12px;box-shadow:0 0 8px #ccc;display:flex;align-items:center;justify-content:center;")
-            var div = __Append(divitem, "div", "max-width:90%;max-height:90%;overflow:auto;");
-            var innerdiv = __Append(div, "div");
-            innerdiv.innerHTML = html;
-            div.title = text;
-
-            var scale = Math.min(200 / div.scrollWidth, 200 / div.scrollHeight);
-            if (scale < 1) {
-
-                var tx, ty;
-                tx = ty = (Math.max(div.scrollWidth, div.scrollHeight) - 200) / 2;
-                innerdiv.style.transform = "scale(" + scale + ") translate(-" + tx + "px,-" + ty + "px)";
-                div.style.overflow = "hidden";
-            }
-
-            divitem.onclick = function () {
-                editor.setHTMLCode(html);
-                dialoginner.close();
-            }
+    function clear(node) {
+        while (node.firstChild) {
+            node.removeChild(node.firstChild);
         }
-
-        for (var i = 0; i < config.htmlTemplates.length; i++) {
-            var item = config.htmlTemplates[i];
-            CreateDiv(item);
-        }
-
     }
+
+    function stripHtml(html) {
+        var div = document.createElement("div");
+        div.innerHTML = html || "";
+        return div.innerText || div.textContent || "";
+    }
+
+    function normalizeTemplateItem(item, index) {
+        if (item instanceof Array) {
+            return {
+                id: "template-" + index,
+                title: item[0] || ("Template " + (index + 1)),
+                html: item[1] || "",
+                meta: item[2] || ""
+            };
+        }
+
+        if (item && typeof item === "object") {
+            return {
+                id: item.id || ("template-" + index),
+                title: item.title || item.name || item.text || ("Template " + (index + 1)),
+                html: item.html || item.content || "",
+                meta: item.meta || item.description || ""
+            };
+        }
+
+        if (typeof item === "string") {
+            return {
+                id: "template-" + index,
+                title: "Template " + (index + 1),
+                html: item,
+                meta: ""
+            };
+        }
+
+        return null;
+    }
+
+    function scalePreview(body, canvas) {
+        var maxWidth = 206;
+        var maxHeight = 166;
+        var width = Math.max(canvas.scrollWidth, 1);
+        var height = Math.max(canvas.scrollHeight, 1);
+        var scale = Math.min(1, maxWidth / width, maxHeight / height);
+
+        canvas.style.transformOrigin = "top left";
+        canvas.style.transform = "scale(" + scale + ")";
+        canvas.style.width = width + "px";
+        canvas.style.height = height + "px";
+    }
+
+    obj.DoInsertTemplate = function () {
+        var dialoginner = editor.createDialog(editor.getLangText("inserttemplatetitle") || "Insert template", "rte-dialog-inserttemplate");
+        var closeDialog = typeof dialoginner.close === "function" ? function () {
+            dialoginner.close();
+        } : function () {
+            editor.closeCurrentPopup();
+        };
+
+        var browser = append(dialoginner, "div", "", "rte-dialog-browser");
+        var header = append(browser, "div", "", "rte-dialog-browser-header");
+        var kicker = append(header, "div", "", "rte-dialog-browser-kicker");
+        kicker.innerText = "Content Blocks";
+        var title = append(header, "div", "", "rte-dialog-browser-title");
+        title.innerText = "Insert template";
+        var copy = append(header, "div", "", "rte-dialog-browser-copy");
+        copy.innerText = "Preview reusable layouts, search by name, and replace the current editor content with a selected template.";
+
+        var toolbar = append(browser, "div", "", "rte-dialog-browser-toolbar");
+        var search = append(toolbar, "input", "", "rte-dialog-browser-search");
+        search.type = "search";
+        search.placeholder = "Search templates";
+        var count = append(toolbar, "div", "", "rte-dialog-browser-count");
+
+        var scrollpanel = append(browser, "div", "", "rte-dialog-browser-scrollpanel");
+        var grid = append(scrollpanel, "div", "", "rte-dialog-browser-grid rte-template-grid");
+        var empty = append(scrollpanel, "div", "", "rte-dialog-browser-empty");
+        empty.innerText = "No templates match the current filter.";
+
+        var footer = append(browser, "div", "", "rte-gallery-browser-footer");
+        var footerText = append(footer, "div", "", "rte-gallery-browser-footer-text");
+        footerText.innerText = "Select a template to replace the current content.";
+
+        var cancelButton = append(footer, "button", "", "rte-gallery-browser-button");
+        cancelButton.type = "button";
+        cancelButton.innerText = "Cancel";
+
+        var applyButton = append(footer, "button", "", "rte-gallery-browser-button rte-gallery-browser-button-primary");
+        applyButton.type = "button";
+        applyButton.innerText = "Replace Content";
+        applyButton.disabled = true;
+
+        var selectedId = "";
+
+        function getTemplates() {
+            var list = [];
+            var items = config.htmlTemplates || [];
+            var i;
+            for (i = 0; i < items.length; i++) {
+                var normalized = normalizeTemplateItem(items[i], i);
+                if (normalized && normalized.html) {
+                    list.push(normalized);
+                }
+            }
+            return list;
+        }
+
+        function getFilteredTemplates() {
+            var keyword = search.value.replace(/^\s+|\s+$/g, "").toLowerCase();
+            var items = getTemplates();
+            if (!keyword) {
+                return items;
+            }
+
+            return items.filter(function (item) {
+                var plainText = stripHtml(item.html).toLowerCase();
+                return item.title.toLowerCase().indexOf(keyword) >= 0
+                    || plainText.indexOf(keyword) >= 0
+                    || (item.meta && item.meta.toLowerCase().indexOf(keyword) >= 0);
+            });
+        }
+
+        function updateFooter(items) {
+            var selectedTemplate = null;
+            var i;
+            for (i = 0; i < items.length; i++) {
+                if (items[i].id === selectedId) {
+                    selectedTemplate = items[i];
+                    break;
+                }
+            }
+
+            count.innerText = items.length + " template" + (items.length === 1 ? "" : "s");
+            footerText.innerText = selectedTemplate
+                ? ("Ready to replace the editor content with " + selectedTemplate.title + ".")
+                : "Select a template to replace the current content.";
+            applyButton.disabled = !selectedTemplate;
+        }
+
+        function applySelected() {
+            var items = getTemplates();
+            var i;
+            for (i = 0; i < items.length; i++) {
+                if (items[i].id === selectedId) {
+                    editor.setHTMLCode(items[i].html);
+                    closeDialog();
+                    editor.focus();
+                    return;
+                }
+            }
+        }
+
+        function render() {
+            clear(grid);
+            var items = getFilteredTemplates();
+            var i;
+
+            empty.style.display = items.length ? "none" : "block";
+
+            for (i = 0; i < items.length; i++) {
+                (function (item) {
+                    var card = append(grid, "button", "", "rte-dialog-browser-card");
+                    card.type = "button";
+                    if (item.id === selectedId) {
+                        card.classList.add("is-selected");
+                    }
+
+                    var preview = append(card, "div", "", "rte-template-card-preview");
+                    var previewBody = append(preview, "div", "", "rte-template-card-preview-body");
+                    var canvas = append(previewBody, "div", "", "rte-template-card-preview-canvas");
+                    canvas.innerHTML = item.html;
+                    scalePreview(previewBody, canvas);
+
+                    var footer = append(card, "div", "", "rte-template-card-footer");
+                    var title = append(footer, "div", "", "rte-template-card-title");
+                    title.innerText = item.title;
+                    var meta = append(footer, "div", "", "rte-template-card-meta");
+                    meta.innerText = item.meta || stripHtml(item.html).substring(0, 80) || "Reusable template";
+
+                    card.onclick = function () {
+                        selectedId = item.id;
+                        render();
+                    };
+
+                    card.ondblclick = function () {
+                        selectedId = item.id;
+                        applySelected();
+                    };
+                })(items[i]);
+            }
+
+            if (selectedId) {
+                var visible = false;
+                for (i = 0; i < items.length; i++) {
+                    if (items[i].id === selectedId) {
+                        visible = true;
+                        break;
+                    }
+                }
+                if (!visible) {
+                    selectedId = "";
+                }
+            }
+
+            updateFooter(items);
+        }
+
+        search.oninput = render;
+        cancelButton.onclick = closeDialog;
+        applyButton.onclick = applySelected;
+
+        render();
+        search.focus();
+    };
 }
 
 
+RTE_DefaultConfig.plugin_zz_richtextbox_dialog_style = RTE_Plugin_RichTextBoxDialogStyle;
+
+function RTE_Plugin_RichTextBoxDialogStyle() {
+    var obj = this;
+
+    obj.PluginName = "RichTextBoxDialogStyle";
+
+    obj.InitConfig = function (config) {
+        if (!config.imageItems) {
+            config.imageItems = [];
+        }
+        if (!config.galleryImages) {
+            config.galleryImages = [];
+        }
+        if (!config.htmlTemplates) {
+            config.htmlTemplates = [];
+        }
+        if (!config.documentItems) {
+            config.documentItems = [];
+        }
+    };
+
+    obj.InitEditor = function () {
+    };
+
+    function append(parent, tagName, cssText, className) {
+        var tag = parent.ownerDocument.createElement(tagName);
+        if (cssText) {
+            tag.style.cssText = cssText;
+        }
+        if (className) {
+            tag.className = className;
+        }
+        parent.appendChild(tag);
+        return tag;
+    }
+
+    function getUrlValue(input) {
+        return input && input.value ? input.value.replace(/^\s+|\s+$/g, "") : "";
+    }
+
+    function getUrlHost(value) {
+        try {
+            return new URL(value, window.location.href).hostname || "";
+        } catch (ex) {
+            return "";
+        }
+    }
+
+    function getUrlFileName(value) {
+        var clean = String(value || "").split("#")[0].split("?")[0];
+        var slash = clean.lastIndexOf("/");
+        var fileName = slash >= 0 ? clean.substring(slash + 1) : clean;
+        try {
+            fileName = decodeURIComponent(fileName);
+        } catch (ex) {
+        }
+        return fileName || "";
+    }
+
+    function getExtension(value) {
+        var fileName = getUrlFileName(value);
+        var dot = fileName.lastIndexOf(".");
+        if (dot < 0) {
+            return "LINK";
+        }
+        return fileName.substring(dot + 1).toUpperCase().substring(0, 4);
+    }
+
+    function ensureUploadIntro(panel, className, message) {
+        if (!panel || panel.querySelector("." + className)) {
+            return;
+        }
+        var intro = append(panel, "div", "", className);
+        intro.innerText = message;
+    }
+
+    function bindInput(input, handler, flagName) {
+        if (input[flagName]) {
+            return false;
+        }
+
+        if (input.addEventListener) {
+            input.addEventListener("input", handler);
+        } else {
+            input.onkeyup = handler;
+            input.onchange = handler;
+            input.onpaste = handler;
+        }
+
+        input[flagName] = true;
+        return true;
+    }
+
+    function ensureImagePreview(panel, urlLine) {
+        if (!panel || !urlLine) {
+            return;
+        }
+
+        var input = urlLine.querySelector("input[type='text']");
+        if (!input) {
+            return;
+        }
+
+        if (!input.placeholder) {
+            input.placeholder = "https://example.com/image.jpg";
+        }
+
+        var preview = panel.querySelector(".rte-insertimage-preview");
+        if (!preview) {
+            preview = append(panel, "div", "", "rte-insertimage-preview is-empty");
+            var image = append(preview, "img", "", "rte-insertimage-preview-image");
+            image.alt = "Image preview";
+            append(preview, "div", "", "rte-insertimage-preview-caption");
+        }
+
+        if (input.__rteRichTextBoxImagePreviewBound) {
+            return;
+        }
+
+        var previewImage = preview.querySelector(".rte-insertimage-preview-image");
+        var previewCaption = preview.querySelector(".rte-insertimage-preview-caption");
+
+        function updatePreview() {
+            var value = getUrlValue(input);
+            if (!value) {
+                preview.classList.add("is-empty");
+                preview.classList.remove("is-error");
+                previewImage.removeAttribute("src");
+                previewCaption.innerText = "Enter an image URL to preview it here.";
+                return;
+            }
+
+            preview.classList.remove("is-empty");
+            preview.classList.remove("is-error");
+            previewCaption.innerText = "Loading preview...";
+            previewImage.src = value;
+        }
+
+        previewImage.onload = function () {
+            preview.classList.remove("is-empty");
+            preview.classList.remove("is-error");
+            previewCaption.innerText = "Ready to insert this image.";
+        };
+
+        previewImage.onerror = function () {
+            preview.classList.remove("is-empty");
+            preview.classList.add("is-error");
+            previewCaption.innerText = "Preview unavailable for this URL.";
+        };
+
+        bindInput(input, updatePreview, "__rteRichTextBoxImagePreviewBound");
+        updatePreview();
+    }
+
+    function ensureDocumentPreview(panel, urlLine) {
+        if (!panel || !urlLine) {
+            return;
+        }
+
+        var input = urlLine.querySelector("input[type='text']");
+        if (!input) {
+            return;
+        }
+
+        if (!input.placeholder) {
+            input.placeholder = "https://example.com/files/proposal.pdf";
+        }
+
+        var preview = panel.querySelector(".rte-insertdocument-preview");
+        if (!preview) {
+            preview = append(panel, "div", "", "rte-insertdocument-preview is-empty");
+            var icon = append(preview, "div", "", "rte-insertdocument-preview-icon");
+            append(icon, "div", "", "rte-insertdocument-preview-ext");
+            var body = append(preview, "div", "", "rte-insertdocument-preview-body");
+            append(body, "div", "", "rte-insertdocument-preview-title");
+            append(body, "div", "", "rte-insertdocument-preview-meta");
+        }
+
+        if (input.__rteRichTextBoxDocumentPreviewBound) {
+            return;
+        }
+
+        var ext = preview.querySelector(".rte-insertdocument-preview-ext");
+        var title = preview.querySelector(".rte-insertdocument-preview-title");
+        var meta = preview.querySelector(".rte-insertdocument-preview-meta");
+
+        function updatePreview() {
+            var value = getUrlValue(input);
+            if (!value) {
+                preview.classList.add("is-empty");
+                ext.innerText = "DOC";
+                title.innerText = "No document selected";
+                meta.innerText = "Enter a document URL to preview the inserted link.";
+                return;
+            }
+
+            preview.classList.remove("is-empty");
+            ext.innerText = getExtension(value);
+            title.innerText = getUrlFileName(value) || value;
+
+            var host = getUrlHost(value);
+            meta.innerText = host
+                ? ("Source: " + host + "  |  The editor inserts a clickable link.")
+                : "The editor inserts a clickable link at the current cursor position.";
+        }
+
+        bindInput(input, updatePreview, "__rteRichTextBoxDocumentPreviewBound");
+        updatePreview();
+    }
+
+    function enhanceInsertImagePanels(root) {
+        var panels = [];
+        var i;
+
+        if (root.classList && root.classList.contains("rte-panel-insertimage")) {
+            panels.push(root);
+        }
+
+        if (root.querySelectorAll) {
+            var nested = root.querySelectorAll(".rte-panel-insertimage");
+            for (i = 0; i < nested.length; i++) {
+                panels.push(nested[i]);
+            }
+        }
+
+        for (i = 0; i < panels.length; i++) {
+            var panel = panels[i];
+            panel.classList.add("rte-richtextbox-dialog");
+
+            var uploadTab = panel.querySelector(".fileuploader-dragdrop");
+            if (uploadTab) {
+                ensureUploadIntro(uploadTab, "rte-insertimage-intro", "Drop an image here or click anywhere in this panel to browse.");
+            }
+
+            var urlTab = panel.querySelector(".rte_insertimage_byurl");
+            if (urlTab) {
+                ensureUploadIntro(urlTab, "rte-insertimage-intro", "Paste a hosted image URL and verify the preview before inserting.");
+                ensureImagePreview(urlTab, urlTab.querySelector(".rte-dialog-line-url"));
+            }
+
+            var actionButton = panel.querySelector(".rte-dialog-line-action .rte-dialog-button");
+            if (actionButton && actionButton.innerText === "Insert") {
+                actionButton.innerText = "Insert image";
+            }
+        }
+    }
+
+    function enhanceInsertDocumentPanels(root) {
+        var panels = [];
+        var i;
+
+        if (root.classList && root.classList.contains("rte-panel-insertdocument")) {
+            panels.push(root);
+        }
+
+        if (root.querySelectorAll) {
+            var nested = root.querySelectorAll(".rte-panel-insertdocument");
+            for (i = 0; i < nested.length; i++) {
+                panels.push(nested[i]);
+            }
+        }
+
+        for (i = 0; i < panels.length; i++) {
+            var panel = panels[i];
+            panel.classList.add("rte-richtextbox-dialog");
+
+            var uploadTab = panel.querySelector(".fileuploader-dragdrop");
+            if (uploadTab) {
+                ensureUploadIntro(uploadTab, "rte-insertdocument-intro", "Upload a local file or drag it into the dialog to create a document link.");
+            }
+
+            var urlTab = panel.querySelector(".rte_insertdocument_byurl");
+            if (urlTab) {
+                ensureUploadIntro(urlTab, "rte-insertdocument-intro", "Paste a hosted file URL and review the link details before inserting.");
+                ensureDocumentPreview(urlTab, urlTab.querySelector(".rte-dialog-line-url"));
+            }
+
+            var actionLine = panel.querySelector(".rte-dialog-line-action");
+            if (actionLine) {
+                actionLine.classList.add("rte-insertdocument-actions");
+            }
+
+            var actionButton = panel.querySelector(".rte-dialog-line-action .rte-dialog-button");
+            if (actionButton && actionButton.innerText === "Insert") {
+                actionButton.innerText = "Insert document";
+            }
+            if (actionButton && actionButton.innerText === "Update") {
+                actionButton.innerText = "Update document";
+            }
+        }
+    }
+
+    function patchTree(root) {
+        if (!root || root.nodeType !== 1) {
+            return;
+        }
+
+        enhanceInsertImagePanels(root);
+        enhanceInsertDocumentPanels(root);
+    }
+
+    function start() {
+        patchTree(document.documentElement);
+
+        if (!window.MutationObserver) {
+            return;
+        }
+
+        var observer = new MutationObserver(function (mutations) {
+            var i;
+            var j;
+            for (i = 0; i < mutations.length; i++) {
+                for (j = 0; j < mutations[i].addedNodes.length; j++) {
+                    patchTree(mutations[i].addedNodes[j]);
+                }
+            }
+        });
+
+        observer.observe(document.documentElement, {
+            childList: true,
+            subtree: true
+        });
+    }
+
+    if (document.readyState === "loading") {
+        if (document.addEventListener) {
+            document.addEventListener("DOMContentLoaded", start);
+        } else {
+            window.attachEvent("onload", start);
+        }
+    } else {
+        start();
+    }
+}
 
 
 
