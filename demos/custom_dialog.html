@@ -1,26 +1,25 @@
 ﻿<!DOCTYPE html>
 
-<html lang="en" xmlns="http://www.w3.org/1999/xhtml" style="display:flex;height:100%;flex-direction:column;">
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
 <head>
 	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
 	<title>Custom Dialog</title>
 	<base href='../' />
+	<script src="https://cdn.tailwindcss.com"></script>
 	<link rel="stylesheet" href="res/style.css" />
 </head>
-<body style="padding-bottom:3px;align-items:center">
-	<div class="topbanner">
-		<div style="align-self:stretch;width:960px;display:flex; flex-direction: row;">
-			<div style="flex:99999">
-				<a href="index.html"><label>RichTextEditor Demo</label></a>
-			</div>
-			<div>
-				<a href="index.html">Home</a>
-				&nbsp;
-				<a target="_blank" href="https://richtexteditor.com/pricing.aspx">Pricing</a>
-			</div>
+<body class="bg-slate-50 text-slate-800 antialiased min-h-screen flex flex-col">
+	<header class="bg-gradient-to-r from-indigo-600 to-indigo-500 text-white shadow-md">
+		<div class="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
+			<a href="index.html" class="text-lg font-semibold tracking-tight hover:text-indigo-100 transition">RichTextEditor</a>
+			<nav class="flex items-center gap-4 text-sm">
+				<a href="index.html" class="hover:text-indigo-100 transition">Home</a>
+				<a target="_blank" href="https://richtexteditor.com/pricing.aspx" class="px-3 py-1.5 rounded-full bg-white/15 hover:bg-white/25 transition text-sm">Pricing</a>
+			</nav>
 		</div>
-	</div>
-	<div style="margin:auto;padding:12px 6px 36px;max-width:960px;">
+	</header>
+	<main class="flex-1 max-w-5xl w-full mx-auto px-4 py-10">
 		
 	<h3>Add custom dialog</h3>
 	<p class="mb-4">
@@ -175,7 +174,10 @@
 		</ul>
 	</div>
 
-	</div>
+	</main>
+	<footer class="border-t border-slate-200 py-6 text-center text-xs text-slate-400">
+		RichTextEditor &mdash; JavaScript Rich Text Editor Component
+	</footer>
 	<script src="res/patch.js"></script>
 </body>
 </html>
