@@ -1,0 +1,40 @@
+{
+  "Threads": [
+    {
+      "ThreadId": "thread_93e98be494ed",
+      "Status": "open",
+      "LinkedSuggestionId": "suggestion_251af2ade444",
+      "AnchorText": "linked suggestion",
+      "AnchorRevision": 1,
+      "AnchorStartOffset": null,
+      "AnchorEndOffset": null,
+      "AnchorStartTextNodePath": null,
+      "AnchorStartTextNodeOffset": null,
+      "AnchorEndTextNodePath": null,
+      "AnchorEndTextNodeOffset": null,
+      "AnchorTextNodePath": null,
+      "AnchorTextNodeStartOffset": null,
+      "AnchorTextNodeEndOffset": null,
+      "AnchorBlockPath": null,
+      "AnchorBlockType": null,
+      "AnchorBlockStartOffset": null,
+      "AnchorBlockEndOffset": null,
+      "AnchorContextBefore": null,
+      "AnchorContextAfter": null,
+      "CreatedUtc": "2026-04-18T09:17:24.1660636Z",
+      "UpdatedUtc": "2026-04-18T09:17:24.1660636Z",
+      "CreatedBy": "Smoke Tester",
+      "ResolvedUtc": null,
+      "ResolvedBy": null,
+      "Comments": [
+        {
+          "CommentId": "comment_8776c0e482f2",
+          "Body": "Following up on the wording change.",
+          "Author": "Smoke Tester",
+          "AuthorSessionId": "smoke-session",
+          "CreatedUtc": "2026-04-18T09:17:24.1660636Z"
+        }
+      ]
+    }
+  ]
+}

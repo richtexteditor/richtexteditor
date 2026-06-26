@@ -1,0 +1,57 @@
+<main class="app-shell">
+  <section class="hero">
+    <div>
+      <p class="eyebrow">v2.1 foundation</p>
+      <h1>{{ title }}</h1>
+      <p class="lede">
+        This Angular starter now uses a reusable wrapper component, automatic asset loading,
+        and the same JSON bridge format as the React and Vue demos.
+      </p>
+    </div>
+    <div class="status-chip">{{ status }}</div>
+  </section>
+
+  <section class="workspace">
+    <article class="editor-card">
+      <div class="toolbar-row">
+        <button (click)="loadWelcomeDocument()">Load welcome doc</button>
+        <button (click)="loadStructuredDocument()">Load JSON sample</button>
+        <button (click)="loadMarkdownDocument()">Load Markdown sample</button>
+        <button (click)="focusEditor()">Focus editor</button>
+      </div>
+
+      <app-rich-text-editor
+        #editorRef
+        class="editor-frame"
+        [assetBasePath]="'/assets/richtexteditor'"
+        [value]="documentModel"
+        [valueFormat]="'json'"
+        (change)="handleEditorChange($event)"
+        (ready)="handleEditorReady($event)"
+        (error)="handleEditorError($event)"
+      ></app-rich-text-editor>
+    </article>
+
+    <div class="preview-grid">
+      <article class="preview-card">
+        <h2>HTML output</h2>
+        <textarea [value]="htmlPreview" readonly></textarea>
+      </article>
+
+      <article class="preview-card">
+        <h2>Markdown output</h2>
+        <textarea [value]="markdownPreview" readonly></textarea>
+      </article>
+
+      <article class="preview-card">
+        <h2>JSON output</h2>
+        <textarea [value]="jsonPreview" readonly></textarea>
+      </article>
+
+      <article class="preview-card">
+        <h2>Static HTML render</h2>
+        <div class="rendered-preview" [innerHTML]="renderedPreview"></div>
+      </article>
+    </div>
+  </section>
+</main>

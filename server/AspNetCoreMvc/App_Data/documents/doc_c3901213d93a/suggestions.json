@@ -1,0 +1,33 @@
+{
+  "Suggestions": [
+    {
+      "SuggestionId": "suggestion_6e254131dacd",
+      "Type": "format",
+      "Status": "open",
+      "Body": "Demo AI proofread suggestion in a professional tone. Instruction: make this release-note ready.",
+      "SuggestedText": "This sentence should be cleaned up for the release notes.",
+      "AnchorText": "this sentence should be cleaned up for the release notes",
+      "AnchorRevision": 1,
+      "AnchorStartOffset": 0,
+      "AnchorEndOffset": 56,
+      "AnchorStartTextNodePath": null,
+      "AnchorStartTextNodeOffset": null,
+      "AnchorEndTextNodePath": null,
+      "AnchorEndTextNodeOffset": null,
+      "AnchorTextNodePath": null,
+      "AnchorTextNodeStartOffset": null,
+      "AnchorTextNodeEndOffset": null,
+      "AnchorBlockPath": null,
+      "AnchorBlockType": null,
+      "AnchorBlockStartOffset": null,
+      "AnchorBlockEndOffset": null,
+      "AnchorContextBefore": null,
+      "AnchorContextAfter": null,
+      "CreatedUtc": "2026-04-18T09:53:02.2827698Z",
+      "UpdatedUtc": "2026-04-18T09:53:02.2827698Z",
+      "CreatedBy": "Smoke Tester",
+      "DecidedUtc": null,
+      "DecidedBy": null
+    }
+  ]
+}

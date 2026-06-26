@@ -1,0 +1,35 @@
+{
+  "Suggestions": [
+    {
+      "SuggestionId": "suggestion_795a258e73aa",
+      "Type": "delete",
+      "Status": "open",
+      "Body": "Shorten this phrase.",
+      "SuggestedText": null,
+      "AnchorText": "tighten this sentence",
+      "AnchorRevision": 1,
+      "AnchorStartOffset": 7,
+      "AnchorEndOffset": 28,
+      "AnchorStartTextNodePath": null,
+      "AnchorStartTextNodeOffset": null,
+      "AnchorEndTextNodePath": null,
+      "AnchorEndTextNodeOffset": null,
+      "AnchorTextNodePath": null,
+      "AnchorTextNodeStartOffset": null,
+      "AnchorTextNodeEndOffset": null,
+      "AnchorBlockPath": [
+        0
+      ],
+      "AnchorBlockType": "paragraph",
+      "AnchorBlockStartOffset": 7,
+      "AnchorBlockEndOffset": 28,
+      "AnchorContextBefore": null,
+      "AnchorContextAfter": null,
+      "CreatedUtc": "2026-04-18T07:27:12.3265304Z",
+      "UpdatedUtc": "2026-04-18T07:27:12.3265304Z",
+      "CreatedBy": "UI Smoke Tester",
+      "DecidedUtc": null,
+      "DecidedBy": null
+    }
+  ]
+}

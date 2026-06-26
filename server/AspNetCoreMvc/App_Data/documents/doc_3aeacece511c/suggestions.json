@@ -1,0 +1,44 @@
+{
+  "Suggestions": [
+    {
+      "SuggestionId": "suggestion_56f5bd2af584",
+      "Type": "delete",
+      "Status": "open",
+      "Body": "UI smoke suggestion note",
+      "SuggestedText": "structured review document",
+      "AnchorText": "structured JSON document",
+      "AnchorRevision": 1,
+      "AnchorStartOffset": 56,
+      "AnchorEndOffset": 80,
+      "AnchorStartTextNodePath": [
+        1,
+        1
+      ],
+      "AnchorStartTextNodeOffset": 1,
+      "AnchorEndTextNodePath": [
+        1,
+        1
+      ],
+      "AnchorEndTextNodeOffset": 25,
+      "AnchorTextNodePath": [
+        1,
+        1
+      ],
+      "AnchorTextNodeStartOffset": 0,
+      "AnchorTextNodeEndOffset": 24,
+      "AnchorBlockPath": [
+        1
+      ],
+      "AnchorBlockType": "paragraph",
+      "AnchorBlockStartOffset": 27,
+      "AnchorBlockEndOffset": 51,
+      "AnchorContextBefore": "ace\n\nThis sample is stored as a",
+      "AnchorContextAfter": "and each save now notifies othe",
+      "CreatedUtc": "2026-04-18T09:28:46.1906245Z",
+      "UpdatedUtc": "2026-04-18T09:28:46.1906245Z",
+      "CreatedBy": "Editor 2a9a4a",
+      "DecidedUtc": null,
+      "DecidedBy": null
+    }
+  ]
+}

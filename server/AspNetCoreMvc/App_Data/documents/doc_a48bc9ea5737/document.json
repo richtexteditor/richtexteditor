@@ -1,0 +1,9 @@
+{
+  "Id": "doc_a48bc9ea5737",
+  "Title": "Release smoke document",
+  "Revision": 2,
+  "CurrentRevisionId": "rev-0002",
+  "CreatedUtc": "2026-04-18T09:22:37.1639834Z",
+  "UpdatedUtc": "2026-04-18T09:22:37.2269026Z",
+  "DocumentJson": "{\r\n  \u0022content\u0022: [\r\n    {\r\n      \u0022content\u0022: [\r\n        {\r\n          \u0022text\u0022: \u0022Review this linked suggestion example before release.\u0022,\r\n          \u0022type\u0022: \u0022text\u0022\r\n        }\r\n      ],\r\n      \u0022type\u0022: \u0022paragraph\u0022\r\n    },\r\n    {\r\n      \u0022content\u0022: [\r\n        {\r\n          \u0022text\u0022: \u0022Revision compare should have at least one saved revision to inspect.\u0022,\r\n          \u0022type\u0022: \u0022text\u0022\r\n        }\r\n      ],\r\n      \u0022type\u0022: \u0022paragraph\u0022\r\n    }\r\n  ],\r\n  \u0022format\u0022: \u0022richtexteditor-json\u0022,\r\n  \u0022version\u0022: 2,\r\n  \u0022type\u0022: \u0022doc\u0022\r\n}"
+}

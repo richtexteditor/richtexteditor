@@ -1,0 +1,30 @@
+:root {
+  --page-background: linear-gradient(180deg, #f6f8fb 0%, #e8eef7 100%);
+  --panel-background: rgba(255, 255, 255, 0.9);
+  --panel-border: rgba(18, 62, 110, 0.12);
+  --accent: #1957a5;
+  --accent-dark: #103d75;
+  --text-main: #16324f;
+  --text-soft: #56708d;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--page-background);
+  color: var(--text-main);
+  font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}

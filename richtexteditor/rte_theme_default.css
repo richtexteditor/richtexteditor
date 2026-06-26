@@ -1,0 +1,4538 @@
+﻿
+/* ===== Design tokens =====
+   Override these CSS custom properties to retheme the editor chrome — the
+   same architecture CKEditor 5 documents for its --ck-* variables. Icons in
+   rte-config.js use fill/stroke="currentColor" and follow --rte-icon-color.
+   The built-in dark mode (end of this file) is pure token overrides. */
+.richtexteditor, .rte-absolute, .rte-fixed, rte-dropdown-panel, rte-dialog-outer, rte-dialog-float, rte-control-toolbar, rte-floatpanel {
+    --rte-icon-color: #5F6368;       /* toolbar/dialog icon color       */
+    --rte-surface: #ffffff;          /* editor + panel background       */
+    --rte-surface-raised: #ffffff;   /* toolbar / status bar background */
+    --rte-border: #dddddd;           /* chrome borders                  */
+    --rte-text: #333333;             /* chrome text                     */
+    --rte-hover-bg: #f2f2f2;         /* button hover background         */
+    --rte-accent: #1d67ba;           /* active/selected accent          */
+}
+
+rte-toolbar-button, rte-toolbar-splitbutton, rte-toolbar-dropdown, rte-toolbar-arrowbutton, rte-toolbar-dropdown-input, rte-toolbar-dropdown-arrow {
+    color: var(--rte-icon-color, #5F6368);
+}
+
+.richtexteditor {
+    display: flex !important;
+    flex-direction: column !important;
+    position: relative !important;
+    box-sizing: border-box !important;
+    border: 1px solid #ddd;
+    background-color: #fff;
+    user-select: none;
+    min-height: 200px;
+    min-width: 200px;
+    font-family: -apple-system, Helvetica, Arial, sans-serif;
+}
+
+.richtexteditor, .rte-absolute, .rte-fixed, rte-dropdown-panel {
+    font-family: -apple-system, Helvetica, Arial, sans-serif;
+    font-size: 14px;
+}
+
+    .richtexteditor *, .rte-absolute *, .rte-fixed * {
+        box-sizing: border-box !important;
+    }
+
+    .richtexteditor.rte-fullpage {
+        position: fixed !important;
+        border: none !important;
+        left: -2px !important;
+        top: -2px !important;
+        right: -2px !important;
+        bottom: -2px !important;
+        width: auto !important;
+        height: auto !important;
+        max-width: none !important;
+        max-height: none !important;
+        border-radius: 0px !important;
+    }
+
+        .richtexteditor.rte-fullpage rte-toolbar {
+            border-radius: 0px !important;
+        }
+
+.rte-absolute {
+    box-sizing: border-box !important;
+    position: absolute !important;
+}
+
+.rte-fixed {
+    box-sizing: border-box !important;
+    position: fixed !important;
+}
+
+rte-precontent {
+    z-index: 1;
+}
+
+rte-content {
+    border-bottom: solid 1px #ebedf2;
+    padding: 8px;
+    user-select: none;
+    background-color: #fff;
+}
+
+.rte-editable {
+    background-color: #fff;
+}
+
+rte-toolbar {
+    border-bottom: solid 1px #ebedf2;
+}
+
+.rte-office rte-toolbar {
+    padding: 2px 2px 3px;
+    background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAACCCAYAAABGtuhTAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAALEgAACxIB0t1+/AAAACB0RVh0U29mdHdhcmUATWFjcm9tZWRpYSBGaXJld29ya3MgTVi7kSokAAAAFnRFWHRDcmVhdGlvbiBUaW1lADA1LzA3LzEyJiegEwAAAOZJREFUeJztmcENxDAIBHFE/23eM79T7hE7RdxYGkRcwGiBBSx7fM5rBXjyulFe5DEnC5yswMhFAydMzMUDUV4kzCsRMp/DfiHjVUZxEfn93SjwQGk9gTlgoD9kPocBJ7FhUfCQcwwWWSCHeh/iCgsUpWMv0z7U2yYDlrij9eTz0N8pFXxoV/gC/z8bLksw0J/DFygENry0+4ENdwp+nfOvgApFaedDP9DvQ38vN+wUv212FEXuQ1yh//3Q78Mc9vHlr7J/wPLvh/yDpL4oBRTSQHxiFzC2XmGBnWL/oNnQKfo1qlf4ABqzK10RRBaNAAAAAElFTkSuQmCC');
+}
+
+
+
+rte-codebox {
+    flex: 99999;
+    text-align: left;
+    font-size: 15px;
+    line-height: 1.5;
+    border: none;
+    font-family: "Consolas", "Courier New", Courier, monospace, serif;
+}
+
+    rte-codebox textarea {
+        -moz-resize: none;
+        -webkit-resize: none;
+        -webkit-box-sizing: border-box;
+        -moz-box-sizing: border-box;
+        box-sizing: border-box;
+        border: none;
+        padding: 10px;
+        margin: 0;
+        font-family: "Courier New", Courier, monospace, serif;
+        font-size: 14px;
+        background: #FFF;
+        color: #000;
+        outline: none;
+    }
+
+.richtexteditor.rte-modern rte-toolbar {
+    padding: 0px 2px;
+    font-size: 14px;
+    color: #333;
+    box-shadow: 0 2px 2px 0 rgba(0,0,0,.05);
+    border-bottom: 1px solid #eeeeee;
+}
+
+/* 2026-05-11 Sticky toolbar on scroll: keep the editor toolbar visible at the
+   top of the viewport when the user scrolls past the editor's top. Activates
+   only on editors with class `rte-toolbar-sticky` (set via JS based on
+   config.stickyToolbar). Z-index keeps it above body content + below modals. */
+.richtexteditor.rte-toolbar-sticky rte-toolbar.rte-toolbar-desktop,
+.richtexteditor.rte-toolbar-sticky rte-toolbar.rte-toolbar-mobile {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background-color: #fff;
+}
+
+/* 2026-05-11 Auto-grow: the editor expands to fit content instead of showing
+   an inner scrollbar. Set `config.autoGrow = true` to enable. */
+.richtexteditor.rte-autogrow rte-content {
+    overflow-y: visible !important;
+}
+.richtexteditor.rte-autogrow,
+.richtexteditor.rte-autogrow iframe.rte-editable {
+    height: auto !important;
+    max-height: none !important;
+}
+
+/* 2026-05-11 Print stylesheet: only the editor's content prints; toolbars,
+   chrome, status bar, drag handles, selection rectangles are hidden so the
+   printed page matches the saved document, not the editing UI. */
+@media print {
+    .richtexteditor rte-toolbar,
+    .richtexteditor rte-subtoolbar,
+    .richtexteditor rte-bottom,
+    .richtexteditor rte-precontent,
+    .richtexteditor rte-control-toolbar,
+    .richtexteditor rte-control-selected,
+    .richtexteditor rte-plusbtn,
+    .rte-block-drag-handle,
+    .rte-block-drop-indicator,
+    .rte-toolbar-sticky rte-toolbar { display: none !important; }
+    .richtexteditor {
+        border: 0 !important;
+        box-shadow: none !important;
+        background: #fff !important;
+        min-height: 0 !important;
+        max-height: none !important;
+        overflow: visible !important;
+    }
+    .richtexteditor iframe.rte-editable {
+        height: auto !important;
+        border: 0 !important;
+        page-break-inside: auto;
+    }
+    .richtexteditor rte-content {
+        overflow: visible !important;
+    }
+}
+
+/* 2026-05-19 Reading mode — hides toolbars + status, leaves only the editing
+   surface for distraction-free writing. Toggle via editor.toggleReadingMode(). */
+.richtexteditor.rte-reading-mode rte-toolbar,
+.richtexteditor.rte-reading-mode rte-subtoolbar,
+.richtexteditor.rte-reading-mode rte-bottom,
+.richtexteditor.rte-reading-mode rte-plusbtn {
+    display: none !important;
+}
+.richtexteditor.rte-reading-mode {
+    border: 0 !important;
+    box-shadow: none !important;
+    background: #fff !important;
+}
+
+/* 2026-05-11 Block drag handles (Notion-style ⋮⋮ on left edge of blocks).
+   Activated via config.blockDragHandles = true. */
+.rte-block-drag-handle {
+    position: absolute;
+    width: 18px;
+    height: 22px;
+    cursor: grab;
+    color: #94a3b8;
+    user-select: none;
+    z-index: 4;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    line-height: 1;
+    opacity: 0;
+    transition: opacity 120ms, background-color 120ms;
+    background: transparent;
+}
+.rte-block-drag-handle.rte-block-drag-handle-visible {
+    opacity: 1;
+}
+.rte-block-drag-handle:hover {
+    background: #eef2f7;
+    color: #475569;
+}
+.rte-block-drag-handle:active {
+    cursor: grabbing;
+}
+.rte-block-drop-indicator {
+    position: absolute;
+    height: 2px;
+    background: #2563eb;
+    z-index: 4;
+    pointer-events: none;
+    border-radius: 2px;
+}
+
+
+.richtexteditor.rte-office {
+    padding: 0px;
+    margin: 2px;
+    border-style: solid;
+    border-width: 1px;
+    border-color: #bdd4f0;
+    border-top-color: #c5d2df;
+    border-left-color: #b7c8d7;
+    border-right-color: #b8c9d7;
+    border-bottom-color: #9ebfdb;
+    border-radius: 0px;
+}
+
+.richtexteditor.rte-modern {
+    /* Token-driven so the border themes correctly (dark mode -> #334155);
+       previously hardcoded #d5d5d5 stayed light-gray on the dark surface. */
+    border: 1px solid var(--rte-border, #d5d5d5);
+    border-radius: 10px;
+}
+
+/* Round the toolbar's top corners and the status bar's bottom corners to follow
+   the editor's rounded border (inner radius = outer 10px - 1px border). Without
+   this, the square-cornered toolbar/status-bar fills overflow the rounded
+   corners as small nubs - most visible in dark mode where the raised surface
+   (#1e293b) differs from the editor surface (#0f172a). */
+.richtexteditor.rte-modern rte-toolbar.rte-toolbar-desktop,
+.richtexteditor.rte-modern rte-toolbar.rte-toolbar-mobile {
+    border-top-left-radius: 9px;
+    border-top-right-radius: 9px;
+}
+.richtexteditor.rte-modern rte-bottom,
+.richtexteditor.rte-modern rte-statusbar {
+    border-bottom-left-radius: 9px;
+    border-bottom-right-radius: 9px;
+}
+.richtexteditor.rte-modern.rte-fullpage rte-toolbar,
+.richtexteditor.rte-modern.rte-fullpage rte-bottom,
+.richtexteditor.rte-modern.rte-fullpage rte-statusbar {
+    border-radius: 0 !important;
+}
+
+.rte-modern.rte-desktop.rte-toolbar-default {
+    min-width: 820px;
+}
+
+.rte-modern.rte-desktop.rte-toolbar-full {
+    min-width: 820px;
+}
+
+
+
+rte-bottom {
+    padding: 3px 8px;
+    user-select: none;
+    min-height: 35px;
+    background-color: #fff;
+}
+
+.rte-modern rte-plusbtn rte-toolbar-button {
+    width: 24px;
+    height: 24px;
+    margin: 1px;
+}
+
+rte-taglist {
+}
+
+rte-tagitem {
+    display: inline-flex;
+    align-items: center;
+    margin: 2px;
+    padding: 1px 6px;
+    border: 1px solid #e2e8f0;
+    border-radius: 3px;
+    background: #f8fafc;
+    color: #475569;
+    cursor: pointer;
+    font-size: 11px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 16px;
+    user-select: none;
+    transition: background .1s, border-color .1s, color .1s;
+}
+
+rte-tagitem:hover {
+    background: #e2e8f0;
+    border-color: #cbd5e1;
+    color: #1e293b;
+}
+
+rte-tagitem.rte-ui-active {
+    background: #e0f2fe;
+    border-color: #93c5fd;
+    color: #0369a1;
+    font-weight: 500;
+}
+
+rte-textcounter {
+    padding: 5px 8px 3px;
+    color: #6e6e6e; /* WCAG 1.4.3: 5.2:1 on white (was #999999 = 2.85:1, AA fail) */
+    font-size:13px;
+    font-family: sans-serif;
+    text-transform: lowercase;
+}
+rte-powerby {
+    padding: 5px 8px 3px;
+    font-family: sans-serif;
+}
+
+
+rte-resizecorner {
+    margin: 3px 0;
+    padding: 3px 0;
+    min-width: 16px;
+    background-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMCAYAAABWdVznAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAyJpVFh0WE1MOmNvbS5hZG9iZS54bXAAAAAAADw/eHBhY2tldCBiZWdpbj0i77u/IiBpZD0iVzVNME1wQ2VoaUh6cmVTek5UY3prYzlkIj8+IDx4OnhtcG1ldGEgeG1sbnM6eD0iYWRvYmU6bnM6bWV0YS8iIHg6eG1wdGs9IkFkb2JlIFhNUCBDb3JlIDUuMy1jMDExIDY2LjE0NTY2MSwgMjAxMi8wMi8wNi0xNDo1NjoyNyAgICAgICAgIj4gPHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjIj4gPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9IiIgeG1sbnM6eG1wPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvIiB4bWxuczp4bXBNTT0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL21tLyIgeG1sbnM6c3RSZWY9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZVJlZiMiIHhtcDpDcmVhdG9yVG9vbD0iQWRvYmUgUGhvdG9zaG9wIENTNiAoV2luZG93cykiIHhtcE1NOkluc3RhbmNlSUQ9InhtcC5paWQ6RjM1QzFBMTY5MzA1MTFFQUJGNDI5NDU5N0M4QkUxNDkiIHhtcE1NOkRvY3VtZW50SUQ9InhtcC5kaWQ6RjM1QzFBMTc5MzA1MTFFQUJGNDI5NDU5N0M4QkUxNDkiPiA8eG1wTU06RGVyaXZlZEZyb20gc3RSZWY6aW5zdGFuY2VJRD0ieG1wLmlpZDpGMzVDMUExNDkzMDUxMUVBQkY0Mjk0NTk3QzhCRTE0OSIgc3RSZWY6ZG9jdW1lbnRJRD0ieG1wLmRpZDpGMzVDMUExNTkzMDUxMUVBQkY0Mjk0NTk3QzhCRTE0OSIvPiA8L3JkZjpEZXNjcmlwdGlvbj4gPC9yZGY6UkRGPiA8L3g6eG1wbWV0YT4gPD94cGFja2V0IGVuZD0iciI/Pn+/bqEAAAA8SURBVHjaYvz//z8DKYCJGEXp6elwUxmpakNGRsZ/2tgAMxGdptwGdDfDaJg4+TbgcjPMZMptIAUABBgAPN8zHGdT1H8AAAAASUVORK5CYII=);
+    background-repeat: no-repeat;
+    background-position: center center;
+    cursor: nw-resize;
+}
+
+.rte-fullpage rte-resizecorner {
+    display: none;
+}
+
+
+.rte-office rte-ribbon-column {
+    margin: 2px;
+    border-style: solid;
+    border-width: 1px;
+    border-color: #bdd4f0;
+    border-top-color: #c5d2df;
+    border-left-color: #b7c8d7;
+    border-right-color: #b8c9d7;
+    border-bottom-color: #9ebfdb;
+    border-radius: 3px;
+    background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAZAAAABiCAYAAAB+koVqAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAALEgAACxIB0t1+/AAAACB0RVh0U29mdHdhcmUATWFjcm9tZWRpYSBGaXJld29ya3MgTVi7kSokAAAAFnRFWHRDcmVhdGlvbiBUaW1lADA1LzA2LzEynpvHdgAAAeNJREFUeJzt3bFtw0AUBcFP4/qv1InhRA4kOaAauE0IAjMVMFs8no46vn8e7wGATWtm5vfxvPo5ALiZNTPzfBkhAOxZMzPvt4AAsOcTkKsfA4C7OQNy9VMAcDteYQGQeIUFQCIgACSfMxAFAWCPBQJAIiAAJH6FBUCyZmZeVz8FALezZmYefz6mCMAeN9EBSL6ufgAA7klAAEgEBIBkzcwcVz8FALdjgQCQCAgAiYAAkKyZcQgCwDaH6AAkXmEBkAgIAIlXWAAkZ0AOCQFgj1dYACQCAkDiHggAiUN0ABILBIDEGQgAiYAAkDgDASCxQABIBASAREAASAQEgMQhOgCJi4QAJF5hAZBYIAAkFggAiYAAkAgIAImAAJCch+hO0QHYZIEAkAgIAIlPmQCQWCAAJJ+b6DYIAHssEAASAQEgERAAEgEBIBEQABL3QABILBAAEgEBIPGXtgAkFggAiQUCQGKBAJAICACJgACQCAgAiZvoACQWCACJBQJAYoEAkAgIAImAAJAICACJgACQCAgAiYAAkAgIAMl5kfBwlRCAPRYIAImAAJAICACJgACQrJnxOV4AtlkgACTnAjFBANhkgQCQCAgAib+0BSCxQABIBASAxD0QABILBIBEQABIBASA5B+/giW9vHXuqwAAAABJRU5ErkJggg==');
+    background-repeat: repeat-x;
+}
+
+
+/* Compact selection float toolbar — sized like Google Docs/Notion (~33px tall).
+   Was: 5px padding + 30px buttons = 45px tall, reported as too big. Glyphs are
+   intentionally LARGE relative to the chrome: 19px icons in a 2px frame. */
+rte-control-toolbar {
+    display: inline-flex;
+    align-items: center;
+    gap: 1px;
+    border-radius: 9px;
+    background: linear-gradient(180deg, rgba(255,255,255,.98) 0%, rgba(248,251,255,.96) 100%);
+    padding: 2px;
+    border: 1px solid rgba(148,163,184,.42);
+    box-shadow: 0 12px 30px rgba(15,23,42,.16), 0 2px 8px rgba(15,23,42,.08), inset 0 1px 0 rgba(255,255,255,.9);
+    backdrop-filter: blur(16px) saturate(1.25);
+    opacity: 0.99;
+    animation: rteFloatToolbarIn 130ms ease-out;
+}
+
+/* The generic rte-toolbar-group adds 2px padding — remove it here so the
+   buttons fill the bar (smaller chrome, larger-feeling icons). */
+.rte-modern rte-control-toolbar rte-toolbar-group {
+    padding: 0;
+}
+
+    rte-control-toolbar:hover,
+    rte-control-toolbar:focus-within {
+        opacity: 1;
+        border-color: rgba(96,116,139,.46);
+        box-shadow: 0 22px 54px rgba(15,23,42,.2), 0 6px 18px rgba(37,99,235,.1), inset 0 1px 0 rgba(255,255,255,.95);
+    }
+
+.rte-modern rte-control-toolbar rte-toolbar-button, .rte-modern rte-control-toolbar rte-toolbar-splitbutton, .rte-modern rte-control-toolbar rte-toolbar-dropdown {
+    margin: 0;
+    border-radius: 7px;
+    width: 28px;
+    height: 27px;
+    padding: 0;
+    color: #334155;
+    transition: background-color 120ms ease, color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+.rte-modern rte-control-toolbar rte-toolbar-button svg,
+.rte-modern rte-control-toolbar rte-toolbar-splitbutton svg,
+.rte-modern rte-control-toolbar rte-toolbar-dropdown svg,
+.rte-modern rte-control-toolbar rte-toolbar-arrowbutton svg {
+    width: 19px !important;
+    height: 19px !important;
+}
+
+/* The global rte-line-spliter rule carries `margin: 10px auto !important`,
+   which inflates the float toolbar's row height — neutralize it here. */
+.rte-modern rte-control-toolbar rte-line-spliter {
+    margin: 0 2px !important;
+    height: 16px;
+}
+
+.rte-modern rte-control-toolbar rte-toolbar-arrowbutton {
+    margin: 0;
+    border-radius: 7px;
+    height: 27px;
+    width: 38px;
+    padding-right: 12px;
+    background-position: 25px 8px;
+    background-size: 11px 11px;
+}
+
+.rte-modern rte-control-toolbar rte-line-break {
+    width: 1px;
+    height: 16px;
+    margin: 0 3px;
+    background: rgba(148,163,184,.35);
+}
+
+.rte-modern rte-control-toolbar rte-toolbar-button:hover,
+.rte-modern rte-control-toolbar rte-toolbar-splitbutton:hover,
+.rte-modern rte-control-toolbar rte-toolbar-dropdown:hover,
+.rte-modern rte-control-toolbar rte-toolbar-arrowbutton:hover {
+    background: #eef5ff;
+    color: #1559d6;
+    box-shadow: inset 0 0 0 1px rgba(37,99,235,.12);
+    transform: translateY(-1px);
+}
+
+.rte-modern rte-control-toolbar rte-toolbar-button.rte-command-active,
+.rte-modern rte-control-toolbar rte-toolbar-splitbutton.rte-command-active,
+.rte-modern rte-control-toolbar rte-toolbar-dropdown.rte-command-active,
+.rte-modern rte-control-toolbar rte-toolbar-arrowbutton.rte-command-active {
+    background: linear-gradient(180deg, #e9f2ff 0%, #dbeafe 100%);
+    color: #1559d6;
+    box-shadow: inset 0 0 0 1px rgba(37,99,235,.22);
+}
+
+rte-control-toolbar .rte-link-url-preview {
+    min-height: 30px;
+    border-radius: 999px;
+    background: #f1f7ff;
+    border: 1px solid rgba(29,103,186,.16);
+}
+
+rte-control-toolbar .rte-link-url-preview a {
+    font-weight: 600;
+    text-decoration: none !important;
+}
+
+rte-control-toolbar .rte-link-url-preview a:hover {
+    text-decoration: underline !important;
+}
+
+@keyframes rteFloatToolbarIn {
+    from {
+        opacity: 0;
+        transform: translateY(3px) scale(.985);
+    }
+    to {
+        opacity: .99;
+        transform: translateY(0) scale(1);
+    }
+}
+
+rte-ribbon-group-left {
+    margin-bottom: 4px;
+}
+
+rte-ribbon-group-right {
+    margin-left: 5px;
+}
+
+rte-ribbon-main {
+    padding: 5px 5px 1px;
+}
+
+rte-ribbon-text {
+    padding-top: 2px;
+    color: #3e6ac1;
+    background-color: #c1d9f1;
+    font-family: arial !important;
+    font-size: 11px !important;
+    border-left: solid 1px #d2eaf2;
+    border-bottom-left-radius: 3px;
+    border-bottom-right-radius: 3px;
+}
+
+
+rte-ribbon-group-big {
+    border: solid 1px #9cb9dc;
+    margin-bottom: 4px;
+}
+
+.rte-office rte-ribbon-group-big rte-toolbar-button {
+    width: 40px;
+    height: 40px;
+    cursor: pointer;
+}
+
+rte-ribbon-group-big > *:first-child {
+    flex: 9999;
+}
+
+rte-ribbon-group-small {
+    border: solid 1px #9cb9dc;
+    border-radius: 3px;
+    height: 22px;
+}
+
+
+rte-toolbar-group {
+    display: inline-flex;
+    flex-direction: row;
+    padding: 2px;
+}
+
+.rte-toolbar-mobile rte-toolbar-group {
+    padding: 1px;
+}
+
+.rte-office rte-toolbar-group {
+    height: 22px;
+    border: solid 1px #9cb9dc;
+    border-radius: 3px;
+    margin-right: 2px;
+    margin-bottom: 4px;
+    background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAUCAYAAACqJ5zlAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAALEgAACxIB0t1+/AAAACB0RVh0U29mdHdhcmUATWFjcm9tZWRpYSBGaXJld29ya3MgTVi7kSokAAAAFnRFWHRDcmVhdGlvbiBUaW1lADA1LzA3LzEyJiegEwAAAFZJREFUeJyFzikSgFAMA9B0weG4/7E4ASdgEEV8FktSQeWbpo2t2/7gM3mcFwjcnAFmDNY2YAqycdNTIKuKYYzBMEXIW//r4a2pRtxbRCBCIqE3ljkJXvG0DxgqeYzsAAAAAElFTkSuQmCC');
+    background-repeat: repeat-x;
+}
+
+rte-dropdown-head {
+    background-color: transparent;
+    user-select: none;
+}
+
+
+
+rte-dropdown-panel {
+    text-align: left;
+    background-color: #fff;
+    user-select: none;
+    display: flex;
+    flex-direction: column;
+    min-height: 50px;
+    border: 1px solid #e2e2e2;
+    box-shadow: 0px 10px 40px 10px rgba(140, 152, 164, 0.175);
+    border-radius: 0.3125rem;
+    padding: 1rem 0;
+}
+
+/* Insert-video URL dialog: widen so long YouTube/Vimeo URLs aren't truncated. */
+rte-dropdown-panel.rte-panel-insertvideo {
+    min-width: 406px;
+}
+rte-dropdown-panel.rte-panel-insertvideo textarea {
+    width: 100%;
+    min-height: 60px;
+}
+
+    rte-dropdown-panel rte-toolbar-group {
+        flex-direction: column;
+    }
+
+    rte-dropdown-panel rte-dropdown-menuitem {
+        margin: 1px 0;
+        padding: 1px 0;
+        align-items: center;
+        white-space: nowrap;
+        outline: none;
+    }
+
+        rte-dropdown-panel rte-dropdown-menuitem rte-dropdown-menuitem-label {
+            font-size: 13px;
+            padding-right: 12px;
+        }
+
+        rte-dropdown-panel rte-dropdown-menuitem:hover {
+            background-color: #f1f3f4;
+        }
+
+        rte-dropdown-panel rte-dropdown-menuitem:focus-visible {
+            background-color: #eef4ff;
+            box-shadow: inset 0 0 0 1px rgba(37,99,235,.28);
+        }
+
+    rte-dropdown-panel.rte-menu-hideicon rte-toolbar-button {
+        display: none;
+    }
+
+    rte-dropdown-panel.rte-menu-hideicon rte-dropdown-menuitem {
+        padding: 5px 13px;
+    }
+
+rte-subtoolbar {
+    padding: 2px 7px;
+    background-color: #fff;
+    border-bottom: solid 1px #eee;
+}
+
+rte-toolbar-splitbutton {
+    display: flex;
+}
+
+rte-toolbar-button {
+    display: inline-flex;
+    align-content: center;
+    align-items: center;
+    justify-content: center;
+    outline: none;
+}
+
+rte-toolbar-splitbutton {
+    border: solid 1px transparent;
+    padding: 1px;
+    margin: 4px 3px;
+    width: 42px;
+    height: 28px;
+    outline: none;
+}
+
+    rte-toolbar-splitbutton:hover {
+        background-color: #f2f2f2;
+        border: solid 1px #e2e2e2;
+    }
+
+        rte-toolbar-splitbutton:hover rte-toolbar-splitbutton-direct {
+        }
+
+        rte-toolbar-splitbutton:hover rte-toolbar-splitbutton-dropdown {
+            border-left: solid 1px #e2e2e2;
+        }
+
+
+rte-dropdown-menuitem rte-toolbar-splitbutton {
+    width: 28px;
+}
+
+rte-dropdown-menuitem rte-toolbar-splitbutton-direct {
+}
+
+rte-dropdown-menuitem rte-toolbar-splitbutton-dropdown {
+    display: none;
+}
+
+.rte-modern rte-toolbar-splitbutton.rte-command-active {
+    background-color: #e8f0fe;
+    fill: #377dff;
+    padding: 1px;
+}
+
+rte-toolbar-splitbutton-direct {
+    display: inline-flex;
+    align-content: center;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+}
+
+rte-toolbar-splitbutton-dropdown {
+    border-left: solid 1px transparent;
+    width: 14px;
+    background-image: url('data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0idXRmLTgiPz4NCjxzdmcgcm9sZT0iaW1nIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMjAgNTEyIiBjbGFzcz0ic3ZnLWlubGluZS0tZmEgZmEtYW5nbGUtZG93biBmYS13LTEwIj48cGF0aCBmaWxsPSJjdXJyZW50Q29sb3IiIGQ9Ik0xNDMgMzUyLjNMNyAyMTYuM2MtOS40LTkuNC05LjQtMjQuNiAwLTMzLjlsMjIuNi0yMi42YzkuNC05LjQgMjQuNi05LjQgMzMuOSAwbDk2LjQgOTYuNCA5Ni40LTk2LjRjOS40LTkuNCAyNC42LTkuNCAzMy45IDBsMjIuNiAyMi42YzkuNCA5LjQgOS40IDI0LjYgMCAzMy45bC0xMzYgMTM2Yy05LjIgOS40LTI0LjQgOS40LTMzLjggMHoiIGNsYXNzPSIiPjwvcGF0aD48L3N2Zz4=');
+    background-position: 1px center;
+    background-repeat: no-repeat;
+    background-size: 12px 12px;
+}
+
+rte-color-button-mask {
+    position: absolute;
+    width: 16px;
+    height: 3px;
+    left: 5px;
+    top: 18px;
+}
+
+
+.rte-office rte-toolbar-button {
+    width: 20px;
+    height: 20px;
+}
+
+
+.rte-office rte-toolbar-group rte-toolbar-button {
+    width: 22px;
+    border-left: solid 1px #d8e6f7;
+    border-right: solid 1px #abc1de;
+}
+
+    .rte-office rte-toolbar-group rte-toolbar-button:first-child {
+        width: 21px;
+        border-left-width: 0px;
+        border-right: solid 1px #abc1de;
+    }
+
+    .rte-office rte-toolbar-group rte-toolbar-button:last-child {
+        width: 21px;
+        border-left: solid 1px #d8e6f7;
+        border-right-width: 0px;
+    }
+
+.rte-office rte-toolbar-group rte-toolbar-dropdown:first-child {
+    border-top-left-radius: 3px;
+    border-bottom-left-radius: 3px;
+}
+
+.rte-office rte-toolbar-group rte-toolbar-dropdown:last-child {
+    border-top-right-radius: 3px;
+    border-bottom-right-radius: 3px;
+    border-left: solid 1px #d8e6f7;
+    border-right-width: 0px;
+}
+
+
+/* Rounded interactive states for the desktop toolbar — matches the selection
+   float toolbar (7px) and modern editors (Google Docs/Notion). Previously the
+   main toolbar's hover/active/focus highlights were hard squares. */
+.rte-modern rte-toolbar-button,
+.rte-modern rte-toolbar-arrowbutton,
+.rte-modern rte-toolbar-dropdown,
+.rte-modern rte-toolbar-splitbutton,
+.rte-modern rte-dropdown-panel rte-toolbar-button {
+    border-radius: 6px;
+}
+
+.rte-modern rte-toolbar-button {
+    margin: 4px 3px;
+    padding: 1px;
+    border: solid 1px transparent;
+    width: 28px;
+    height: 28px;
+    cursor: pointer;
+}
+
+    .rte-modern rte-toolbar-button.rte-command-active {
+        background-color: #e8f0fe;
+        fill: #377dff;
+        padding: 1px;
+    }
+
+.rte-toolbar-mobile rte-toolbar-group rte-toolbar-button {
+    margin: 3px 2px;
+}
+
+.rte-office rte-toolbar-arrowbutton {
+    width: 32px;
+    padding-right: 12px;
+    height: 20px;
+}
+
+.rte-modern rte-toolbar-arrowbutton {
+    margin: 4px 3px;
+    border: solid 1px transparent;
+    padding: 1px;
+    padding-right: 11px;
+    width: 38px;
+    height: 28px;
+    background-image: url('data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0idXRmLTgiPz4NCjxzdmcgcm9sZT0iaW1nIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMjAgNTEyIiBjbGFzcz0ic3ZnLWlubGluZS0tZmEgZmEtYW5nbGUtZG93biBmYS13LTEwIj48cGF0aCBmaWxsPSJjdXJyZW50Q29sb3IiIGQ9Ik0xNDMgMzUyLjNMNyAyMTYuM2MtOS40LTkuNC05LjQtMjQuNiAwLTMzLjlsMjIuNi0yMi42YzkuNC05LjQgMjQuNi05LjQgMzMuOSAwbDk2LjQgOTYuNCA5Ni40LTk2LjRjOS40LTkuNCAyNC42LTkuNCAzMy45IDBsMjIuNiAyMi42YzkuNCA5LjQgOS40IDI0LjYgMCAzMy45bC0xMzYgMTM2Yy05LjIgOS40LTI0LjQgOS40LTMzLjggMHoiIGNsYXNzPSIiPjwvcGF0aD48L3N2Zz4=');
+    background-position: 23px 8px;
+    background-repeat: no-repeat;
+    background-size: 12px 12px;
+    cursor: pointer;
+}
+
+    .rte-modern rte-toolbar-arrowbutton.rte-command-active {
+        background-color: #eee;
+        border-bottom-width: 0px;
+        padding: 1px 11px 10px 1px;
+        background-position: 22px center;
+        height: 36px;
+        margin-bottom: -4px;
+        background-position: 23px 8px;
+        /* Open dropdown reads as a tab connected to its panel — square the
+           bottom corners so the rounded button doesn't detach from the panel. */
+        border-bottom-left-radius: 0;
+        border-bottom-right-radius: 0;
+    }
+
+.rte-modern rte-toolbar-button:hover {
+    background-color: #f1f3f4;
+}
+
+.rte-modern rte-toolbar-arrowbutton:hover {
+    background-color: #f1f3f4;
+}
+
+.rte-modern rte-toolbar-dropdown:hover {
+    background-color: #fff;
+}
+
+.rte-modern rte-toolbar-button:focus-visible,
+.rte-modern rte-toolbar-arrowbutton:focus-visible,
+.rte-modern rte-toolbar-dropdown:focus-visible,
+.rte-modern rte-toolbar-splitbutton:focus-visible,
+rte-toolbar-splitbutton-direct:focus-visible,
+rte-toolbar-splitbutton-dropdown:focus-visible,
+rte-dropdown-panel rte-toolbar-button:focus-visible,
+rte-toolbar-dropdown-item:focus-visible,
+rte-dialog-button:focus-visible,
+rte-dialog-header-close:focus-visible {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 2px rgba(37,99,235,.18);
+    background-color: #eef4ff;
+}
+
+rte-toolbar-splitbutton-direct:focus-visible,
+rte-toolbar-splitbutton-dropdown:focus-visible {
+    border-radius: 3px;
+}
+
+.rte-modern .rte_command_togglemore.rte-command-active {
+    background-color: #f4f4f4;
+    border: solid 1px #eee;
+    border-bottom-width: 0px;
+    padding: 1px 1px 1px 1px;
+}
+
+rte-dropdown-panel rte-toolbar-button {
+    margin: 0px 3px;
+    padding: 2px;
+    width: 28px;
+    height: 28px;
+}
+
+    rte-dropdown-panel rte-toolbar-button.rte-command-active {
+        background-color: #eee;
+        padding: 1px;
+    }
+
+.rte-command-disabled {
+    opacity: 0.2;
+}
+
+rte-toolbar-dropdown {
+    margin-left: 0px;
+    margin-right: 0px;
+}
+
+rte-control-toolbar.rte-modern rte-toolbar-dropdown {
+    border: solid 1px #e2e8f0;
+    margin: 4px;
+    border-radius: 10px;
+    background: #fff;
+}
+
+.rte-modern rte-control-toolbar rte-toolbar-button:hover,
+.rte-modern rte-control-toolbar rte-toolbar-splitbutton:hover,
+.rte-modern rte-control-toolbar rte-toolbar-dropdown:hover,
+.rte-modern rte-control-toolbar rte-toolbar-arrowbutton:hover {
+    background: #f3f6fb;
+    fill: #0f172a;
+    color: #0f172a;
+}
+
+.rte-modern rte-control-toolbar rte-toolbar-button.rte-command-active,
+.rte-modern rte-control-toolbar rte-toolbar-splitbutton.rte-command-active,
+.rte-modern rte-control-toolbar rte-toolbar-dropdown.rte-command-active,
+.rte-modern rte-control-toolbar rte-toolbar-arrowbutton.rte-command-active {
+    background: #eef2f7;
+    fill: #0f172a;
+    color: #0f172a;
+}
+
+.rte-office rte-toolbar-dropdown {
+    background-color: #fff;
+}
+
+rte-toolbar-dropdown-arrow, rte-input-arrow {
+    background-image: url('data:image/png;base64,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');
+}
+
+rte-input-arrow {
+    position: absolute;
+    right: 7px;
+    top: 9px;
+    width: 18px;
+    height: 16px;
+    background-size: 18px 16px;
+    background-repeat: no-repeat;
+    opacity: 0.7;
+}
+
+    rte-input-arrow:hover {
+        opacity: 1.0;
+        cursor: pointer;
+    }
+
+.rte-modern rte-toolbar-dropdown-input {
+    padding: 0 7px;
+    display: flex;
+    align-items: center;
+    white-space: nowrap;
+}
+
+.rte-modern rte-toolbar-dropdown-arrow {
+    background-position: left center;
+    background-size: 70% 30%;
+    background-repeat: no-repeat;
+    width: 18px;
+    cursor: pointer;
+}
+
+
+.rte-office rte-toolbar-dropdown-input {
+    padding-left: 3px;
+}
+
+.rte-office rte-toolbar-dropdown-arrow {
+    background-position: center center;
+    background-size: 50% 40%;
+    background-repeat: no-repeat;
+    width: 16px;
+}
+
+rte-toolbar-dropdown-item {
+    font-size: 15px;
+    padding: 0.375rem 1.5rem;
+    cursor: pointer;
+    white-space: nowrap;
+    outline: none;
+}
+
+    rte-toolbar-dropdown-item:hover {
+        background-color: #f2f2f2;
+    }
+
+    rte-toolbar-dropdown-item:focus-visible {
+        color: #0f172a;
+    }
+
+
+.rte-office rte-line-break {
+    display: block;
+    width: 88%;
+    margin: 0px 6% 4px;
+    height: 5px;
+    border-bottom: solid 1px #ccc;
+}
+
+.rte-modern rte-line-break {
+    display: block;
+    width: calc( 100% + 8px );
+    margin: 0px -4px 0px -4px;
+    height: 1px;
+    border-bottom: 0.0625rem solid #ebedf2;
+}
+
+rte-line-spliter {
+    width: 1px;
+    height: 17px;
+    margin: 10px auto !important;
+    background: #e9e9e9;
+}
+
+rte-control-selected {
+    position: absolute;
+}
+
+rte-control-selected-line {
+    position: absolute;
+    background-color: #377dff;
+    min-width: 1px;
+    min-height: 1px;
+}
+
+    rte-control-selected-line.rte-line-l {
+        transform: translateX(-1px);
+    }
+
+    rte-control-selected-line.rte-line-t {
+        transform: translateY(-1px);
+    }
+
+rte-control-selected-corner {
+    position: absolute;
+    width: 9px;
+    height: 9px;
+    background-color: #377dff;
+}
+
+    rte-control-selected-corner.rte-corner-l {
+        cursor: ew-resize;
+        transform: translateX(2px);
+    }
+
+    rte-control-selected-corner.rte-corner-r {
+        cursor: ew-resize;
+        transform: translateX(-2px);
+    }
+
+    rte-control-selected-corner.rte-corner-t {
+        transform: translateY(2px);
+        cursor: ns-resize;
+    }
+
+    rte-control-selected-corner.rte-corner-b {
+        transform: translateY(-2px);
+        cursor: ns-resize;
+    }
+
+    rte-control-selected-corner.rte-corner-tl {
+        transform: translate(2px,2px);
+        cursor: nw-resize;
+    }
+
+    rte-control-selected-corner.rte-corner-tr {
+        transform: translate(-2px,2px);
+        cursor: ne-resize;
+    }
+
+    rte-control-selected-corner.rte-corner-bl {
+        transform: translate(2px,-2px);
+        cursor: sw-resize;
+    }
+
+    rte-control-selected-corner.rte-corner-br {
+        transform: translate(-2px,-2px);
+        cursor: se-resize;
+    }
+
+
+rte-dialog-float {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 2px 2px 8px #999;
+    right: 12px;
+    top: 12px;
+}
+
+rte-dialog-outer {
+    position: fixed;
+    left: 0px;
+    top: 0px;
+    right: 0px;
+    bottom: 0px;
+    background-color: rgba(0,0,0,0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+rte-dialog-inner {
+    background-color: var(--rte-surface-raised, #fff);
+    color: var(--rte-text, #333);
+    border-radius: 7px;
+    padding: 10px 15px 10px;
+    min-width: 300px;
+    min-height: 200px;
+    user-select: none;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+
+    rte-dialog-inner rte-dialog-header {
+        margin: -10px -15px 15px;
+    }
+
+    rte-dialog-inner rte-dialog-footer,
+    rte-dialog-inner rte-dialog-line-action {
+        margin: 2px;
+    }
+
+rte-dialog-header {
+    display: -ms-flexbox;
+    display: flex;
+    -ms-flex-align: start;
+    align-items: flex-start;
+    -ms-flex-pack: justify;
+    justify-content: space-between;
+    padding: 1rem 1.5rem;
+    border-bottom: 0.0625rem solid #e7eaf3;
+    border-top-left-radius: 0.4375rem;
+    border-top-right-radius: 0.4375rem;
+    font-size: 1rem;
+    color: #1e2022;
+    font-weight: 600;
+}
+
+rte-dialog-header-close {
+    font-size: 16px;
+    opacity: 0.5;
+    color: #666;
+    transition: color linear 0.3s,opacity linear 0.3s;
+    cursor: pointer;
+    display: inline-block;
+    position: absolute;
+    top: 15px;
+    right: 12px;
+    width: 24px;
+    height: 24px;
+    padding: 2px;
+    /* The dialog header is position:sticky;z-index:2 (so it stays pinned in
+       tall scrolling dialogs like the color picker). Without a higher z-index
+       the absolutely-positioned close button rendered BEHIND the header and
+       became invisible/unclickable. Keep it above the header. */
+    z-index: 3;
+}
+
+    rte-dialog-header-close[rte-tooltip] {
+        position: absolute;
+    }
+
+    rte-dialog-header-close svg {
+        width: 16px;
+        height: 16px;
+        margin: 0px;
+        vertical-align: top;
+    }
+
+    rte-dialog-header-close:hover {
+        opacity: 1;
+    }
+
+    rte-dialog-header-close:focus-visible {
+        opacity: 1;
+        border-radius: 999px;
+    }
+
+rte-dialog-header-text {
+    display: flex;
+    align-items: center;
+}
+
+rte-dialog-footer, rte-dialog-line-action {
+    display: -ms-flexbox;
+    display: flex;
+    -ms-flex-wrap: wrap;
+    -ms-flex-align: center;
+    align-items: center;
+    -ms-flex-pack: end;
+    justify-content: flex-end;
+    border-top: 0.0625rem solid #e7eaf3;
+    border-bottom-right-radius: 0.4375rem;
+    border-bottom-left-radius: 0.4375rem;
+    padding: 1rem 1.5rem 0 1.5rem;
+    font-size: 1em;
+    font-weight: bold;
+}
+
+.rte-dialog-line-input, rte-dialog-line-target {
+    position: relative;
+    margin: 12px;
+}
+
+    .rte-dialog-line-input input[type=text] {
+        width: 100%;
+        min-height: 36px;
+        margin: 0;
+        padding: 8px 10px;
+        color: #333333;
+        background: #ffffff;
+        border: 1px solid #cccccc;
+        border-radius: 4px;
+        box-sizing: border-box;
+        font-size: 13px;
+        line-height: 1.4;
+    }
+
+    .rte-dialog-line-input input:hover, .rte-dialog-line-input input:focus {
+        color: #1e2022;
+        outline: 0;
+        border-color: #0f8b8d;
+        box-shadow: 0 0 0 2px rgba(15, 139, 141, 0.12);
+    }
+
+.rte-html-div {
+    min-height: 200px;
+    color: rgb(95, 99, 104);
+    border: 1px solid rgb(218, 220, 224);
+    border-image: initial;
+    border-radius: 4px;
+    padding: 5px;
+    margin: 10px 0;
+}
+
+    .rte-html-div:hover, .rte-html-div:focus {
+        color: #1e2022;
+        outline: 0;
+        border: 2px solid #1a73e8;
+    }
+
+
+.rte-dialog-line-input textarea {
+    width: 100%;
+    min-height: 80px;
+    margin: 0;
+    padding: 8px 10px;
+    color: #333333;
+    background: #ffffff;
+    border: 1px solid #cccccc;
+    border-radius: 4px;
+    box-sizing: border-box;
+    font-size: 13px;
+    line-height: 1.5;
+    resize: vertical;
+}
+
+
+    .rte-dialog-line-input textarea:hover, .rte-dialog-line-input textarea:focus {
+        color: #1e2022;
+        outline: 0;
+        border-color: #0f8b8d;
+        box-shadow: 0 0 0 2px rgba(15, 139, 141, 0.12);
+    }
+
+
+.rte-dialog-line-input rte-dialog-input-label {
+    background-color: white;
+    box-shadow: white 5px 0px 0px, white -5px 0px 0px;
+    color: rgb(95, 99, 104);
+    display: inline;
+    left: 12px;
+    margin-bottom: 0px;
+    max-width: 300px;
+    position: absolute;
+    top: -8px;
+    overflow-wrap: break-word;
+    padding: 0px;
+}
+
+rte-dialog-line-target rte-dialog-input-label {
+    min-height: 20px;
+    padding-left: 20px;
+    margin-bottom: 0;
+    font-weight: 400;
+    cursor: pointer;
+    display: inline-block;
+    max-width: 100%;
+}
+
+.rte_insertlink_link input[type=checkbox] {
+    margin: 4px 0 0 -20px;
+    position: absolute;
+    cursor: pointer;
+}
+
+rte-dialog-line-action {
+    justify-content: flex-end;
+}
+
+.rte-dialog-footer-center {
+    justify-content: center;
+}
+
+rte-dialog-button {
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 34px;
+    margin: 4px 3px;
+    padding: 6px 18px;
+    border: 1px solid #0f8b8d;
+    border-radius: 4px;
+    color: #fff;
+    background: #0f8b8d;
+    text-align: center;
+    white-space: nowrap;
+    vertical-align: middle;
+    user-select: none;
+    box-shadow: none;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.4;
+    transition: color .15s ease-in-out, background-color .15s ease-in-out, border-color .15s ease-in-out, box-shadow .15s ease-in-out;
+    outline: none;
+}
+
+    rte-dialog-button:active {
+        background: #0c6f70;
+        border-color: #0c6f70;
+    }
+
+    rte-dialog-button:hover {
+        background: #0c7b7d;
+        border-color: #0c7b7d;
+    }
+
+    rte-dialog-button:focus-visible {
+        box-shadow: 0 0 0 3px rgba(15,139,141,.22);
+    }
+
+    rte-dialog-button.rte-button-type-next {
+        margin-left: 25px;
+    }
+
+    rte-dialog-button.rte-button-type-replace, rte-dialog-button.rte-button-type-replaceall {
+    }
+
+    .rte-button-type-cancel, rte-dialog-button.rte-button-type-replace, rte-dialog-button.rte-button-type-replaceall {
+        background-color: #fff;
+        color: #0f8b8d;
+        border-color: #0f8b8d;
+    }
+
+        .rte-button-type-cancel:hover, rte-dialog-button.rte-button-type-replace:hover, rte-dialog-button.rte-button-type-replaceall:hover {
+            color: #fff;
+            background: #0c7b7d;
+            border-color: #0c7b7d;
+        }
+
+.rte-button-type-commit {
+}
+
+
+
+@media (min-width: 900px) {
+    .rte-dialog-pasteauto rte-dialog-inner, .rte-dialog-pasteword rte-dialog-inner {
+        width: 600px;
+        min-height: 350px;
+    }
+}
+
+
+.rte-dialog-insertgallery rte-dialog-inner, .rte-dialog-inserttemplate rte-dialog-inner {
+    width: 900px;
+    height: 600px;
+    max-width: 90%;
+    max-height: 90%;
+}
+
+.rte-dialog-insertcode rte-dialog-inner {
+    width: 520px;
+    height: 400px;
+    max-width: 90%;
+    max-height: 90%;
+}
+
+.rte-panel-insertimage-dragdrop rte-dialog-inner, .rte-panel-insertdocument-dragdrop rte-dialog-inner {
+    width: 480px;
+    max-width: 95%;
+}
+
+
+.rte-panel-controlinsertlink input[type=text], .rte-panel-controleditlink input[type=text], .rte-panel-insertlink input[type=text] {
+    width: 320px;
+}
+
+.rte-panel-insertimage input[type=text], .rte-panel-insertdocument input[type=text] {
+    width: 320px;
+}
+
+@media (max-width: 399px) {
+    .rte-panel-controlinsertlink input[type=text], .rte-panel-controleditlink input[type=text], .rte-panel-insertlink input[type=text] {
+        width: 280px;
+    }
+
+    .rte-panel-insertimage input[type=text], .rte-panel-insertdocument input[type=text] {
+        width: 280px;
+    }
+}
+
+
+rte-dropdown-panel.rte-panel-insertimage rte-tabui-toolbar, rte-dropdown-panel.rte-panel-insertdocument rte-tabui-toolbar, rte-dropdown-panel.rte-panel-controlsize rte-tabui-toolbar, rte-dropdown-panel.rte-panel-insertlink rte-tabui-toolbar {
+    display: none;
+}
+
+.rte-panel-general {
+}
+
+    .rte-panel-general rte-dialog-header {
+        margin: -10px -15px 10px;
+    }
+
+rte-inserttable-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.rte-panel-inserttable {
+    padding: 15px;
+    min-width: 160px;
+}
+
+.rte-panel-find .rte-dialog-line-input {
+    margin: 3px 0;
+}
+
+rte-tabui {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 0;
+}
+
+.rte-panel-insertimage rte-tabui {
+}
+
+rte-tabui-toolbar {
+    display: inline-flex;
+    border-bottom: solid 1px #dee2e6;
+}
+
+rte-tabui-panel {
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    flex: 999;
+    padding: 0.75rem 0.75rem;
+}
+
+rte-tabui-toolbar-button {
+    cursor: pointer;
+    color: #737373;
+    margin-bottom: -0.125rem;
+    border-bottom: solid 2px transparent;
+    padding: 1rem;
+    font-size: 16px;
+    cursor: pointer;
+    transition: color 0.18s ease, border-color 0.18s ease, background-color 0.18s ease;
+    outline: none;
+}
+
+    rte-tabui-toolbar-button.rte-ui-active {
+        border-bottom: 2px solid #4b5563;
+        color: #374151;
+    }
+
+    rte-tabui-toolbar-button:hover {
+        color: #1f2937;
+        background: rgba(148, 163, 184, 0.08);
+    }
+
+    rte-tabui-toolbar-button:focus-visible {
+        color: #1f2937;
+        background: rgba(59, 130, 246, 0.08);
+        border-bottom-color: #2563eb;
+        box-shadow: inset 0 -1px 0 #2563eb;
+    }
+
+.rte-panel-forecolor, .rte-panel-backcolor {
+    padding: 15px;
+}
+
+rte-dialog-line-auto, rte-dialog-line-more {
+    display: flex;
+    padding: 3px;
+    cursor: pointer;
+}
+
+    rte-dialog-line-auto:hover, rte-dialog-line-more:hover {
+        display: flex;
+        padding: 2px;
+        border: solid 1px #1a73e8;
+        background-color: #ddeafb;
+    }
+
+rte-dialog-item-label {
+    flex: 999;
+    text-align: center;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 13px;
+    padding-right: 6px;
+}
+
+rte-dialog-line-colors {
+    display: block;
+    padding: 1px;
+}
+
+rte-dialog-item-color {
+    display: inline-block;
+    border: solid 1px #666;
+    width: 16px;
+    height: 16px;
+    margin: 2px;
+    cursor: pointer;
+}
+
+rte-dialog-item-color:hover {
+        border-color: #1a73e8;
+    }
+
+/* RichTextBox-style toolbar color popup */
+rte-dropdown-panel.rte-panel-forecolor, rte-dropdown-panel.rte-panel-backcolor {
+    border-radius: 8px !important;
+    box-shadow: 0 8px 30px rgba(0,0,0,.12) !important;
+    padding: 12px 14px !important;
+    border: 1px solid #e2e8f0 !important;
+}
+
+rte-dropdown-panel.rte-panel-forecolor rte-dialog-item-color[rte-tooltip],
+rte-dropdown-panel.rte-panel-backcolor rte-dialog-item-color[rte-tooltip] {
+    width: 20px !important;
+    height: 20px !important;
+    border-radius: 3px !important;
+    margin: 2px !important;
+    border: 1px solid rgba(0,0,0,.08) !important;
+    transition: transform .1s, box-shadow .1s !important;
+}
+
+rte-dropdown-panel.rte-panel-forecolor rte-dialog-item-color[rte-tooltip]:hover,
+rte-dropdown-panel.rte-panel-backcolor rte-dialog-item-color[rte-tooltip]:hover {
+    transform: scale(1.25) !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,.18) !important;
+    z-index: 1 !important;
+    position: relative !important;
+    border-color: rgba(0,0,0,.08) !important;
+}
+
+rte-dropdown-panel.rte-panel-forecolor rte-dialog-line-auto,
+rte-dropdown-panel.rte-panel-backcolor rte-dialog-line-auto,
+rte-dropdown-panel.rte-panel-forecolor rte-dialog-line-more,
+rte-dropdown-panel.rte-panel-backcolor rte-dialog-line-more {
+    padding: 5px 4px !important;
+    margin-top: 4px !important;
+    border-radius: 4px !important;
+    cursor: pointer !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+}
+
+rte-dropdown-panel.rte-panel-forecolor rte-dialog-line-auto:hover,
+rte-dropdown-panel.rte-panel-backcolor rte-dialog-line-auto:hover,
+rte-dropdown-panel.rte-panel-forecolor rte-dialog-line-more:hover,
+rte-dropdown-panel.rte-panel-backcolor rte-dialog-line-more:hover {
+    background: #f1f5f9 !important;
+    border: 0 !important;
+}
+
+rte-dropdown-panel.rte-panel-forecolor rte-dialog-line-auto rte-dialog-item-label,
+rte-dropdown-panel.rte-panel-backcolor rte-dialog-line-auto rte-dialog-item-label,
+rte-dropdown-panel.rte-panel-forecolor rte-dialog-line-more rte-dialog-item-label,
+rte-dropdown-panel.rte-panel-backcolor rte-dialog-line-more rte-dialog-item-label {
+    font-size: 13px !important;
+    color: #334155 !important;
+}
+
+rte-dropdown-panel.rte-panel-forecolor rte-dialog-line-auto rte-dialog-item-color,
+rte-dropdown-panel.rte-panel-backcolor rte-dialog-line-auto rte-dialog-item-color {
+    width: 20px !important;
+    height: 20px !important;
+    border-radius: 3px !important;
+    border: 1px solid #cbd5e1 !important;
+}
+
+rte-dropdown-panel.rte-panel-forecolor rte-dialog-line-more rte-dialog-item-color,
+rte-dropdown-panel.rte-panel-backcolor rte-dialog-line-more rte-dialog-item-color {
+    width: 20px !important;
+    height: 20px !important;
+    border-radius: 3px !important;
+    border: 1px solid #cbd5e1 !important;
+    background: linear-gradient(135deg, #ff0000 0%, #ff8800 17%, #ffff00 33%, #00ff00 50%, #00ffff 67%, #0000ff 83%, #ff00ff 100%) !important;
+}
+
+.rte-dialog-colorpicker {
+    min-height: 350px;
+}
+
+.colorcell {
+    width: 22px;
+    height: 22px;
+    padding: 1px;
+    cursor: pointer;
+    vertical-align: middle;
+}
+
+.colordiv, .customdiv,
+.colordiv2, .customdiv2 {
+    border: solid 1px rgba(148, 163, 184, 0.45);
+    border-radius: 3px;
+    width: 18px;
+    height: 18px;
+    font-size: 1px;
+    transition: transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.colorcell:hover .colordiv,
+.colorcell:hover .customdiv,
+.colorcell:hover .colordiv2,
+.colorcell:hover .customdiv2 {
+    transform: scale(1.25);
+    border-color: #334155;
+    box-shadow: 0 4px 10px rgba(15, 23, 42, 0.18);
+    z-index: 1;
+    position: relative;
+}
+
+.rte-dialog-colorpicker table {
+    border-collapse: separate;
+    border-spacing: 2px;
+    margin: 0 auto;
+}
+
+.rte-panel-insertchars rte-tabui-toolbar {
+    padding-left: 1.5rem;
+}
+
+.rte-panel-insertchars rte-tabui-toolbar-button {
+    padding: 0.5rem;
+    font-size: 13px;
+}
+
+rte-insertchars-item {
+    width: 24px;
+    height: 24px;
+    margin: 1px;
+    vertical-align: middle;
+    text-align: center;
+    border: 1px dotted rgb(221, 221, 221);
+    font-size: 16px;
+    cursor: pointer;
+}
+
+    rte-insertchars-item:hover {
+        background-color: #c3d9ff;
+    }
+
+rte-inserttable-table {
+    display: flex;
+    flex-direction: column;
+    cursor: pointer;
+}
+
+rte-inserttable-row {
+    display: flex;
+    flex-direction: row;
+}
+
+rte-inserttable-cell {
+    width: 16px;
+    height: 16px;
+    margin: 3px;
+    border: solid 1px gray;
+    border-color: #e9e9e9;
+    background-color: #f8f8f8;
+}
+
+    rte-inserttable-cell.rte-ui-active {
+        border-color: #c3d9ff;
+        background-color: #ddeafb;
+    }
+
+.rte-dialog-preview rte-dialog-inner {
+    min-width: 70%;
+    min-height: 70%;
+}
+
+    .rte-dialog-preview rte-dialog-inner rte-tabui {
+        flex: 99;
+        position: relative;
+    }
+
+.rte-dialog-preview rte-tabui-panel {
+    flex-direction: row;
+    justify-content: center;
+}
+
+.rte-dialog-preview rte-preview-framecontainer {
+    padding: 5px;
+    margin: 5px;
+    box-shadow: 0px 0px 6px #ccc;
+}
+
+.rte-preview-dialog-fullscreen {
+    width: 98%;
+    height: 98%;
+    border-radius: 0px !important;
+    display: flex;
+    flex-direction: column;
+}
+
+
+.rte-flex-column-center {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.rte-flex-wrap {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-content: flex-start;
+}
+
+.rte-panel-insertemoji {
+    padding: 1rem 1.5rem;
+}
+
+    .rte-panel-insertemoji rte-tabui-toolbar-button {
+        padding: 0.5rem 0;
+    }
+
+    .rte-panel-insertemoji rte-tabui-toolbar {
+        border: none;
+    }
+
+#emojis_searchbar:before {
+    content: "";
+    position: absolute;
+    right: 10px;
+    top: 8px;
+    bottom: 8px;
+    width: 20px;
+    height: 20px;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='25' height='25' viewBox='0 0 25 25' fill-rule='evenodd'%3E%3Cpath d='M16.036 18.455l2.404-2.405 5.586 5.587-2.404 2.404zM8.5 2C12.1 2 15 4.9 15 8.5S12.1 15 8.5 15 2 12.1 2 8.5 4.9 2 8.5 2zm0-2C3.8 0 0 3.8 0 8.5S3.8 17 8.5 17 17 13.2 17 8.5 13.2 0 8.5 0zM15 16a1 1 0 1 1 2 0 1 1 0 1 1-2 0'%3E%3C/path%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+#emoji-picker {
+    font-size: 20px;
+}
+
+    #emoji-picker gspan {
+        cursor: pointer;
+    }
+
+.rte-dialog-insertcode select {
+    margin: 3px 12px;
+    height: 22px;
+    border: solid 1px #ccc;
+}
+
+.rte-dialog-insertcode textarea {
+    color: rgb(95, 99, 104);
+    border: 1px solid rgb(218, 220, 224);
+    margin: 8px 3px;
+    padding: 5px;
+    resize: both;
+    min-width: 200px;
+    min-height: 200px;
+}
+
+    .rte-dialog-insertcode textarea:focus {
+        color: #1e2022;
+        outline: 0;
+        border: 2px solid #1a73e8;
+    }
+
+rte-dropdown-panel rte-dialog-header {
+    display: none;
+}
+
+.rte-panel-insertimage rte-dialog-header, .rte-panel-insertdocument rte-dialog-header {
+    display: none;
+}
+
+[rte-tooltip] {
+    position: relative;
+}
+
+    [rte-tooltip]:hover {
+        z-index: 99999999;
+    }
+
+@keyframes rte-tooltip {
+    0% {
+        opacity: 0.0;
+    }
+
+    90% {
+        opacity: 0.0;
+    }
+
+    100% {
+        opacity: 1.0;
+    }
+}
+
+
+[rte-tooltip]:hover:before, [rte-tooltip]:hover:after {
+    animation: rte-tooltip linear 0.5s;
+}
+
+[rte-tooltip]:hover:after {
+    content: attr(rte-tooltip);
+    background: #000;
+    padding: 5px;
+    border-radius: 3px;
+    display: inline-block;
+    position: absolute;
+    transform: translate(-50%,100%);
+    margin: 0 auto;
+    color: #FFF;
+    min-width: 25px;
+    bottom: -5px;
+    left: 50%;
+    text-align: center;
+    font-size: 12px;
+    white-space: pre;
+}
+
+[rte-tooltip]:hover:before {
+    z-index: 1;
+    bottom: -5px;
+    left: 50%;
+    border: solid transparent;
+    content: " ";
+    height: 0;
+    width: 0;
+    position: absolute;
+    pointer-events: none;
+    border-color: rgba(0, 0, 0, 0);
+    border-bottom-color: #000;
+    border-width: 5px;
+    margin-left: -5px;
+}
+
+.fileuploader-dragdrop {
+    display: block;
+    padding: 30px 0;
+    margin: 30px 15px;
+    background: #fff;
+    border: 2px dotted #c2cdda;
+    border-radius: 14px;
+    text-align: center;
+}
+
+    .fileuploader-dragdrop:hover {
+        background-color: #eee;
+    }
+
+    .fileuploader-dragdrop input[type="file"] {
+        cursor: pointer;
+    }
+
+.rte-menu, rte-submenu {
+    font-size: 13px;
+}
+
+.rte-menu {
+    border: 1px solid transparent;
+    box-shadow: rgba(60, 64, 67, 0.15) 0px 2px 6px 2px;
+    rem-margin-top: 1.5rem;
+    rem-margin-bottom: 3rem;
+    min-width: 160px;
+    padding: 10px 0;
+}
+
+rte-submenu {
+    position: absolute;
+    left: 100%;
+    top: 0;
+    padding: 10px 0;
+    border-top: solid 1px transparent;
+    border-left: solid 1px transparent;
+    /* Match the dropdown panel popup styling. */
+    background-color: #fff;
+    user-select: none;
+    display: flex;
+    flex-direction: column;
+    min-width: 160px;
+    box-shadow: rgba(60, 64, 67, 0.15) 0px 2px 6px 2px;
+}
+
+rte-menuitemcontainer {
+    position: relative;
+}
+
+rte-menuitem {
+    display: flex;
+    align-items: center;
+    border: solid 1px transparent;
+    margin: 2px 2px;
+    outline: none;
+}
+
+    rte-menuitem:hover {
+        background-color: #f1f3f4;
+    }
+
+    rte-menuitem:active {
+        background-color: #f1f3f4;
+    }
+
+    rte-menuitem:focus-visible {
+        background-color: #eef4ff;
+        border-color: rgba(37,99,235,.28);
+    }
+
+rte-menuicon {
+    width: 24px;
+    height: 24px;
+    margin: 1px;
+    margin-left: 5px;
+}
+
+rte-menutext {
+    margin-left: 3px;
+    flex: 999;
+}
+
+rte-menuarrow {
+    margin-right: 4px;
+    font-family: sans-serif;
+    font-size: 70%;
+}
+
+    rte-menuarrow:after {
+        content: '\25BA';
+    }
+
+rte-menuspliter {
+    display: block;
+    border-top: 1px solid rgb(218, 220, 224);
+    margin: 3px 0px 3px 28px;
+}
+
+.rte_command_paragraphs rte-toolbar-dropdown-item div {
+    font-size: 15px;
+    margin: 0px;
+    padding: 0px;
+}
+
+.rte_command_paragraphs rte-toolbar-dropdown-item h1 {
+    font-size: 32px;
+    margin: 0px;
+    padding: 0px;
+}
+
+.rte_command_paragraphs rte-toolbar-dropdown-item h2 {
+    font-size: 27px;
+    margin: 0px;
+    padding: 0px;
+}
+
+.rte_command_paragraphs rte-toolbar-dropdown-item h3 {
+    font-size: 24px;
+    margin: 0px;
+    padding: 0px;
+}
+
+.rte_command_paragraphs rte-toolbar-dropdown-item h4 {
+    font-size: 21px;
+    margin: 0px;
+    padding: 0px;
+}
+
+.rte_command_paragraphs rte-toolbar-dropdown-item h5 {
+    font-size: 18px;
+    margin: 0px;
+    padding: 0px;
+}
+
+.rte_command_paragraphs rte-toolbar-dropdown-item h6 {
+    font-size: 15px;
+    margin: 0px;
+    padding: 0px;
+}
+
+rte-floatpanel {
+    z-index: 101;
+    background: linear-gradient(180deg, rgba(255,255,255,.96) 0%, rgba(248,251,255,.94) 100%) !important;
+    border: solid 1px rgba(148,163,184,.42) !important;
+    border-radius: 15px !important;
+    width: 34px !important;
+    height: auto;
+    opacity: 0.82 !important;
+    user-select: none;
+    padding: 13px 4px 5px !important;
+    box-shadow: 0 10px 24px rgba(15,23,42,.12), inset 0 1px 0 rgba(255,255,255,.92) !important;
+    backdrop-filter: blur(14px) saturate(1.2);
+    transition: opacity 160ms ease, background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+    rte-floatpanel::before {
+        content: "";
+        position: absolute;
+        top: 6px;
+        left: 50%;
+        width: 14px;
+        height: 4px;
+        transform: translateX(-50%);
+        border-radius: 999px;
+        background: radial-gradient(circle, #94a3b8 1px, transparent 1.5px) 0 0 / 5px 4px;
+        opacity: .9;
+    }
+
+    rte-floatpanel:hover,
+    rte-floatpanel:focus-within,
+    rte-floatpanel.is-active {
+        opacity: 1 !important;
+        background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%) !important;
+        border-color: rgba(96,116,139,.48) !important;
+        box-shadow: 0 20px 48px rgba(15,23,42,.18), 0 4px 14px rgba(37,99,235,.08), inset 0 1px 0 rgba(255,255,255,.95) !important;
+        transform: translateY(-1px);
+    }
+
+    rte-floatpanel rte-toolbar-button {
+        width: 26px;
+        height: 26px;
+        margin: 2px 0;
+        border-radius: 10px;
+        filter: none;
+        opacity: 0.9;
+        color: #475569;
+        transition: filter 160ms ease, opacity 160ms ease, background-color 160ms ease, color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+    }
+
+        rte-floatpanel:hover rte-toolbar-button,
+        rte-floatpanel:focus-within rte-toolbar-button,
+        rte-floatpanel.is-active rte-toolbar-button {
+            filter: none;
+            opacity: 1;
+        }
+
+        rte-floatpanel rte-toolbar-button:hover {
+            background: #eef5ff;
+            fill: #1559d6;
+            color: #1559d6;
+            box-shadow: inset 0 0 0 1px rgba(37,99,235,.14);
+            transform: translateY(-1px);
+        }
+
+
+.rte-current-item {
+    background-color: #eef2f7;
+}
+
+/* Optional development toggles for hiding editor chrome can live here. */
+
+
+.rte-list-item {
+    padding: 5px 5px 5px 12px;
+    font-size: 14px;
+}
+
+    .rte-list-item:hover {
+        background-color: #f2f2f2;
+    }
+
+
+
+
+rte-toast {
+    position: fixed;
+    z-index: 88888888;
+    background-color: rgba(0,0,0,0.7);
+    color: white;
+    padding: 3px 6px;
+    border-radius: 5px;
+}
+
+.rte-skin-blue {
+    background-color: #ccdcee !important;
+    border-color: #7e9db9 !important;
+}
+
+    .rte-skin-blue rte-content, .rte-skin-blue textarea {
+        background-color: #fff;
+    }
+
+    .rte-skin-blue * {
+    }
+
+    .rte-skin-blue iframe {
+    }
+
+    .rte-skin-blue rte-toolbar {
+        background-color: #ccdcee !important;
+    }
+
+    .rte-skin-blue rte-subtoolbar {
+        background-color: #7e9db9 !important;
+    }
+
+
+    .rte-skin-blue rte-bottom {
+        background-color: #ccdcee !important;
+    }
+
+    .rte-skin-blue rte-dialog-inner {
+        background-color: #ccdcee !important;
+    }
+
+    .rte-skin-blue rte-dialog-header {
+        background-color: #ccdcee !important;
+        color: white !important;
+    }
+
+    .rte-skin-blue rte-dialog-line-action {
+        color: white !important;
+    }
+
+.rte-skin-gray {
+    background-color: #fafafa !important;
+    border-color: rgba(0, 0, 0, 0.12) !important;
+}
+
+    .rte-skin-gray rte-toolbar {
+        background-color: #fafafa !important;
+    }
+
+    .rte-skin-gray rte-subtoolbar {
+        background-color: #eeeeee !important;
+    }
+
+.rte-modern.rte-skin-gray .rte_command_togglemore.rte-command-active {
+    background-color: #eeeeee !important;
+}
+
+.rte-skin-gray rte-bottom {
+    background-color: #fafafa !important;
+}
+
+.rte-skin-gray rte-dialog-header {
+    background-color: #fafafa !important;
+}
+
+.rte-skin-dark {
+    background-color: #333 !important;
+    border-color: #333 !important;
+}
+
+    .rte-skin-dark rte-content, .rte-skin-dark textarea {
+        background-color: #333;
+    }
+
+    .rte-skin-dark * {
+        color: #fff;
+        fill: #fff;
+    }
+
+    .rte-skin-dark iframe {
+        background-color: #fff;
+    }
+
+    .rte-skin-dark rte-toolbar {
+        background-color: #333 !important;
+    }
+
+    .rte-skin-dark rte-subtoolbar {
+        background-color: #666 !important;
+    }
+
+.rte-modern.rte-skin-dark .rte_command_togglemore.rte-command-active, .rte-modern.rte-skin-dark .rte-command-active {
+    background-color: #666 !important;
+}
+
+.rte-skin-dark rte-bottom {
+    background-color: #333 !important;
+}
+
+.rte-skin-dark rte-dialog-inner {
+    background-color: #333 !important;
+}
+
+.rte-skin-dark rte-dialog-header {
+    background-color: #333 !important;
+    color: white !important;
+}
+
+.rte-skin-dark rte-dialog-line-action {
+    background-color: #333 !important;
+    color: white !important;
+}
+
+.rte-skin-rounded-corner.richtexteditor {
+    border-radius: 7px;
+}
+
+.rte-skin-rounded-corner rte-toolbar {
+    border-top-left-radius: 7px;
+    border-top-right-radius: 7px;
+}
+
+.rte-skin-rounded-corner rte-bottom {
+    border-bottom-left-radius: 7px;
+    border-bottom-right-radius: 7px;
+}
+
+rte-content::-webkit-scrollbar {
+    height: 5px;
+    width: 5px;
+    overflow: visible;
+    background-color: transparent;
+    box-shadow: none;
+}
+
+rte-content::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+rte-content::-webkit-scrollbar-thumb {
+    border-radius: 10px;
+    background-color: rgba(0,0,0,.1);
+    background-clip: padding-box;
+}
+
+rte-content::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
+rte-content::-webkit-scrollbar-thumb:hover {
+        background-color: rgba(0,0,0,.4);
+        box-shadow: inset 1px 1px 1px rgba(0,0,0,.25)
+    }
+
+.rte-dialog-insertgallery rte-dialog-inner,
+.rte-dialog-inserttemplate rte-dialog-inner {
+    width: 1080px;
+    max-width: 94vw;
+    height: 78vh;
+    max-height: 90vh;
+    padding: 0;
+    overflow: hidden;
+    border-radius: 24px;
+}
+
+/* The default `rte-dialog-inner rte-dialog-header { margin: -10px -15px 15px; }`
+   rule assumes the dialog has 10/15px padding to absorb it. The gallery /
+   template dialogs override padding to 0, so the negative margin pulls the
+   header outside the rounded clipping boundary and clips the first letter of
+   the title. Reset the margin and add proper padding for these dialogs. */
+.rte-dialog-insertgallery rte-dialog-inner rte-dialog-header,
+.rte-dialog-inserttemplate rte-dialog-inner rte-dialog-header {
+    margin: 0;
+    padding: 18px 24px 14px;
+}
+
+.rte-dialog-browser,
+.rte-gallery-browser {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background:
+        radial-gradient(circle at top right, rgba(37, 99, 235, 0.1), transparent 34%),
+        linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+    color: #172033;
+}
+
+.rte-dialog-browser-header {
+    padding: 14px 18px 0;
+}
+
+.rte-dialog-browser-kicker {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #0f8b8d;
+}
+
+.rte-dialog-browser-title {
+    margin-top: 6px;
+    font-size: 24px;
+    font-weight: 700;
+    color: #182235;
+}
+
+.rte-dialog-browser-copy {
+    margin-top: 6px;
+    line-height: 1.45;
+    color: #56677d;
+    max-width: 760px;
+}
+
+.rte-dialog-browser-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 18px;
+}
+
+.rte-dialog-browser-search,
+.rte-gallery-browser-search {
+    min-height: 38px;
+    border: 1px solid rgba(116, 135, 162, 0.28);
+    border-radius: 999px;
+    padding: 0 14px;
+    font-size: 13px;
+    color: #172033;
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
+    transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+}
+
+.rte-dialog-browser-search {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.rte-gallery-browser-search {
+    width: 240px;
+    max-width: 100%;
+}
+
+.rte-dialog-browser-search:focus,
+.rte-gallery-browser-search:focus {
+    outline: none;
+    border-color: rgba(37, 99, 235, 0.52);
+    background: #fff;
+    box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12), inset 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.rte-dialog-browser-count {
+    flex: none;
+    border-radius: 999px;
+    border: 1px solid rgba(37, 99, 235, 0.16);
+    background: #eef6ff;
+    padding: 7px 11px;
+    font-size: 11px;
+    font-weight: 760;
+    color: #19518f;
+}
+
+.rte-dialog-browser-scrollpanel {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 0 18px 18px;
+    overflow-y: auto;
+}
+
+.rte-dialog-browser-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 14px;
+}
+
+.rte-template-grid {
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+}
+
+.rte-dialog-browser-card {
+    width: 100%;
+    border: 1px solid rgba(116, 135, 162, 0.22);
+    border-radius: 18px;
+    background: linear-gradient(180deg, #ffffff 0%, #f9fbff 100%);
+    padding: 0;
+    text-align: left;
+    cursor: pointer;
+    box-shadow: 0 10px 24px rgba(24, 34, 53, 0.07);
+    transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+    overflow: hidden;
+}
+
+.rte-dialog-browser-card:hover,
+.rte-dialog-browser-card:focus,
+.rte-dialog-browser-card.is-selected {
+    outline: none;
+    transform: translateY(-2px);
+    border-color: rgba(37, 99, 235, 0.38);
+    box-shadow: 0 18px 34px rgba(37, 99, 235, 0.13);
+}
+
+.rte-dialog-browser-card.is-selected {
+    background: linear-gradient(180deg, #f2f8ff 0%, #ffffff 100%);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12), 0 18px 34px rgba(37, 99, 235, 0.13);
+}
+
+.rte-template-card-preview {
+    padding: 12px;
+}
+
+.rte-template-card-preview-body {
+    position: relative;
+    height: 176px;
+    overflow: hidden;
+    border: 1px solid rgba(116, 135, 162, 0.18);
+    border-radius: 14px;
+    background: #fff;
+    padding: 10px;
+}
+
+.rte-template-card-preview-canvas {
+    color: #182235;
+}
+
+.rte-template-card-footer {
+    border-top: 1px solid rgba(116, 135, 162, 0.16);
+    padding: 11px 13px 13px;
+}
+
+.rte-template-card-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: #182235;
+}
+
+.rte-template-card-meta {
+    margin-top: 5px;
+    font-size: 12px;
+    color: #64748b;
+    line-height: 1.5;
+}
+
+.rte-dialog-browser-empty,
+.rte-gallery-browser-empty {
+    border: 1px dashed rgba(100, 116, 139, 0.28);
+    border-radius: 18px;
+    padding: 24px 20px;
+    text-align: center;
+    line-height: 1.6;
+    color: #64748b;
+    background: rgba(255, 255, 255, 0.78);
+}
+
+.rte-gallery-browser {
+    display: flex;
+    flex-direction: column;
+}
+
+.rte-gallery-browser-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-top: 1px solid rgba(116, 135, 162, 0.14);
+    border-bottom: 1px solid rgba(116, 135, 162, 0.2);
+    background: rgba(248, 251, 255, 0.84);
+    flex-wrap: wrap;
+}
+
+.rte-gallery-browser-button {
+    border: 1px solid rgba(116, 135, 162, 0.28);
+    border-radius: 999px;
+    padding: 8px 12px;
+    background: #fff;
+    color: #223652;
+    font-size: 12px;
+    font-weight: 680;
+    line-height: 1.2;
+    cursor: pointer;
+    box-shadow: 0 1px 2px rgba(32, 45, 66, 0.06);
+    transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.rte-gallery-browser-button:hover {
+    border-color: rgba(37, 99, 235, 0.34);
+    background: #f7fbff;
+    box-shadow: 0 6px 14px rgba(37, 99, 235, 0.1);
+    transform: translateY(-1px);
+}
+
+.rte-gallery-browser-button[disabled],
+.rte-gallery-browser-button[aria-disabled="true"] {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.rte-gallery-browser-button-primary {
+    border-color: rgba(29, 103, 186, 0.85);
+    background: linear-gradient(135deg, #2563eb, #1d67ba);
+    color: #fff;
+    font-weight: 720;
+    box-shadow: 0 8px 18px rgba(37, 99, 235, 0.22);
+}
+
+.rte-gallery-browser-button-primary:hover {
+    border-color: rgba(29, 103, 186, 0.95);
+    background: linear-gradient(135deg, #1f56d8, #185fae);
+}
+
+.rte-gallery-browser-path,
+.rte-gallery-browser-type {
+    min-height: 34px;
+    padding: 7px 11px;
+    border: 1px solid rgba(116, 135, 162, 0.22);
+    border-radius: 999px;
+    background-color: rgba(255, 255, 255, 0.82);
+    font-size: 12px;
+    line-height: 18px;
+}
+
+.rte-gallery-browser-path {
+    min-width: 64px;
+    max-width: 280px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.rte-gallery-browser-type {
+    color: #475569;
+}
+
+.rte-gallery-browser-status {
+    padding: 8px 14px;
+    border-bottom: 1px solid rgba(116, 135, 162, 0.16);
+    background-color: rgba(247, 250, 254, 0.78);
+    color: #4a5b70;
+    font-size: 12px;
+}
+
+.rte-gallery-browser-surface {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    padding: 14px 14px 16px;
+}
+
+.rte-gallery-browser-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+    gap: 12px;
+}
+
+.rte-gallery-browser-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+    padding: 9px;
+    border: 1px solid rgba(116, 135, 162, 0.22);
+    border-radius: 14px;
+    background: linear-gradient(180deg, #ffffff 0%, #f9fbff 100%);
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.rte-gallery-browser-card:hover,
+.rte-gallery-browser-card.is-selected {
+    border-color: rgba(37, 99, 235, 0.36);
+    box-shadow: 0 10px 22px rgba(37, 99, 235, 0.12);
+    transform: translateY(-1px);
+    outline: none;
+}
+
+.rte-gallery-browser-card.is-selected {
+    border-color: rgba(37, 99, 235, 0.42);
+    background: linear-gradient(180deg, #f2f8ff 0%, #ffffff 100%);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12), 0 10px 22px rgba(37, 99, 235, 0.12);
+}
+
+.rte-gallery-browser-selection {
+    height: 17px;
+    color: #19518f;
+    font-size: 11px;
+    line-height: 17px;
+    font-weight: 760;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.rte-gallery-browser-thumbnail {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 106px;
+    border: 1px solid rgba(116, 135, 162, 0.18);
+    border-radius: 12px;
+    background: linear-gradient(180deg, #ffffff 0%, #f3f7fc 100%);
+    overflow: hidden;
+}
+
+.rte-gallery-browser-thumbnail-image {
+    max-width: 100%;
+    max-height: 100%;
+    display: block;
+    object-fit: contain;
+}
+
+.rte-gallery-browser-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+    font-weight: 600;
+    color: #223046;
+}
+
+.rte-gallery-browser-meta {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #66768b;
+    font-size: 12px;
+}
+
+.rte-gallery-browser-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 10px 14px;
+    border-top: 1px solid rgba(116, 135, 162, 0.18);
+    background: rgba(248, 251, 255, 0.9);
+}
+
+.rte-gallery-browser-footer-text {
+    margin-right: auto;
+    color: #4f5f74;
+    font-size: 13px;
+}
+
+rte-dropdown-panel.rte-panel-insertimage rte-dialog-inner,
+rte-dropdown-panel.rte-panel-insertdocument rte-dialog-inner {
+    width: 560px;
+    max-width: 94vw;
+    padding: 0 0 16px;
+    overflow: hidden;
+    border-radius: 22px;
+    background: linear-gradient(180deg, #ffffff 0%, #f7f8fa 100%);
+}
+
+rte-dropdown-panel.rte-panel-insertimage rte-dialog-header,
+rte-dropdown-panel.rte-panel-insertdocument rte-dialog-header {
+    display: flex;
+    align-items: center;
+    padding: 18px 20px 12px;
+    border-bottom: 1px solid #e2e8f0;
+    background: linear-gradient(180deg, #ffffff 0%, #fbfcfd 100%);
+}
+
+rte-dropdown-panel.rte-panel-insertimage rte-dialog-header-text,
+rte-dropdown-panel.rte-panel-insertdocument rte-dialog-header-text {
+    font-size: 20px;
+    font-weight: 700;
+    color: #182235;
+}
+
+rte-dropdown-panel.rte-panel-insertimage .rte-dialog-line-input,
+rte-dropdown-panel.rte-panel-insertdocument .rte-dialog-line-input {
+    margin: 12px 16px 0;
+}
+
+rte-dropdown-panel.rte-panel-insertimage .rte-dialog-line-input input[type=text],
+rte-dropdown-panel.rte-panel-insertdocument .rte-dialog-line-input input[type=text] {
+    width: 100%;
+    min-height: 36px;
+    margin: 0;
+    padding: 8px 10px;
+    color: #333333;
+    background: #ffffff;
+    border: 1px solid #cccccc;
+    border-radius: 4px;
+    box-shadow: none;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+rte-dropdown-panel.rte-panel-insertimage .rte-dialog-line-input input[type=text]:focus,
+rte-dropdown-panel.rte-panel-insertdocument .rte-dialog-line-input input[type=text]:focus {
+    outline: none;
+    border-color: #0f8b8d;
+    box-shadow: 0 0 0 2px rgba(15, 139, 141, 0.12);
+}
+
+.rte-insertimage-intro,
+.rte-insertdocument-intro {
+    margin: 12px 16px 0;
+    font-size: 13px;
+    line-height: 1.6;
+    color: #475569;
+}
+
+.rte-insertimage-preview,
+.rte-insertdocument-preview {
+    margin: 12px 16px 0;
+    border: 1px solid #d7dce4;
+    border-radius: 18px;
+    background: linear-gradient(180deg, #ffffff 0%, #f7f8fa 100%);
+    padding: 14px;
+}
+
+.rte-insertimage-preview-image {
+    display: block;
+    max-width: 100%;
+    max-height: 220px;
+    margin: 0 auto;
+    object-fit: contain;
+}
+
+.rte-insertimage-preview.is-empty .rte-insertimage-preview-image {
+    display: none;
+}
+
+.rte-insertimage-preview-caption {
+    margin-top: 10px;
+    text-align: center;
+    font-size: 13px;
+    line-height: 1.6;
+    color: #475569;
+}
+
+.rte-insertimage-preview.is-error .rte-insertimage-preview-caption {
+    color: #b91c1c;
+}
+
+.rte-insertdocument-preview {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.rte-insertdocument-preview-icon {
+    width: 56px;
+    height: 56px;
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 16px;
+    background: linear-gradient(180deg, #eef2f7 0%, #dbe3ee 100%);
+    border: 1px solid #c8d2df;
+}
+
+.rte-insertdocument-preview-ext {
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    color: #374151;
+}
+
+.rte-insertdocument-preview-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: #182235;
+    word-break: break-word;
+}
+
+.rte-insertdocument-preview-meta {
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: #64748b;
+    word-break: break-word;
+}
+
+.rte-insertdocument-preview.is-empty .rte-insertdocument-preview-title {
+    color: #475569;
+}
+
+rte-dropdown-panel.rte-panel-insertimage .rte-dialog-line-action,
+rte-dropdown-panel.rte-panel-insertdocument .rte-dialog-line-action {
+    margin: 14px 16px 0;
+    padding: 0;
+}
+
+rte-dropdown-panel.rte-panel-insertimage .rte-dialog-button,
+rte-dropdown-panel.rte-panel-insertdocument .rte-dialog-button {
+    min-height: 34px;
+    padding: 6px 18px;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 500;
+    box-shadow: none;
+}
+
+rte-dropdown-panel.rte-panel-insertimage .rte-dialog-button:hover,
+rte-dropdown-panel.rte-panel-insertdocument .rte-dialog-button:hover {
+    background: #0c7b7d;
+    border-color: #0c7b7d;
+}
+
+rte-dropdown-panel.rte-panel-insertimage .rte-dialog-button.rte-button-type-cancel,
+rte-dropdown-panel.rte-panel-insertdocument .rte-dialog-button.rte-button-type-cancel {
+    background: #ffffff;
+    color: #0f8b8d;
+    border-color: #0f8b8d;
+}
+
+rte-dropdown-panel.rte-panel-insertimage .rte-dialog-button.rte-button-type-cancel:hover,
+rte-dropdown-panel.rte-panel-insertdocument .rte-dialog-button.rte-button-type-cancel:hover {
+    background: #0c7b7d;
+    color: #ffffff;
+    border-color: #0c7b7d;
+}
+
+/* ===========================================================================
+ * 2026-05-08 dialog polish layer — applies to every editor dialog (insert
+ * video / link / image / code / table / find / template / gallery / etc.)
+ *
+ * Until this layer landed, every dialog inherited `min-width: 300px` from
+ * the base `rte-dialog-inner` rule above. That worked for two-button
+ * confirmations but felt cramped for URL fields, code editors, and any
+ * dialog with a textarea — the input was about 270 px wide once you
+ * subtracted the 12 px margin on each side.
+ *
+ * The rules below set sensible per-dialog defaults, modernise the input
+ * chrome (subtle border, blue focus ring matching the AI Chat / AI Review
+ * panels), and add comfortable header / footer padding. Mobile fallback at
+ * the bottom keeps dialogs viewport-bound on small screens.
+ * ======================================================================= */
+
+/* Default: bump every dialog from a 300 px-wide pill to a sensible 440 px
+   card with a generous max-width, viewport-bound. */
+rte-dialog-outer rte-dialog-inner {
+    min-width: 440px;
+    max-width: min(720px, calc(100vw - 32px));
+    padding: 16px 20px 16px;
+    border-radius: 10px;
+    box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18), 0 0 0 1px rgba(20, 36, 58, 0.04);
+}
+
+/* Header: more breathing room around the title / close button. */
+rte-dialog-outer rte-dialog-inner rte-dialog-header {
+    margin: -16px -20px 14px;
+    padding: 14px 20px 12px;
+    align-items: center;
+    border-bottom: 1px solid #eef1f5;
+}
+
+rte-dialog-outer rte-dialog-header-text {
+    font-size: 15px;
+    font-weight: 700;
+    color: #1b2a3d;
+    letter-spacing: -0.005em;
+}
+
+/* Close button: softer, tighter hit area, hover background */
+rte-dialog-outer rte-dialog-header-close {
+    top: 11px;
+    right: 12px;
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    padding: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 120ms ease, opacity 120ms ease;
+}
+
+rte-dialog-outer rte-dialog-header-close:hover {
+    background-color: #f1f5f9;
+    opacity: 1;
+}
+
+/* Input rows: tighten margin so the dialog doesn't waste vertical space,
+   and modernise the text/textarea chrome to match the AI Toolkit look. */
+rte-dialog-outer .rte-dialog-line-input,
+rte-dialog-outer rte-dialog-line-target {
+    margin: 14px 0;
+}
+
+rte-dialog-outer .rte-dialog-line-input input[type=text],
+rte-dialog-outer .rte-dialog-line-input textarea {
+    border-radius: 8px;
+    border-color: rgba(20, 36, 58, 0.16);
+    font-size: 13px;
+    padding: 10px 12px;
+    transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+rte-dialog-outer .rte-dialog-line-input input:hover,
+rte-dialog-outer .rte-dialog-line-input input:focus,
+rte-dialog-outer .rte-dialog-line-input textarea:hover,
+rte-dialog-outer .rte-dialog-line-input textarea:focus {
+    border-color: rgba(21, 89, 214, 0.45);
+    box-shadow: 0 0 0 3px rgba(21, 89, 214, 0.16);
+}
+
+/* The label that floats above the input (Url / Width / etc.) — modern
+   feel: smaller, less shouty colour. */
+rte-dialog-outer .rte-dialog-line-input rte-dialog-input-label {
+    font-size: 11px;
+    color: #64748b;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+/* Action row: align primary button to the right with extra padding. */
+rte-dialog-outer rte-dialog-line-action,
+rte-dialog-outer rte-dialog-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    margin: 14px 0 4px !important;
+    padding-top: 0;
+    border-top: 0;
+}
+
+rte-dialog-outer rte-dialog-button {
+    min-height: 34px;
+    padding: 0 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+
+/* === Per-dialog width hints === */
+
+/* Insert video: just a URL textarea — bigger so users can paste long
+   YouTube / Vimeo links without horizontal scroll. */
+rte-dialog-outer.rte-dialog-insertvideo rte-dialog-inner {
+    min-width: 520px;
+}
+
+rte-dialog-outer .rte-dialog-line-url textarea {
+    min-height: 64px;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    word-break: break-all;
+}
+
+/* Insert link / image-by-url: same family — bigger than the default, but
+   not as wide as the code editor. */
+rte-dialog-outer.rte-dialog-insertlink rte-dialog-inner,
+rte-dialog-outer.rte-panel-insertimage-byurl rte-dialog-inner,
+rte-dialog-outer.rte-panel-insertdocument-byurl rte-dialog-inner {
+    min-width: 480px;
+}
+
+/* Insert code: monospace editor area needs real width to read code. */
+rte-dialog-outer.rte-dialog-insertcode rte-dialog-inner {
+    min-width: 640px;
+    max-width: min(880px, calc(100vw - 32px));
+}
+
+/* Insert table / find / general — keep a consistent 460 px floor. */
+rte-dialog-outer.rte-panel-find rte-dialog-inner,
+rte-dialog-outer.rte-panel-general rte-dialog-inner {
+    min-width: 460px;
+}
+
+/* Insert gallery / template / paste cleanup — comfortable wide layouts
+   for picking from a grid. */
+rte-dialog-outer.rte-dialog-insertgallery rte-dialog-inner,
+rte-dialog-outer.rte-dialog-inserttemplate rte-dialog-inner,
+rte-dialog-outer.rte-dialog-pasteauto rte-dialog-inner,
+rte-dialog-outer.rte-dialog-pasteword rte-dialog-inner {
+    min-width: 720px;
+    max-width: min(960px, calc(100vw - 32px));
+}
+
+/* Image editor / HTML2PDF — full creative surface. */
+rte-dialog-outer.rte-dialog-imageeditor rte-dialog-inner,
+rte-dialog-outer.rte-dialog-html2pdf rte-dialog-inner {
+    min-width: 760px;
+    max-width: min(1080px, calc(100vw - 32px));
+}
+
+/* === Mobile fallback === */
+@media (max-width: 640px) {
+    rte-dialog-outer rte-dialog-inner,
+    rte-dialog-outer.rte-dialog-insertvideo rte-dialog-inner,
+    rte-dialog-outer.rte-dialog-insertlink rte-dialog-inner,
+    rte-dialog-outer.rte-panel-insertimage-byurl rte-dialog-inner,
+    rte-dialog-outer.rte-dialog-insertcode rte-dialog-inner,
+    rte-dialog-outer.rte-panel-find rte-dialog-inner,
+    rte-dialog-outer.rte-panel-general rte-dialog-inner,
+    rte-dialog-outer.rte-dialog-insertgallery rte-dialog-inner,
+    rte-dialog-outer.rte-dialog-inserttemplate rte-dialog-inner,
+    rte-dialog-outer.rte-dialog-imageeditor rte-dialog-inner,
+    rte-dialog-outer.rte-dialog-html2pdf rte-dialog-inner {
+        min-width: 0;
+        width: calc(100vw - 24px);
+        max-width: calc(100vw - 24px);
+        padding: 12px 14px;
+    }
+}
+
+/* ===========================================================================
+ * 2026-06-06 dialog system refresh
+ *
+ * Global pass for every dialog created through editor.createDialog. This sits
+ * after the earlier dialog polish layer so it can normalize the shell without
+ * changing individual dialog JavaScript.
+ * ======================================================================= */
+
+rte-dialog-outer {
+    background:
+        radial-gradient(circle at 50% 18%, rgba(96, 165, 250, 0.16), transparent 34%),
+        rgba(15, 23, 42, 0.58);
+    backdrop-filter: blur(4px);
+}
+
+rte-dialog-outer rte-dialog-inner {
+    min-width: 460px;
+    max-width: min(760px, calc(100vw - 32px));
+    overflow: hidden;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 18px;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+    box-shadow:
+        0 26px 70px rgba(15, 23, 42, 0.26),
+        0 0 0 1px rgba(255, 255, 255, 0.82) inset;
+}
+
+rte-dialog-outer rte-dialog-inner rte-dialog-header {
+    min-height: 52px;
+    margin: -16px -20px 18px;
+    padding: 14px 52px 13px 20px;
+    align-items: center;
+    background:
+        radial-gradient(circle at 20px 0, rgba(59, 130, 246, 0.16), transparent 42px),
+        linear-gradient(180deg, #ffffff 0%, #f7faff 100%);
+    border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+rte-dialog-outer rte-dialog-header-text {
+    min-width: 0;
+    color: #172033;
+    font-size: 15px;
+    font-weight: 750;
+    letter-spacing: -0.01em;
+}
+
+rte-dialog-outer rte-dialog-header-close {
+    top: 12px;
+    right: 14px;
+    width: 30px;
+    height: 30px;
+    padding: 7px;
+    border-radius: 999px;
+    color: #64748b;
+    opacity: 0.78;
+}
+
+rte-dialog-outer rte-dialog-header-close:hover,
+rte-dialog-outer rte-dialog-header-close:focus-visible {
+    color: #0f172a;
+    background: #eef4ff;
+    opacity: 1;
+}
+
+rte-dialog-outer rte-dialog-header-close:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
+}
+
+rte-dialog-outer .rte-dialog-line-input,
+rte-dialog-outer rte-dialog-line-target {
+    margin: 16px 0;
+}
+
+rte-dialog-outer .rte-dialog-line-input input[type=text],
+rte-dialog-outer .rte-dialog-line-input input[type=number],
+rte-dialog-outer .rte-dialog-line-input input[type=url],
+rte-dialog-outer .rte-dialog-line-input input[type=email],
+rte-dialog-outer .rte-dialog-line-input textarea,
+rte-dialog-outer .rte-dialog-line-input select {
+    min-height: 38px;
+    border-color: rgba(100, 116, 139, 0.24);
+    border-radius: 11px;
+    background: #ffffff;
+    color: #172033;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+rte-dialog-outer rte-dialog-inner > div select,
+rte-dialog-outer rte-dialog-inner > div textarea {
+    min-height: 38px;
+    border: 1px solid rgba(100, 116, 139, 0.24);
+    border-radius: 11px;
+    background: #ffffff;
+    color: #172033;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+rte-dialog-outer rte-dialog-inner > div select {
+    padding: 7px 34px 7px 11px;
+}
+
+rte-dialog-outer rte-dialog-inner > div textarea {
+    padding: 11px 12px;
+    line-height: 1.5;
+}
+
+rte-dialog-outer.rte-dialog-insertcode rte-dialog-inner > div select,
+rte-dialog-outer.rte-dialog-insertcode rte-dialog-inner > div textarea {
+    border-color: rgba(100, 116, 139, 0.24);
+}
+
+rte-dialog-outer.rte-dialog-insertcode rte-dialog-inner > div textarea {
+    padding: 11px 12px;
+}
+
+rte-dialog-outer .rte-dialog-line-input input:hover,
+rte-dialog-outer .rte-dialog-line-input input:focus,
+rte-dialog-outer .rte-dialog-line-input textarea:hover,
+rte-dialog-outer .rte-dialog-line-input textarea:focus,
+rte-dialog-outer .rte-dialog-line-input select:hover,
+rte-dialog-outer .rte-dialog-line-input select:focus,
+rte-dialog-outer rte-dialog-inner > div select:hover,
+rte-dialog-outer rte-dialog-inner > div select:focus,
+rte-dialog-outer rte-dialog-inner > div textarea:hover,
+rte-dialog-outer rte-dialog-inner > div textarea:focus {
+    border-color: rgba(37, 99, 235, 0.48);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.9),
+        0 0 0 3px rgba(37, 99, 235, 0.14);
+}
+
+rte-dialog-outer .rte-dialog-line-input rte-dialog-input-label {
+    top: -9px;
+    left: 14px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+    box-shadow: none;
+    color: #5b6b82;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+rte-dialog-outer rte-dialog-line-action,
+rte-dialog-outer rte-dialog-footer {
+    gap: 10px;
+    margin: 18px -20px -16px !important;
+    padding: 14px 20px 16px;
+    border-top: 1px solid rgba(148, 163, 184, 0.16);
+    background: rgba(248, 251, 255, 0.78);
+}
+
+rte-dialog-outer rte-dialog-button {
+    min-height: 36px;
+    padding: 0 18px;
+    border-radius: 999px;
+    border-color: #1d4ed8;
+    background: linear-gradient(180deg, #3b82f6 0%, #1d4ed8 100%);
+    color: #ffffff;
+    font-weight: 700;
+    box-shadow: 0 8px 18px rgba(37, 99, 235, 0.22);
+}
+
+rte-dialog-outer rte-dialog-button:hover {
+    background: linear-gradient(180deg, #4f8ff7 0%, #2563eb 100%);
+    border-color: #2563eb;
+    box-shadow: 0 10px 22px rgba(37, 99, 235, 0.28);
+}
+
+rte-dialog-outer rte-dialog-button:active {
+    background: #1d4ed8;
+    border-color: #1d4ed8;
+}
+
+rte-dialog-outer .rte-button-type-cancel,
+rte-dialog-outer rte-dialog-button.rte-button-type-replace,
+rte-dialog-outer rte-dialog-button.rte-button-type-replaceall {
+    color: #334155;
+    background: #ffffff;
+    border-color: rgba(100, 116, 139, 0.28);
+    box-shadow: none;
+}
+
+rte-dialog-outer .rte-button-type-cancel:hover,
+rte-dialog-outer rte-dialog-button.rte-button-type-replace:hover,
+rte-dialog-outer rte-dialog-button.rte-button-type-replaceall:hover {
+    color: #0f172a;
+    background: #eef4ff;
+    border-color: rgba(37, 99, 235, 0.32);
+    box-shadow: none;
+}
+
+rte-dialog-outer rte-dialog-button:focus-visible {
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.22);
+}
+
+rte-dialog-outer .rte-dialog-tabcontainer {
+    border-radius: 14px;
+    overflow: hidden;
+}
+
+rte-dialog-outer .rte-dialog-browser,
+rte-dialog-outer .rte-gallery-browser {
+    border-radius: 18px;
+    background:
+        radial-gradient(circle at top right, rgba(37, 99, 235, 0.1), transparent 34%),
+        linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+}
+
+rte-dialog-outer .rte-dialog-browser-card,
+rte-dialog-outer .rte-gallery-browser-card {
+    border-radius: 16px;
+    border-color: rgba(100, 116, 139, 0.18);
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+}
+
+rte-dialog-outer .rte-dialog-browser-card:hover,
+rte-dialog-outer .rte-dialog-browser-card:focus,
+rte-dialog-outer .rte-dialog-browser-card.is-selected,
+rte-dialog-outer .rte-gallery-browser-card:hover,
+rte-dialog-outer .rte-gallery-browser-card.is-selected {
+    border-color: rgba(37, 99, 235, 0.38);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12), 0 14px 28px rgba(37, 99, 235, 0.14);
+}
+
+rte-dialog-outer.rte-dialog-preview rte-dialog-inner,
+rte-dialog-outer.rte-dialog-shortcuts rte-dialog-inner,
+rte-dialog-outer.rte-dialog-revisionhistory rte-dialog-inner {
+    min-width: 720px;
+    max-width: min(980px, calc(100vw - 32px));
+}
+
+rte-dialog-outer.rte-dialog-insertlink rte-dialog-inner,
+rte-dialog-outer.rte-panel-controlinsertlink rte-dialog-inner,
+rte-dialog-outer.rte-panel-controleditlink rte-dialog-inner,
+rte-dialog-outer.rte-panel-insertimage-byurl rte-dialog-inner,
+rte-dialog-outer.rte-panel-insertdocument-byurl rte-dialog-inner {
+    min-width: 520px;
+}
+
+@media (max-width: 640px) {
+    rte-dialog-outer {
+        align-items: flex-start;
+        padding: 12px;
+        overflow: auto;
+    }
+
+    rte-dialog-outer rte-dialog-inner,
+    rte-dialog-outer.rte-dialog-preview rte-dialog-inner,
+    rte-dialog-outer.rte-dialog-shortcuts rte-dialog-inner,
+    rte-dialog-outer.rte-dialog-revisionhistory rte-dialog-inner {
+        min-width: 0;
+        width: calc(100vw - 24px);
+        max-width: calc(100vw - 24px);
+        max-height: calc(100vh - 24px);
+    }
+
+    rte-dialog-outer rte-dialog-inner rte-dialog-header {
+        margin-left: -14px;
+        margin-right: -14px;
+        padding-left: 14px;
+    }
+
+    rte-dialog-outer rte-dialog-line-action,
+    rte-dialog-outer rte-dialog-footer {
+        margin-left: -14px !important;
+        margin-right: -14px !important;
+        padding-left: 14px;
+        padding-right: 14px;
+    }
+}
+
+/* Dropdown command panels: link, image, table, color, special characters,
+   and other toolbar panels should feel related to modal dialogs. */
+rte-dropdown-panel {
+    overflow: hidden;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 16px;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+    box-shadow:
+        0 18px 46px rgba(15, 23, 42, 0.18),
+        0 0 0 1px rgba(255, 255, 255, 0.78) inset;
+}
+
+rte-dropdown-panel rte-dialog-header {
+    margin: 0;
+    padding: 12px 16px 11px;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+    background:
+        radial-gradient(circle at 18px 0, rgba(59, 130, 246, 0.12), transparent 40px),
+        linear-gradient(180deg, #ffffff 0%, #f7faff 100%);
+}
+
+rte-dropdown-panel rte-dialog-header-text {
+    color: #172033;
+    font-size: 14px;
+    font-weight: 750;
+    letter-spacing: -0.005em;
+}
+
+rte-dropdown-panel .rte-dialog-line-input,
+rte-dropdown-panel rte-dialog-line-target {
+    margin: 14px 16px;
+}
+
+rte-dropdown-panel .rte-dialog-line-input input[type=text],
+rte-dropdown-panel .rte-dialog-line-input input[type=number],
+rte-dropdown-panel .rte-dialog-line-input input[type=url],
+rte-dropdown-panel .rte-dialog-line-input textarea,
+rte-dropdown-panel .rte-dialog-line-input select {
+    min-height: 36px;
+    padding: 9px 11px;
+    border-color: rgba(100, 116, 139, 0.24);
+    border-radius: 11px;
+    background: #ffffff;
+    color: #172033;
+}
+
+rte-dropdown-panel .rte-dialog-line-input input:hover,
+rte-dropdown-panel .rte-dialog-line-input input:focus,
+rte-dropdown-panel .rte-dialog-line-input textarea:hover,
+rte-dropdown-panel .rte-dialog-line-input textarea:focus,
+rte-dropdown-panel .rte-dialog-line-input select:hover,
+rte-dropdown-panel .rte-dialog-line-input select:focus {
+    border-color: rgba(37, 99, 235, 0.48);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+}
+
+rte-dropdown-panel .rte-dialog-line-input rte-dialog-input-label {
+    top: -9px;
+    left: 14px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: #ffffff;
+    box-shadow: none;
+    color: #5b6b82;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+rte-dropdown-panel rte-dialog-line-action,
+rte-dropdown-panel .rte-dialog-line-action,
+rte-dropdown-panel rte-dialog-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    margin: 14px 0 0 !important;
+    padding: 12px 16px 14px;
+    border-top: 1px solid rgba(148, 163, 184, 0.16);
+    background: rgba(248, 251, 255, 0.78);
+}
+
+rte-dropdown-panel rte-dialog-button,
+rte-dropdown-panel .rte-dialog-button {
+    min-height: 34px;
+    padding: 0 16px;
+    border-radius: 999px;
+    border-color: #1d4ed8;
+    background: linear-gradient(180deg, #3b82f6 0%, #1d4ed8 100%);
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 700;
+    box-shadow: 0 7px 16px rgba(37, 99, 235, 0.2);
+}
+
+rte-dropdown-panel rte-dialog-button:hover,
+rte-dropdown-panel .rte-dialog-button:hover {
+    background: linear-gradient(180deg, #4f8ff7 0%, #2563eb 100%);
+    border-color: #2563eb;
+}
+
+rte-dropdown-panel .rte-button-type-cancel,
+rte-dropdown-panel rte-dialog-button.rte-button-type-cancel {
+    color: #334155;
+    background: #ffffff;
+    border-color: rgba(100, 116, 139, 0.28);
+    box-shadow: none;
+}
+
+rte-dropdown-panel .rte-button-type-cancel:hover,
+rte-dropdown-panel rte-dialog-button.rte-button-type-cancel:hover {
+    color: #0f172a;
+    background: #eef4ff;
+    border-color: rgba(37, 99, 235, 0.32);
+}
+
+rte-dropdown-panel rte-dropdown-menuitem {
+    margin: 2px 8px;
+    padding: 6px 9px;
+    border-radius: 10px;
+}
+
+rte-dropdown-panel rte-dropdown-menuitem:hover,
+rte-dropdown-panel rte-dropdown-menuitem:focus-visible {
+    background-color: #eef4ff;
+}
+
+rte-dropdown-panel.rte-panel-forecolor,
+rte-dropdown-panel.rte-panel-backcolor {
+    padding: 10px;
+}
+
+rte-dropdown-panel.rte-panel-forecolor rte-dialog-item-color[rte-tooltip],
+rte-dropdown-panel.rte-panel-backcolor rte-dialog-item-color[rte-tooltip] {
+    border-radius: 8px;
+}
+
+/* 2026-06-09 command-surface polish.
+   Applies to non-AI dropdowns and modal frames so toolbar menus, insert
+   panels, and dialogs share a compact, modern interaction vocabulary. */
+rte-dialog-outer rte-dialog-inner {
+    max-height: min(88vh, 760px);
+}
+
+rte-dialog-outer rte-dialog-inner rte-dialog-header {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}
+
+rte-dialog-outer rte-dialog-header-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+rte-dropdown-panel {
+    gap: 2px;
+    padding: 8px !important;
+    max-width: min(520px, calc(100vw - 20px));
+    max-height: min(420px, calc(100vh - 76px));
+    overflow: auto;
+    scrollbar-width: thin;
+}
+
+rte-dropdown-panel rte-toolbar-group {
+    gap: 2px;
+}
+
+rte-dropdown-panel rte-dropdown-menuitem,
+rte-dropdown-panel.rte-menu-hideicon rte-dropdown-menuitem {
+    min-height: 30px;
+    margin: 1px 0;
+    padding: 5px 9px;
+    border-radius: 10px;
+    transition:
+        background-color 120ms ease,
+        color 120ms ease,
+        box-shadow 120ms ease;
+}
+
+rte-dropdown-panel rte-dropdown-menuitem rte-dropdown-menuitem-label {
+    color: #22324a;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+rte-dropdown-panel rte-dropdown-menuitem:hover,
+rte-dropdown-panel rte-dropdown-menuitem:focus-visible {
+    background: linear-gradient(180deg, #eef6ff 0%, #e8f1ff 100%);
+    box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.12);
+}
+
+rte-dropdown-panel rte-toolbar-button {
+    border-radius: 9px;
+}
+
+rte-toolbar-dropdown-item {
+    margin: 2px 6px;
+    padding: 7px 12px;
+    border-radius: 10px;
+    color: #22324a;
+    font-size: 13px;
+    font-weight: 600;
+    transition:
+        background-color 120ms ease,
+        color 120ms ease,
+        box-shadow 120ms ease;
+}
+
+rte-toolbar-dropdown-item:hover,
+rte-toolbar-dropdown-item:focus-visible {
+    background: linear-gradient(180deg, #eef6ff 0%, #e8f1ff 100%);
+    color: #0f3f9f;
+    box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.12);
+}
+
+/* Dark-mode hover for toolbar dropdown items — the light-blue gradient above is
+   light-only; without this it renders washed-out (light gradient + dark-blue
+   text) over the dark panel. */
+.rte-dark rte-toolbar-dropdown-item:hover,
+.rte-dark rte-toolbar-dropdown-item:focus-visible {
+    background: var(--rte-hover-bg, #334155);
+    color: var(--rte-text, #cbd5e1);
+    box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.18);
+}
+@media (prefers-color-scheme: dark) {
+    .richtexteditor:not(.rte-light) rte-toolbar-dropdown-item:hover,
+    .richtexteditor:not(.rte-light) rte-toolbar-dropdown-item:focus-visible {
+        background: var(--rte-hover-bg, #334155);
+        color: var(--rte-text, #cbd5e1);
+        box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.18);
+    }
+}
+
+rte-dialog-outer rte-dialog-button,
+rte-dropdown-panel rte-dialog-button,
+rte-dropdown-panel .rte-dialog-button {
+    min-height: 34px;
+    transition:
+        background-color 120ms ease,
+        border-color 120ms ease,
+        box-shadow 120ms ease,
+        transform 120ms ease;
+}
+
+rte-dialog-outer rte-dialog-button:hover,
+rte-dropdown-panel rte-dialog-button:hover,
+rte-dropdown-panel .rte-dialog-button:hover {
+    transform: translateY(-1px);
+}
+
+rte-dialog-outer rte-dialog-button:active,
+rte-dropdown-panel rte-dialog-button:active,
+rte-dropdown-panel .rte-dialog-button:active {
+    transform: translateY(0);
+}
+
+@media (max-width: 640px) {
+    rte-dropdown-panel {
+        max-width: calc(100vw - 16px);
+        max-height: calc(100vh - 56px);
+    }
+
+    rte-dialog-outer rte-dialog-inner {
+        max-height: calc(100vh - 24px);
+    }
+}
+
+/* 2026-06-09 utility popover polish for core JS helper surfaces. */
+.rte-alt-editor-popup,
+.rte-find-replace-dialog,
+.rte-ai-context-menu,
+.rte-image-quickbar {
+    font-family: "Aptos", "Segoe UI", sans-serif;
+    color: #172033;
+}
+
+.rte-alt-editor-popup,
+.rte-find-replace-dialog,
+.rte-ai-context-menu {
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+    box-shadow:
+        0 18px 46px rgba(15, 23, 42, 0.18),
+        0 0 0 1px rgba(255, 255, 255, 0.78) inset;
+}
+
+.rte-alt-editor-popup {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: min(420px, calc(100vw - 20px));
+    padding: 8px;
+    border-radius: 15px;
+}
+
+.rte-alt-editor-label {
+    color: #455a72;
+    font-size: 12px;
+    font-weight: 750;
+    white-space: nowrap;
+}
+
+.rte-alt-editor-input,
+.rte-find-replace-dialog input {
+    box-sizing: border-box;
+    min-height: 32px;
+    border: 1px solid rgba(100, 116, 139, 0.24);
+    border-radius: 10px;
+    background: #ffffff;
+    color: #172033;
+    font: inherit;
+    font-size: 13px;
+    outline: none;
+}
+
+.rte-alt-editor-input {
+    width: min(240px, 46vw);
+    padding: 7px 10px;
+}
+
+.rte-alt-editor-input:hover,
+.rte-alt-editor-input:focus,
+.rte-find-replace-dialog input:hover,
+.rte-find-replace-dialog input:focus {
+    border-color: rgba(37, 99, 235, 0.48);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+}
+
+.rte-alt-editor-save,
+.rte-find-replace-dialog button,
+.rte-ai-context-menu-item,
+.rte-image-quickbar-button {
+    cursor: pointer;
+    border: 0;
+    font: inherit;
+    outline: none;
+}
+
+.rte-alt-editor-save,
+.rte-find-replace-all {
+    min-height: 32px;
+    padding: 0 13px;
+    border-radius: 999px;
+    background: linear-gradient(180deg, #3b82f6 0%, #1d4ed8 100%);
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 800;
+    box-shadow: 0 7px 16px rgba(37, 99, 235, 0.2);
+}
+
+.rte-alt-editor-save:hover,
+.rte-find-replace-all:hover {
+    background: linear-gradient(180deg, #4f8ff7 0%, #2563eb 100%);
+}
+
+.rte-image-quickbar {
+    display: none;
+    gap: 3px;
+    padding: 4px;
+    border: 1px solid rgba(15, 23, 42, 0.18);
+    border-radius: 999px;
+    background:
+        radial-gradient(circle at 18px 0, rgba(96, 165, 250, 0.24), transparent 40px),
+        rgba(15, 23, 42, 0.94);
+    color: #f8fafc;
+    box-shadow: 0 12px 26px rgba(15, 23, 42, 0.26);
+}
+
+.rte-image-quickbar-button {
+    min-height: 26px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: transparent;
+    color: inherit;
+    font-size: 12px;
+    font-weight: 750;
+}
+
+.rte-image-quickbar-button:hover,
+.rte-image-quickbar-button:focus-visible {
+    background: rgba(255, 255, 255, 0.14);
+}
+
+.rte-find-replace-dialog {
+    display: grid;
+    gap: 8px;
+    width: min(360px, calc(100vw - 24px));
+    padding: 10px;
+    border-radius: 16px;
+}
+
+.rte-find-header,
+.rte-find-row,
+.rte-find-actions {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.rte-find-header {
+    justify-content: space-between;
+    padding-bottom: 2px;
+}
+
+.rte-find-title {
+    color: #172033;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+}
+
+.rte-find-close {
+    width: 28px;
+    height: 28px;
+    border-radius: 999px;
+    background: #ffffff;
+    color: #64748b;
+}
+
+.rte-find-close:hover,
+.rte-find-close:focus-visible {
+    background: #eef4ff;
+    color: #0f172a;
+}
+
+.rte-find-row input {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 7px 10px;
+}
+
+.rte-find-count {
+    flex: 0 0 auto;
+    min-height: 22px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: #eef4ff;
+    color: #315277;
+    font-size: 11px;
+    font-weight: 750;
+    white-space: nowrap;
+}
+
+.rte-find-actions {
+    flex-wrap: wrap;
+}
+
+.rte-find-actions button:not(.rte-find-replace-all) {
+    min-height: 30px;
+    padding: 0 11px;
+    border: 1px solid rgba(100, 116, 139, 0.24);
+    border-radius: 999px;
+    background: #ffffff;
+    color: #334155;
+    font-size: 12px;
+    font-weight: 750;
+}
+
+.rte-find-actions button:not(.rte-find-replace-all):hover,
+.rte-find-actions button:not(.rte-find-replace-all):focus-visible {
+    background: #eef4ff;
+    border-color: rgba(37, 99, 235, 0.32);
+    color: #0f172a;
+}
+
+.rte-find-replace-all {
+    margin-left: auto;
+}
+
+.rte-ai-context-menu {
+    display: grid;
+    min-width: 210px;
+    padding: 6px;
+    border-radius: 15px;
+}
+
+.rte-ai-context-menu::before {
+    content: "Ask AI";
+    padding: 5px 8px 6px;
+    color: #52657e;
+    font-size: 10px;
+    font-weight: 850;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.rte-ai-context-menu-item {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-height: 32px;
+    padding: 6px 9px;
+    border-radius: 10px;
+    background: transparent;
+    color: #172033;
+    font-size: 13px;
+    font-weight: 700;
+    text-align: left;
+}
+
+.rte-ai-context-menu-item:hover,
+.rte-ai-context-menu-item:focus-visible {
+    background: linear-gradient(180deg, #eef6ff 0%, #e8f1ff 100%);
+    color: #0f3f9f;
+}
+
+@media (max-width: 520px) {
+    .rte-alt-editor-popup {
+        flex-wrap: wrap;
+        left: 10px !important;
+        right: 10px;
+    }
+
+    .rte-alt-editor-input {
+        width: 100%;
+    }
+}
+
+/* 2026-06-09 compact utility dialogs and feedback. */
+.rte-smart-paste-toast {
+    position: fixed;
+    left: 50%;
+    bottom: 24px;
+    max-width: min(420px, calc(100vw - 24px));
+    transform: translateX(-50%) translateY(8px);
+    padding: 10px 16px;
+    border: 1px solid rgba(30, 64, 175, 0.18);
+    border-radius: 999px;
+    background:
+        radial-gradient(circle at 22px 0, rgba(96, 165, 250, 0.28), transparent 44px),
+        rgba(15, 23, 42, 0.96);
+    color: #f8fafc;
+    box-shadow: 0 14px 34px rgba(15, 23, 42, 0.28);
+    font-family: "Aptos", "Segoe UI", sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.3;
+    opacity: 0;
+    pointer-events: none;
+    transition:
+        opacity 180ms ease,
+        transform 180ms ease;
+}
+
+.rte-smart-paste-toast.is-visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+.rte-shortcuts-list {
+    display: grid;
+    gap: 4px;
+    max-height: min(60vh, 520px);
+    overflow-y: auto;
+    padding: 2px 2px 4px;
+    scrollbar-width: thin;
+}
+
+.rte-shortcuts-group-title {
+    margin: 12px 0 4px;
+    color: #52657e;
+    font-size: 11px;
+    font-weight: 850;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.rte-shortcuts-table,
+.rte-wordcount-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0 4px;
+}
+
+.rte-shortcuts-command,
+.rte-shortcuts-keys,
+.rte-wordcount-label,
+.rte-wordcount-value {
+    padding: 6px 8px;
+    background: rgba(248, 251, 255, 0.82);
+    border-top: 1px solid rgba(148, 163, 184, 0.14);
+    border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.rte-shortcuts-command,
+.rte-wordcount-label {
+    border-left: 1px solid rgba(148, 163, 184, 0.14);
+    border-radius: 11px 0 0 11px;
+    color: #334155;
+    font-size: 13px;
+    font-weight: 650;
+}
+
+.rte-shortcuts-keys,
+.rte-wordcount-value {
+    border-right: 1px solid rgba(148, 163, 184, 0.14);
+    border-radius: 0 11px 11px 0;
+    color: #172033;
+    text-align: right;
+}
+
+.rte-shortcuts-kbd {
+    display: inline-flex;
+    align-items: center;
+    min-height: 22px;
+    padding: 2px 7px;
+    border: 1px solid rgba(37, 99, 235, 0.16);
+    border-radius: 8px;
+    background: #eef4ff;
+    color: #0f3f9f;
+    font-family: "Cascadia Mono", "Consolas", monospace;
+    font-size: 12px;
+    font-weight: 750;
+}
+
+.rte-wordcount-table {
+    margin: 4px 0 0;
+}
+
+.rte-wordcount-label,
+.rte-wordcount-value {
+    font-size: 14px;
+}
+
+.rte-wordcount-value {
+    font-weight: 850;
+}
+
+.rte-wordcount-separator {
+    height: 8px;
+    padding: 0;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+/* 2026-06-09 plugin surface polish. */
+.rte-emoji-pop {
+    min-width: 168px;
+    max-width: min(260px, calc(100vw - 24px));
+    padding: 5px;
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    border-radius: 14px;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 251, 255, 0.96)),
+        #ffffff;
+    box-shadow: 0 18px 40px rgba(29, 78, 216, 0.16), 0 2px 8px rgba(15, 23, 42, 0.08);
+    font-family: "Aptos", "Segoe UI", sans-serif;
+    overflow: hidden;
+}
+
+.rte-emoji-pop-row {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr);
+    align-items: center;
+    gap: 7px;
+    min-height: 34px;
+    padding: 4px 8px;
+    border-radius: 10px;
+    color: #24364f;
+    cursor: pointer;
+}
+
+.rte-emoji-pop-row.is-active,
+.rte-emoji-pop-row:hover {
+    background: #eef4ff;
+    color: #0f3f9f;
+}
+
+.rte-emoji-pop-glyph {
+    display: inline-grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 9px;
+    background: #ffffff;
+    box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.18);
+    font-size: 18px;
+}
+
+.rte-emoji-pop-code {
+    min-width: 0;
+    overflow: hidden;
+    font-size: 12px;
+    font-weight: 750;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.rte-localdraft-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 7px;
+    padding: 7px 8px 7px 12px;
+    border: 1px solid rgba(245, 158, 11, 0.28);
+    border-radius: 14px;
+    background:
+        radial-gradient(circle at 18px 0, rgba(251, 191, 36, 0.22), transparent 44px),
+        linear-gradient(180deg, #fffdf6 0%, #fff8e8 100%);
+    color: #67430a;
+    box-shadow: 0 12px 28px rgba(180, 83, 9, 0.1);
+    font-family: "Aptos", "Segoe UI", sans-serif;
+    font-size: 13px;
+    line-height: 1.35;
+}
+
+.rte-localdraft-message {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.rte-localdraft-button {
+    flex: 0 0 auto;
+    min-height: 30px;
+    padding: 0 12px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    cursor: pointer;
+    font: 750 12px/1 "Aptos", "Segoe UI", sans-serif;
+}
+
+.rte-localdraft-button.is-primary {
+    background: #1d67ba;
+    color: #ffffff;
+    box-shadow: 0 8px 16px rgba(29, 103, 186, 0.18);
+}
+
+.rte-localdraft-button.is-secondary {
+    border-color: rgba(180, 83, 9, 0.22);
+    background: rgba(255, 255, 255, 0.72);
+    color: #7c4a08;
+}
+
+.rte-localdraft-button:hover,
+.rte-localdraft-button:focus-visible {
+    transform: translateY(-1px);
+}
+
+.rte-email-export {
+    min-width: min(520px, calc(100vw - 48px));
+    padding: 14px;
+    color: #172033;
+    font-family: "Aptos", "Segoe UI", sans-serif;
+}
+
+.rte-email-export-copy {
+    margin-bottom: 10px;
+    max-width: 680px;
+    color: #52657e;
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.rte-email-export-code {
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 220px;
+    padding: 10px 12px;
+    border: 1px solid rgba(116, 135, 162, 0.24);
+    border-radius: 14px;
+    background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+    color: #172033;
+    font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    resize: vertical;
+    box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.rte-email-export-code:focus {
+    outline: none;
+    border-color: rgba(37, 99, 235, 0.48);
+    box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12), inset 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.rte-email-export-status {
+    margin-top: 8px;
+    color: #637487;
+    font-size: 12px;
+    font-weight: 650;
+}
+
+.rte-email-export-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.rte-email-export-button {
+    border: 1px solid rgba(116, 135, 162, 0.28);
+    border-radius: 999px;
+    padding: 8px 13px;
+    background: #fff;
+    color: #223652;
+    cursor: pointer;
+    font: 720 12px/1 "Aptos", "Segoe UI", sans-serif;
+    box-shadow: 0 1px 2px rgba(32, 45, 66, 0.06);
+    transition: background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.rte-email-export-button:hover,
+.rte-email-export-button:focus-visible {
+    border-color: rgba(37, 99, 235, 0.34);
+    background: #f7fbff;
+    box-shadow: 0 6px 14px rgba(37, 99, 235, 0.1);
+    transform: translateY(-1px);
+}
+
+.rte-email-export-button-primary {
+    border-color: rgba(29, 103, 186, 0.85);
+    background: linear-gradient(135deg, #2563eb, #1d67ba);
+    color: #fff;
+    box-shadow: 0 8px 18px rgba(37, 99, 235, 0.22);
+}
+
+.rte-email-export-button-primary:hover,
+.rte-email-export-button-primary:focus-visible {
+    border-color: rgba(29, 103, 186, 0.95);
+    background: linear-gradient(135deg, #1f56d8, #185fae);
+}
+
+.rte-chip-dialog {
+    min-width: min(330px, calc(100vw - 48px));
+    padding: 13px;
+    color: #172033;
+    font-family: "Aptos", "Segoe UI", sans-serif;
+}
+
+.rte-chip-dialog-copy {
+    margin-bottom: 10px;
+    color: #52657e;
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.rte-chip-quick {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    margin: 0 0 6px;
+    padding: 9px 11px;
+    border: 1px solid rgba(116, 135, 162, 0.2);
+    border-radius: 13px;
+    background: rgba(255, 255, 255, 0.84);
+    color: #223652;
+    cursor: pointer;
+    font: 720 12px/1.25 "Aptos", "Segoe UI", sans-serif;
+    text-align: left;
+    box-shadow: 0 6px 14px rgba(32, 45, 66, 0.06);
+    transition: background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.rte-chip-quick:hover,
+.rte-chip-quick:focus-visible {
+    border-color: rgba(37, 99, 235, 0.32);
+    background: #f4f8ff !important;
+    box-shadow: 0 10px 22px rgba(37, 99, 235, 0.12);
+    outline: none;
+    transform: translateY(-1px);
+}
+
+.rte-chip-pick-row,
+.rte-chip-dialog-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(116, 135, 162, 0.16);
+}
+
+.rte-chip-input {
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 36px;
+    padding: 7px 10px;
+    border: 1px solid rgba(116, 135, 162, 0.26);
+    border-radius: 11px;
+    background: #fff;
+    color: #172033;
+    font: 13px/1.25 "Aptos", "Segoe UI", sans-serif;
+}
+
+.rte-chip-pick-row .rte-chip-input {
+    flex: 1 1 auto;
+}
+
+.rte-chip-input:focus {
+    outline: none;
+    border-color: rgba(37, 99, 235, 0.48);
+    box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+}
+
+.rte-chip-action {
+    border: 1px solid rgba(116, 135, 162, 0.28);
+    border-radius: 999px;
+    padding: 8px 13px;
+    background: #fff;
+    color: #223652;
+    cursor: pointer;
+    font: 720 12px/1 "Aptos", "Segoe UI", sans-serif;
+    box-shadow: 0 1px 2px rgba(32, 45, 66, 0.06);
+}
+
+.rte-chip-action:hover,
+.rte-chip-action:focus-visible {
+    border-color: rgba(37, 99, 235, 0.34);
+    background: #f7fbff;
+    outline: none;
+}
+
+.rte-chip-action-primary {
+    border-color: rgba(29, 103, 186, 0.85);
+    background: linear-gradient(135deg, #2563eb, #1d67ba);
+    color: #fff;
+    box-shadow: 0 8px 18px rgba(37, 99, 235, 0.22);
+}
+
+.rte-chip-type-tabs {
+    display: flex;
+    gap: 3px;
+    margin-bottom: 10px;
+    padding: 3px;
+    border: 1px solid rgba(116, 135, 162, 0.2);
+    border-radius: 999px;
+    background: #eef3f8;
+}
+
+.rte-chip-type-tab {
+    flex: 1 1 0;
+    min-height: 31px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: #637487;
+    cursor: pointer;
+    font: 750 12px/1 "Aptos", "Segoe UI", sans-serif;
+}
+
+.rte-chip-type-tab:hover,
+.rte-chip-type-tab:focus-visible {
+    color: #1d3557;
+    background: rgba(255, 255, 255, 0.58);
+    outline: none;
+}
+
+.rte-chip-type-tab.is-selected {
+    color: #163966;
+    background: #fff;
+    box-shadow: 0 2px 7px rgba(35, 48, 72, 0.08);
+}
+
+.rte-chip-field-label {
+    margin-bottom: 7px;
+    color: #52657e;
+    font-size: 12px;
+    font-weight: 720;
+}
+
+.rte-chip-results {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-top: 7px;
+}
+
+.rte-chip-suggestion {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid rgba(116, 135, 162, 0.18);
+    border-radius: 11px;
+    background: #f8fbff;
+    color: #223652;
+    cursor: pointer;
+    text-align: left;
+    font: 650 12px/1.25 "Aptos", "Segoe UI", sans-serif;
+}
+
+.rte-chip-suggestion:hover,
+.rte-chip-suggestion:focus-visible {
+    border-color: rgba(37, 99, 235, 0.3);
+    background: #eef4ff;
+    outline: none;
+}
+
+.rte-readaloud-bar {
+    position: fixed;
+    left: 50%;
+    bottom: 22px;
+    z-index: 2147483600;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    max-width: calc(100vw - 24px);
+    transform: translateX(-50%);
+    padding: 7px;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 16px;
+    background:
+        radial-gradient(circle at 30px 0, rgba(96, 165, 250, 0.22), transparent 54px),
+        rgba(255, 255, 255, 0.97);
+    box-shadow: 0 20px 48px rgba(15, 23, 42, 0.2);
+    color: #172033;
+    font-family: "Aptos", "Segoe UI", sans-serif;
+}
+
+.rte-readaloud-title {
+    display: inline-flex;
+    align-items: center;
+    min-height: 30px;
+    padding: 0 8px;
+    border-radius: 999px;
+    background: #eef4ff;
+    color: #0f3f9f;
+    font-size: 12px;
+    font-weight: 850;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.rte-readaloud-button,
+.rte-readaloud-voice,
+.rte-readaloud-rate {
+    min-height: 30px;
+    border: 1px solid rgba(100, 116, 139, 0.22);
+    border-radius: 999px;
+    background: #ffffff;
+    color: #24364f;
+    font: 750 12px/1 "Aptos", "Segoe UI", sans-serif;
+}
+
+.rte-readaloud-button {
+    padding: 0 11px;
+    cursor: pointer;
+}
+
+.rte-readaloud-button:hover,
+.rte-readaloud-button:focus-visible {
+    background: #eef4ff;
+    border-color: rgba(37, 99, 235, 0.3);
+    color: #0f3f9f;
+}
+
+.rte-readaloud-button.is-close {
+    padding-inline: 12px;
+    color: #64748b;
+}
+
+.rte-readaloud-voice {
+    max-width: 190px;
+    padding: 0 8px;
+}
+
+.rte-readaloud-rate {
+    padding: 0 6px;
+}
+
+.rte-readaloud-status {
+    min-width: 92px;
+    max-width: 160px;
+    overflow: hidden;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 650;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+@media (max-width: 560px) {
+    .rte-localdraft-bar,
+    .rte-readaloud-bar {
+        flex-wrap: wrap;
+    }
+
+    .rte-readaloud-status {
+        flex-basis: 100%;
+        max-width: none;
+        min-width: 0;
+        padding: 0 8px 3px;
+    }
+}
+
+/* ============================================================ */
+/* Dark mode (UI chrome only — the document canvas stays white, */
+/* like Google Docs' dark UI, so authored content isn't harmed).*/
+/* AUTOMATIC via prefers-color-scheme; opt out by adding class  */
+/* rte-light to the editor element, force on with rte-dark.     */
+/* Implemented purely as design-token overrides (see the token  */
+/* block at the top of this file).                              */
+/* ============================================================ */
+
+.rte-dark.richtexteditor, .rte-dark .rte-absolute, .rte-dark rte-dropdown-panel,
+.rte-dark rte-dialog-outer, .rte-dark rte-dialog-float, .rte-dark rte-control-toolbar, .rte-dark rte-floatpanel {
+    --rte-icon-color: #cbd5e1;
+    --rte-surface: #0f172a;
+    --rte-surface-raised: #1e293b;
+    --rte-border: #334155;
+    --rte-text: #cbd5e1;
+    --rte-hover-bg: #334155;
+    --rte-accent: #3b82f6;
+}
+
+@media (prefers-color-scheme: dark) {
+    .richtexteditor:not(.rte-light),
+    .richtexteditor:not(.rte-light) .rte-absolute,
+    .richtexteditor:not(.rte-light) rte-dropdown-panel,
+    .richtexteditor:not(.rte-light) rte-control-toolbar {
+        --rte-icon-color: #cbd5e1;
+        --rte-surface: #0f172a;
+        --rte-surface-raised: #1e293b;
+        --rte-border: #334155;
+        --rte-text: #cbd5e1;
+        --rte-hover-bg: #334155;
+        --rte-accent: #3b82f6;
+    }
+}
+
+/* Token-driven chrome surfaces (light values match the legacy hardcoded
+   look exactly; dark mode only swaps the variables above). */
+.richtexteditor {
+    background-color: var(--rte-surface, #fff);
+    border-color: var(--rte-border, #ddd);
+}
+.richtexteditor rte-toolbar {
+    background: var(--rte-surface-raised, #fff);
+    border-color: var(--rte-border, #ddd);
+}
+.richtexteditor rte-toolbar-button:hover,
+.richtexteditor rte-toolbar-splitbutton:hover,
+.richtexteditor rte-toolbar-dropdown:hover,
+.richtexteditor rte-toolbar-arrowbutton:hover {
+    background-color: var(--rte-hover-bg, #f2f2f2);
+}
+.richtexteditor rte-bottom, .richtexteditor rte-statusbar {
+    background: var(--rte-surface-raised, #fff);
+    border-color: var(--rte-border, #ddd);
+    color: var(--rte-text, #333);
+}
+.richtexteditor rte-toolbar-button.rte-command-active {
+    background-color: var(--rte-accent, #1d67ba);
+    color: #fff;
+}
+
+/* Keep the document canvas white in dark mode (content fidelity). */
+.rte-dark rte-content, .rte-dark rte-editarea, .rte-dark iframe {
+    background-color: #fff;
+}
+@media (prefers-color-scheme: dark) {
+    .richtexteditor:not(.rte-light) rte-content,
+    .richtexteditor:not(.rte-light) rte-editarea,
+    .richtexteditor:not(.rte-light) iframe {
+        background-color: #fff;
+    }
+}
+
+/* ============================================================ */
+/* Dark mode — dialog & dropdown panel interiors.              */
+/* The dialog surface itself is token-driven (var(--rte-       */
+/* surface-raised)); these rules cover the text/inputs/borders */
+/* that don't inherit, so dialogs aren't black-text-on-dark.   */
+/* ============================================================ */
+.rte-dark rte-dropdown-panel,
+.rte-dark rte-dialog-inner,
+.rte-dark rte-floatpanel {
+    background-color: var(--rte-surface-raised, #1e293b);
+    /* Clear the light white gradient (set on the panel for light mode) so it
+       doesn't render over the dark surface. */
+    background-image: none;
+    color: var(--rte-text, #cbd5e1);
+}
+.rte-dark rte-dialog-header,
+.rte-dark rte-dialog-header-text,
+.rte-dark rte-dialog-input-label,
+.rte-dark rte-dialog-line label,
+.rte-dark rte-dropdown-panel,
+.rte-dark rte-dropdown-panel * {
+    color: var(--rte-text, #cbd5e1);
+    border-color: var(--rte-border, #334155);
+}
+/* Floating input labels mask the input border with a white strip (bg + side
+   box-shadows); in dark mode that strip must be the dark surface, not white. */
+.rte-dark .rte-dialog-line-input rte-dialog-input-label {
+    background-color: var(--rte-surface-raised, #1e293b);
+    box-shadow: var(--rte-surface-raised, #1e293b) 5px 0 0, var(--rte-surface-raised, #1e293b) -5px 0 0;
+    color: var(--rte-text, #cbd5e1);
+}
+.rte-dark rte-dialog-inner input[type=text],
+.rte-dark rte-dialog-inner input:not([type]),
+.rte-dark rte-dialog-inner textarea,
+.rte-dark rte-dialog-inner select,
+.rte-dark rte-floatpanel input[type=text],
+.rte-dark rte-floatpanel textarea {
+    background-color: var(--rte-surface, #0f172a);
+    color: var(--rte-text, #cbd5e1);
+    border: 1px solid var(--rte-border, #334155);
+}
+.rte-dark rte-dialog-inner rte-dialog-button,
+.rte-dark rte-floatpanel rte-dialog-button {
+    background-color: var(--rte-surface, #0f172a);
+    color: var(--rte-text, #cbd5e1);
+    border: 1px solid var(--rte-border, #334155);
+}
+.rte-dark rte-dialog-inner rte-dialog-button.rte-button-type-action,
+.rte-dark rte-floatpanel rte-dialog-button.rte-button-type-action {
+    background-color: var(--rte-accent, #3b82f6);
+    color: #fff;
+    border-color: var(--rte-accent, #3b82f6);
+}
+.rte-dark rte-dropdown-menuitem:hover,
+.rte-dark rte-dropdown-menuitem:focus-visible,
+.rte-dark rte-dialog-line:hover,
+.rte-dark .rte-list-item:hover {
+    background-color: var(--rte-hover-bg, #334155);
+}
+/* Auto dark (prefers-color-scheme) — the .rte-dark rule above previously
+   targeted a non-existent element name (rte-dropdown-item), so dropdown / overflow
+   menu items had no dark hover at all and flashed light. */
+@media (prefers-color-scheme: dark) {
+    .richtexteditor:not(.rte-light) rte-dropdown-menuitem:hover,
+    .richtexteditor:not(.rte-light) rte-dropdown-menuitem:focus-visible {
+        background-color: var(--rte-hover-bg, #334155);
+    }
+}
+
+@media (prefers-color-scheme: dark) {
+    .richtexteditor:not(.rte-light) rte-dropdown-panel,
+    .richtexteditor:not(.rte-light) rte-dialog-inner,
+    .richtexteditor:not(.rte-light) rte-floatpanel {
+        background-color: var(--rte-surface-raised, #1e293b);
+        background-image: none;
+        color: var(--rte-text, #cbd5e1);
+    }
+    .richtexteditor:not(.rte-light) rte-dialog-header-text,
+    .richtexteditor:not(.rte-light) rte-dialog-input-label,
+    .richtexteditor:not(.rte-light) rte-dropdown-panel * {
+        color: var(--rte-text, #cbd5e1);
+    }
+    .richtexteditor:not(.rte-light) rte-dialog-inner input[type=text],
+    .richtexteditor:not(.rte-light) rte-dialog-inner textarea,
+    .richtexteditor:not(.rte-light) rte-dialog-inner select {
+        background-color: var(--rte-surface, #0f172a);
+        color: var(--rte-text, #cbd5e1);
+        border: 1px solid var(--rte-border, #334155);
+    }
+    .richtexteditor:not(.rte-light) .rte-dialog-line-input rte-dialog-input-label {
+        background-color: var(--rte-surface-raised, #1e293b);
+        box-shadow: var(--rte-surface-raised, #1e293b) 5px 0 0, var(--rte-surface-raised, #1e293b) -5px 0 0;
+        color: var(--rte-text, #cbd5e1);
+    }
+}
+
+/* Dark mode — floating selection toolbar (rte-control-toolbar). Inside the
+   editor container, so both the explicit class and the media query reach it. */
+.rte-dark rte-control-toolbar {
+    background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+    border-color: #334155;
+}
+.rte-dark rte-control-toolbar rte-toolbar-button,
+.rte-dark rte-control-toolbar rte-toolbar-splitbutton,
+.rte-dark rte-control-toolbar rte-toolbar-dropdown,
+.rte-dark rte-control-toolbar rte-toolbar-arrowbutton {
+    color: #cbd5e1;
+}
+.rte-dark rte-control-toolbar rte-toolbar-button:hover,
+.rte-dark rte-control-toolbar rte-toolbar-splitbutton:hover,
+.rte-dark rte-control-toolbar rte-toolbar-dropdown:hover,
+.rte-dark rte-control-toolbar rte-toolbar-arrowbutton:hover {
+    background: #334155;
+}
+.rte-dark rte-link-url-preview, .rte-dark rte-link-url-preview a { color: #60a5fa; }
+
+@media (prefers-color-scheme: dark) {
+    .richtexteditor:not(.rte-light) rte-control-toolbar {
+        background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+        border-color: #334155;
+    }
+    .richtexteditor:not(.rte-light) rte-control-toolbar rte-toolbar-button,
+    .richtexteditor:not(.rte-light) rte-control-toolbar rte-toolbar-splitbutton,
+    .richtexteditor:not(.rte-light) rte-control-toolbar rte-toolbar-dropdown,
+    .richtexteditor:not(.rte-light) rte-control-toolbar rte-toolbar-arrowbutton {
+        color: #cbd5e1;
+    }
+    .richtexteditor:not(.rte-light) rte-control-toolbar rte-toolbar-button:hover,
+    .richtexteditor:not(.rte-light) rte-control-toolbar rte-toolbar-splitbutton:hover,
+    .richtexteditor:not(.rte-light) rte-control-toolbar rte-toolbar-dropdown:hover {
+        background: #334155;
+    }
+}

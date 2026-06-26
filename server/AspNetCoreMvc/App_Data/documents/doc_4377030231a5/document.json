@@ -1,0 +1,9 @@
+{
+  "Id": "doc_4377030231a5",
+  "Title": "Suggestion API Smoke Test",
+  "Revision": 1,
+  "CurrentRevisionId": "rev-0001",
+  "CreatedUtc": "2026-04-18T07:18:50.3749904Z",
+  "UpdatedUtc": "2026-04-18T07:18:50.3749904Z",
+  "DocumentJson": "{\r\n  \u0022content\u0022: [\r\n    {\r\n      \u0022content\u0022: [\r\n        {\r\n          \u0022text\u0022: \u0022Tracked changes should start here.\u0022,\r\n          \u0022type\u0022: \u0022text\u0022\r\n        }\r\n      ],\r\n      \u0022type\u0022: \u0022paragraph\u0022\r\n    }\r\n  ],\r\n  \u0022type\u0022: \u0022doc\u0022\r\n}"
+}

@@ -1,0 +1,275 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" style="display:flex;height:100%;flex-direction:column;">
+<head>
+	<meta charset="utf-8" />
+	<title>AI Toolkit</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<base href='../' />
+	<link rel="stylesheet" href="richtexteditor/plugins/aitoolkit.css" />
+	<link rel="stylesheet" href="res/style.css" />
+</head>
+<body style="padding-bottom:3px;align-items:center">
+	<div class="topbanner">
+		<div style="align-self:stretch;max-width:1080px;margin:0 auto;display:flex; flex-direction: row; width:100%;">
+			<div style="flex:99999">
+				<a href="index.html"><label>RichTextEditor Demo</label></a>
+			</div>
+			<div>
+				<a href="index.html">Home</a>
+				&nbsp;
+				<a target="_blank" href="https://richtexteditor.com/demos/ai-toolkit.aspx">AI Toolkit</a>
+				&nbsp;
+				<a target="_blank" href="https://richtexteditor.com/pricing.aspx">Pricing</a>
+			</div>
+		</div>
+	</div>
+	<div style="margin:auto;padding:18px 12px 36px;max-width:1080px;width:100%;box-sizing:border-box;">
+		
+	<h2 class="mb-4">AI Toolkit</h2>
+	<p class="mb-4">
+		Ask AI, AI Chat, inline preview, and a reviewable suggestion drawer - built on a single <code>aiToolkitResolver</code> hook. Run the built-in demo resolver today, swap in your own backend tomorrow without changing the UI.
+	</p>
+
+	<div class="hs-docs-content-divider">
+		<h3 class="hs-docs-heading">Overview</h3>
+		<p>AI Toolkit adds three surfaces to the editor:</p>
+		<ul>
+			<li><strong>Ask AI</strong> - a toolbar-launched dialog with seven one-click modes (proofread, rewrite, shorten, expand, summarize, translate, justify), a selection/document scope switch, and an inline preview before applying.</li>
+			<li><strong>AI Chat</strong> - a docked side panel for multi-turn requests. Scope-aware, with quick prompts and copy/apply/insert/replace actions on every response.</li>
+			<li><strong>AI Review</strong> - a persistent queue of pending, accepted, and rejected suggestions. Optional server-ledger sync for cross-session review.</li>
+		</ul>
+		<p>All three share the same <code>aiToolkitResolver</code> hook and the same <a href="#operations">operation contract</a>, so a suggestion previewed in one surface can be accepted, rejected, or escalated in another.</p>
+		<p><strong>Demo mode.</strong> With no resolver configured, the plugin ships a deterministic <code>defaultResolveAction</code> so you can evaluate Ask AI, Chat, and Review locally with no API key, no network call, and predictable output.</p>
+	</div>
+
+	<div class="hs-docs-content-divider">
+		<h3 class="hs-docs-heading">Install</h3>
+		<p>Load the AI Toolkit stylesheet and script after the core editor bundle. The plugin auto-injects an <strong>Ask AI</strong> button into the <code>default</code>, <code>basic</code>, <code>full</code>, and <code>mobile</code> toolbar presets when it loads.</p>
+		<pre class="rounded language-html">&lt;link rel="stylesheet" href="richtexteditor/rte_theme_default.css" /&gt;
+&lt;link rel="stylesheet" href="richtexteditor/plugins/aitoolkit.css" /&gt;
+
+&lt;script src="richtexteditor/rte.js"&gt;&lt;/script&gt;
+<script>RTE_DefaultConfig.url_base='richtexteditor'</script>
+&lt;script src="richtexteditor/plugins/all_plugins.js"&gt;&lt;/script&gt;
+&lt;!-- aitoolkit.js is bundled inside all_plugins.js. --&gt;
+
+&lt;div id="editor"&gt;&lt;/div&gt;
+&lt;script&gt;
+  var editor = new RichTextEditor("#editor", {
+    toolbar: "full",
+    aiToolkitPersistenceKey: "my-editor-ai"
+  });
+&lt;/script&gt;</pre>
+		<p><strong>Heads up:</strong> <code>aitoolkit.css</code> must be linked any time the AI button can render (even with the default toolbar) or the AI dropdown menu's SVG icons will render at native (large) size. Editor defaults live in the <code>RTE_DefaultConfig</code> block at the top of <code>rte.js</code> &mdash; no separate config file needs to be loaded.</p>
+	</div>
+
+	<div class="hs-docs-content-divider">
+		<h3 class="hs-docs-heading">Built-in modes</h3>
+		<p>Each mode is a <code>{ id, title, description }</code> entry in <code>config.aiToolkitDialogModes</code>. They appear in the Ask AI dialog's <strong>Action</strong> dropdown and are callable through <code>runQuickAction(id)</code>.</p>
+		<table class="table">
+			<thead><tr><th>id</th><th>Title</th><th>Default demo behavior</th></tr></thead>
+			<tbody>
+				<tr><td><code>proofread</code></td><td>Proofread</td><td>Normalizes spacing, punctuation, and capitalization while preserving meaning.</td></tr>
+				<tr><td><code>rewrite</code></td><td>Rewrite</td><td>Removes filler phrases (<em>very</em>, <em>really</em>, <em>in order to</em>, <em>due to the fact that</em>) and tightens wording.</td></tr>
+				<tr><td><code>shorten</code></td><td>Shorten</td><td>Keeps the first ~60% of the words, minimum 8.</td></tr>
+				<tr><td><code>expand</code></td><td>Expand</td><td>Appends a supporting sentence below the source.</td></tr>
+				<tr><td><code>summarize</code></td><td>Summarize</td><td>Builds a bullet summary from the first ~45% of the words.</td></tr>
+				<tr><td><code>translate</code></td><td>Translate</td><td>Produces a language-labeled draft; target language is passed as <code>request.language</code>.</td></tr>
+				<tr><td><code>justify</code></td><td>Justify edit</td><td>Same as rewrite, plus a <code>reason</code> field explaining the change.</td></tr>
+			</tbody>
+		</table>
+		<p>These are deterministic stubs for the demo resolver. Once you wire <code>aiToolkitResolver</code>, <strong>your function</strong> decides how each mode is handled.</p>
+	</div>
+
+	<div class="hs-docs-content-divider">
+		<h3 class="hs-docs-heading">The aiToolkitResolver hook</h3>
+		<p>This is <strong>the</strong> extension point. The resolver receives a structured request and returns a result (or a Promise that resolves to one). The editor handles rendering, preview, review, and apply.</p>
+		<pre class="rounded language-javascript">var editor = new RichTextEditor("#editor", {
+  toolbar: "full",
+  aiToolkitResolver: async function (request) {
+    var reply = await fetch("/api/ai", {
+      method: "POST",
+      body: JSON.stringify({
+        mode: request.mode,
+        text: request.source,
+        language: request.language
+      })
+    }).then(function (r) { return r.json(); });
+
+    return {
+      result: reply.text,             // string: the AI output
+      reason: reply.explanation,      // string: why this change
+      operations: [{                  // structured plan (optional)
+        type: "preview-suggestion",
+        text: reply.text,
+        reason: reply.explanation
+      }]
+    };
+  }
+});</pre>
+
+		<h4 class="mt-4">Request shape</h4>
+		<table class="table">
+			<thead><tr><th>Field</th><th>Type</th><th>Meaning</th></tr></thead>
+			<tbody>
+				<tr><td><code>actionId</code></td><td>string</td><td>Action the user invoked.</td></tr>
+				<tr><td><code>mode</code></td><td>string</td><td>Dialog mode (<code>proofread</code>, <code>rewrite</code>, <code>translate</code>, ...).</td></tr>
+				<tr><td><code>source</code></td><td>string</td><td>Text to operate on. Selection text if present; else whole-document text.</td></tr>
+				<tr><td><code>prompt</code></td><td>string</td><td>User prompt (chat mode).</td></tr>
+				<tr><td><code>language</code></td><td>string</td><td>Target language for translate mode.</td></tr>
+				<tr><td><code>scope</code></td><td>string</td><td><code>"selection"</code> or <code>"document"</code>.</td></tr>
+				<tr><td><code>selectionText</code></td><td>string</td><td>Selection text (may be empty).</td></tr>
+				<tr><td><code>documentText</code></td><td>string</td><td>Whole-document text.</td></tr>
+				<tr><td><code>snapshot</code></td><td>object</td><td>Selection snapshot (<code>hasSelection</code>, <code>text</code>, <code>wholeText</code>, ...).</td></tr>
+				<tr><td><code>editor</code></td><td>RichTextEditor</td><td>The editor instance.</td></tr>
+				<tr><td><code>contract</code></td><td>object</td><td>Supported operation types (for validation).</td></tr>
+			</tbody>
+		</table>
+
+		<h4 class="mt-4">Response shape</h4>
+		<p>Return a plain object with any of the following fields. All are optional; omit what you don't need. You can also return a <strong>string</strong> or a <strong>Promise</strong> - a string becomes <code>{ result: &lt;that string&gt; }</code>; a Promise is awaited.</p>
+		<table class="table">
+			<thead><tr><th>Field</th><th>Type</th><th>Meaning</th></tr></thead>
+			<tbody>
+				<tr><td><code>result</code></td><td>string</td><td>Raw AI output. Shown in the result pane and used as the default suggestion body.</td></tr>
+				<tr><td><code>reason</code></td><td>string</td><td>Why the AI recommends this change. Surfaces in the "Why this suggestion" panel.</td></tr>
+				<tr><td><code>message</code></td><td>string</td><td>Chat-style reply (AI Chat surface only).</td></tr>
+				<tr><td><code>operations</code></td><td>Operation[]</td><td>Structured plan - see Operation types below.</td></tr>
+				<tr><td><code>target</code></td><td>string</td><td>Where to apply - <code>"selection-preview"</code>, <code>"document"</code>, <code>"insert"</code>, ...</td></tr>
+				<tr><td><code>autoRun</code></td><td>boolean</td><td>Auto-apply without user confirmation (use sparingly).</td></tr>
+			</tbody>
+		</table>
+	</div>
+
+	<div class="hs-docs-content-divider" id="operations">
+		<h3 class="hs-docs-heading">Operation types</h3>
+		<p>Operations are the structured plan your resolver can return. The editor executes them in order (or user-driven, one at a time, from the plan panel).</p>
+		<table class="table">
+			<thead><tr><th>type</th><th>Fields</th><th>Effect</th></tr></thead>
+			<tbody>
+				<tr><td><code>preview-suggestion</code></td><td><code>text</code>, <code>reason?</code></td><td>Shows an inline before/after preview. User accepts or rejects.</td></tr>
+				<tr><td><code>replace-selection</code></td><td><code>text</code></td><td>Replaces the current selection with the given text.</td></tr>
+				<tr><td><code>replace-document</code></td><td><code>text</code></td><td>Replaces the entire document body.</td></tr>
+				<tr><td><code>insert-below</code></td><td><code>text</code></td><td>Inserts a new block after the caret or selection.</td></tr>
+				<tr><td><code>add-comment</code></td><td><code>text</code>, <code>reason?</code></td><td>Drops a non-destructive AI comment marker on the current selection.</td></tr>
+				<tr><td><code>open-chat-panel</code></td><td><code>message?</code></td><td>Opens the AI Chat panel; optionally seeds a message.</td></tr>
+				<tr><td><code>open-review-panel</code></td><td>-</td><td>Opens the AI Review drawer.</td></tr>
+			</tbody>
+		</table>
+		<p>Custom operation types can be registered with <code>editor.aiToolkit.registerOperationHandler(type, handler)</code>.</p>
+	</div>
+
+	<div class="hs-docs-content-divider">
+		<h3 class="hs-docs-heading">Programmatic API</h3>
+		<p>All surfaces can be opened and driven from code via <code>editor.aiToolkit</code>.</p>
+		<pre class="rounded language-javascript">// Open the Ask AI dialog
+editor.aiToolkit.openDialog({ presetMode: "rewrite", autoRun: false });
+
+// Quick actions (no dialog) - target: selection if present, else whole document
+editor.aiToolkit.runQuickAction("proofread");
+editor.aiToolkit.runQuickAction("translate", { language: "spanish" });
+
+// Panels
+editor.aiToolkit.openChatPanel({ focusComposer: true });
+editor.aiToolkit.openReviewPanel({ focusPanel: true });
+editor.aiToolkit.closeChatPanel();
+editor.aiToolkit.closeReviewPanel();
+
+// Resolve without rendering - useful for tests and headless flows
+editor.aiToolkit.resolveAction("rewrite", { source: "hello world" })
+  .then(function (resolved) { console.log(resolved.result); });
+
+// Swap the resolver at runtime
+editor.aiToolkit.setResolver(myResolver);
+
+// Review queue
+var pending = editor.aiToolkit.getSuggestions();
+editor.aiToolkit.clearSuggestions();
+editor.aiToolkit.saveSuggestionLedger();
+editor.aiToolkit.loadSuggestionLedger();</pre>
+	</div>
+
+	<div class="hs-docs-content-divider">
+		<h3 class="hs-docs-heading">Custom actions and modes</h3>
+		<p>Register domain-specific actions (SEO rewrite, legal clause check, tone matcher). They plug into the same dialog, chat, and review UI.</p>
+		<pre class="rounded language-javascript">// Add a new dialog mode (appears in the Action dropdown)
+editor.aiToolkit.registerDialogMode({
+  id: "seo",
+  title: "SEO rewrite",
+  description: "Rewrite for stronger keyword coverage while preserving meaning."
+});
+
+// Register the action with a target (where output goes by default)
+editor.aiToolkit.registerAction({
+  id: "seo",
+  title: "SEO rewrite",
+  target: "selection-preview",
+  resolverMode: "seo"          // passed as request.mode to your resolver
+});
+
+// Your resolver handles it just like built-in modes
+config.aiToolkitResolver = function (request) {
+  if (request.mode === "seo") { /* call your SEO service */ }
+  /* ... */
+};</pre>
+	</div>
+
+	<div class="hs-docs-content-divider">
+		<h3 class="hs-docs-heading">Persistence and remote ledger</h3>
+		<p>Suggestions in the AI Review drawer persist to <code>localStorage</code> under a key you control. Set <code>aiToolkitPersistenceKey</code> to scope per editor instance.</p>
+		<pre class="rounded language-javascript">new RichTextEditor("#editor", {
+  aiToolkitPersistenceKey: "doc-42-review",       // localStorage scope
+  aiToolkitSuggestionLedgerUrl: "/api/ai/ledger", // optional GET/POST for cross-session sync
+  aiToolkitReviewLogUrl: "/api/ai/review-log",    // optional activity feed endpoint
+  aiToolkitReviewSyncInterval: 15000               // ms between sync polls (default 15s)
+});</pre>
+		<p>When the ledger URL is set, the plugin GETs on open and POSTs on accept/reject, letting the review queue survive across sessions and be shared between reviewers.</p>
+	</div>
+
+	<div class="hs-docs-content-divider">
+		<h3 class="hs-docs-heading">BYOK (bring your own key)</h3>
+		<p><strong>Important:</strong> the editor does not accept or store API keys. Keys belong in your server-side secrets manager.</p>
+		<p>The recommended BYOK pattern:</p>
+		<ol>
+			<li>Your admin UI lets a tenant pick a provider and paste a key. The form POSTs to your backend.</li>
+			<li>Your backend writes the key into your secrets manager, scoped to the tenant.</li>
+			<li>The editor's <code>aiToolkitResolver</code> POSTs to <code>/api/ai</code> with the session cookie. No key in the browser.</li>
+			<li>Your backend looks up the tenant's key, calls the provider, and returns a trimmed response.</li>
+		</ol>
+		<p>See the <a href="docs//demos/ai-provider-settings.html">BYOK demo</a> for a working admin form, a routed resolver, and a server-side sketch.</p>
+	</div>
+
+	<div class="hs-docs-content-divider">
+		<h3 class="hs-docs-heading">Config reference</h3>
+		<table class="table">
+			<thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Purpose</th></tr></thead>
+			<tbody>
+				<tr><td><code>aiToolkitEnabled</code></td><td>boolean</td><td><code>true</code></td><td>Set to <code>false</code> to disable the plugin entirely.</td></tr>
+				<tr><td><code>aiToolkitResolver</code></td><td>function</td><td><em>null</em></td><td>Your hook. Falls back to the built-in demo resolver.</td></tr>
+				<tr><td><code>aiToolkitActions</code></td><td>Action[]</td><td>built-ins</td><td>Registered actions. Use <code>registerAction</code> to extend.</td></tr>
+				<tr><td><code>aiToolkitDialogModes</code></td><td>Mode[]</td><td>7 built-ins</td><td>Modes shown in the Ask AI dropdown.</td></tr>
+				<tr><td><code>aiToolkitOperationHandlers</code></td><td>object</td><td><code>{}</code></td><td>Custom operation-type handlers keyed by <code>type</code>.</td></tr>
+				<tr><td><code>aiToolkitPersistenceKey</code></td><td>string</td><td><code>""</code></td><td>localStorage scope for the review queue. Empty = no persistence.</td></tr>
+				<tr><td><code>aiToolkitSuggestionLedgerUrl</code></td><td>string</td><td><code>""</code></td><td>Server endpoint for shared ledger sync.</td></tr>
+				<tr><td><code>aiToolkitReviewLogUrl</code></td><td>string</td><td><code>""</code></td><td>Server endpoint for review activity feed.</td></tr>
+				<tr><td><code>aiToolkitReviewSyncInterval</code></td><td>number</td><td><code>15000</code></td><td>Milliseconds between ledger polls.</td></tr>
+				<tr><td><code>aiToolkitLabel</code></td><td>string</td><td><code>"Current editor"</code></td><td>Label shown on meta pills in the Ask AI dialog.</td></tr>
+				<tr><td><code>text_aiassist</code></td><td>string</td><td><code>"Ask AI"</code></td><td>Tooltip and dialog title.</td></tr>
+			</tbody>
+		</table>
+	</div>
+
+	<div class="hs-docs-content-divider">
+		<h3 class="hs-docs-heading">Try it</h3>
+		<p>Every surface above runs without an API key in the public demos:</p>
+		<ul>
+			<li><a href="docs//demos/ai-toolkit.html">AI Toolkit demo</a> - Ask AI, quick actions, Chat, Review drawer</li>
+			<li><a href="docs//demos/ai-provider-settings.html">BYOK demo</a> - admin settings form + routed resolver + server-side sketch</li>
+		</ul>
+	</div>
+
+	</div>
+	<script src="res/patch.js"></script>
+</body>
+</html>

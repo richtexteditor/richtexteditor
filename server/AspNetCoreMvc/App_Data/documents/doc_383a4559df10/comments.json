@@ -1,0 +1,51 @@
+{
+  "Threads": [
+    {
+      "ThreadId": "thread_3ef51615d301",
+      "Status": "open",
+      "LinkedSuggestionId": "suggestion_fc4e84a775a5",
+      "AnchorText": "structured JSON document",
+      "AnchorRevision": 1,
+      "AnchorStartOffset": 234,
+      "AnchorEndOffset": 258,
+      "AnchorStartTextNodePath": [
+        2,
+        1
+      ],
+      "AnchorStartTextNodeOffset": 1,
+      "AnchorEndTextNodePath": [
+        2,
+        1
+      ],
+      "AnchorEndTextNodeOffset": 25,
+      "AnchorTextNodePath": [
+        2,
+        1
+      ],
+      "AnchorTextNodeStartOffset": 0,
+      "AnchorTextNodeEndOffset": 24,
+      "AnchorBlockPath": [
+        2
+      ],
+      "AnchorBlockType": "paragraph",
+      "AnchorBlockStartOffset": 27,
+      "AnchorBlockEndOffset": 51,
+      "AnchorContextBefore": "kspaceThis sample is stored as a",
+      "AnchorContextAfter": "and each save now notifies other",
+      "CreatedUtc": "2026-05-05T22:11:03.7762443Z",
+      "UpdatedUtc": "2026-05-05T22:11:03.7762443Z",
+      "CreatedBy": "Editor cadeb7",
+      "ResolvedUtc": null,
+      "ResolvedBy": null,
+      "Comments": [
+        {
+          "CommentId": "comment_14bf18651b5d",
+          "Body": "UI smoke linked comment",
+          "Author": "Editor cadeb7",
+          "AuthorSessionId": "cadeb790fee66fd3",
+          "CreatedUtc": "2026-05-05T22:11:03.7762443Z"
+        }
+      ]
+    }
+  ]
+}

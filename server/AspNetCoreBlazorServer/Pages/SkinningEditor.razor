@@ -1,0 +1,93 @@
+﻿@page "/skinning_editor"
+
+@* for RTEJS_BlazorServer.RTEJS.RichTextEditor : <RichTextEditor/> *@
+@using RTEJS_BlazorServer.RTEJS
+
+@code
+{
+	RTEConfig rtecfg1 = new RTEConfig() { toolbar = "basic", skin = "rounded-corner" };
+	RTEConfig rtecfg2 = new RTEConfig() { toolbar = "basic", skin = "gray" };
+	RTEConfig rtecfg3 = new RTEConfig() { toolbar = "basic", skin = "blue" };
+	RTEConfig rtecfg4 = new RTEConfig() { toolbar = "basic" };
+
+	string? mycode1 = null;
+	string? mycode2 = null;
+	string? mycode3 = null;
+	string? mycode4 = null;
+
+	void EditorCodeChanged(string newcode)
+	{
+		//check MultipleEditors.razor for how to handle changed event
+	}
+}
+
+<PageTitle>Skinning Editor</PageTitle>
+
+<h2>Skinning Editor</h2>
+<p class="mb-4">
+	RichTextEditor skinning is done via CSS (rte_theme_default.css). Rich Text Editor provides several built-in skins that are ready to use. You can choose from several predefined skins or create your own.
+</p>
+
+<hr />
+
+<RichTextEditor Config="rtecfg1" @bind-HtmlCode="mycode1" OnHtmlCodeChanged="EditorCodeChanged">
+	<InitHtml>
+		<p>​​​​​​​Rounded Corner Theme</p>
+	</InitHtml>
+</RichTextEditor>
+
+<hr />
+
+<RichTextEditor Config="rtecfg2" @bind-HtmlCode="mycode2" OnHtmlCodeChanged="EditorCodeChanged">
+	<InitHtml>
+		<p>​​​​​​​Gray Theme</p>
+	</InitHtml>
+</RichTextEditor>
+
+<hr />
+
+<RichTextEditor Config="rtecfg3" @bind-HtmlCode="mycode3" OnHtmlCodeChanged="EditorCodeChanged">
+	<InitHtml>
+		<p>​​​​​​​Blue Theme</p>
+	</InitHtml>
+</RichTextEditor>
+
+<hr />
+
+
+<style>
+	.purple_editor {
+		background-color: #b19cd9 !important;
+		border-color: #8470a8 !important;
+	}
+
+		.purple_editor rte-toolbar {
+			background-color: #b19cd9 !important;
+		}
+
+		.purple_editor rte-bottom {
+			background-color: #b19cd9 !important;
+		}
+
+		.purple_editor rte-dialog-inner {
+			background-color: #b19cd9 !important;
+		}
+
+		.purple_editor rte-line-spliter {
+			background-color: #b19cd9 !important;
+		}
+
+		.purple_editor rte-dialog-header {
+		}
+</style>
+<RichTextEditor class="richtexteditor purple_editor" Config="rtecfg4" @bind-HtmlCode="mycode4" OnHtmlCodeChanged="EditorCodeChanged">
+	<InitHtml>
+		<p>Create a purple theme using css</p>
+	</InitHtml>
+</RichTextEditor>
+
+<hr />
+
+
+<br />
+<br />

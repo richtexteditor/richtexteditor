@@ -1,0 +1,146 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" style="display:flex;height:100%;flex-direction:column;">
+<head>
+	<meta charset="utf-8" />
+	<title>Editor Size</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<base href='../' />
+	<link rel="stylesheet" href="richtexteditor/plugins/aitoolkit.css" />
+	<link rel="stylesheet" href="res/style.css" />
+</head>
+<body style="padding-bottom:3px;align-items:center">
+	<div class="topbanner">
+		<div style="align-self:stretch;max-width:1080px;margin:0 auto;display:flex; flex-direction: row; width:100%;">
+			<div style="flex:99999">
+				<a href="index.html"><label>RichTextEditor Demo</label></a>
+			</div>
+			<div>
+				<a href="index.html">Home</a>
+				&nbsp;
+				<a target="_blank" href="https://richtexteditor.com/demos/ai-toolkit.aspx">AI Toolkit</a>
+				&nbsp;
+				<a target="_blank" href="https://richtexteditor.com/pricing.aspx">Pricing</a>
+			</div>
+		</div>
+	</div>
+	<div style="margin:auto;padding:18px 12px 36px;max-width:1080px;width:100%;box-sizing:border-box;">
+		
+	<h2>Editor Size</h2>
+	<p class="mb-4">
+		You can use width, height, min-height, max-height css properties to set the size of rich text editor.
+	</p>
+	<div class="hs-docs-content-divider">
+		
+
+		<link rel="stylesheet" href="richtexteditor/rte_theme_default.css" />
+		<script type="text/javascript" src="richtexteditor/rte.js"></script>
+<script>RTE_DefaultConfig.url_base='richtexteditor'</script>
+		<script type="text/javascript" src='richtexteditor/plugins/all_plugins.js'></script>
+
+		<p style="margin-top: 16px; margin-bottom: 8px; font-weight: 600;">Auto-growing editor (<code>min-height: 300px</code>)</p>
+		<p style="margin-top: 0; margin-bottom: 16px; color: #64748b;">Click the <strong>+</strong> button at the bottom-left of the editor to append a new paragraph &mdash; the editor grows vertically to fit. Use <code>min-height</code> instead of a fixed <code>height</code> so content can push the container taller as needed.</p>
+
+		<div id="div_editor2" style="min-height: 300px">
+			<h2>The min-height of this editor is set to 300px.</h2>
+			<table>
+				<tr>
+					<td>
+						<p>
+							<img src="images/j0262681.jpg" alt="" /></p>
+					</td>
+					<td>
+						<p>Rich Text Editor is the industry-leading online html editor. It enables content contributors easily create and publish HTML anywhere: on the desktop and on mobile.</p>
+					</td>
+				</tr>
+				<tr>
+					<td>
+						<p>
+							<img src="images/PH02366J.jpg" alt="" /></p>
+					</td>
+					<td>
+						<p>Rich Text Editor toolbar is completely configurable and it is also effortless to implement. You just need a couple lines of code to add this editor to web applications.</p>
+					</td>
+				</tr>
+			</table>
+		</div>
+
+		<script>
+			var editor1 = new RichTextEditor("#div_editor2", { editorResizeMode: "none" });
+		</script>
+
+		<p style="margin-top: 32px; margin-bottom: 8px; font-weight: 600;">Fixed-height editor (<code>height: 300px</code>)</p>
+		<p style="margin-top: 0; margin-bottom: 16px; color: #64748b;">With a fixed <code>height</code>, the editor stays the same size and content scrolls inside the editable area when it overflows.</p>
+
+		<div id="div_editor_fixed" style="height: 300px">
+			<p>This editor uses <code>height: 300px</code>. Clicking <strong>+</strong> still appends a new paragraph, but the editor does not grow &mdash; the content scrolls inside the fixed area.</p>
+		</div>
+
+		<script>
+			var editor_fixed = new RichTextEditor("#div_editor_fixed", { editorResizeMode: "none" });
+		</script>
+
+		
+	</div>
+	<div class="hs-docs-content-divider">
+
+		<h3>Demo Code:</h3>
+		<pre class="editordemocode rounded language-html">&lt;link rel=&quot;stylesheet&quot; href=&quot;/richtexteditor/rte_theme_default.css&quot; /&gt;
+&lt;script type=&quot;text/javascript&quot; src=&quot;/richtexteditor/rte.js&quot;&gt;&lt;/script&gt;
+&lt;script type=&quot;text/javascript&quot; src=&#39;/richtexteditor/plugins/all_plugins.js&#39;&gt;&lt;/script&gt;
+
+&lt;p style=&quot;margin-top: 16px; margin-bottom: 8px; font-weight: 600;&quot;&gt;Auto-growing editor (&lt;code&gt;min-height: 300px&lt;/code&gt;)&lt;/p&gt;
+&lt;p style=&quot;margin-top: 0; margin-bottom: 16px; color: #64748b;&quot;&gt;Click the &lt;strong&gt;+&lt;/strong&gt; button at the bottom-left of the editor to append a new paragraph &amp;mdash; the editor grows vertically to fit. Use &lt;code&gt;min-height&lt;/code&gt; instead of a fixed &lt;code&gt;height&lt;/code&gt; so content can push the container taller as needed.&lt;/p&gt;
+
+&lt;div id=&quot;div_editor2&quot; style=&quot;min-height: 300px&quot;&gt;
+	&lt;h2&gt;The min-height of this editor is set to 300px.&lt;/h2&gt;
+	&lt;table&gt;
+		&lt;tr&gt;
+			&lt;td&gt;
+				&lt;p&gt;
+					&lt;img src=&quot;/images/j0262681.jpg&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+			&lt;/td&gt;
+			&lt;td&gt;
+				&lt;p&gt;Rich Text Editor is the industry-leading online html editor. It enables content contributors easily create and publish HTML anywhere: on the desktop and on mobile.&lt;/p&gt;
+			&lt;/td&gt;
+		&lt;/tr&gt;
+		&lt;tr&gt;
+			&lt;td&gt;
+				&lt;p&gt;
+					&lt;img src=&quot;/images/PH02366J.jpg&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+			&lt;/td&gt;
+			&lt;td&gt;
+				&lt;p&gt;Rich Text Editor toolbar is completely configurable and it is also effortless to implement. You just need a couple lines of code to add this editor to web applications.&lt;/p&gt;
+			&lt;/td&gt;
+		&lt;/tr&gt;
+	&lt;/table&gt;
+&lt;/div&gt;
+
+&lt;script&gt;
+	var editor1 = new RichTextEditor(&quot;#div_editor2&quot;, { editorResizeMode: &quot;none&quot; });
+&lt;/script&gt;
+
+&lt;p style=&quot;margin-top: 32px; margin-bottom: 8px; font-weight: 600;&quot;&gt;Fixed-height editor (&lt;code&gt;height: 300px&lt;/code&gt;)&lt;/p&gt;
+&lt;p style=&quot;margin-top: 0; margin-bottom: 16px; color: #64748b;&quot;&gt;With a fixed &lt;code&gt;height&lt;/code&gt;, the editor stays the same size and content scrolls inside the editable area when it overflows.&lt;/p&gt;
+
+&lt;div id=&quot;div_editor_fixed&quot; style=&quot;height: 300px&quot;&gt;
+	&lt;p&gt;This editor uses &lt;code&gt;height: 300px&lt;/code&gt;. Clicking &lt;strong&gt;+&lt;/strong&gt; still appends a new paragraph, but the editor does not grow &amp;mdash; the content scrolls inside the fixed area.&lt;/p&gt;
+&lt;/div&gt;
+
+&lt;script&gt;
+	var editor_fixed = new RichTextEditor(&quot;#div_editor_fixed&quot;, { editorResizeMode: &quot;none&quot; });
+&lt;/script&gt;</pre>
+	</div>
+
+	<div class="hs-docs-content-divider">
+		<h3>See also</h3>
+		<p>
+			New: <a href="demos/ai-toolkit.html"><strong>AI Toolkit</strong></a> - Ask AI, AI Chat, and AI Review inside the editor.
+			Also try <a href="demos/ai-provider-settings.html">AI Provider Settings (BYOK)</a> to see how to wire your own backend.
+		</p>
+	</div>
+
+	</div>
+	<script src="res/patch.js"></script>
+</body>
+</html>

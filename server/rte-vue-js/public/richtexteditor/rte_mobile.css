@@ -1,0 +1,121 @@
+/*
+ * rte_mobile.css — extras for the editor's built-in mobile toolbar.
+ *
+ * The editor already auto-swaps between `rte-toolbar-desktop` and
+ * `rte-toolbar-mobile` based on `config.maxWidthForMobile`, and adds
+ * `rte-mobile` / `rte-desktop` to its outer container. We don't duplicate
+ * that logic — we just layer on top:
+ *
+ *   • 44×44 tap targets (WCAG 2.5.5)
+ *   • Sticky toolbar so the virtual keyboard can't hide it
+ *   • Bottom-sheet mounting for dropdowns / dialogs / review drawer
+ *   • 16px content font to suppress iOS auto-zoom
+ *
+ * All rules are scoped to the editor's own `.rte-mobile` class AND are
+ * themselves inside narrow-viewport + coarse-pointer media queries, so
+ * desktop viewers who happen to load the stylesheet see no changes.
+ */
+
+@media (max-width: 768px), (pointer: coarse) {
+
+    /* The editor's mobile toolbar already uses `rte-toolbar-mobile`. We just
+       enforce horizontal scroll + tap-target sizing. */
+    .richtexteditor.rte-mobile rte-toolbar.rte-toolbar-mobile {
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        overflow-x: auto;
+        overflow-y: hidden;
+        white-space: nowrap;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        background: #fff;
+    }
+    .richtexteditor.rte-mobile rte-toolbar.rte-toolbar-mobile::-webkit-scrollbar {
+        display: none;
+    }
+
+    /* Tap targets — 44×44 minimum, larger icons. */
+    .richtexteditor.rte-mobile rte-toolbar-button,
+    .richtexteditor.rte-mobile rte-toolbar-splitbutton,
+    .richtexteditor.rte-mobile rte-toolbar-dropdown,
+    .richtexteditor.rte-mobile rte-toolbar-arrowbutton {
+        min-width: 44px;
+        min-height: 44px;
+        padding: 10px;
+        border-radius: 10px;
+    }
+    .richtexteditor.rte-mobile rte-toolbar-button svg,
+    .richtexteditor.rte-mobile rte-toolbar-splitbutton svg,
+    .richtexteditor.rte-mobile rte-toolbar-dropdown svg,
+    .richtexteditor.rte-mobile rte-toolbar-arrowbutton svg {
+        width: 20px;
+        height: 20px;
+    }
+
+    /* Dropdown panels become bottom sheets on narrow viewports so they never clip. */
+    .richtexteditor.rte-mobile rte-dropdown-panel,
+    .richtexteditor.rte-mobile rte-popup {
+        position: fixed !important;
+        left: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        top: auto !important;
+        max-height: 60vh;
+        border-top-left-radius: 18px;
+        border-top-right-radius: 18px;
+        border: 1px solid #e2e8f0;
+        border-bottom: none;
+        box-shadow: 0 -12px 32px rgba(15, 23, 42, 0.12);
+        padding: 10px 6px 22px;
+        overflow-y: auto;
+        z-index: 2147483647;
+    }
+
+    /* Floating paragraph / inline toolbars fight the iOS keyboard — hide. */
+    .richtexteditor.rte-mobile rte-floattoolbar,
+    .richtexteditor.rte-mobile rte-floatparagraph {
+        display: none !important;
+    }
+
+    /* AI Toolkit dialogs + review drawer: full-width / bottom-sheet on mobile. */
+    .richtexteditor.rte-mobile ~ .aitoolkit-dialog,
+    body.rte-mobile .aitoolkit-dialog {
+        left: 8px !important;
+        right: 8px !important;
+        width: auto !important;
+        max-width: none !important;
+    }
+    .richtexteditor.rte-mobile ~ .aitoolkit-review-drawer,
+    body.rte-mobile .aitoolkit-review-drawer,
+    .richtexteditor.rte-mobile ~ .comments-sidebar,
+    body.rte-mobile .comments-sidebar {
+        left: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        top: auto !important;
+        width: auto !important;
+        max-height: 55vh;
+        border-top-left-radius: 18px;
+        border-top-right-radius: 18px;
+        border-top: 1px solid #e2e8f0;
+    }
+
+    /* 16px font in the editing surface suppresses iOS auto-zoom on focus. */
+    .richtexteditor.rte-mobile iframe,
+    .richtexteditor.rte-mobile .rte-editable {
+        font-size: 16px;
+    }
+}
+
+/* A coarse-pointer-only variant so an explicit desktop override can opt out.
+   (Users who want the mobile layout on desktop can add class rte-force-mobile
+    to a parent; matches the builder's preview convention.) */
+.rte-force-mobile .richtexteditor rte-toolbar.rte-toolbar-mobile {
+    display: flex !important;
+}
+.rte-force-mobile .richtexteditor rte-toolbar.rte-toolbar-desktop {
+    display: none !important;
+}

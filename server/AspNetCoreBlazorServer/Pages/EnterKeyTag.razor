@@ -1,0 +1,65 @@
+﻿@page "/enterkey"
+
+@* for RTEJS_BlazorServer.RTEJS.RichTextEditor : <RichTextEditor/> *@
+@using RTEJS_BlazorServer.RTEJS
+
+@code
+{
+	RTEConfig rtecfg1 = new RTEConfig() { toolbar = "basic", enterKeyTag = "div" };
+	RTEConfig rtecfg2 = new RTEConfig() { toolbar = "basic", enterKeyTag = "p" };
+	RTEConfig rtecfg3 = new RTEConfig() { toolbar = "basic", enterKeyTag = "br" };
+
+	string? mycode1 = null;
+	string? mycode2 = null;
+	string? mycode3 = null;
+
+	void EditorCodeChanged(string newcode)
+	{
+		//check MultipleEditors.razor for how to handle changed event
+	}
+}
+
+<PageTitle>Skinning Editor</PageTitle>
+
+<h2>Skinning Editor</h2>
+<p class="mb-4">
+	RichTextEditor skinning is done via CSS (rte_theme_default.css). Rich Text Editor provides several built-in skins that are ready to use. You can choose from several predefined skins or create your own.
+</p>
+
+<hr />
+
+<RichTextEditor Config="rtecfg1" @bind-HtmlCode="mycode1" OnHtmlCodeChanged="EditorCodeChanged">
+	<InitHtml>
+		<div>
+			By default enter key inserts &lt;div&gt;.
+		</div>
+	</InitHtml>
+</RichTextEditor>
+
+<hr />
+
+<RichTextEditor Config="rtecfg2" @bind-HtmlCode="mycode2" OnHtmlCodeChanged="EditorCodeChanged">
+	<InitHtml>
+		<p>
+			Use &lt;p&gt; tags on enter keypress instead of &lt;div&gt;tags.
+		</p>
+	</InitHtml>
+</RichTextEditor>
+
+<hr />
+
+@*  <RichTextEditor Config="rtecfg3" @bind-HtmlCode="mycode3" OnHtmlCodeChanged="EditorCodeChanged">
+ 	<InitHtml>
+ 		<div>
+ 			Use &lt;br&gt; tags on enter keypress instead of &lt;div&gt;tags.
+ 		</div>
+ 	</InitHtml>
+ </RichTextEditor>
+ *@
+<hr />
+
+
+
+
+<br />
+<br />

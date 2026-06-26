@@ -1,0 +1,66 @@
+{
+  "Suggestions": [
+    {
+      "SuggestionId": "suggestion_29dae02280c9",
+      "Type": "delete",
+      "Status": "accepted",
+      "Body": "Remove the weak phrasing in this sentence.",
+      "SuggestedText": null,
+      "AnchorText": "should start here",
+      "AnchorRevision": 1,
+      "AnchorStartOffset": 16,
+      "AnchorEndOffset": 33,
+      "AnchorStartTextNodePath": null,
+      "AnchorStartTextNodeOffset": null,
+      "AnchorEndTextNodePath": null,
+      "AnchorEndTextNodeOffset": null,
+      "AnchorTextNodePath": null,
+      "AnchorTextNodeStartOffset": null,
+      "AnchorTextNodeEndOffset": null,
+      "AnchorBlockPath": [
+        0
+      ],
+      "AnchorBlockType": "paragraph",
+      "AnchorBlockStartOffset": 16,
+      "AnchorBlockEndOffset": 33,
+      "AnchorContextBefore": null,
+      "AnchorContextAfter": null,
+      "CreatedUtc": "2026-04-18T07:18:50.4969479Z",
+      "UpdatedUtc": "2026-04-18T07:18:50.5880331Z",
+      "CreatedBy": "Smoke Tester",
+      "DecidedUtc": "2026-04-18T07:18:50.5880331Z",
+      "DecidedBy": "Lead Reviewer"
+    },
+    {
+      "SuggestionId": "suggestion_b43728da1d8c",
+      "Type": "insert",
+      "Status": "rejected",
+      "Body": "Suggest a stronger closing.",
+      "SuggestedText": "This review flow is ready for tracked changes.",
+      "AnchorText": "Tracked changes should start here.",
+      "AnchorRevision": 1,
+      "AnchorStartOffset": 0,
+      "AnchorEndOffset": 33,
+      "AnchorStartTextNodePath": null,
+      "AnchorStartTextNodeOffset": null,
+      "AnchorEndTextNodePath": null,
+      "AnchorEndTextNodeOffset": null,
+      "AnchorTextNodePath": null,
+      "AnchorTextNodeStartOffset": null,
+      "AnchorTextNodeEndOffset": null,
+      "AnchorBlockPath": [
+        0
+      ],
+      "AnchorBlockType": "paragraph",
+      "AnchorBlockStartOffset": 0,
+      "AnchorBlockEndOffset": 33,
+      "AnchorContextBefore": null,
+      "AnchorContextAfter": null,
+      "CreatedUtc": "2026-04-18T07:18:50.5378885Z",
+      "UpdatedUtc": "2026-04-18T07:18:50.6020895Z",
+      "CreatedBy": "Second Reviewer",
+      "DecidedUtc": "2026-04-18T07:18:50.6020895Z",
+      "DecidedBy": "Lead Reviewer 2"
+    }
+  ]
+}

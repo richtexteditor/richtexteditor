@@ -1,0 +1,74 @@
+﻿@page "/responsive"
+
+@* for RTEJS_BlazorServer.RTEJS.RichTextEditor : <RichTextEditor/> *@
+@using RTEJS_BlazorServer.RTEJS
+
+@code
+{
+	RTEConfig rtecfg = new RTEConfig() { toolbar = "full", toolbarMobile="basic" };
+	string? previewcode = "<b>Click button to show the editing code</b>";
+	string? mycode = null;//if binded value is null , the <InitHtml> template will be used
+	
+
+	void ShowHtmlCode()
+	{
+		//TODO: filter mycode here , remove Malicious Code
+
+		previewcode = mycode;
+	}
+
+	string changedmsg = "";
+
+	void EditorCodeChanged(string newcode)
+	{
+		//mycode already be setted from @bind-HtmlCode="mycode"
+		changedmsg = "changed at " + DateTime.Now.ToString("HH:mm:ss") + " , " + mycode.Length + " chars";
+	}
+}
+
+<PageTitle>Responsive Toolbar</PageTitle>
+
+<h2>Responsive Toolbar </h2>
+<p class="mb-4">
+	By default, the toolbar of Rich Text Editor is responsive. On desktop Editor will use config.toolbar confirguration.
+	On mobile Editor will use config.toolbarMobile confirguration.
+</p>
+
+<hr />
+
+<RichTextEditor Config="rtecfg" @bind-HtmlCode="mycode" OnHtmlCodeChanged="EditorCodeChanged">
+	<InitHtml>
+		<p>Hello world!</p>
+		<p><img src='/images/editor-image.png' /></p>
+	</InitHtml>
+</RichTextEditor>
+
+<hr />
+<button @onclick="ShowHtmlCode">Show HtmlCode</button> @changedmsg
+
+<br />
+<br />
+<br />
+<div style="margin:12px;padding:12px;border:dotted 1px gray;">
+	@((MarkupString)previewcode)
+</div>
+
+<br />
+<br />
+
+
+<div class="hs-docs-content-divider relative-links">
+	<p>
+		Editor uses different toolbar based on the space available. When the screen (browser window) gets smaller than 768px, editor should have mobile toolbar.
+	</p>
+</div>
+
+<div class="hs-docs-content-divider relative-links">
+	<h3 class="relative-links">Relative Links</h3>
+
+	<ul class="relative-links">
+		<li><a href="/docs/configuration-reference.aspx">Toolbar</a></li>
+		<li><a href="/docs/configuration-reference.aspx">toolbarMobile </a></li>
+		<li><a href="/docs/configuration-reference.aspx">maxWidthForMobile</a></li>
+	</ul>
+</div>

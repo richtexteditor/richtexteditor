@@ -1,0 +1,33 @@
+{
+  "Suggestions": [
+    {
+      "SuggestionId": "suggestion_251af2ade444",
+      "Type": "format",
+      "Status": "open",
+      "Body": "Clarify this wording",
+      "SuggestedText": "Review this linked comment example.",
+      "AnchorText": "linked suggestion",
+      "AnchorRevision": 1,
+      "AnchorStartOffset": null,
+      "AnchorEndOffset": null,
+      "AnchorStartTextNodePath": null,
+      "AnchorStartTextNodeOffset": null,
+      "AnchorEndTextNodePath": null,
+      "AnchorEndTextNodeOffset": null,
+      "AnchorTextNodePath": null,
+      "AnchorTextNodeStartOffset": null,
+      "AnchorTextNodeEndOffset": null,
+      "AnchorBlockPath": null,
+      "AnchorBlockType": null,
+      "AnchorBlockStartOffset": null,
+      "AnchorBlockEndOffset": null,
+      "AnchorContextBefore": null,
+      "AnchorContextAfter": null,
+      "CreatedUtc": "2026-04-18T09:17:24.1149921Z",
+      "UpdatedUtc": "2026-04-18T09:17:24.1149921Z",
+      "CreatedBy": "Smoke Tester",
+      "DecidedUtc": null,
+      "DecidedBy": null
+    }
+  ]
+}

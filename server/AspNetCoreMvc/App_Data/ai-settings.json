@@ -1,0 +1,8 @@
+{
+  "Mode": "demo",
+  "ApiBaseUrl": "https://api.openai.com",
+  "Model": "gpt-4.1-mini",
+  "ApiKey": null,
+  "SystemPrompt": "You are a careful writing assistant. Return only the revised replacement text for the selected content.",
+  "Temperature": 0.2
+}

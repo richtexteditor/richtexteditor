@@ -1,0 +1,9 @@
+{
+  "Id": "doc_100573574041",
+  "Title": "Suggestion UI Smoke Test",
+  "Revision": 1,
+  "CurrentRevisionId": "rev-0001",
+  "CreatedUtc": "2026-04-18T07:27:12.1956866Z",
+  "UpdatedUtc": "2026-04-18T07:27:12.1956866Z",
+  "DocumentJson": "{\r\n  \u0022content\u0022: [\r\n    {\r\n      \u0022content\u0022: [\r\n        {\r\n          \u0022text\u0022: \u0022Please tighten this sentence before release.\u0022,\r\n          \u0022type\u0022: \u0022text\u0022\r\n        }\r\n      ],\r\n      \u0022type\u0022: \u0022paragraph\u0022\r\n    }\r\n  ],\r\n  \u0022type\u0022: \u0022doc\u0022\r\n}"
+}

@@ -1,0 +1,183 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" style="display:flex;height:100%;flex-direction:column;">
+<head>
+	<meta charset="utf-8" />
+	<title>AI Toolkit</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<base href='../' />
+	<link rel="stylesheet" href="richtexteditor/plugins/aitoolkit.css" />
+	<link rel="stylesheet" href="res/style.css" />
+</head>
+<body style="padding-bottom:3px;align-items:center">
+	<div class="topbanner">
+		<div style="align-self:stretch;max-width:1080px;margin:0 auto;display:flex; flex-direction: row; width:100%;">
+			<div style="flex:99999">
+				<a href="index.html"><label>RichTextEditor Demo</label></a>
+			</div>
+			<div>
+				<a href="index.html">Home</a>
+				&nbsp;
+				<a target="_blank" href="https://richtexteditor.com/demos/ai-toolkit.aspx">AI Toolkit</a>
+				&nbsp;
+				<a target="_blank" href="https://richtexteditor.com/pricing.aspx">Pricing</a>
+			</div>
+		</div>
+	</div>
+	<div style="margin:auto;padding:18px 12px 36px;max-width:1080px;width:100%;box-sizing:border-box;">
+		
+	<h2>AI Toolkit</h2>
+	<p class="mb-4">
+		In-editor AI: <strong>Ask AI</strong> from the toolbar, a docked <strong>AI Chat</strong> panel, an <strong>inline preview</strong> of every suggestion, and a persistent <strong>AI Review</strong> drawer.
+		Runs in built-in demo mode on this page - no API key required.
+	</p>
+
+	<div class="hs-docs-content-divider">
+		
+
+		<link rel="stylesheet" href="richtexteditor/rte_theme_default.css" />
+		<link rel="stylesheet" href="richtexteditor/plugins/aitoolkit.css" />
+		<script type="text/javascript" src="richtexteditor/rte.js"></script>
+<script>RTE_DefaultConfig.url_base='richtexteditor'</script>
+		<script type="text/javascript" src="richtexteditor/plugins/all_plugins.js"></script>
+		<script type="text/javascript" src="richtexteditor/plugins/aitoolkit.js"></script>
+
+		<div id="div_ai_editor">
+			<h2>Launch-ready product update</h2>
+			<p>RichTextEditor now supports in-editor AI actions that stay close to the document instead of opening a disconnected utility panel.</p>
+			<p>Select a paragraph and click <strong>Ask AI</strong> in the toolbar to try proofread, rewrite, shorten, expand, summarize, or translate. Each suggestion previews inline - nothing commits until you accept.</p>
+			<ul>
+				<li>Inline AI preview with accept / reject controls</li>
+				<li>Docked AI Chat for multi-turn editing help</li>
+				<li>AI Review drawer for pending, accepted, and rejected suggestions</li>
+			</ul>
+		</div>
+
+		<script>
+			var aiEditor = new RichTextEditor("#div_ai_editor", {
+				toolbar: "full",
+				height: "520px",
+				showFloatTextToolBar: true,
+				showFloatParagraph: true,
+				aiToolkitPersistenceKey: "demo-ai-toolkit"
+			});
+
+			function aiDemoSelectFirstParagraph() {
+				var doc = aiEditor.getDocument ? aiEditor.getDocument() : document;
+				var p = doc.querySelector("p");
+				if (!p || !p.firstChild) { aiEditor.focus(); return; }
+				var sel = doc.getSelection ? doc.getSelection() : window.getSelection();
+				var range = doc.createRange();
+				range.setStart(p.firstChild, 0);
+				range.setEnd(p.firstChild, p.textContent.length);
+				sel.removeAllRanges();
+				sel.addRange(range);
+				aiEditor.focus();
+			}
+
+			function aiDemoOpenDialog() { aiEditor.aiToolkit.openDialog({ presetMode: "rewrite" }); }
+			function aiDemoProofread() { aiDemoSelectFirstParagraph(); aiEditor.aiToolkit.runQuickAction("proofread"); }
+			function aiDemoSummarize() { aiEditor.aiToolkit.runQuickAction("summarize"); }
+			function aiDemoChat() { aiEditor.aiToolkit.openChatPanel({ focusComposer: true }); }
+			function aiDemoReview() { aiEditor.aiToolkit.openReviewPanel({ focusPanel: true }); }
+			function aiDemoClear() {
+				try { localStorage.removeItem("RTE.AIToolkit.demo-ai-toolkit"); } catch (e) {}
+				if (aiEditor.aiToolkit && aiEditor.aiToolkit.clearSuggestions) aiEditor.aiToolkit.clearSuggestions();
+				alert("Local AI suggestions cleared.");
+			}
+		</script>
+		
+	</div>
+
+	<div class="mt-4 demo-btn-row">
+		<button class="btn btn-sm btn-outline-primary btn-pill transition-3d-hover px-5" onclick="aiDemoOpenDialog(); return false;">Open Ask AI</button>
+		<button class="btn btn-sm btn-outline-primary btn-pill transition-3d-hover px-5" onclick="aiDemoProofread(); return false;">Proofread first paragraph</button>
+		<button class="btn btn-sm btn-outline-primary btn-pill transition-3d-hover px-5" onclick="aiDemoSummarize(); return false;">Summarize document</button>
+		<button class="btn btn-sm btn-outline-primary btn-pill transition-3d-hover px-5" onclick="aiDemoChat(); return false;">Open AI Chat</button>
+		<button class="btn btn-sm btn-outline-primary btn-pill transition-3d-hover px-5" onclick="aiDemoReview(); return false;">Open AI Review</button>
+		<button class="btn btn-sm btn-outline-secondary btn-pill transition-3d-hover px-5" onclick="aiDemoClear(); return false;">Clear local state</button>
+	</div>
+
+	<div class="hs-docs-content-divider">
+		<h3>Demo Code:</h3>
+		<pre class="editordemocode rounded language-html">&lt;link rel=&quot;stylesheet&quot; href=&quot;/richtexteditor/rte_theme_default.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;/richtexteditor/plugins/aitoolkit.css&quot; /&gt;
+&lt;script type=&quot;text/javascript&quot; src=&quot;/richtexteditor/rte.js&quot;&gt;&lt;/script&gt;
+&lt;script type=&quot;text/javascript&quot; src=&quot;/richtexteditor/plugins/all_plugins.js&quot;&gt;&lt;/script&gt;
+&lt;script type=&quot;text/javascript&quot; src=&quot;/richtexteditor/plugins/aitoolkit.js&quot;&gt;&lt;/script&gt;
+
+&lt;div id=&quot;div_ai_editor&quot;&gt;
+	&lt;h2&gt;Launch-ready product update&lt;/h2&gt;
+	&lt;p&gt;RichTextEditor now supports in-editor AI actions that stay close to the document instead of opening a disconnected utility panel.&lt;/p&gt;
+	&lt;p&gt;Select a paragraph and click &lt;strong&gt;Ask AI&lt;/strong&gt; in the toolbar to try proofread, rewrite, shorten, expand, summarize, or translate. Each suggestion previews inline - nothing commits until you accept.&lt;/p&gt;
+	&lt;ul&gt;
+		&lt;li&gt;Inline AI preview with accept / reject controls&lt;/li&gt;
+		&lt;li&gt;Docked AI Chat for multi-turn editing help&lt;/li&gt;
+		&lt;li&gt;AI Review drawer for pending, accepted, and rejected suggestions&lt;/li&gt;
+	&lt;/ul&gt;
+&lt;/div&gt;
+
+&lt;script&gt;
+	var aiEditor = new RichTextEditor(&quot;#div_ai_editor&quot;, {
+		toolbar: &quot;full&quot;,
+		height: &quot;520px&quot;,
+		showFloatTextToolBar: true,
+		showFloatParagraph: true,
+		aiToolkitPersistenceKey: &quot;demo-ai-toolkit&quot;
+	});
+
+	function aiDemoSelectFirstParagraph() {
+		var doc = aiEditor.getDocument ? aiEditor.getDocument() : document;
+		var p = doc.querySelector(&quot;p&quot;);
+		if (!p || !p.firstChild) { aiEditor.focus(); return; }
+		var sel = doc.getSelection ? doc.getSelection() : window.getSelection();
+		var range = doc.createRange();
+		range.setStart(p.firstChild, 0);
+		range.setEnd(p.firstChild, p.textContent.length);
+		sel.removeAllRanges();
+		sel.addRange(range);
+		aiEditor.focus();
+	}
+
+	function aiDemoOpenDialog() { aiEditor.aiToolkit.openDialog({ presetMode: &quot;rewrite&quot; }); }
+	function aiDemoProofread() { aiDemoSelectFirstParagraph(); aiEditor.aiToolkit.runQuickAction(&quot;proofread&quot;); }
+	function aiDemoSummarize() { aiEditor.aiToolkit.runQuickAction(&quot;summarize&quot;); }
+	function aiDemoChat() { aiEditor.aiToolkit.openChatPanel({ focusComposer: true }); }
+	function aiDemoReview() { aiEditor.aiToolkit.openReviewPanel({ focusPanel: true }); }
+	function aiDemoClear() {
+		try { localStorage.removeItem(&quot;RTE.AIToolkit.demo-ai-toolkit&quot;); } catch (e) {}
+		if (aiEditor.aiToolkit &amp;&amp; aiEditor.aiToolkit.clearSuggestions) aiEditor.aiToolkit.clearSuggestions();
+		alert(&quot;Local AI suggestions cleared.&quot;);
+	}
+&lt;/script&gt;</pre>
+	</div>
+
+	<div class="hs-docs-content-divider">
+		<h3>Wire your own backend</h3>
+		<p>
+			The editor has no built-in provider. Pass an <code>aiToolkitResolver</code> function and route through your own backend - keys stay server-side.
+		</p>
+		<pre class="editordemocode rounded language-javascript">var editor = new RichTextEditor("#editor", {
+    toolbar: "full",
+    aiToolkitResolver: async function (request) {
+        var reply = await fetch("/api/ai", {
+            method: "POST",
+            body: JSON.stringify({
+                mode: request.mode, text: request.source, language: request.language
+            })
+        }).then(function (r) { return r.json(); });
+
+        return {
+            result: reply.text,
+            reason: reply.explanation,
+            operations: [{ type: "preview-suggestion", text: reply.text }]
+        };
+    }
+});</pre>
+		<p>See the <a href="demos/ai-provider-settings.html">AI provider settings (BYOK)</a> demo for a worked admin-flow example.</p>
+	</div>
+
+	</div>
+	<script src="res/patch.js"></script>
+</body>
+</html>

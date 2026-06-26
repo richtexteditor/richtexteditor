@@ -1,0 +1,81 @@
+﻿@page "/resize"
+
+@* for RTEJS_BlazorServer.RTEJS.RichTextEditor : <RichTextEditor/> *@
+@using RTEJS_BlazorServer.RTEJS
+
+@code
+{
+	RTEConfig rtecfg = new RTEConfig() { toolbar = "full", editorResizeMode = "both" };
+
+
+	RenderFragment CreateResizeLink(string text, string? mode)
+	{
+		string clsname = "";
+		if (rtecfg.editorResizeMode == mode)
+			clsname = "btn-primary";
+		else
+			clsname = "btn-secondary";
+
+		void SetMode()
+		{
+			rtecfg.editorResizeMode = mode;
+		}
+		return @<a class="btn @clsname btn-sm mt-2" @onclick="SetMode">@text</a>;
+	}
+
+
+
+	string? previewcode = "<b>Click button to show the editing code</b>";
+	string? mycode = null;//if binded value is null , the <InitHtml> template will be used
+
+
+	void ShowHtmlCode()
+	{
+		//TODO: filter mycode here , remove Malicious Code
+
+		previewcode = mycode;
+	}
+
+	string changedmsg = "";
+
+	void EditorCodeChanged(string newcode)
+	{
+		//mycode already be setted from @bind-HtmlCode="mycode"
+		changedmsg = "changed at " + DateTime.Now.ToString("HH:mm:ss") + " , " + mycode.Length + " chars";
+	}
+}
+
+<PageTitle>Resizing Customization</PageTitle>
+
+<h2>Resizing Customization</h2>
+<p class="mb-4">
+	Additionally, resizing is allowed in both directions by draging the corner handle.
+</p>
+<p class="mb-4">
+	@CreateResizeLink("ResizeBoth", "both")
+	@CreateResizeLink("ResizeHeight", "height")
+	@CreateResizeLink("Disabled", "none")
+</p>
+
+<hr />
+
+<RichTextEditor @key="rtecfg.editorResizeMode" Config="rtecfg" @bind-HtmlCode="mycode" OnHtmlCodeChanged="EditorCodeChanged">
+	<InitHtml>
+		<p>Hello world!</p>
+		<p><img src='/images/editor-image.png' /></p>
+	</InitHtml>
+</RichTextEditor>
+
+<hr />
+<button @onclick="ShowHtmlCode">Show HtmlCode</button> @changedmsg
+
+<br />
+<br />
+<br />
+<div style="margin:12px;padding:12px;border:dotted 1px gray;">
+	@((MarkupString)previewcode)
+</div>
+
+<br />
+<br />
+

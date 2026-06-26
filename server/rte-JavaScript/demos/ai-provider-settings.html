@@ -1,0 +1,491 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" style="display:flex;height:100%;flex-direction:column;">
+<head>
+	<meta charset="utf-8" />
+	<title>AI provider settings (BYOK)</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<base href='../' />
+	<link rel="stylesheet" href="richtexteditor/plugins/aitoolkit.css" />
+	<link rel="stylesheet" href="res/style.css" />
+</head>
+<body style="padding-bottom:3px;align-items:center">
+	<div class="topbanner">
+		<div style="align-self:stretch;max-width:1080px;margin:0 auto;display:flex; flex-direction: row; width:100%;">
+			<div style="flex:99999">
+				<a href="index.html"><label>RichTextEditor Demo</label></a>
+			</div>
+			<div>
+				<a href="index.html">Home</a>
+				&nbsp;
+				<a target="_blank" href="https://richtexteditor.com/demos/ai-toolkit.aspx">AI Toolkit</a>
+				&nbsp;
+				<a target="_blank" href="https://richtexteditor.com/pricing.aspx">Pricing</a>
+			</div>
+		</div>
+	</div>
+	<div style="margin:auto;padding:18px 12px 36px;max-width:1080px;width:100%;box-sizing:border-box;">
+		
+	<h2>AI provider settings (BYOK)</h2>
+	<p class="mb-4">
+		Pattern for a <strong>bring-your-own-key</strong> deployment: your app hosts an admin page where each tenant picks a provider and saves a key; the editor's <code>aiToolkitResolver</code> calls your backend, which reads the saved key from your secrets store and talks to the provider.
+	</p>
+
+	<div class="byok-warn">
+		<strong>Demo disclaimer.</strong>
+		This page stores the configured provider and endpoint in <code>localStorage</code> for convenience, and keeps the entered key in memory only for this page's lifetime.
+		<strong>Never</strong> put a real API key in browser storage in production - it's a credential leak.
+		In a real deployment, your admin form posts the key to your server and stores it in a secrets manager (AWS Secrets Manager, Azure Key Vault, HashiCorp Vault, or an encrypted DB column).
+	</div>
+
+	<div class="byok-flow">
+		<div class="byok-flow-step"><span class="byok-flow-step-n">1</span><strong>Admin configures</strong><span>Tenant admin picks a provider and pastes a key. Your form POSTs it to your server over HTTPS.</span></div>
+		<div class="byok-flow-step"><span class="byok-flow-step-n">2</span><strong>Server stores</strong><span>Your backend writes the key into your secrets manager, scoped to the tenant. Never returned to the browser again.</span></div>
+		<div class="byok-flow-step"><span class="byok-flow-step-n">3</span><strong>Editor asks</strong><span>The editor's resolver POSTs a request to your <code>/api/ai</code>. Only the session cookie identifies the caller.</span></div>
+		<div class="byok-flow-step"><span class="byok-flow-step-n">4</span><strong>Backend relays</strong><span>Your endpoint looks up the tenant's key, calls the provider, and returns the result to the editor.</span></div>
+	</div>
+
+	<div class="hs-docs-content-divider">
+		
+		<link rel="stylesheet" href="richtexteditor/rte_theme_default.css" />
+		<link rel="stylesheet" href="richtexteditor/plugins/aitoolkit.css" />
+		<script type="text/javascript" src="richtexteditor/rte.js"></script>
+<script>RTE_DefaultConfig.url_base='richtexteditor'</script>
+		<script type="text/javascript" src="richtexteditor/plugins/all_plugins.js"></script>
+		<script type="text/javascript" src="richtexteditor/plugins/aitoolkit.js"></script>
+
+		<div class="byok-split">
+			<aside class="byok-settings">
+				<div class="byok-settings-head">
+					<div>
+						<div class="byok-kicker">AI provider</div>
+						<h3>Tenant settings</h3>
+					</div>
+					<span class="byok-chip" id="byok-active-chip">Demo resolver</span>
+				</div>
+
+				<label class="byok-label" for="byok-provider">Provider</label>
+				<select class="byok-input" id="byok-provider">
+					<option value="demo">Built-in demo resolver (no key)</option>
+					<option value="openai">OpenAI</option>
+					<option value="anthropic">Anthropic</option>
+					<option value="azure">Azure OpenAI</option>
+					<option value="custom">Custom endpoint</option>
+				</select>
+
+				<label class="byok-label" for="byok-model">Model</label>
+				<input class="byok-input" id="byok-model" type="text" placeholder="gpt-4o-mini" />
+
+				<label class="byok-label" for="byok-endpoint">Endpoint</label>
+				<input class="byok-input" id="byok-endpoint" type="url" placeholder="/api/ai" />
+				<div class="byok-hint">Your backend URL, <strong>not</strong> the provider URL. Your server relays to the provider.</div>
+
+				<label class="byok-label" for="byok-key">API key</label>
+				<input class="byok-input byok-input-mono" id="byok-key" type="password" placeholder="sk-..." autocomplete="off" />
+				<div class="byok-hint">In the real flow this POSTs to your server only. Here it stays in memory.</div>
+
+				<div class="byok-row">
+					<button class="byok-btn byok-btn-primary" type="button" onclick="byok.save();">Save</button>
+					<button class="byok-btn" type="button" onclick="byok.test();">Test</button>
+					<button class="byok-btn" type="button" onclick="byok.clear();">Clear</button>
+				</div>
+
+				<div class="byok-status-row">
+					<span class="byok-status byok-status-idle" id="byok-status"><span class="byok-status-dot"></span><span id="byok-status-text">Idle</span></span>
+				</div>
+
+				<div class="byok-log-head">Resolver log</div>
+				<div class="byok-log" id="byok-log"><span class="byok-log-muted">Waiting for first request...</span></div>
+			</aside>
+
+			<div class="byok-editor-wrap">
+				<div id="div_ai_byok_editor">
+					<h2>Tenant-configured AI editor</h2>
+					<p>When the provider is set to <strong>Built-in demo resolver</strong>, Ask AI runs locally with no network call.</p>
+					<p>Switch to OpenAI / Anthropic / Azure / Custom and Ask AI will route through <strong>your endpoint</strong>, which in turn uses the tenant's saved key. In this demo, the request is simulated so you can see the flow end-to-end.</p>
+					<ul>
+						<li>Try the <strong>Proofread</strong> quick action</li>
+						<li>Open <strong>Ask AI</strong> from the toolbar</li>
+						<li>Watch the Resolver log on the left</li>
+					</ul>
+				</div>
+
+				<div class="demo-btn-row mt-3">
+					<button class="btn btn-sm btn-outline-primary btn-pill transition-3d-hover px-5" onclick="byok.runDialog();">Open Ask AI</button>
+					<button class="btn btn-sm btn-outline-primary btn-pill transition-3d-hover px-5" onclick="byok.runQuick('proofread');">Proofread</button>
+					<button class="btn btn-sm btn-outline-primary btn-pill transition-3d-hover px-5" onclick="byok.runQuick('summarize');">Summarize</button>
+					<button class="btn btn-sm btn-outline-primary btn-pill transition-3d-hover px-5" onclick="byok.runQuick('rewrite');">Rewrite</button>
+				</div>
+			</div>
+		</div>
+
+		<script>
+			var BYOK_STORAGE = "RTE.Demo.BYOK.tenantSettings";
+			var runtimeKey = "";
+
+			function readSettings() {
+				try {
+					var raw = localStorage.getItem(BYOK_STORAGE);
+					if (!raw) return { provider: "demo", model: "", endpoint: "" };
+					return JSON.parse(raw);
+				} catch (e) { return { provider: "demo", model: "", endpoint: "" }; }
+			}
+			function writeSettings(s) {
+				var safe = { provider: s.provider, model: s.model, endpoint: s.endpoint };
+				try { localStorage.setItem(BYOK_STORAGE, JSON.stringify(safe)); } catch (e) {}
+			}
+
+			var statusEl = document.getElementById("byok-status");
+			var statusText = document.getElementById("byok-status-text");
+			var logEl = document.getElementById("byok-log");
+			var chipEl = document.getElementById("byok-active-chip");
+
+			function setStatus(kind, text) {
+				statusEl.className = "byok-status byok-status-" + kind;
+				statusText.textContent = text;
+			}
+			function log(kind, msg) {
+				if (logEl.querySelector(".byok-log-muted")) logEl.innerHTML = "";
+				var line = document.createElement("div");
+				line.className = "byok-log-" + kind;
+				line.textContent = "[" + new Date().toLocaleTimeString() + "] " + msg;
+				logEl.appendChild(line);
+				logEl.scrollTop = logEl.scrollHeight;
+			}
+			function refreshChip() {
+				var s = readSettings();
+				chipEl.textContent = ({
+					demo: "Demo resolver", openai: "OpenAI", anthropic: "Anthropic",
+					azure: "Azure OpenAI", custom: "Custom endpoint"
+				})[s.provider] || "Demo resolver";
+			}
+
+			var providerEl = document.getElementById("byok-provider");
+			var modelEl = document.getElementById("byok-model");
+			var endpointEl = document.getElementById("byok-endpoint");
+			var keyEl = document.getElementById("byok-key");
+
+			(function hydrate() {
+				var s = readSettings();
+				providerEl.value = s.provider || "demo";
+				modelEl.value = s.model || "";
+				endpointEl.value = s.endpoint || "";
+				refreshChip();
+			})();
+
+			function callBackend(request, settings) {
+				return new Promise(function (resolve, reject) {
+					log("req", "POST " + (settings.endpoint || "/api/ai") +
+						"  {provider:" + settings.provider + ", model:" + (settings.model || "-") +
+						", mode:" + request.mode + ", len:" + (request.source || "").length + "}");
+					setTimeout(function () {
+						var synth = aiByokEditor.aiToolkit.buildDemoResult(
+							request.mode, request.source || "", { language: request.language }
+						);
+						if (!synth) { reject(new Error("empty source")); return; }
+						var reason = "Simulated response from " + settings.provider.toUpperCase() +
+									 (settings.model ? " / " + settings.model : "") +
+									 " via " + (settings.endpoint || "/api/ai") + ".";
+						log("res", "200 OK  len=" + synth.length);
+						resolve({ result: synth, reason: reason });
+					}, 420);
+				});
+			}
+
+			var aiByokEditor = new RichTextEditor("#div_ai_byok_editor", {
+				toolbar: "full",
+				height: "460px",
+				aiToolkitPersistenceKey: "byok-demo",
+				aiToolkitResolver: function (request) {
+					var s = readSettings();
+					if (s.provider === "demo") {
+						log("muted", "provider=demo -> no network (built-in resolver)");
+						return null;
+					}
+					if (!s.endpoint) {
+						log("err", "No endpoint configured.");
+						setStatus("err", "No endpoint");
+						return { result: "", reason: "No /api/ai endpoint configured for this tenant." };
+					}
+					setStatus("ok", "Calling " + s.provider);
+					return callBackend(request, s).then(function (res) {
+						setStatus("ok", "Response received");
+						return {
+							result: res.result,
+							reason: res.reason,
+							operations: [{ type: "preview-suggestion", text: res.result, reason: res.reason }]
+						};
+					}, function (err) {
+						log("err", "request failed: " + err.message);
+						setStatus("err", "Request failed");
+						throw err;
+					});
+				}
+			});
+
+			var byok = {
+				save: function () {
+					var s = { provider: providerEl.value, model: modelEl.value.trim(), endpoint: endpointEl.value.trim() };
+					writeSettings(s);
+					runtimeKey = keyEl.value;
+					refreshChip();
+					if (s.provider === "demo") { setStatus("idle", "Demo resolver active"); log("muted", "saved: provider=demo"); }
+					else if (!s.endpoint) { setStatus("err", "Endpoint required"); log("err", "saved but missing endpoint"); }
+					else if (!runtimeKey) { setStatus("err", "Key required"); log("err", "saved but no key - real calls would 401"); }
+					else { setStatus("ok", "Settings saved"); log("muted", "saved: " + s.provider + " / " + (s.model || "-") + " -> " + s.endpoint + " (key length " + runtimeKey.length + ")"); }
+				},
+				test: function () {
+					byok.save();
+					log("req", "test -> " + providerEl.value);
+					setTimeout(function () {
+						if (providerEl.value === "demo") { setStatus("ok", "Demo OK"); log("res", "demo resolver ready"); }
+						else if (!endpointEl.value.trim()) { setStatus("err", "No endpoint"); log("err", "test failed: endpoint empty"); }
+						else { setStatus("ok", "Simulated OK"); log("res", "in production this would GET " + endpointEl.value.trim() + "/healthz"); }
+					}, 300);
+				},
+				clear: function () {
+					try { localStorage.removeItem(BYOK_STORAGE); } catch (e) {}
+					runtimeKey = ""; providerEl.value = "demo"; modelEl.value = ""; endpointEl.value = ""; keyEl.value = "";
+					refreshChip(); setStatus("idle", "Cleared"); log("muted", "settings cleared");
+				},
+				runDialog: function () { aiByokEditor.aiToolkit.openDialog({ presetMode: "rewrite" }); },
+				runQuick: function (mode) { aiByokEditor.aiToolkit.runQuickAction(mode); }
+			};
+		</script>
+		
+	</div>
+
+	<div class="hs-docs-content-divider">
+		<h3>Demo Code:</h3>
+		<pre class="editordemocode rounded language-html">&lt;link rel=&quot;stylesheet&quot; href=&quot;/richtexteditor/rte_theme_default.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;/richtexteditor/plugins/aitoolkit.css&quot; /&gt;
+&lt;script type=&quot;text/javascript&quot; src=&quot;/richtexteditor/rte.js&quot;&gt;&lt;/script&gt;
+&lt;script type=&quot;text/javascript&quot; src=&quot;/richtexteditor/plugins/all_plugins.js&quot;&gt;&lt;/script&gt;
+&lt;script type=&quot;text/javascript&quot; src=&quot;/richtexteditor/plugins/aitoolkit.js&quot;&gt;&lt;/script&gt;
+
+&lt;div class=&quot;byok-split&quot;&gt;
+	&lt;aside class=&quot;byok-settings&quot;&gt;
+		&lt;div class=&quot;byok-settings-head&quot;&gt;
+			&lt;div&gt;
+				&lt;div class=&quot;byok-kicker&quot;&gt;AI provider&lt;/div&gt;
+				&lt;h3&gt;Tenant settings&lt;/h3&gt;
+			&lt;/div&gt;
+			&lt;span class=&quot;byok-chip&quot; id=&quot;byok-active-chip&quot;&gt;Demo resolver&lt;/span&gt;
+		&lt;/div&gt;
+
+		&lt;label class=&quot;byok-label&quot; for=&quot;byok-provider&quot;&gt;Provider&lt;/label&gt;
+		&lt;select class=&quot;byok-input&quot; id=&quot;byok-provider&quot;&gt;
+			&lt;option value=&quot;demo&quot;&gt;Built-in demo resolver (no key)&lt;/option&gt;
+			&lt;option value=&quot;openai&quot;&gt;OpenAI&lt;/option&gt;
+			&lt;option value=&quot;anthropic&quot;&gt;Anthropic&lt;/option&gt;
+			&lt;option value=&quot;azure&quot;&gt;Azure OpenAI&lt;/option&gt;
+			&lt;option value=&quot;custom&quot;&gt;Custom endpoint&lt;/option&gt;
+		&lt;/select&gt;
+
+		&lt;label class=&quot;byok-label&quot; for=&quot;byok-model&quot;&gt;Model&lt;/label&gt;
+		&lt;input class=&quot;byok-input&quot; id=&quot;byok-model&quot; type=&quot;text&quot; placeholder=&quot;gpt-4o-mini&quot; /&gt;
+
+		&lt;label class=&quot;byok-label&quot; for=&quot;byok-endpoint&quot;&gt;Endpoint&lt;/label&gt;
+		&lt;input class=&quot;byok-input&quot; id=&quot;byok-endpoint&quot; type=&quot;url&quot; placeholder=&quot;/api/ai&quot; /&gt;
+		&lt;div class=&quot;byok-hint&quot;&gt;Your backend URL, &lt;strong&gt;not&lt;/strong&gt; the provider URL. Your server relays to the provider.&lt;/div&gt;
+
+		&lt;label class=&quot;byok-label&quot; for=&quot;byok-key&quot;&gt;API key&lt;/label&gt;
+		&lt;input class=&quot;byok-input byok-input-mono&quot; id=&quot;byok-key&quot; type=&quot;password&quot; placeholder=&quot;sk-...&quot; autocomplete=&quot;off&quot; /&gt;
+		&lt;div class=&quot;byok-hint&quot;&gt;In the real flow this POSTs to your server only. Here it stays in memory.&lt;/div&gt;
+
+		&lt;div class=&quot;byok-row&quot;&gt;
+			&lt;button class=&quot;byok-btn byok-btn-primary&quot; type=&quot;button&quot; onclick=&quot;byok.save();&quot;&gt;Save&lt;/button&gt;
+			&lt;button class=&quot;byok-btn&quot; type=&quot;button&quot; onclick=&quot;byok.test();&quot;&gt;Test&lt;/button&gt;
+			&lt;button class=&quot;byok-btn&quot; type=&quot;button&quot; onclick=&quot;byok.clear();&quot;&gt;Clear&lt;/button&gt;
+		&lt;/div&gt;
+
+		&lt;div class=&quot;byok-status-row&quot;&gt;
+			&lt;span class=&quot;byok-status byok-status-idle&quot; id=&quot;byok-status&quot;&gt;&lt;span class=&quot;byok-status-dot&quot;&gt;&lt;/span&gt;&lt;span id=&quot;byok-status-text&quot;&gt;Idle&lt;/span&gt;&lt;/span&gt;
+		&lt;/div&gt;
+
+		&lt;div class=&quot;byok-log-head&quot;&gt;Resolver log&lt;/div&gt;
+		&lt;div class=&quot;byok-log&quot; id=&quot;byok-log&quot;&gt;&lt;span class=&quot;byok-log-muted&quot;&gt;Waiting for first request...&lt;/span&gt;&lt;/div&gt;
+	&lt;/aside&gt;
+
+	&lt;div class=&quot;byok-editor-wrap&quot;&gt;
+		&lt;div id=&quot;div_ai_byok_editor&quot;&gt;
+			&lt;h2&gt;Tenant-configured AI editor&lt;/h2&gt;
+			&lt;p&gt;When the provider is set to &lt;strong&gt;Built-in demo resolver&lt;/strong&gt;, Ask AI runs locally with no network call.&lt;/p&gt;
+			&lt;p&gt;Switch to OpenAI / Anthropic / Azure / Custom and Ask AI will route through &lt;strong&gt;your endpoint&lt;/strong&gt;, which in turn uses the tenant&#39;s saved key. In this demo, the request is simulated so you can see the flow end-to-end.&lt;/p&gt;
+			&lt;ul&gt;
+				&lt;li&gt;Try the &lt;strong&gt;Proofread&lt;/strong&gt; quick action&lt;/li&gt;
+				&lt;li&gt;Open &lt;strong&gt;Ask AI&lt;/strong&gt; from the toolbar&lt;/li&gt;
+				&lt;li&gt;Watch the Resolver log on the left&lt;/li&gt;
+			&lt;/ul&gt;
+		&lt;/div&gt;
+
+		&lt;div class=&quot;demo-btn-row mt-3&quot;&gt;
+			&lt;button class=&quot;btn btn-sm btn-outline-primary btn-pill transition-3d-hover px-5&quot; onclick=&quot;byok.runDialog();&quot;&gt;Open Ask AI&lt;/button&gt;
+			&lt;button class=&quot;btn btn-sm btn-outline-primary btn-pill transition-3d-hover px-5&quot; onclick=&quot;byok.runQuick(&#39;proofread&#39;);&quot;&gt;Proofread&lt;/button&gt;
+			&lt;button class=&quot;btn btn-sm btn-outline-primary btn-pill transition-3d-hover px-5&quot; onclick=&quot;byok.runQuick(&#39;summarize&#39;);&quot;&gt;Summarize&lt;/button&gt;
+			&lt;button class=&quot;btn btn-sm btn-outline-primary btn-pill transition-3d-hover px-5&quot; onclick=&quot;byok.runQuick(&#39;rewrite&#39;);&quot;&gt;Rewrite&lt;/button&gt;
+		&lt;/div&gt;
+	&lt;/div&gt;
+&lt;/div&gt;
+
+&lt;script&gt;
+	var BYOK_STORAGE = &quot;RTE.Demo.BYOK.tenantSettings&quot;;
+	var runtimeKey = &quot;&quot;;
+
+	function readSettings() {
+		try {
+			var raw = localStorage.getItem(BYOK_STORAGE);
+			if (!raw) return { provider: &quot;demo&quot;, model: &quot;&quot;, endpoint: &quot;&quot; };
+			return JSON.parse(raw);
+		} catch (e) { return { provider: &quot;demo&quot;, model: &quot;&quot;, endpoint: &quot;&quot; }; }
+	}
+	function writeSettings(s) {
+		var safe = { provider: s.provider, model: s.model, endpoint: s.endpoint };
+		try { localStorage.setItem(BYOK_STORAGE, JSON.stringify(safe)); } catch (e) {}
+	}
+
+	var statusEl = document.getElementById(&quot;byok-status&quot;);
+	var statusText = document.getElementById(&quot;byok-status-text&quot;);
+	var logEl = document.getElementById(&quot;byok-log&quot;);
+	var chipEl = document.getElementById(&quot;byok-active-chip&quot;);
+
+	function setStatus(kind, text) {
+		statusEl.className = &quot;byok-status byok-status-&quot; + kind;
+		statusText.textContent = text;
+	}
+	function log(kind, msg) {
+		if (logEl.querySelector(&quot;.byok-log-muted&quot;)) logEl.innerHTML = &quot;&quot;;
+		var line = document.createElement(&quot;div&quot;);
+		line.className = &quot;byok-log-&quot; + kind;
+		line.textContent = &quot;[&quot; + new Date().toLocaleTimeString() + &quot;] &quot; + msg;
+		logEl.appendChild(line);
+		logEl.scrollTop = logEl.scrollHeight;
+	}
+	function refreshChip() {
+		var s = readSettings();
+		chipEl.textContent = ({
+			demo: &quot;Demo resolver&quot;, openai: &quot;OpenAI&quot;, anthropic: &quot;Anthropic&quot;,
+			azure: &quot;Azure OpenAI&quot;, custom: &quot;Custom endpoint&quot;
+		})[s.provider] || &quot;Demo resolver&quot;;
+	}
+
+	var providerEl = document.getElementById(&quot;byok-provider&quot;);
+	var modelEl = document.getElementById(&quot;byok-model&quot;);
+	var endpointEl = document.getElementById(&quot;byok-endpoint&quot;);
+	var keyEl = document.getElementById(&quot;byok-key&quot;);
+
+	(function hydrate() {
+		var s = readSettings();
+		providerEl.value = s.provider || &quot;demo&quot;;
+		modelEl.value = s.model || &quot;&quot;;
+		endpointEl.value = s.endpoint || &quot;&quot;;
+		refreshChip();
+	})();
+
+	function callBackend(request, settings) {
+		return new Promise(function (resolve, reject) {
+			log(&quot;req&quot;, &quot;POST &quot; + (settings.endpoint || &quot;/api/ai&quot;) +
+				&quot;  {provider:&quot; + settings.provider + &quot;, model:&quot; + (settings.model || &quot;-&quot;) +
+				&quot;, mode:&quot; + request.mode + &quot;, len:&quot; + (request.source || &quot;&quot;).length + &quot;}&quot;);
+			setTimeout(function () {
+				var synth = aiByokEditor.aiToolkit.buildDemoResult(
+					request.mode, request.source || &quot;&quot;, { language: request.language }
+				);
+				if (!synth) { reject(new Error(&quot;empty source&quot;)); return; }
+				var reason = &quot;Simulated response from &quot; + settings.provider.toUpperCase() +
+							 (settings.model ? &quot; / &quot; + settings.model : &quot;&quot;) +
+							 &quot; via &quot; + (settings.endpoint || &quot;/api/ai&quot;) + &quot;.&quot;;
+				log(&quot;res&quot;, &quot;200 OK  len=&quot; + synth.length);
+				resolve({ result: synth, reason: reason });
+			}, 420);
+		});
+	}
+
+	var aiByokEditor = new RichTextEditor(&quot;#div_ai_byok_editor&quot;, {
+		toolbar: &quot;full&quot;,
+		height: &quot;460px&quot;,
+		aiToolkitPersistenceKey: &quot;byok-demo&quot;,
+		aiToolkitResolver: function (request) {
+			var s = readSettings();
+			if (s.provider === &quot;demo&quot;) {
+				log(&quot;muted&quot;, &quot;provider=demo -&gt; no network (built-in resolver)&quot;);
+				return null;
+			}
+			if (!s.endpoint) {
+				log(&quot;err&quot;, &quot;No endpoint configured.&quot;);
+				setStatus(&quot;err&quot;, &quot;No endpoint&quot;);
+				return { result: &quot;&quot;, reason: &quot;No /api/ai endpoint configured for this tenant.&quot; };
+			}
+			setStatus(&quot;ok&quot;, &quot;Calling &quot; + s.provider);
+			return callBackend(request, s).then(function (res) {
+				setStatus(&quot;ok&quot;, &quot;Response received&quot;);
+				return {
+					result: res.result,
+					reason: res.reason,
+					operations: [{ type: &quot;preview-suggestion&quot;, text: res.result, reason: res.reason }]
+				};
+			}, function (err) {
+				log(&quot;err&quot;, &quot;request failed: &quot; + err.message);
+				setStatus(&quot;err&quot;, &quot;Request failed&quot;);
+				throw err;
+			});
+		}
+	});
+
+	var byok = {
+		save: function () {
+			var s = { provider: providerEl.value, model: modelEl.value.trim(), endpoint: endpointEl.value.trim() };
+			writeSettings(s);
+			runtimeKey = keyEl.value;
+			refreshChip();
+			if (s.provider === &quot;demo&quot;) { setStatus(&quot;idle&quot;, &quot;Demo resolver active&quot;); log(&quot;muted&quot;, &quot;saved: provider=demo&quot;); }
+			else if (!s.endpoint) { setStatus(&quot;err&quot;, &quot;Endpoint required&quot;); log(&quot;err&quot;, &quot;saved but missing endpoint&quot;); }
+			else if (!runtimeKey) { setStatus(&quot;err&quot;, &quot;Key required&quot;); log(&quot;err&quot;, &quot;saved but no key - real calls would 401&quot;); }
+			else { setStatus(&quot;ok&quot;, &quot;Settings saved&quot;); log(&quot;muted&quot;, &quot;saved: &quot; + s.provider + &quot; / &quot; + (s.model || &quot;-&quot;) + &quot; -&gt; &quot; + s.endpoint + &quot; (key length &quot; + runtimeKey.length + &quot;)&quot;); }
+		},
+		test: function () {
+			byok.save();
+			log(&quot;req&quot;, &quot;test -&gt; &quot; + providerEl.value);
+			setTimeout(function () {
+				if (providerEl.value === &quot;demo&quot;) { setStatus(&quot;ok&quot;, &quot;Demo OK&quot;); log(&quot;res&quot;, &quot;demo resolver ready&quot;); }
+				else if (!endpointEl.value.trim()) { setStatus(&quot;err&quot;, &quot;No endpoint&quot;); log(&quot;err&quot;, &quot;test failed: endpoint empty&quot;); }
+				else { setStatus(&quot;ok&quot;, &quot;Simulated OK&quot;); log(&quot;res&quot;, &quot;in production this would GET &quot; + endpointEl.value.trim() + &quot;/healthz&quot;); }
+			}, 300);
+		},
+		clear: function () {
+			try { localStorage.removeItem(BYOK_STORAGE); } catch (e) {}
+			runtimeKey = &quot;&quot;; providerEl.value = &quot;demo&quot;; modelEl.value = &quot;&quot;; endpointEl.value = &quot;&quot;; keyEl.value = &quot;&quot;;
+			refreshChip(); setStatus(&quot;idle&quot;, &quot;Cleared&quot;); log(&quot;muted&quot;, &quot;settings cleared&quot;);
+		},
+		runDialog: function () { aiByokEditor.aiToolkit.openDialog({ presetMode: &quot;rewrite&quot; }); },
+		runQuick: function (mode) { aiByokEditor.aiToolkit.runQuickAction(mode); }
+	};
+&lt;/script&gt;</pre>
+	</div>
+
+	<div class="hs-docs-content-divider">
+		<h3>Server-side sketch</h3>
+		<p>Example Express handler for <code>/api/ai</code>. Adapt to your stack - the shape is the same in ASP.NET, Go, or Python.</p>
+		<pre class="editordemocode rounded language-javascript">// POST /api/ai  {mode, text, language?}
+app.post("/api/ai", requireTenantSession, async (req, res) =&gt; {
+    const { mode, text, language } = req.body;
+
+    // Look up this tenant's provider + key from YOUR secrets store.
+    const cfg = await secrets.getTenantAIConfig(req.tenantId);
+    if (!cfg) return res.status(400).json({ error: "Tenant has no AI provider configured." });
+
+    // Call the provider with the tenant's key. Never echo the key back.
+    const reply = await providers[cfg.provider].run({
+        model: cfg.model, apiKey: cfg.apiKey,
+        mode, text, language
+    });
+
+    // Return only what the editor needs.
+    res.json({ result: reply.text, reason: reply.explanation });
+});</pre>
+	</div>
+
+	</div>
+	<script src="res/patch.js"></script>
+</body>
+</html>

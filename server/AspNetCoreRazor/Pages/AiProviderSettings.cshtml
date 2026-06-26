@@ -1,0 +1,279 @@
+@page
+@model AspNetCoreRazor.Pages.AiProviderSettingsModel
+@{
+	ViewData["Title"] = "AI Provider Settings (BYOK)";
+}
+
+<style>
+	.byok-warn { border: 1px solid #fde68a; background: #fffbeb; color: #7c4a03; border-radius: 12px; padding: 12px 16px; font-size: 13.5px; line-height: 1.6; }
+	.byok-warn strong { color: #78350f; }
+	.byok-flow { display: grid; gap: 10px; grid-template-columns: 1fr; }
+	@@media (min-width: 900px) { .byok-flow { grid-template-columns: repeat(4, 1fr); } }
+	.byok-flow-step { padding: 12px 14px; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff; font-size: 12.5px; line-height: 1.55; color: #64758a; }
+	.byok-flow-step strong { display: block; margin-top: 8px; font-size: 13.5px; color: #0f172a; }
+	.byok-flow-step-n { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: #1559d6; color: #fff; font-size: 11px; font-weight: 800; }
+	.byok-split { display: grid; gap: 18px; grid-template-columns: 1fr; margin-top: 14px; }
+	@@media (min-width: 1024px) { .byok-split { grid-template-columns: 340px 1fr; align-items: start; } }
+	.byok-settings { padding: 18px; border: 1px solid #e2e8f0; border-radius: 14px; background: #fff; box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05); }
+	.byok-settings-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+	.byok-settings-head h3 { margin: 4px 0 0; font-size: 16px; font-weight: 800; color: #0f172a; }
+	.byok-kicker { font-size: 11px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: #0f4da8; }
+	.byok-chip { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 999px; background: rgba(21, 89, 214, 0.1); color: #1559d6; font-size: 11px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; }
+	.byok-label { display: block; font-size: 11px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: #475569; margin: 12px 0 5px; }
+	.byok-input { width: 100%; padding: 8px 11px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; font: inherit; font-size: 13px; color: #0f172a; box-sizing: border-box; }
+	.byok-input:focus { outline: none; border-color: #60a5fa; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18); }
+	.byok-input-mono { font-family: Consolas, "SF Mono", Menlo, monospace; }
+	.byok-hint { margin-top: 4px; font-size: 11.5px; color: #64748b; line-height: 1.5; }
+	.byok-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+	.byok-btn { display: inline-flex; align-items: center; padding: 7px 14px; border: 1px solid #cbd5e1; border-radius: 9999px; background: #fff; color: #334155; font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+	.byok-btn:hover { background: #f1f5f9; }
+	.byok-btn-primary { color: #fff; background: linear-gradient(180deg, #2873e8, #1559d6); border-color: rgba(21, 89, 214, 0.5); }
+	.byok-btn-primary:hover { background: linear-gradient(180deg, #3b80ee, #1a63e0); }
+	.byok-status-row { margin-top: 12px; }
+	.byok-status { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px; border-radius: 999px; font-size: 11.5px; font-weight: 700; }
+	.byok-status-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 3px currentColor; opacity: 0.18; }
+	.byok-status-idle { background: #f1f5f9; color: #475569; }
+	.byok-status-ok { background: rgba(16, 185, 129, 0.12); color: #166534; }
+	.byok-status-err { background: rgba(244, 63, 94, 0.12); color: #9f1239; }
+	.byok-log-head { margin-top: 16px; font-size: 11px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: #475569; margin-bottom: 6px; }
+	.byok-log { max-height: 180px; overflow: auto; padding: 10px 12px; background: #0b1220; color: #e2e8f0; border-radius: 10px; font: 500 11.5px/1.6 Consolas, "SF Mono", Menlo, monospace; }
+	.byok-log-req { color: #60a5fa; }
+	.byok-log-res { color: #86efac; }
+	.byok-log-err { color: #fca5a5; }
+	.byok-log-muted { color: #64748b; }
+</style>
+
+<link rel="stylesheet" href="/richtexteditor/rte_theme_default.css" />
+<link rel="stylesheet" href="/richtexteditor/plugins/aitoolkit.css" />
+
+<div class="container" style="max-width:1080px">
+	<h2 style="margin-top:1rem">AI Provider Settings (BYOK)</h2>
+	<p class="lead">
+		Tenant-facing admin flow for wiring your editor to an AI provider. The API key lives on your server only - this page demonstrates the client-side piece that lets an admin <em>activate</em> a provider that the backend already knows about.
+	</p>
+
+	<div class="byok-warn mt-3">
+		<strong>Demo disclaimer.</strong>
+		This page stores the configured provider, model, and endpoint in <code>localStorage</code> for convenience, and keeps the entered key in memory only for this page's lifetime.
+		<strong>Never</strong> put a real API key in browser storage in production. Your admin form should POST the key to your server over HTTPS and store it in a secrets manager.
+	</div>
+
+	<div class="byok-flow mt-4">
+		<div class="byok-flow-step"><span class="byok-flow-step-n">1</span><strong>Admin configures</strong><span>Tenant admin picks a provider and pastes a key. Your form POSTs it to your server over HTTPS.</span></div>
+		<div class="byok-flow-step"><span class="byok-flow-step-n">2</span><strong>Server stores</strong><span>Your backend writes the key into your secrets manager, scoped to the tenant.</span></div>
+		<div class="byok-flow-step"><span class="byok-flow-step-n">3</span><strong>Editor asks</strong><span>The editor's resolver POSTs to your <code>/api/ai</code>. Session cookie identifies the caller.</span></div>
+		<div class="byok-flow-step"><span class="byok-flow-step-n">4</span><strong>Backend relays</strong><span>Your endpoint looks up the tenant's key, calls the provider, returns the result.</span></div>
+	</div>
+
+	<div class="byok-split mt-4">
+		<aside class="byok-settings">
+			<div class="byok-settings-head">
+				<div>
+					<div class="byok-kicker">AI provider</div>
+					<h3>Tenant settings</h3>
+				</div>
+				<span class="byok-chip" id="byokActiveChip">Demo resolver</span>
+			</div>
+
+			<label class="byok-label" for="byokProvider">Provider</label>
+			<select class="byok-input" id="byokProvider">
+				<option value="demo">Built-in demo resolver (no key)</option>
+				<option value="openai">OpenAI</option>
+				<option value="anthropic">Anthropic</option>
+				<option value="azure">Azure OpenAI</option>
+				<option value="custom">Custom endpoint</option>
+			</select>
+
+			<label class="byok-label" for="byokModel">Model</label>
+			<input class="byok-input" id="byokModel" type="text" placeholder="gpt-4o-mini" />
+
+			<label class="byok-label" for="byokEndpoint">Endpoint</label>
+			<input class="byok-input" id="byokEndpoint" type="url" placeholder="/api/ai" />
+			<div class="byok-hint">Your backend URL, not the provider URL. Your server relays to the provider.</div>
+
+			<label class="byok-label" for="byokKey">API key</label>
+			<input class="byok-input byok-input-mono" id="byokKey" type="password" placeholder="sk-..." autocomplete="off" />
+			<div class="byok-hint">In the real flow this POSTs to your server only. Here it stays in memory.</div>
+
+			<div class="byok-row">
+				<button class="byok-btn byok-btn-primary" type="button" id="byokSave">Save</button>
+				<button class="byok-btn" type="button" id="byokTest">Test</button>
+				<button class="byok-btn" type="button" id="byokClear">Clear</button>
+			</div>
+
+			<div class="byok-status-row">
+				<span class="byok-status byok-status-idle" id="byokStatus"><span class="byok-status-dot"></span><span id="byokStatusText">Idle</span></span>
+			</div>
+
+			<div class="byok-log-head">Resolver log</div>
+			<div class="byok-log" id="byokLog"><span class="byok-log-muted">Waiting for first request...</span></div>
+		</aside>
+
+		<div>
+			<div id="div_editor1" class="richtexteditor">
+				<h2>Tenant-configured AI editor</h2>
+				<p>When the provider is set to <strong>Built-in demo resolver</strong>, Ask AI runs locally with no network call.</p>
+				<p>Switch to OpenAI / Anthropic / Azure / Custom and Ask AI will route through <strong>your endpoint</strong>, which uses the tenant's saved key. In this demo, the request is simulated so you can see the flow end-to-end.</p>
+				<ul>
+					<li>Try the <strong>Proofread</strong> quick action</li>
+					<li>Open <strong>Ask AI</strong> from the toolbar</li>
+					<li>Watch the Resolver log on the left</li>
+				</ul>
+			</div>
+
+			<div class="mt-3">
+				<button class="btn btn-primary" type="button" id="btnOpenDialog">Open Ask AI</button>
+				<button class="btn btn-outline-primary" type="button" id="btnProofread">Proofread</button>
+				<button class="btn btn-outline-primary" type="button" id="btnSummarize">Summarize</button>
+			</div>
+		</div>
+	</div>
+
+	<h3 class="mt-5">Server-side sketch (ASP.NET Core)</h3>
+	<p>For a real deployment, move the routing into your server with an <code>IAiProviderRouter</code> and a minimal-API handler. The key never crosses the client boundary.</p>
+	<pre style="background:#0b1220;color:#e2e8f0;padding:14px;border-radius:10px;font:500 12.5px/1.65 Consolas,monospace;overflow:auto;">// Program.cs
+app.MapPost("/api/ai", async (HttpContext ctx, AIRequest body, ITenantAIConfigStore secrets) =&gt;
+{
+    var tenantId = ctx.User.FindFirst("tenant_id")?.Value;
+    var cfg = await secrets.GetAsync(tenantId!);
+    if (cfg is null) return Results.BadRequest(new { error = "No provider configured." });
+
+    var reply = await ProviderRouter.CallAsync(cfg.Provider, cfg.Model, cfg.ApiKey,
+                                               body.Mode, body.Text, body.Language);
+
+    return Results.Json(new { result = reply.Text, explanation = reply.Explanation });
+});</pre>
+</div>
+
+@section Scripts {
+<script type="text/javascript" src="/richtexteditor/rte.js"></script>
+<script type="text/javascript" src="/richtexteditor/plugins/all_plugins.js"></script>
+<script type="text/javascript" src="/richtexteditor/plugins/aitoolkit.js"></script>
+<script>
+(function () {
+	var BYOK_STORAGE = "RTE.Razor.BYOK.tenantSettings";
+	var runtimeKey = "";
+
+	function readSettings() {
+		try {
+			var raw = localStorage.getItem(BYOK_STORAGE);
+			if (!raw) return { provider: "demo", model: "", endpoint: "" };
+			return JSON.parse(raw);
+		} catch (e) { return { provider: "demo", model: "", endpoint: "" }; }
+	}
+	function writeSettings(s) {
+		try { localStorage.setItem(BYOK_STORAGE, JSON.stringify({ provider: s.provider, model: s.model, endpoint: s.endpoint })); } catch (e) {}
+	}
+
+	var statusEl = document.getElementById("byokStatus");
+	var statusText = document.getElementById("byokStatusText");
+	var logEl = document.getElementById("byokLog");
+	var chipEl = document.getElementById("byokActiveChip");
+
+	function setStatus(kind, text) { statusEl.className = "byok-status byok-status-" + kind; statusText.textContent = text; }
+	function log(kind, msg) {
+		var placeholder = logEl.querySelector(".byok-log-muted");
+		if (placeholder) logEl.innerHTML = "";
+		var line = document.createElement("div");
+		line.className = "byok-log-" + kind;
+		line.textContent = "[" + new Date().toLocaleTimeString() + "] " + msg;
+		logEl.appendChild(line);
+		logEl.scrollTop = logEl.scrollHeight;
+	}
+	function refreshChip() {
+		chipEl.textContent = ({ demo: "Demo resolver", openai: "OpenAI", anthropic: "Anthropic", azure: "Azure OpenAI", custom: "Custom endpoint" })[readSettings().provider] || "Demo resolver";
+	}
+
+	var providerEl = document.getElementById("byokProvider");
+	var modelEl = document.getElementById("byokModel");
+	var endpointEl = document.getElementById("byokEndpoint");
+	var keyEl = document.getElementById("byokKey");
+
+	(function hydrate() {
+		var s = readSettings();
+		providerEl.value = s.provider || "demo";
+		modelEl.value = s.model || "";
+		endpointEl.value = s.endpoint || "";
+		refreshChip();
+	})();
+
+	var editor1 = new RichTextEditor(document.getElementById("div_editor1"), {
+		toolbar: "full",
+		height: "460px",
+		aiToolkitPersistenceKey: "razor-byok-demo"
+	});
+
+	function callSimulatedBackend(request, settings) {
+		return new Promise(function (resolve, reject) {
+			log("req", "POST " + (settings.endpoint || "/api/ai") + "  {provider:" + settings.provider + ", model:" + (settings.model || "-") + ", mode:" + request.mode + ", len:" + (request.source || "").length + "}");
+			setTimeout(function () {
+				if (!editor1.aiToolkit || !editor1.aiToolkit.buildDemoResult) { reject(new Error("editor not ready")); return; }
+				var synth = editor1.aiToolkit.buildDemoResult(request.mode, request.source || "", { language: request.language });
+				if (!synth) { reject(new Error("empty source")); return; }
+				var reason = "Simulated response from " + settings.provider.toUpperCase() + (settings.model ? " / " + settings.model : "") + " via " + (settings.endpoint || "/api/ai") + ".";
+				log("res", "200 OK  len=" + synth.length);
+				resolve({ result: synth, reason: reason });
+			}, 420);
+		});
+	}
+
+	function customResolver(request) {
+		var s = readSettings();
+		if (s.provider === "demo") { log("muted", "provider=demo -> built-in resolver"); return null; }
+		if (!s.endpoint) { log("err", "No endpoint configured."); setStatus("err", "No endpoint"); return { result: "", reason: "No /api/ai endpoint configured." }; }
+		setStatus("ok", "Calling " + s.provider);
+		return callSimulatedBackend(request, s).then(function (res) {
+			setStatus("ok", "Response received");
+			return { result: res.result, reason: res.reason, operations: [{ type: "preview-suggestion", text: res.result, reason: res.reason }] };
+		}, function (err) {
+			log("err", "request failed: " + err.message);
+			setStatus("err", "Request failed");
+			throw err;
+		});
+	}
+
+	function attachResolver() {
+		if (editor1.aiToolkit && editor1.aiToolkit.setResolver) {
+			editor1.aiToolkit.setResolver(customResolver);
+			log("muted", "resolver attached; provider=" + readSettings().provider);
+		} else {
+			setTimeout(attachResolver, 150);
+		}
+	}
+	attachResolver();
+
+	document.getElementById("byokSave").addEventListener("click", function () {
+		var s = { provider: providerEl.value, model: modelEl.value.trim(), endpoint: endpointEl.value.trim() };
+		writeSettings(s); runtimeKey = keyEl.value; refreshChip();
+		if (s.provider === "demo") { setStatus("idle", "Demo resolver active"); log("muted", "saved: provider=demo"); }
+		else if (!s.endpoint) { setStatus("err", "Endpoint required"); log("err", "saved but missing endpoint"); }
+		else if (!runtimeKey) { setStatus("err", "Key required"); log("err", "saved but no key"); }
+		else { setStatus("ok", "Settings saved"); log("muted", "saved: " + s.provider + " / " + (s.model || "-") + " -> " + s.endpoint + " (key length " + runtimeKey.length + ")"); }
+	});
+	document.getElementById("byokTest").addEventListener("click", function () {
+		document.getElementById("byokSave").click();
+		log("req", "test -> " + providerEl.value);
+		setTimeout(function () {
+			if (providerEl.value === "demo") { setStatus("ok", "Demo OK"); log("res", "demo resolver ready"); }
+			else if (!endpointEl.value.trim()) { setStatus("err", "No endpoint"); log("err", "endpoint empty"); }
+			else { setStatus("ok", "Simulated OK"); log("res", "would GET " + endpointEl.value.trim() + "/healthz"); }
+		}, 300);
+	});
+	document.getElementById("byokClear").addEventListener("click", function () {
+		try { localStorage.removeItem(BYOK_STORAGE); } catch (e) {}
+		runtimeKey = ""; providerEl.value = "demo"; modelEl.value = ""; endpointEl.value = ""; keyEl.value = "";
+		refreshChip(); setStatus("idle", "Cleared"); log("muted", "settings cleared");
+	});
+
+	document.getElementById("btnOpenDialog").addEventListener("click", function () {
+		if (editor1.aiToolkit) editor1.aiToolkit.openDialog({ presetMode: "rewrite" });
+	});
+	document.getElementById("btnProofread").addEventListener("click", function () {
+		if (editor1.aiToolkit) editor1.aiToolkit.runQuickAction("proofread");
+	});
+	document.getElementById("btnSummarize").addEventListener("click", function () {
+		if (editor1.aiToolkit) editor1.aiToolkit.runQuickAction("summarize");
+	});
+})();
+</script>
+}
