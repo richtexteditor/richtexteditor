@@ -143,9 +143,11 @@ function RTE_Plugin_TrackedChanges() {
         var range = sel.getRangeAt(0);
         if (!range.collapsed) {
             // Selection replace: wrap selection as delete, then insert new text.
-            wrapRangeAsDelete(range);
+            if (!wrapRangeAsDelete(range)) return;
             // After wrapping, caret should be past the delete span; re-fetch selection.
             range = sel.getRangeAt(0);
+            createInsertSpan(text, range);
+            return;
         }
 
         var mergeTarget = adjacentInsertSpan(range);
@@ -393,11 +395,11 @@ function RTE_Plugin_TrackedChanges() {
     }
 
     function wrapRangeAsDelete(range) {
-        if (range.collapsed) return;
+        if (range.collapsed) return false;
         var editdoc = editor.getDocument();
 
         var fragment = range.cloneContents();
-        if (!fragmentHasText(fragment)) return;
+        if (!fragmentHasText(fragment)) return false;
 
         // Find existing same-author delete spans adjacent to the range so we can merge
         // sequential backspaces / forward deletes into one contiguous span.
@@ -431,7 +433,7 @@ function RTE_Plugin_TrackedChanges() {
             if (beforeId && editor.reviewLedger) {
                 editor.reviewLedger.update(beforeId, { text: mergeBefore.textContent });
             }
-            return;
+            return true;
         }
 
         if (mergeAfter) {
@@ -447,7 +449,7 @@ function RTE_Plugin_TrackedChanges() {
             if (afterMergeId && editor.reviewLedger) {
                 editor.reviewLedger.update(afterMergeId, { text: mergeAfter.textContent });
             }
-            return;
+            return true;
         }
 
         var span = editdoc.createElement("span");
@@ -478,6 +480,7 @@ function RTE_Plugin_TrackedChanges() {
             sourceLabel: "Suggested delete",
             createdAt: Date.now()
         });
+        return true;
     }
 
     function adjacentDeleteSpan(range, side, user) {

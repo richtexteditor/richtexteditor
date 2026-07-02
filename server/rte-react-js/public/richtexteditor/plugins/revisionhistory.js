@@ -550,7 +550,11 @@ function RTE_Plugin_RevisionHistory() {
             restoreBtn.type = "button";
             restoreBtn.className = "rte-rev-btn rte-rev-btn-primary";
             restoreBtn.textContent = "Restore this version";
-            restoreBtn.addEventListener("mousedown", function (e) { e.preventDefault(); restore(selected.id); });
+            restoreBtn.addEventListener("mousedown", function (e) { e.preventDefault(); });
+            restoreBtn.addEventListener("click", function (e) {
+                e.preventDefault();
+                restore(selected.id);
+            });
             footerBtns.appendChild(delBtn);
             footerBtns.appendChild(restoreBtn);
             footer.appendChild(labelInfo);
@@ -590,6 +594,7 @@ function RTE_Plugin_RevisionHistory() {
             ".rte-rev-btn:focus-visible{outline:2px solid rgba(56,122,255,.34);outline-offset:2px}",
             ".rte-rev-btn-ghost{background:#fff;color:#34506f}",
             ".rte-rev-btn-primary{background:linear-gradient(135deg,#2563eb,#1d67ba);color:#fff;border-color:rgba(29,103,186,.85);box-shadow:0 8px 18px rgba(37,99,235,.22)}",
+            ".rte-rev-btn-primary:hover{background:linear-gradient(135deg,#1d4ed8,#195fad);color:#fff;border-color:rgba(29,78,216,.9);box-shadow:0 9px 20px rgba(37,99,235,.28)}",
             ".rte-rev-btn-danger{background:#fff5f5;color:#9f1d1d;border-color:rgba(190,45,45,.22)}",
             ".rte-rev-body{display:flex;flex:1;min-height:0;background:linear-gradient(90deg,#f8fbff 0%,#fff 42%)}",
             ".rte-rev-list{width:258px;flex:0 0 258px;border-right:1px solid rgba(117,137,163,.18);overflow-y:auto;background:rgba(244,248,253,.78);padding:10px}",
@@ -628,6 +633,7 @@ function RTE_Plugin_RevisionHistory() {
             "  .rte-rev-title,.rte-rev-row-who{color:#e2e8f0}",
             "  .rte-rev-btn,.rte-rev-btn-ghost{background:#0f172a;color:#cbd5e1;border-color:#334155}",
             "  .rte-rev-btn:hover{background:#334155}",
+            "  .rte-rev-btn-primary,.rte-rev-btn-primary:hover{background:linear-gradient(135deg,#2563eb,#1d4ed8);color:#fff;border-color:#3b82f6}",
             "  .rte-rev-body{background:#0f172a}",
             "  .rte-rev-list{background:rgba(15,23,42,.6);border-color:#334155}",
             "  .rte-rev-empty{background:#1e293b;color:#94a3b8;border-color:#334155}",
@@ -646,6 +652,7 @@ function RTE_Plugin_RevisionHistory() {
             ".rte-rev-dark .rte-rev-title,.rte-rev-dark .rte-rev-row-who{color:#e2e8f0}",
             ".rte-rev-dark .rte-rev-btn,.rte-rev-dark .rte-rev-btn-ghost{background:#0f172a;color:#cbd5e1;border-color:#334155}",
             ".rte-rev-dark .rte-rev-btn:hover{background:#334155}",
+            ".rte-rev-dark .rte-rev-btn-primary,.rte-rev-dark .rte-rev-btn-primary:hover{background:linear-gradient(135deg,#2563eb,#1d4ed8);color:#fff;border-color:#3b82f6}",
             ".rte-rev-dark .rte-rev-body{background:#0f172a}",
             ".rte-rev-dark .rte-rev-list{background:rgba(15,23,42,.6);border-color:#334155}",
             ".rte-rev-dark .rte-rev-empty{background:#1e293b;color:#94a3b8;border-color:#334155}",

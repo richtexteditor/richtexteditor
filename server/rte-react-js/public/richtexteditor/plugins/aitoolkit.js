@@ -17087,7 +17087,7 @@ function RTE_Plugin_AIToolkit() {
         applyGuidance.className = "demo-ai-apply-guidance";
         applyGuidance.style.display = "none";
         applyGuidance.setAttribute("role", "group");
-        applyGuidance.setAttribute("aria-label", "Recommended next step");
+        applyGuidance.setAttribute("aria-label", "Best next step");
         var applyGuidanceHeader = append(applyGuidance, "div", "", "demo-ai-apply-guidance-header");
         var applyGuidanceTitle = append(applyGuidanceHeader, "span", "", "demo-ai-apply-guidance-title", "Next");
         var applyGuidanceBadge = append(applyGuidanceHeader, "span", "", "demo-ai-apply-guidance-badge");
@@ -18326,11 +18326,11 @@ function RTE_Plugin_AIToolkit() {
                 return;
             }
             applyGuidance.style.display = "";
-            applyGuidanceTitle.innerText = "Next step";
+            applyGuidanceTitle.innerText = "Best next step";
             applyGuidanceBadge.innerText = recommended.label || "";
             var summaryDetail = getDialogRecommendedSummaryDetail(actionState, recommended);
             applyGuidanceDetail.innerText = summaryDetail || "";
-            applyGuidance.setAttribute("aria-label", "Next step: " + (recommended.label || "Action") + "." + (summaryDetail ? " " + summaryDetail : ""));
+            applyGuidance.setAttribute("aria-label", "Best next step: " + (recommended.label || "Action") + "." + (summaryDetail ? " " + summaryDetail : ""));
         }
 
         function rerunDialogPlanFromEditor() {

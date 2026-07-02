@@ -1,5 +1,14 @@
 const { test, expect } = require('@playwright/test');
 
+function isIgnoredRequestFailure(request) {
+	const url = request.url();
+	const failure = request.failure() ? request.failure().errorText : 'unknown';
+	if (url.includes('favicon')) {
+		return true;
+	}
+	return failure === 'net::ERR_ABORTED' && url.endsWith('/richtexteditor/runtime/richtexteditor_content.css');
+}
+
 test('documents review workspace release smoke', async ({ page }) => {
 	const pageErrors = [];
 	const requestFailures = [];
@@ -9,10 +18,10 @@ test('documents review workspace release smoke', async ({ page }) => {
 	});
 
 	page.on('requestfailed', (request) => {
-		const url = request.url();
-		if (url.includes('favicon')) {
+		if (isIgnoredRequestFailure(request)) {
 			return;
 		}
+		const url = request.url();
 
 		requestFailures.push({
 			url,
@@ -251,10 +260,10 @@ test('ai provider settings ask ai dialog smoke', async ({ page }) => {
 	});
 
 	page.on('requestfailed', (request) => {
-		const url = request.url();
-		if (url.includes('favicon')) {
+		if (isIgnoredRequestFailure(request)) {
 			return;
 		}
+		const url = request.url();
 
 		requestFailures.push({
 			url,

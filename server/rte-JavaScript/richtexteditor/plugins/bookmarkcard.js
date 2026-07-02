@@ -33,6 +33,13 @@ function RTE_Plugin_BookmarkCard() {
             state.returnValue = true;
             obj.OpenBookmarkDialog();
         });
+        try {
+            var ed = editor.getEditable();
+            if (ed) {
+                ed.addEventListener("click", onEditableClick, true);
+                ed.addEventListener("keydown", onEditableKeyDown, true);
+            }
+        } catch (e) { /* ignore */ }
         injectStyles();
     };
 
@@ -71,6 +78,49 @@ function RTE_Plugin_BookmarkCard() {
         try { return (new URL(url)).hostname.replace(/^www\./, ""); }
         catch (e) { return url.replace(/^https?:\/\//i, "").split("/")[0].replace(/^www\./, ""); }
     }
+    function closestBookmark(node, editable) {
+        while (node && node !== editable) {
+            if (node.nodeType === 1 && node.classList && node.classList.contains("rte-bookmark-card")) return node;
+            node = node.parentNode;
+        }
+        return null;
+    }
+    function removeBookmark(card) {
+        if (!card || !card.parentNode) return;
+        card.parentNode.removeChild(card);
+        try { if (typeof editor.fireChange === "function") editor.fireChange(); } catch (e) { /* ignore */ }
+        try { editor.focus(); } catch (e2) { /* ignore */ }
+    }
+    function onEditableClick(e) {
+        var target = e.target;
+        var editable = editor.getEditable();
+        while (target && target !== editable) {
+            if (target.nodeType === 1 && target.getAttribute && target.getAttribute("data-rte-bookmark-remove") === "1") {
+                e.preventDefault();
+                e.stopPropagation();
+                removeBookmark(closestBookmark(target, editable));
+                return;
+            }
+            target = target.parentNode;
+        }
+    }
+    function onEditableKeyDown(e) {
+        if ((e.key === "Enter" || e.key === " ") && e.target && e.target.getAttribute && e.target.getAttribute("data-rte-bookmark-remove") === "1") {
+            e.preventDefault();
+            e.stopPropagation();
+            removeBookmark(closestBookmark(e.target, editor.getEditable()));
+            return;
+        }
+        if (e.key !== "Delete" && e.key !== "Backspace") return;
+        var card = null;
+        try {
+            var sel = editor.getSelection();
+            if (sel && sel.rangeCount) card = closestBookmark(sel.getRangeAt(0).startContainer, editor.getEditable());
+        } catch (ex) { card = null; }
+        if (!card) return;
+        e.preventDefault();
+        removeBookmark(card);
+    }
 
     function buildCardHtml(meta) {
         var url = meta.url;
@@ -81,6 +131,7 @@ function RTE_Plugin_BookmarkCard() {
         var image = meta.image || "";
 
         var html = '<a class="rte-bookmark-card" data-rte-block="bookmark" href="' + esc(url) + '" target="_blank" rel="noopener noreferrer" contenteditable="false">';
+        html += '<span class="rte-bookmark-remove" data-rte-bookmark-remove="1" role="button" tabindex="0" aria-label="Remove bookmark" title="Remove bookmark">x</span>';
         html += '<span class="rte-bookmark-main">';
         html += '<span class="rte-bookmark-title">' + esc(title) + "</span>";
         if (desc) html += '<span class="rte-bookmark-desc">' + esc(desc) + "</span>";
@@ -147,8 +198,11 @@ function RTE_Plugin_BookmarkCard() {
 
     function injectStyles() {
         var css = [
-            ".rte-bookmark-card{display:flex;align-items:stretch;justify-content:space-between;gap:12px;margin:12px 0;border:1px solid rgba(15,23,42,.14);border-radius:10px;overflow:hidden;text-decoration:none;color:inherit;background:#fff;max-width:640px;transition:box-shadow 160ms,border-color 160ms}",
+            ".rte-bookmark-card{position:relative;display:flex;align-items:stretch;justify-content:space-between;gap:12px;margin:12px 0;border:1px solid rgba(15,23,42,.14);border-radius:10px;overflow:hidden;text-decoration:none;color:inherit;background:#fff;max-width:640px;transition:box-shadow 160ms,border-color 160ms}",
             ".rte-bookmark-card:hover{border-color:rgba(37,99,235,.5);box-shadow:0 6px 18px rgba(15,23,42,.10)}",
+            ".rte-bookmark-remove{position:absolute;top:7px;right:7px;width:22px;height:22px;border:1px solid rgba(15,23,42,.14);border-radius:999px;background:rgba(255,255,255,.96);color:#334155;display:flex;align-items:center;justify-content:center;font:700 13px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;box-shadow:0 4px 12px rgba(15,23,42,.12);opacity:0;transition:opacity 120ms,border-color 120ms,color 120ms;z-index:2}",
+            ".rte-bookmark-card:hover .rte-bookmark-remove,.rte-bookmark-card:focus .rte-bookmark-remove{opacity:1}",
+            ".rte-bookmark-remove:hover{border-color:rgba(220,38,38,.38);color:#b91c1c}",
             ".rte-bookmark-main{flex:1;min-width:0;padding:12px 14px;display:flex;flex-direction:column;gap:4px}",
             ".rte-bookmark-title{font-weight:600;font-size:14px;line-height:1.3;color:#0f172a;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}",
             ".rte-bookmark-desc{font-size:12px;color:#64748b;line-height:1.4;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}",
