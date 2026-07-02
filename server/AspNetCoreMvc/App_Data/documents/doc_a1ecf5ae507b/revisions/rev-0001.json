@@ -1,7 +1,0 @@
-{
-  "RevisionId": "rev-0001",
-  "Revision": 1,
-  "SavedUtc": "2026-04-18T09:22:05.8812552Z",
-  "Title": "Release smoke document",
-  "DocumentJson": "{\r\n  \u0022content\u0022: [\r\n    {\r\n      \u0022content\u0022: [\r\n        {\r\n          \u0022text\u0022: \u0022Review this linked suggestion example before release.\u0022,\r\n          \u0022type\u0022: \u0022text\u0022\r\n        }\r\n      ],\r\n      \u0022type\u0022: \u0022paragraph\u0022\r\n    }\r\n  ],\r\n  \u0022format\u0022: \u0022richtexteditor-json\u0022,\r\n  \u0022version\u0022: 2,\r\n  \u0022type\u0022: \u0022doc\u0022\r\n}"
-}

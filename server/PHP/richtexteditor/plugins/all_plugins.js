@@ -909,7 +909,7 @@ function RTE_Plugin_AIToolkit() {
                 openChatPanel(options);
             },
             closeChatPanel: function () {
-                closeChatPanel();
+                closeChatPanel({ restoreFocus: true });
             },
             toggleChatPanel: function (options) {
                 toggleChatPanel(options);
@@ -9460,7 +9460,49 @@ function RTE_Plugin_AIToolkit() {
         };
     }
 
-    function closeChatPanel() {
+    function rememberChatReturnFocus() {
+        var active = document.activeElement;
+        if (!active || active === document.body || active === document.documentElement) {
+            return;
+        }
+        if (editor.__aiChatPanel && editor.__aiChatPanel.contains && editor.__aiChatPanel.contains(active)) {
+            return;
+        }
+        if (typeof active.focus === "function") {
+            editor.__aiChatReturnFocusNode = active;
+        }
+    }
+
+    function restoreChatReturnFocus(target) {
+        if (target && target.isConnected !== false && typeof target.focus === "function" && !target.disabled) {
+            try {
+                target.focus({ preventScroll: true });
+            }
+            catch (ignore) {
+                try {
+                    target.focus();
+                }
+                catch (focusError) {
+                }
+            }
+            if (document.activeElement === target) {
+                return true;
+            }
+        }
+        if (editor && typeof editor.focus === "function") {
+            try {
+                editor.focus();
+                return true;
+            }
+            catch (ignoreEditorFocus) {
+            }
+        }
+        return false;
+    }
+
+    function closeChatPanel(options) {
+        options = options || {};
+        var returnFocusNode = editor.__aiChatReturnFocusNode || null;
         if (editor.__aiChatPanel && editor.__aiChatPanel.parentNode) {
             editor.__aiChatPanel.parentNode.removeChild(editor.__aiChatPanel);
         }
@@ -9475,6 +9517,12 @@ function RTE_Plugin_AIToolkit() {
         editor.__aiChatPanel = null;
         editor.__aiChatShell = null;
         editor.__aiChatOriginalMinHeight = null;
+        if (!options.preserveReturnFocus) {
+            editor.__aiChatReturnFocusNode = null;
+        }
+        if (options.restoreFocus) {
+            restoreChatReturnFocus(returnFocusNode);
+        }
     }
 
     function captureChatPanelFocusState(panel) {
@@ -9652,12 +9700,15 @@ function RTE_Plugin_AIToolkit() {
     function openChatPanel(options) {
         options = options || {};
         closeReviewPanel();
+        if (!isChatPanelOpen()) {
+            rememberChatReturnFocus();
+        }
         return renderChatPanel(!!options.focusComposer);
     }
 
     function toggleChatPanel(options) {
         if (editor.__aiChatPanel && editor.__aiChatPanel.isConnected) {
-            closeChatPanel();
+            closeChatPanel({ restoreFocus: true });
             return false;
         }
         return openChatPanel(options);
@@ -12467,7 +12518,7 @@ function RTE_Plugin_AIToolkit() {
         var prompts = config.aiToolkitChatPrompts || [];
         var activePrompt = getActiveChatPrompt(state, prompts);
 
-        closeChatPanel();
+        closeChatPanel({ preserveReturnFocus: true });
         editor.__aiChatOriginalMinHeight = shell.style ? (shell.style.minHeight || "") : "";
         shell.classList.add("rte-ai-chat-host");
         if (shell.style) {
@@ -12512,8 +12563,7 @@ function RTE_Plugin_AIToolkit() {
         panel.onkeydown = function (e) {
             if (e.key === "Escape") {
                 e.preventDefault();
-                closeChatPanel();
-                editor.focus();
+                closeChatPanel({ restoreFocus: true });
             }
         };
 
@@ -12565,8 +12615,7 @@ function RTE_Plugin_AIToolkit() {
         closeButton.title = "Close";
         closeButton.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>';
         closeButton.onclick = function () {
-            closeChatPanel();
-            editor.focus();
+            closeChatPanel({ restoreFocus: true });
         };
 
         // Compact scope toggle. No preview card, no summary pills, no detail
