@@ -72,7 +72,9 @@
     .richtexteditor.rte-mobile rte-toolbar-splitbutton-dropdown {
         display: inline-flex;
         align-items: center;
+        align-self: stretch;
         justify-content: center;
+        min-height: 24px;
     }
 
     .richtexteditor.rte-mobile rte-toolbar-button svg,
