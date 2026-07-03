@@ -1,61 +1,124 @@
 /*
- * rte_mobile.css — extras for the editor's built-in mobile toolbar.
+ * rte_mobile.css - extras for the editor's built-in mobile toolbar.
  *
  * The editor already auto-swaps between `rte-toolbar-desktop` and
  * `rte-toolbar-mobile` based on `config.maxWidthForMobile`, and adds
- * `rte-mobile` / `rte-desktop` to its outer container. We don't duplicate
- * that logic — we just layer on top:
+ * `rte-mobile` / `rte-desktop` to its outer container. These rules layer on:
  *
- *   • 44×44 tap targets (WCAG 2.5.5)
- *   • Sticky toolbar so the virtual keyboard can't hide it
- *   • Bottom-sheet mounting for dropdowns / dialogs / review drawer
- *   • 16px content font to suppress iOS auto-zoom
+ * - 44x44 tap targets.
+ * - A sticky, horizontally scrolling toolbar.
+ * - Bottom-sheet mounting for dropdowns, popups, dialogs, and review drawers.
+ * - 16px content font to suppress iOS auto-zoom.
  *
- * All rules are scoped to the editor's own `.rte-mobile` class AND are
- * themselves inside narrow-viewport + coarse-pointer media queries, so
- * desktop viewers who happen to load the stylesheet see no changes.
+ * Rules stay scoped to the editor's `.rte-mobile` class and narrow-viewport /
+ * coarse-pointer media queries, so desktop layouts are unchanged.
  */
 
 @media (max-width: 768px), (pointer: coarse) {
 
-    /* The editor's mobile toolbar already uses `rte-toolbar-mobile`. We just
-       enforce horizontal scroll + tap-target sizing. */
     .richtexteditor.rte-mobile rte-toolbar.rte-toolbar-mobile {
         display: flex !important;
+        align-items: center;
         flex-wrap: nowrap !important;
+        gap: 2px;
         overflow-x: auto;
         overflow-y: hidden;
+        overscroll-behavior-x: contain;
         white-space: nowrap;
         -webkit-overflow-scrolling: touch;
+        touch-action: pan-x;
         scrollbar-width: none;
         position: sticky;
         top: 0;
         z-index: 5;
+        padding: 2px 4px;
         background: #fff;
+        background-clip: padding-box;
     }
+
     .richtexteditor.rte-mobile rte-toolbar.rte-toolbar-mobile::-webkit-scrollbar {
         display: none;
     }
 
-    /* Tap targets — 44×44 minimum, larger icons. */
+    .richtexteditor.rte-mobile rte-toolbar.rte-toolbar-mobile rte-toolbar-group {
+        display: inline-flex;
+        align-items: center;
+        flex: 0 0 auto;
+        min-width: 0;
+    }
+
+    /* 2026-07-02 mobile toolbar polish. Keep tap targets large, but make the
+       visual chrome tighter and make SVG sizing win over runtime inline styles. */
     .richtexteditor.rte-mobile rte-toolbar-button,
     .richtexteditor.rte-mobile rte-toolbar-splitbutton,
     .richtexteditor.rte-mobile rte-toolbar-dropdown,
     .richtexteditor.rte-mobile rte-toolbar-arrowbutton {
+        box-sizing: border-box;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
         min-width: 44px;
         min-height: 44px;
+        width: auto;
+        height: auto;
         padding: 10px;
-        border-radius: 10px;
+        border-radius: 8px;
+        color: var(--rte-icon-color, #5f6368);
+        background-clip: padding-box;
+        transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease, box-shadow 120ms ease;
     }
+
+    .richtexteditor.rte-mobile rte-toolbar-splitbutton-direct,
+    .richtexteditor.rte-mobile rte-toolbar-splitbutton-dropdown {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
     .richtexteditor.rte-mobile rte-toolbar-button svg,
     .richtexteditor.rte-mobile rte-toolbar-splitbutton svg,
     .richtexteditor.rte-mobile rte-toolbar-dropdown svg,
     .richtexteditor.rte-mobile rte-toolbar-arrowbutton svg {
-        width: 20px;
-        height: 20px;
+        display: block !important;
+        flex: 0 0 auto;
+        width: 20px !important;
+        height: 20px !important;
+        margin: 0 !important;
+        align-self: center !important;
+        color: currentColor;
+        pointer-events: none;
     }
 
-    /* Dropdown panels become bottom sheets on narrow viewports so they never clip. */
+    .richtexteditor.rte-mobile rte-toolbar-button:active,
+    .richtexteditor.rte-mobile rte-toolbar-splitbutton:active,
+    .richtexteditor.rte-mobile rte-toolbar-dropdown:active,
+    .richtexteditor.rte-mobile rte-toolbar-arrowbutton:active {
+        color: #1559d6;
+        background-color: #f3f8ff;
+        border-color: rgba(37,99,235,.14);
+    }
+
+    .richtexteditor.rte-mobile rte-toolbar-button.rte-command-active,
+    .richtexteditor.rte-mobile rte-toolbar-splitbutton.rte-command-active,
+    .richtexteditor.rte-mobile rte-toolbar-dropdown.rte-command-active,
+    .richtexteditor.rte-mobile rte-toolbar-arrowbutton.rte-command-active {
+        color: #1559d6;
+        fill: currentColor;
+        background-color: #edf6ff;
+        border-color: rgba(37,99,235,.22);
+        box-shadow: inset 0 0 0 1px rgba(37,99,235,.12);
+    }
+
+    .richtexteditor.rte-mobile rte-toolbar-button:focus-visible,
+    .richtexteditor.rte-mobile rte-toolbar-splitbutton:focus-visible,
+    .richtexteditor.rte-mobile rte-toolbar-dropdown:focus-visible,
+    .richtexteditor.rte-mobile rte-toolbar-arrowbutton:focus-visible {
+        outline: none;
+        border-color: #2563eb;
+        box-shadow: 0 0 0 2px rgba(37,99,235,.18);
+        background-color: #eef4ff;
+    }
+
     .richtexteditor.rte-mobile rte-dropdown-panel,
     .richtexteditor.rte-mobile rte-popup {
         position: fixed !important;
@@ -63,24 +126,27 @@
         right: 0 !important;
         bottom: 0 !important;
         top: auto !important;
-        max-height: 60vh;
-        border-top-left-radius: 18px;
-        border-top-right-radius: 18px;
+        box-sizing: border-box;
+        width: 100vw;
+        max-height: min(60vh, calc(100vh - 24px));
+        border-top-left-radius: 8px;
+        border-top-right-radius: 8px;
         border: 1px solid #e2e8f0;
         border-bottom: none;
+        background: #fff;
+        background-clip: padding-box;
         box-shadow: 0 -12px 32px rgba(15, 23, 42, 0.12);
-        padding: 10px 6px 22px;
+        padding: 10px 8px 22px;
         overflow-y: auto;
+        overscroll-behavior: contain;
         z-index: 2147483647;
     }
 
-    /* Floating paragraph / inline toolbars fight the iOS keyboard — hide. */
     .richtexteditor.rte-mobile rte-floattoolbar,
     .richtexteditor.rte-mobile rte-floatparagraph {
         display: none !important;
     }
 
-    /* AI Toolkit dialogs + review drawer: full-width / bottom-sheet on mobile. */
     .richtexteditor.rte-mobile ~ .aitoolkit-dialog,
     body.rte-mobile .aitoolkit-dialog {
         left: 8px !important;
@@ -88,6 +154,7 @@
         width: auto !important;
         max-width: none !important;
     }
+
     .richtexteditor.rte-mobile ~ .aitoolkit-review-drawer,
     body.rte-mobile .aitoolkit-review-drawer,
     .richtexteditor.rte-mobile ~ .comments-sidebar,
@@ -96,26 +163,70 @@
         right: 0 !important;
         bottom: 0 !important;
         top: auto !important;
+        box-sizing: border-box;
         width: auto !important;
-        max-height: 55vh;
-        border-top-left-radius: 18px;
-        border-top-right-radius: 18px;
+        max-height: min(55vh, calc(100vh - 24px));
+        border-top-left-radius: 8px;
+        border-top-right-radius: 8px;
         border-top: 1px solid #e2e8f0;
+        background-clip: padding-box;
+        overflow: hidden;
     }
 
-    /* 16px font in the editing surface suppresses iOS auto-zoom on focus. */
     .richtexteditor.rte-mobile iframe,
     .richtexteditor.rte-mobile .rte-editable {
         font-size: 16px;
     }
+
+    .rte-dark.richtexteditor.rte-mobile rte-toolbar.rte-toolbar-mobile {
+        background: var(--rte-surface-raised, #1e293b);
+    }
+
+    .rte-dark.richtexteditor.rte-mobile rte-toolbar-button,
+    .rte-dark.richtexteditor.rte-mobile rte-toolbar-splitbutton,
+    .rte-dark.richtexteditor.rte-mobile rte-toolbar-dropdown,
+    .rte-dark.richtexteditor.rte-mobile rte-toolbar-arrowbutton {
+        color: var(--rte-icon-color, #cbd5e1);
+    }
+
+    .rte-dark.richtexteditor.rte-mobile rte-toolbar-button.rte-command-active,
+    .rte-dark.richtexteditor.rte-mobile rte-toolbar-splitbutton.rte-command-active,
+    .rte-dark.richtexteditor.rte-mobile rte-toolbar-dropdown.rte-command-active,
+    .rte-dark.richtexteditor.rte-mobile rte-toolbar-arrowbutton.rte-command-active {
+        color: #bfdbfe;
+        background-color: #1e3a5f;
+        border-color: rgba(96,165,250,.46);
+        box-shadow: inset 0 0 0 1px rgba(96,165,250,.24);
+    }
+
+    @media (prefers-color-scheme: dark) {
+        .richtexteditor.rte-mobile:not(.rte-light) rte-toolbar.rte-toolbar-mobile {
+            background: var(--rte-surface-raised, #1e293b);
+        }
+
+        .richtexteditor.rte-mobile:not(.rte-light) rte-toolbar-button,
+        .richtexteditor.rte-mobile:not(.rte-light) rte-toolbar-splitbutton,
+        .richtexteditor.rte-mobile:not(.rte-light) rte-toolbar-dropdown,
+        .richtexteditor.rte-mobile:not(.rte-light) rte-toolbar-arrowbutton {
+            color: var(--rte-icon-color, #cbd5e1);
+        }
+
+        .richtexteditor.rte-mobile:not(.rte-light) rte-toolbar-button.rte-command-active,
+        .richtexteditor.rte-mobile:not(.rte-light) rte-toolbar-splitbutton.rte-command-active,
+        .richtexteditor.rte-mobile:not(.rte-light) rte-toolbar-dropdown.rte-command-active,
+        .richtexteditor.rte-mobile:not(.rte-light) rte-toolbar-arrowbutton.rte-command-active {
+            color: #bfdbfe;
+            background-color: #1e3a5f;
+            border-color: rgba(96,165,250,.46);
+            box-shadow: inset 0 0 0 1px rgba(96,165,250,.24);
+        }
+    }
 }
 
-/* A coarse-pointer-only variant so an explicit desktop override can opt out.
-   (Users who want the mobile layout on desktop can add class rte-force-mobile
-    to a parent; matches the builder's preview convention.) */
 .rte-force-mobile .richtexteditor rte-toolbar.rte-toolbar-mobile {
     display: flex !important;
 }
+
 .rte-force-mobile .richtexteditor rte-toolbar.rte-toolbar-desktop {
     display: none !important;
 }

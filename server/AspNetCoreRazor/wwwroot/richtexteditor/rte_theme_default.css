@@ -4562,3 +4562,138 @@ rte-dropdown-panel .rte-dialog-button:active {
         background: #334155;
     }
 }
+
+/* 2026-07-02 toolbar icon polish.
+   Keep this after the token-driven chrome rules so the modern toolbar retains
+   its quiet selected state instead of inheriting the older solid accent fill. */
+.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-button,
+.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-arrowbutton,
+.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-splitbutton,
+.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-splitbutton-direct,
+.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-splitbutton-dropdown {
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--rte-icon-color, #5f6368);
+    background-clip: padding-box;
+    transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease, box-shadow 120ms ease;
+}
+
+.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-button svg,
+.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-arrowbutton svg,
+.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-splitbutton svg {
+    display: block !important;
+    flex: 0 0 auto;
+    width: 18px !important;
+    height: 18px !important;
+    margin: 0 !important;
+    align-self: center !important;
+    color: currentColor;
+    pointer-events: none;
+}
+
+.rte-modern rte-control-toolbar rte-toolbar-button svg,
+.rte-modern rte-control-toolbar rte-toolbar-splitbutton svg,
+.rte-modern rte-control-toolbar rte-toolbar-arrowbutton svg,
+.rte-modern rte-dropdown-panel rte-toolbar-button svg {
+    display: block !important;
+    margin: 0 !important;
+    align-self: center !important;
+    color: currentColor;
+    pointer-events: none;
+}
+
+.rte-modern rte-dropdown-panel rte-toolbar-button svg {
+    width: 18px !important;
+    height: 18px !important;
+}
+
+.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-button:hover,
+.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-arrowbutton:hover,
+.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-splitbutton:hover {
+    color: #1559d6;
+    background-color: #f3f8ff;
+    border-color: rgba(37,99,235,.14);
+}
+
+.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-button.rte-command-active,
+.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-arrowbutton.rte-command-active,
+.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-splitbutton.rte-command-active,
+.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-dropdown.rte-command-active {
+    color: #1559d6;
+    fill: currentColor;
+    background-color: #edf6ff;
+    border-color: rgba(37,99,235,.22);
+    box-shadow: inset 0 0 0 1px rgba(37,99,235,.12);
+}
+
+.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-button.rte-command-disabled,
+.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-arrowbutton.rte-command-disabled,
+.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-splitbutton.rte-command-disabled {
+    color: #9aa0a6;
+    opacity: .62;
+}
+
+.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-button.rte-command-disabled:hover,
+.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-arrowbutton.rte-command-disabled:hover,
+.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-splitbutton.rte-command-disabled:hover {
+    color: #9aa0a6;
+    background-color: transparent;
+    border-color: transparent;
+    box-shadow: none;
+}
+
+.rte-dark.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-button,
+.rte-dark.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-arrowbutton,
+.rte-dark.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-splitbutton,
+.rte-dark.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-splitbutton-direct,
+.rte-dark.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-splitbutton-dropdown {
+    color: var(--rte-icon-color, #cbd5e1);
+}
+
+.rte-dark.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-button:hover,
+.rte-dark.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-arrowbutton:hover,
+.rte-dark.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-splitbutton:hover {
+    color: #e2e8f0;
+    background-color: #334155;
+    border-color: #475569;
+}
+
+.rte-dark.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-button.rte-command-active,
+.rte-dark.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-arrowbutton.rte-command-active,
+.rte-dark.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-splitbutton.rte-command-active,
+.rte-dark.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-dropdown.rte-command-active {
+    color: #bfdbfe;
+    background-color: #1e3a5f;
+    border-color: rgba(96,165,250,.46);
+    box-shadow: inset 0 0 0 1px rgba(96,165,250,.24);
+}
+
+@media (prefers-color-scheme: dark) {
+    .richtexteditor.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-button,
+    .richtexteditor.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-arrowbutton,
+    .richtexteditor.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-splitbutton,
+    .richtexteditor.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-splitbutton-direct,
+    .richtexteditor.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-splitbutton-dropdown {
+        color: var(--rte-icon-color, #cbd5e1);
+    }
+
+    .richtexteditor.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-button:hover,
+    .richtexteditor.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-arrowbutton:hover,
+    .richtexteditor.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-splitbutton:hover {
+        color: #e2e8f0;
+        background-color: #334155;
+        border-color: #475569;
+    }
+
+    .richtexteditor.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-button.rte-command-active,
+    .richtexteditor.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-arrowbutton.rte-command-active,
+    .richtexteditor.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-splitbutton.rte-command-active,
+    .richtexteditor.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-dropdown.rte-command-active {
+        color: #bfdbfe;
+        background-color: #1e3a5f;
+        border-color: rgba(96,165,250,.46);
+        box-shadow: inset 0 0 0 1px rgba(96,165,250,.24);
+    }
+}

@@ -15748,3 +15748,68 @@ rte-dialog-outer.rte-panel-aiassist {
         max-width: 96px !important;
     }
 }
+
+/* 2026-07-02 polish pass: tighten AI chrome and protect rounded borders.
+   The prior final cascade used 18px radii on the menu, chat panel, review
+   panel, and sticky headers. That made the editor UI read too soft and left
+   the top edge vulnerable to clipped-looking corners when the host page or
+   dialog wrapper squeezed the popup. Keep the same layout, but align the
+   radius with the editor's utilitarian controls and force the popup surfaces
+   to own their clipping. */
+rte-dialog-outer.rte-panel-aiassist {
+    box-sizing: border-box;
+    padding-top: 56px !important;
+    padding-right: 10px;
+    padding-bottom: 12px;
+    padding-left: 10px;
+    overflow-y: auto !important;
+}
+
+@supports (padding-top: max(0px)) {
+    rte-dialog-outer.rte-panel-aiassist {
+        padding-top: max(44px, calc(env(safe-area-inset-top, 0px) + 16px)) !important;
+    }
+}
+
+.rte-panel-aiassist rte-dialog-inner,
+.rte-panel-aiassist-menu,
+.richtexteditor .rte-ai-chat-panel,
+.richtexteditor .rte-ai-review-panel {
+    border-radius: 8px !important;
+    background-clip: padding-box;
+}
+
+.rte-panel-aiassist rte-dialog-inner,
+.rte-panel-aiassist-menu {
+    overflow-x: hidden !important;
+}
+
+.richtexteditor .rte-ai-chat-panel,
+.richtexteditor .rte-ai-review-panel {
+    overflow: hidden !important;
+}
+
+.rte-panel-aiassist rte-dialog-header,
+.rte-panel-aiassist-menu .rte-ai-menu-info.is-minimal,
+.richtexteditor .rte-ai-chat-header.is-minimal,
+.richtexteditor .rte-ai-review-header {
+    border-radius: 8px 8px 4px 4px !important;
+}
+
+.rte-panel-aiassist-menu .rte-ai-menu-item,
+.richtexteditor .rte-ai-chat-panel .rte-ai-chat-quick-shell,
+.richtexteditor .rte-ai-chat-panel .rte-ai-chat-input-shell,
+.richtexteditor .rte-ai-review-overview,
+.richtexteditor .rte-ai-review-navigation,
+.richtexteditor .rte-ai-review-controls,
+.richtexteditor .rte-ai-review-content {
+    border-radius: 8px !important;
+}
+
+@media (max-width: 560px) {
+    rte-dialog-outer.rte-panel-aiassist {
+        padding-top: 40px !important;
+        padding-right: 8px;
+        padding-left: 8px;
+    }
+}

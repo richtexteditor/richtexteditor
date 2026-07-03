@@ -700,7 +700,7 @@ if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
     var cssHref = srcAttr
         ? srcAttr.replace(/[^/]+$/, "aitoolkit.css")
         : (((window.RTE_DefaultConfig && window.RTE_DefaultConfig.url_base) || "/richtexteditor") + "/plugins/aitoolkit.css");
-    if (cssHref.indexOf("?") < 0) cssHref += "?v=20260609b";
+    if (cssHref.indexOf("?") < 0) cssHref += "?v=20260702a";
     var link = document.createElement("link");
     link.rel = "stylesheet";
     link.href = cssHref;
@@ -28359,13 +28359,15 @@ function RTE_Plugin_SlashCommand() {
         var style = host.createElement("style");
         style.setAttribute("data-rte-slashcommand", "1");
         style.textContent = [
-            ".rte-slash-popup{position:absolute;z-index:2147483000;min-width:280px;max-width:min(390px,calc(100vw - 24px));max-height:min(380px,64vh);overflow-y:auto;padding:6px;background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(248,251,255,.96));border:1px solid rgba(148,163,184,.22);box-shadow:0 20px 46px rgba(29,78,216,.16),0 2px 8px rgba(15,23,42,.08);border-radius:16px;font-family:Aptos,'Segoe UI',sans-serif;font-size:13px;color:#172033;scrollbar-width:thin}",
+            "/* 2026-07-03 slash command polish */",
+            ".rte-slash-popup{position:absolute;z-index:2147483000;min-width:280px;max-width:min(390px,calc(100vw - 24px));max-height:min(360px,64vh);overflow-y:auto;overscroll-behavior:contain;padding:6px;background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(248,251,255,.96));background-clip:padding-box;border:1px solid rgba(148,163,184,.22);box-shadow:0 16px 36px rgba(29,78,216,.14),0 2px 8px rgba(15,23,42,.08);border-radius:8px;font-family:Aptos,'Segoe UI',sans-serif;font-size:13px;color:#172033;scrollbar-width:thin}",
             ".rte-slash-section{position:sticky;top:0;z-index:1;margin:4px 0 2px;padding:6px 8px 4px;background:linear-gradient(180deg,rgba(248,251,255,.98),rgba(248,251,255,.86));color:#52657e;font-size:10px;font-weight:850;letter-spacing:.08em;text-transform:uppercase}",
-            ".rte-slash-item{display:grid;grid-template-columns:30px minmax(0,1fr);align-items:center;gap:9px;width:100%;min-height:42px;padding:6px 8px;border:0;background:transparent;text-align:left;cursor:pointer;color:inherit;font:inherit;border-radius:12px}",
-            ".rte-slash-item:hover,.rte-slash-item-active{background:#eef4ff;color:#0f3f9f}",
-            ".rte-slash-item-icon{flex:0 0 30px;width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;color:#315277;background:#ffffff;border-radius:10px;box-shadow:inset 0 0 0 1px rgba(148,163,184,.18)}",
-            ".rte-slash-item-active .rte-slash-item-icon{color:#0f3f9f;background:#ffffff}",
-            ".rte-slash-item-icon svg{width:17px;height:17px}",
+            ".rte-slash-item{display:grid;grid-template-columns:28px minmax(0,1fr);align-items:center;gap:8px;width:100%;min-height:40px;padding:6px 8px;border:0;background:transparent;text-align:left;cursor:pointer;color:inherit;font:inherit;border-radius:8px}",
+            ".rte-slash-item:hover,.rte-slash-item-active{background:#eef4ff;color:#1559d6}",
+            ".rte-slash-item:focus-visible{outline:2px solid rgba(37,99,235,.22);outline-offset:2px}",
+            ".rte-slash-item-icon{flex:0 0 28px;width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;color:#315277;background:#ffffff;border-radius:8px;box-shadow:inset 0 0 0 1px rgba(148,163,184,.18)}",
+            ".rte-slash-item-active .rte-slash-item-icon{color:#1559d6;background:#ffffff}",
+            ".rte-slash-item-icon svg{display:block;width:16px;height:16px;pointer-events:none}",
             ".rte-slash-item-body{display:flex;flex-direction:column;min-width:0;flex:1}",
             ".rte-slash-item-title{font-weight:780;font-size:13px;line-height:1.24;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
             ".rte-slash-item-desc{font-size:11px;color:#64748b;line-height:1.24;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",

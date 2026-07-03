@@ -29,7 +29,7 @@ if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
     var cssHref = srcAttr
         ? srcAttr.replace(/[^/]+$/, "aitoolkit.css")
         : (((window.RTE_DefaultConfig && window.RTE_DefaultConfig.url_base) || "/richtexteditor") + "/plugins/aitoolkit.css");
-    if (cssHref.indexOf("?") < 0) cssHref += "?v=20260609b";
+    if (cssHref.indexOf("?") < 0) cssHref += "?v=20260702a";
     var link = document.createElement("link");
     link.rel = "stylesheet";
     link.href = cssHref;
