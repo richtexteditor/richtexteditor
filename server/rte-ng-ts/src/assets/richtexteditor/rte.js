@@ -3,16 +3,6 @@
 // API reference note: Range.cloneContents().
 
 if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
-try {
-	console.log("[rte] loaded v=" + (new Date().toISOString().slice(0,10)) + " size=" + (typeof __filename!=="undefined"?"?":"?"));
-	window.addEventListener("error", function (ev) {
-		console.error("[rte] window.error:", ev.message, "at", (ev.filename||"")+":"+(ev.lineno||"")+":"+(ev.colno||""));
-	}, true);
-	window.addEventListener("unhandledrejection", function (ev) {
-		console.error("[rte] unhandledrejection:", ev.reason && (ev.reason.stack || ev.reason.message || ev.reason));
-	});
-} catch (e) {}
-
 
 function RTE_CreateConfig(options) {
 	function Config() { }
@@ -243,6 +233,56 @@ function RichTextEditor(container, config) {
 				break;
 		}
 		return tag;
+	}
+
+	function __Get_VisibleTopChromeOffset(ignoreNode) {
+		if (!window || !document || !document.querySelectorAll) return 0;
+		var nodes;
+		try {
+			nodes = document.querySelectorAll("header, nav, [data-rte-sticky-offset], [data-rte-ai-sticky-offset], .topbar, .topnav, .site-header, .navbar, [class*='SiteHeader'], [class*='site-header']");
+		} catch (e) {
+			return 0;
+		}
+		var viewportLimit = Math.min(window.innerHeight || 900, 320);
+		var maxBottom = 0;
+		for (var i = 0; i < nodes.length; i++) {
+			var node = nodes[i];
+			if (!node || node === ignoreNode || (ignoreNode && ignoreNode.contains && ignoreNode.contains(node))) continue;
+			var rect = node.getBoundingClientRect ? node.getBoundingClientRect() : null;
+			if (!rect || rect.height < 8 || rect.width < 80) continue;
+			if (rect.top > 24 || rect.bottom <= 0 || rect.bottom > viewportLimit) continue;
+			var style = window.getComputedStyle ? window.getComputedStyle(node) : null;
+			if (style && (style.display === "none" || style.visibility === "hidden" || parseFloat(style.opacity || "1") <= 0.01)) continue;
+			maxBottom = Math.max(maxBottom, rect.bottom);
+		}
+		return Math.max(0, Math.ceil(maxBottom));
+	}
+
+	function __Get_ConfiguredTopChromeOffset() {
+		if (!window || !window.getComputedStyle || !document || !document.documentElement) return 0;
+		var style = window.getComputedStyle(document.documentElement);
+		var stickyOffset = parseFloat(style.getPropertyValue("--rte-ai-sticky-top-offset") || "0") || 0;
+		var dialogOffset = parseFloat(style.getPropertyValue("--rte-dialog-top-offset") || "0") || 0;
+		return Math.max(0, stickyOffset, dialogOffset);
+	}
+
+	function __Get_DialogTopChromeOffset(ignoreNode) {
+		return Math.max(__Get_ConfiguredTopChromeOffset(), __Get_VisibleTopChromeOffset(ignoreNode));
+	}
+
+	function __Sync_DialogTopChromeOffset(node) {
+		if (!node || !node.style) return 0;
+		var offset = __Get_DialogTopChromeOffset(node);
+		if (offset > 0)
+			node.style.setProperty("--rte-dialog-detected-top-chrome", offset + "px");
+		else
+			node.style.removeProperty("--rte-dialog-detected-top-chrome");
+		return offset;
+	}
+
+	function __Clamp_DialogViewportTop(top, node, gap) {
+		var offset = __Sync_DialogTopChromeOffset(node);
+		return Math.max(offset + (gap || 8), top || 0);
 	}
 
 	function __Get_ActionElementLabel(node, fallback) {
@@ -862,6 +902,18 @@ function RichTextEditor(container, config) {
 	// dragging the handle reorders blocks within the editable surface.
 	function __InitBlockDragHandles() {
 		if (!config.blockDragHandles) return;
+		// 2026-06-04 The handle + drop-indicator are position:absolute children of
+		// `container`, and positionHandle()/dragover compute their coordinates
+		// RELATIVE TO container.getBoundingClientRect(). That math is only correct
+		// if `container` is itself a positioned ancestor — otherwise the absolute
+		// origin falls back to the initial containing block and the handle lands
+		// far off-screen. Ensure container establishes a positioning context.
+		try {
+			var hostWin = (container.ownerDocument && container.ownerDocument.defaultView) || window;
+			if (container && hostWin.getComputedStyle(container).position === "static") {
+				container.style.position = "relative";
+			}
+		} catch (e) { /* ignore */ }
 		var handle = null;
 		var indicator = null;
 		var hoveredBlock = null;
@@ -1011,6 +1063,21 @@ function RichTextEditor(container, config) {
 	function __NormalizeStatisticsText(value) {
 		return String(value || "").replace(/\u00A0/g, " ").replace(/\s+/g, " ").replace(/^\s+|\s+$/g, "");
 	}
+	// CJK ideographs (incl. Ext A + compat), Japanese hiragana/katakana, and the
+	// ideographic iteration marks are counted one-per-word because the script has
+	// no inter-word spaces (matching Word / Google Docs). Hangul is excluded \u2014
+	// Korean uses spaces, so it is counted as whitespace-delimited tokens.
+	function __CountWords(value) {
+		var normalized = __NormalizeStatisticsText(value);
+		if (!normalized)
+			return 0;
+		var cjk = /[\u3005\u3007\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/g;
+		var cjkMatches = normalized.match(cjk);
+		var cjkCount = cjkMatches ? cjkMatches.length : 0;
+		var rest = cjkCount ? normalized.replace(cjk, " ") : normalized;
+		var tokens = rest.split(/\s+/).filter(function (t) { return !!t; }).length;
+		return cjkCount + tokens;
+	}
 	function __GetStatisticsCounters() {
 		var raw = config.statisticsCounters;
 		if (raw == null || raw === "")
@@ -1033,9 +1100,8 @@ function RichTextEditor(container, config) {
 	}
 	function __CollectTextStatistics() {
 		var text = editable && typeof editable.innerText === "string" ? editable.innerText : "";
-		var normalizedText = __NormalizeStatisticsText(text);
 		return {
-			words: normalizedText ? normalizedText.split(" ").length : 0,
+			words: __CountWords(text),
 			characters: text.length
 		};
 	}
@@ -1293,6 +1359,12 @@ function RichTextEditor(container, config) {
 			"table td, table th { min-width: 24px; min-height: 22px; padding: 4px 6px; vertical-align: top; }",
 			// In toggleborder mode bump the outline so it stays visible in dark themes too.
 			"body.rte-toggleborder table, body.rte-toggleborder table td, body.rte-toggleborder table th { border-color: #6b7c93; border-style: dotted; }",
+			// Multi-cell selection highlight. The rule also lives in
+			// richtexteditor_content.css, but that file is not loaded into the editor
+			// iframe — without this inline copy selected cells stay invisible, so a
+			// drag-select looks like nothing happened.
+			"table td[__rte_selected_cell], table th[__rte_selected_cell] { background-color: #b5d6fd; }",
+			"[__rte_selected_hover] { background-color: #b5d6fd; color: #000; }",
 			// Images inside the editor get a faint outline so they're easy to click/select.
 			"img { max-width: 100%; }",
 			// 2026-05-11 a11y nudge: dashed amber outline on <img> missing alt text.
@@ -1335,21 +1407,24 @@ function RichTextEditor(container, config) {
 		var ifrRect = iframe.getBoundingClientRect();
 		var popup = document.createElement("div");
 		popup.className = "rte-alt-editor-popup";
-		popup.style.cssText = "position:fixed;background:#fff;border:1px solid #cbd5e1;border-radius:8px;box-shadow:0 12px 36px rgba(15,23,42,.22);padding:10px;z-index:" + (config.zIndexDialog || 99999) + ";font:13px -apple-system,Segoe UI,sans-serif;display:flex;gap:8px;align-items:center;";
+		popup.setAttribute("role", "dialog");
+		popup.setAttribute("aria-label", "Add image alt text");
+		popup.style.cssText = "position:fixed;z-index:" + (config.zIndexDialog || 99999) + ";";
 		popup.style.left = (ifrRect.left + rect.left) + "px";
-		popup.style.top = (ifrRect.top + rect.bottom + 6) + "px";
+		popup.style.top = __Clamp_DialogViewportTop(ifrRect.top + rect.bottom + 6, popup, 8) + "px";
 		var label = document.createElement("label");
 		label.textContent = "Alt text:";
-		label.style.cssText = "color:#475569;font-weight:500;";
+		label.className = "rte-alt-editor-label";
 		popup.appendChild(label);
 		var input = document.createElement("input");
 		input.type = "text";
-		input.placeholder = "Describe the image…";
-		input.style.cssText = "border:1px solid #cbd5e1;border-radius:6px;padding:6px 10px;width:240px;font:inherit;";
+		input.placeholder = "Describe the image";
+		input.className = "rte-alt-editor-input";
 		popup.appendChild(input);
 		var btn = document.createElement("button");
+		btn.type = "button";
 		btn.textContent = "Save";
-		btn.style.cssText = "background:#1d67ba;color:#fff;border:0;border-radius:6px;padding:6px 14px;font:inherit;cursor:pointer;";
+		btn.className = "rte-alt-editor-save";
 		popup.appendChild(btn);
 		document.body.appendChild(popup);
 		setTimeout(function () { input.focus(); }, 0);
@@ -1380,7 +1455,9 @@ function RichTextEditor(container, config) {
 			if (bar && bar.isConnected) return bar;
 			bar = document.createElement("div");
 			bar.className = "rte-image-quickbar";
-			bar.style.cssText = "position:fixed;background:#0f172a;color:#f8fafc;border-radius:8px;padding:4px;display:none;gap:2px;font:12px -apple-system,Segoe UI,sans-serif;z-index:" + (config.zIndexFloat || 9998) + ";box-shadow:0 6px 16px rgba(15,23,42,.28);";
+			bar.setAttribute("role", "toolbar");
+			bar.setAttribute("aria-label", "Image quick actions");
+			bar.style.cssText = "position:fixed;z-index:" + (config.zIndexFloat || 9998) + ";";
 			bar.style.display = "none";
 			document.body.appendChild(bar);
 			bar.onmouseenter = function () { clearTimeout(hideTid); };
@@ -1393,10 +1470,9 @@ function RichTextEditor(container, config) {
 		}
 		function makeBtn(label, onclick) {
 			var b = document.createElement("button");
+			b.type = "button";
+			b.className = "rte-image-quickbar-button";
 			b.textContent = label;
-			b.style.cssText = "background:transparent;color:inherit;border:0;padding:4px 10px;cursor:pointer;font:inherit;border-radius:6px;";
-			b.onmouseenter = function () { b.style.background = "rgba(255,255,255,.10)"; };
-			b.onmouseleave = function () { b.style.background = "transparent"; };
 			b.onmousedown = function (e) { e.preventDefault(); onclick(); };
 			return b;
 		}
@@ -1418,11 +1494,11 @@ function RichTextEditor(container, config) {
 				};
 				input.click();
 			}));
-			bar.appendChild(makeBtn("✕", function () { img.parentNode.removeChild(img); bar.style.display = "none"; }));
+			bar.appendChild(makeBtn("Delete", function () { img.parentNode.removeChild(img); bar.style.display = "none"; }));
 			var rect = img.getBoundingClientRect();
 			var ifrRect = iframe.getBoundingClientRect();
 			bar.style.left = (ifrRect.left + rect.left) + "px";
-			bar.style.top = (ifrRect.top + rect.top - 36) + "px";
+			bar.style.top = __Clamp_DialogViewportTop(ifrRect.top + rect.top - 36, bar, 8) + "px";
 			bar.style.display = "flex";
 			clearTimeout(hideTid);
 		}
@@ -1553,23 +1629,29 @@ function RichTextEditor(container, config) {
 		if (existing) { existing.parentNode.removeChild(existing); }
 		var dlg = document.createElement("div");
 		dlg.className = "rte-find-replace-dialog";
-		dlg.style.cssText = "position:fixed;top:80px;right:24px;background:#fff;border:1px solid #cbd5e1;border-radius:10px;box-shadow:0 16px 40px rgba(15,23,42,.22);padding:12px;width:320px;z-index:" + (config.zIndexDialog || 99999) + ";font:13px -apple-system,Segoe UI,sans-serif;";
+		dlg.setAttribute("role", "dialog");
+		dlg.setAttribute("aria-label", "Find and replace");
+		dlg.style.cssText = "position:fixed;top:80px;right:24px;z-index:" + (config.zIndexDialog || 99999) + ";";
 		dlg.innerHTML =
-			'<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;">'
-			+ '<input class="rte-find-q" placeholder="Find" style="flex:1;padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font:inherit;">'
-			+ '<span class="rte-find-count" style="font-size:11px;color:#64748b;white-space:nowrap;">0 matches</span>'
+			'<div class="rte-find-header">'
+			+ '<span class="rte-find-title">Find and replace</span>'
+			+ '<button class="rte-find-close" type="button" aria-label="Close find and replace">x</button>'
 			+ '</div>'
-			+ '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">'
-			+ '<input class="rte-find-r" placeholder="Replace with" style="flex:1;padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font:inherit;">'
+			+ '<div class="rte-find-row">'
+			+ '<input class="rte-find-q" placeholder="Find" aria-label="Find text">'
+			+ '<span class="rte-find-count">0 matches</span>'
 			+ '</div>'
-			+ '<div style="display:flex;gap:6px;">'
-			+ '<button class="rte-find-prev" style="padding:6px 10px;border:1px solid #cbd5e1;background:#fff;border-radius:6px;cursor:pointer;font:inherit;">↑ Prev</button>'
-			+ '<button class="rte-find-next" style="padding:6px 10px;border:1px solid #cbd5e1;background:#fff;border-radius:6px;cursor:pointer;font:inherit;">↓ Next</button>'
-			+ '<button class="rte-find-replace-one" style="padding:6px 10px;border:1px solid #cbd5e1;background:#fff;border-radius:6px;cursor:pointer;font:inherit;">Replace</button>'
-			+ '<button class="rte-find-replace-all" style="padding:6px 10px;border:1px solid #1d67ba;background:#1d67ba;color:#fff;border-radius:6px;cursor:pointer;font:inherit;margin-left:auto;">Replace all</button>'
+			+ '<div class="rte-find-row">'
+			+ '<input class="rte-find-r" placeholder="Replace with" aria-label="Replace with">'
 			+ '</div>'
-			+ '<button class="rte-find-close" style="position:absolute;top:8px;right:8px;background:transparent;border:0;color:#64748b;cursor:pointer;font-size:16px;width:24px;height:24px;border-radius:4px;">×</button>';
+			+ '<div class="rte-find-actions">'
+			+ '<button class="rte-find-prev" type="button">Prev</button>'
+			+ '<button class="rte-find-next" type="button">Next</button>'
+			+ '<button class="rte-find-replace-one" type="button">Replace</button>'
+			+ '<button class="rte-find-replace-all" type="button">Replace all</button>'
+			+ '</div>';
 		document.body.appendChild(dlg);
+		__Sync_DialogTopChromeOffset(dlg);
 		var qInput = dlg.querySelector(".rte-find-q");
 		var rInput = dlg.querySelector(".rte-find-r");
 		var countEl = dlg.querySelector(".rte-find-count");
@@ -1751,20 +1833,23 @@ function RichTextEditor(container, config) {
 		if (existing) existing.parentNode.removeChild(existing);
 		var menu = document.createElement("div");
 		menu.className = "rte-ai-context-menu";
-		menu.style.cssText = "position:fixed;left:" + x + "px;top:" + y + "px;background:#fff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 12px 32px rgba(15,23,42,.22);padding:6px 0;z-index:" + (config.zIndexDialog || 99999) + ";font:13px -apple-system,Segoe UI,sans-serif;min-width:200px;";
+		menu.setAttribute("role", "menu");
+		menu.setAttribute("aria-label", "AI selection actions");
+		y = __Clamp_DialogViewportTop(y, menu, 8);
+		menu.style.cssText = "position:fixed;left:" + x + "px;top:" + y + "px;z-index:" + (config.zIndexDialog || 99999) + ";";
 		var items = [
-			{ label: "✨ Ask AI to explain", action: "explain" },
-			{ label: "✏️ Rewrite", action: "rewrite" },
-			{ label: "📝 Summarize", action: "summarize" },
-			{ label: "🌐 Translate", action: "translate" }
+			{ label: "Explain selection", action: "explain" },
+			{ label: "Rewrite", action: "rewrite" },
+			{ label: "Summarize", action: "summarize" },
+			{ label: "Translate", action: "translate" }
 		];
 		for (var i = 0; i < items.length; i++) {
 			(function (it) {
-				var row = document.createElement("div");
-				row.style.cssText = "padding:8px 14px;cursor:pointer;color:#0f172a;";
+				var row = document.createElement("button");
+				row.type = "button";
+				row.className = "rte-ai-context-menu-item";
+				row.setAttribute("role", "menuitem");
 				row.textContent = it.label;
-				row.onmouseenter = function () { row.style.background = "#f1f5f9"; };
-				row.onmouseleave = function () { row.style.background = ""; };
 				row.onmousedown = function (ev) {
 					ev.preventDefault();
 					cleanup();
@@ -1788,33 +1873,52 @@ function RichTextEditor(container, config) {
 	function __InitTableColumnResize() {
 		if (config.tableColumnResize === false) return;
 		var resizing = null;  // { startX, startWidth, cell, table }
-		var HANDLE_WIDTH = 6;
+		var HANDLE_WIDTH = 8;
+		var guideCell = null;
+		// Visible cue: draw a coloured line on the cell border being resized via an
+		// inset box-shadow (no layout impact). Cells have no inline box-shadow, so
+		// clearing to "" reverts cleanly to any theme/CSS shadow.
+		function showColGuide(cell) {
+			if (guideCell === cell) return;
+			if (guideCell) guideCell.style.boxShadow = "";
+			guideCell = cell;
+			if (cell) cell.style.boxShadow = "inset -3px 0 0 0 #4f8cff";
+		}
 		__bindEditable("mousemove", function (e) {
 			if (resizing) return; // active drag handled by mousemove on document
 			var td = e.target && e.target.closest && e.target.closest("td,th");
 			if (!td) return;
 			var rect = td.getBoundingClientRect();
-			var ifrRect = iframe.getBoundingClientRect();
-			var localX = e.clientX;
-			var rightEdge = rect.right - ifrRect.left;
-			var fromRight = rect.right - localX;
+			var fromRight = rect.right - e.clientX;
+			var fromLeft = e.clientX - rect.left;
+			var target = null;
 			if (fromRight >= 0 && fromRight <= HANDLE_WIDTH) {
+				target = td;                          // drag this cell's right border
+			} else if (fromLeft >= 0 && fromLeft <= HANDLE_WIDTH && td.previousElementSibling) {
+				target = td.previousElementSibling;   // grab the same border from the cell on the right
+			}
+			if (target) {
 				editdoc.body.style.cursor = "col-resize";
 				td.__rteResizeArmed = true;
+				td.__rteResizeTarget = target;
+				showColGuide(target);
 			} else if (td.__rteResizeArmed) {
 				editdoc.body.style.cursor = "";
 				td.__rteResizeArmed = false;
+				td.__rteResizeTarget = null;
+				showColGuide(null);
 			}
 		});
 		__bindEditable("mousedown", function (e) {
 			var td = e.target && e.target.closest && e.target.closest("td,th");
 			if (!td || !td.__rteResizeArmed) return;
+			var cell = td.__rteResizeTarget || td;
 			e.preventDefault();
 			resizing = {
 				startX: e.clientX,
-				startWidth: td.getBoundingClientRect().width,
-				cell: td,
-				table: td.closest("table")
+				startWidth: cell.getBoundingClientRect().width,
+				cell: cell,
+				table: cell.closest("table")
 			};
 			editdoc.body.style.cursor = "col-resize";
 			editdoc.addEventListener("mousemove", onDrag, true);
@@ -1833,6 +1937,7 @@ function RichTextEditor(container, config) {
 			editdoc.removeEventListener("mouseup", onEnd, true);
 			document.removeEventListener("mouseup", onEnd, true);
 			editdoc.body.style.cursor = "";
+			showColGuide(null);
 			resizing = null;
 			__SetTimeout_HandleSelectionChange();
 		}
@@ -1844,27 +1949,48 @@ function RichTextEditor(container, config) {
 	function __InitTableRowResize() {
 		if (config.tableRowResize === false) return;
 		var rowDrag = null;
-		var HANDLE = 6;
+		var HANDLE = 8;
+		var guideRow = null;
+		// Visible cue: a coloured line along the row's bottom border. box-shadow on
+		// <tr> is unreliable, so apply the inset shadow to each cell of the row.
+		function showRowGuide(row) {
+			if (guideRow === row) return;
+			if (guideRow) for (var i = 0; i < guideRow.cells.length; i++) guideRow.cells[i].style.boxShadow = "";
+			guideRow = row;
+			if (row) for (var j = 0; j < row.cells.length; j++) row.cells[j].style.boxShadow = "inset 0 -3px 0 0 #4f8cff";
+		}
 		__bindEditable("mousemove", function (e) {
 			if (rowDrag) return;
 			var tr = e.target && e.target.closest && e.target.closest("tr");
 			if (!tr) return;
 			var rect = tr.getBoundingClientRect();
 			var fromBottom = rect.bottom - e.clientY;
+			var fromTop = e.clientY - rect.top;
+			var target = null;
 			if (fromBottom >= 0 && fromBottom <= HANDLE) {
+				target = tr;                          // drag this row's bottom border
+			} else if (fromTop >= 0 && fromTop <= HANDLE && tr.previousElementSibling) {
+				target = tr.previousElementSibling;   // grab the same border from the row below
+			}
+			if (target) {
 				editdoc.body.style.cursor = "row-resize";
 				tr.__rteRowArmed = true;
+				tr.__rteRowTarget = target;
+				showRowGuide(target);
 			} else if (tr.__rteRowArmed) {
 				// Only clear if the cell didn't also arm column-resize.
 				if (editdoc.body.style.cursor === "row-resize") editdoc.body.style.cursor = "";
 				tr.__rteRowArmed = false;
+				tr.__rteRowTarget = null;
+				showRowGuide(null);
 			}
 		});
 		__bindEditable("mousedown", function (e) {
 			var tr = e.target && e.target.closest && e.target.closest("tr");
 			if (!tr || !tr.__rteRowArmed) return;
+			var row = tr.__rteRowTarget || tr;
 			e.preventDefault();
-			rowDrag = { startY: e.clientY, startHeight: tr.getBoundingClientRect().height, row: tr };
+			rowDrag = { startY: e.clientY, startHeight: row.getBoundingClientRect().height, row: row };
 			editdoc.body.style.cursor = "row-resize";
 			editdoc.addEventListener("mousemove", onRowDrag, true);
 			editdoc.addEventListener("mouseup", onRowEnd, true);
@@ -1882,6 +2008,7 @@ function RichTextEditor(container, config) {
 			editdoc.removeEventListener("mouseup", onRowEnd, true);
 			document.removeEventListener("mouseup", onRowEnd, true);
 			editdoc.body.style.cursor = "";
+			showRowGuide(null);
 			rowDrag = null;
 			__SetTimeout_HandleSelectionChange();
 		}
@@ -1959,12 +2086,13 @@ function RichTextEditor(container, config) {
 
 	// (5) Reading mode — toggle a class on container that hides toolbars + chrome,
 	// leaving only the iframe content. Useful for distraction-free writing.
-	// State is persisted to localStorage under config.readingModePersistenceKey
-	// (default: derived from container.id) so it survives reloads.
+	// State is session-only by default so refresh restores the toolbar.
 	var __readingModeActive = false;
+	var __readingModeExitButton = null;
 	var __readingModeStorageKey = (function () {
-		if (config.readingModePersistenceKey === false) return null;
+		if (config.readingModePersistenceKey === false || config.readingModePersistenceKey == null) return null;
 		if (typeof config.readingModePersistenceKey === "string") return config.readingModePersistenceKey;
+		if (config.readingModePersistenceKey !== true) return null;
 		var idPart = (container && container.id) ? container.id : "rte";
 		return "rte:readingmode:" + idPart;
 	})();
@@ -1979,13 +2107,43 @@ function RichTextEditor(container, config) {
 			return v === "1" ? true : v === "0" ? false : null;
 		} catch (e) { return null; }
 	}
+	function __EnsureReadingModeExitButton() {
+		if (__readingModeExitButton && __readingModeExitButton.parentNode) return __readingModeExitButton;
+		if (!container || !container.ownerDocument) return null;
+		__readingModeExitButton = container.ownerDocument.createElement("button");
+		__readingModeExitButton.type = "button";
+		__readingModeExitButton.className = "rte-reading-mode-exit";
+		__readingModeExitButton.title = "Exit reading mode";
+		__readingModeExitButton.setAttribute("aria-label", "Exit reading mode");
+		__readingModeExitButton.innerText = "Exit reading";
+		__readingModeExitButton.onclick = function (e) {
+			if (e) {
+				e.preventDefault();
+				e.stopPropagation();
+			}
+			editor.toggleReadingMode(false);
+			__Focus_Editor_Delay();
+		};
+		container.appendChild(__readingModeExitButton);
+		return __readingModeExitButton;
+	}
 	editor.toggleReadingMode = function (state) {
 		__readingModeActive = (typeof state === "boolean") ? state : !__readingModeActive;
 		container.classList.toggle("rte-reading-mode", __readingModeActive);
+		__EnsureReadingModeExitButton();
 		__PersistReadingMode(__readingModeActive);
 		return __readingModeActive;
 	};
 	editor.isReadingMode = function () { return __readingModeActive; };
+	try {
+		__bindEditdoc("keydown", function (e) {
+			if (!__readingModeActive || config.readingModeEscapeKey === false) return;
+			if (e.key === "Escape" || e.keyCode === 27) {
+				e.preventDefault();
+				editor.toggleReadingMode(false);
+			}
+		});
+	} catch (e) { }
 	// Restore persisted state on init.
 	(function () {
 		var persisted = __LoadReadingMode();
@@ -2592,6 +2750,8 @@ function RichTextEditor(container, config) {
 		}
 
 		var div = __Append(dialogcontainer, "rte-control-toolbar", "top:0px;left:0px;z-index:" + config.zIndexFloat, "rte-modern rte-absolute");
+		div.classList.add("rte-float-toolbar", "rte-float-toolbar-" + toolbarname.toLowerCase());
+		div.setAttribute("data-rte-float-toolbar", toolbarname.toLowerCase());
 		__Bind_ActionContainerKeyboard(div, { role: "toolbar", orientation: "horizontal", label: "Selection toolbar" });
 
 		// 2026-05-11 Inline link URL preview. When the float toolbar is for an
@@ -2973,6 +3133,8 @@ function RichTextEditor(container, config) {
 			if (_isreadonly)
 				__codemodeinp.readOnly = true;
 		}
+		// Public event contract: fires whenever the visual/source view toggles.
+		try { InvokeEventHook("change_html_view", ___Is_CodeMode()); } catch (e) { }
 	}
 
 
@@ -3365,7 +3527,7 @@ function RichTextEditor(container, config) {
 
 			var fn = __Find_Selection_Root_Block();
 
-			var items = config.paragraphItems.split(",");
+			var items = String(config.paragraphItems || "Normal,H1,H2,H3,H4,H5,H6").split(",");
 
 			for (var i = 0; i < items.length; i++) {
 				var item = items[i];
@@ -3628,6 +3790,76 @@ function RichTextEditor(container, config) {
 		return false;
 	}
 
+	// 2026-06-04 Inline Markdown autoformat: **bold**, __bold__, *italic*,
+	// _italic_, `code`, ~~strike~~. Fires when the user types the CLOSING
+	// delimiter; the delimiter is suppressed and the delimited run is replaced
+	// with a semantic element (<strong>/<em>/<code>/<s>), matching the editor's
+	// own markdown tag convention. Underscore forms require a left word boundary
+	// so snake_case identifiers are never reformatted. Disable via
+	// config.markdownInlineEnabled = false.
+	function __MatchInlineMarkdown(s) {
+		function bnd(i) { return i <= 0 || /[^\w]/.test(s.charAt(i - 1)); }
+		var m;
+		// `code` first — inline code is literal, so it wins over * / _ inside it.
+		m = /`([^`]+)`$/.exec(s);
+		if (m && bnd(m.index)) return { tag: "CODE", inner: m[1], start: m.index };
+		// **bold** / __bold__
+		m = /\*\*([^*]+)\*\*$/.exec(s);
+		if (m && bnd(m.index)) return { tag: "STRONG", inner: m[1], start: m.index };
+		m = /__([^_]+)__$/.exec(s);
+		if (m && bnd(m.index)) return { tag: "STRONG", inner: m[1], start: m.index };
+		// ~~strike~~
+		m = /~~([^~]+)~~$/.exec(s);
+		if (m && bnd(m.index)) return { tag: "S", inner: m[1], start: m.index };
+		// *italic* — must not be part of a ** run.
+		m = /\*([^*]+)\*$/.exec(s);
+		if (m && bnd(m.index) && s.charAt(m.index - 1) !== "*") return { tag: "EM", inner: m[1], start: m.index };
+		// _italic_ — left word boundary; intraword underscores ignored.
+		m = /_([^_]+)_$/.exec(s);
+		if (m && bnd(m.index)) return { tag: "EM", inner: m[1], start: m.index };
+		return null;
+	}
+	function __ApplyInlineMarkdown(key) {
+		if (!editsel || editsel.rangeCount <= 0 || !editsel.isCollapsed || __GetSelectedControl())
+			return false;
+		var range = editsel.getRangeAt(0);
+		var node = range.startContainer;
+		if (!node || node.nodeType !== 3 || !editable.contains(node))
+			return false;
+		// Never autoformat inside code / preformatted / link regions.
+		var anc = node.parentNode;
+		while (anc && anc !== editable) {
+			var nn = anc.nodeName;
+			if (nn === "CODE" || nn === "PRE" || nn === "A") return false;
+			anc = anc.parentNode;
+		}
+		var offset = range.startOffset;
+		var domBefore = node.data.slice(0, offset);
+		var match = __MatchInlineMarkdown(domBefore + key);
+		if (!match || !/\S/.test(match.inner))
+			return false;
+		var head = node.data.slice(0, match.start);
+		var tail = node.data.slice(offset);
+		var el = editdoc.createElement(match.tag);
+		el.appendChild(editdoc.createTextNode(match.inner));
+		var frag = editdoc.createDocumentFragment();
+		if (head) frag.appendChild(editdoc.createTextNode(head));
+		frag.appendChild(el);
+		var tailNode = tail ? editdoc.createTextNode(tail) : null;
+		if (tailNode) frag.appendChild(tailNode);
+		var parent = node.parentNode;
+		if (!parent) return false;
+		parent.replaceChild(frag, node);
+		var r = editdoc.createRange();
+		if (tailNode) r.setStart(tailNode, 0); else r.setStartAfter(el);
+		r.collapse(true);
+		editsel.removeAllRanges();
+		editsel.addRange(r);
+		___Adjust_After_Content_Changed();
+		__SetTimeout_HandleSelectionChange();
+		return true;
+	}
+
 	__bindEditdoc("selectionchange", function () {
 		if (config.showFloatParagraph && config.subtoolbar_floatparagraph) {
 			__FPP_Scroll_It();
@@ -3642,15 +3874,30 @@ function RichTextEditor(container, config) {
 		// Smart typography (em-dash, ellipsis, smart quotes, trademarks) —
 		// runs BEFORE the character is inserted so we can replace the
 		// preceding pattern and insert the curly quote ourselves.
-		if (e.key && e.key.length === 1 && config.smartTypography !== false) {
-			try {
-				if (__TryApplySmartTypography(e.key)) {
-					// The substitution already inserted the desired glyph, so
-					// suppress the original keypress to avoid a duplicate
-					// character (e.g. "—-" instead of "—").
-					e.preventDefault();
-				}
-			} catch (er) { /* ignore */ }
+		if (e.key && e.key.length === 1) {
+			var __keyHandled = false;
+			if (config.smartTypography !== false) {
+				try {
+					if (__TryApplySmartTypography(e.key)) {
+						// The substitution already inserted the desired glyph, so
+						// suppress the original keypress to avoid a duplicate
+						// character (e.g. "—-" instead of "—").
+						e.preventDefault();
+						__keyHandled = true;
+					}
+				} catch (er) { /* ignore */ }
+			}
+			// Inline Markdown autoformat — fires on the closing delimiter and
+			// suppresses it (the delimited run becomes <strong>/<em>/<code>/<s>).
+			if (!__keyHandled && config.markdownInlineEnabled &&
+				(e.key === "*" || e.key === "_" || e.key === "~" || e.key === "`")) {
+				try {
+					if (__ApplyInlineMarkdown(e.key)) {
+						e.preventDefault();
+						__keyHandled = true;
+					}
+				} catch (er) { /* ignore */ }
+			}
 		}
 		if (e.keyCode == 32) {
 			// 2026-05-11 Auto-link on space: if the word before the caret
@@ -3664,40 +3911,8 @@ function RichTextEditor(container, config) {
 				return;
 			}
 		}
-		if (e.keyCode == 9) {
-			// Snippet expansion takes priority over indent. If the text just
-			// before the caret matches a registered ":snippet", expand it and
-			// suppress the Tab.
-			if (!e.shiftKey) {
-				try {
-					if (__TryExpandSnippet()) { e.preventDefault(); return; }
-				} catch (er) { /* ignore */ }
-			}
-			// Tab in a list item nests it (Shift+Tab outdents). Word/Google Docs
-			// convention. Works whether or not text is selected.
-			var inLi = false;
-			try {
-				var n = editsel.anchorNode;
-				while (n && n !== editable) {
-					if (n.nodeName === "LI") { inLi = true; break; }
-					n = n.parentNode;
-				}
-			} catch (er) { /* ignore */ }
-			if (inLi || editsel.toString()) {
-				e.preventDefault();
-				__Exec_Cmd_Core(e.shiftKey ? "outdent" : "indent");
-				return;
-			}
-			if (config.tabSpaces && config.tabSpaces > 0) {
-				e.preventDefault();
-				var inscode = "";
-				for (var i = 0; i < Math.min(config.tabSpaces, 100); i++)
-					inscode += "&nbsp;"
-				__InsertHTML(inscode);
-				__Collapse(false);
-			}
-			return;
-		}
+		// Tab (keyCode 9) is handled in the keydown handler — modern Chrome does
+		// not fire keypress for Tab.
 
 		if (e.keyCode == 13) {
 			_lastEnterKeyTime = Date.now();
@@ -3892,6 +4107,52 @@ function RichTextEditor(container, config) {
 		if (!editable.contains(e.target))
 			return;
 
+		// Tab handling lives in keydown: modern Chrome does NOT fire keypress for
+		// Tab, and the browser's default Tab (focus move) happens on keydown — so it
+		// must be intercepted here. Order: snippet expand -> list indent -> table
+		// cell navigation -> selection indent -> tab-spaces. When none apply (plain
+		// paragraph, no tabSpaces) Tab is left to its default so keyboard users can
+		// move focus out of the editor.
+		if (e.keyCode == 9 || e.key === "Tab") {
+			if (!e.shiftKey) {
+				try { if (__TryExpandSnippet()) { e.preventDefault(); return; } } catch (er) { /* ignore */ }
+			}
+			var inLi = false, tabCell = null;
+			try {
+				var n = editsel.anchorNode;
+				while (n && n !== editable) {
+					if (n.nodeName === "LI") { inLi = true; break; }
+					if (!tabCell && (n.nodeName === "TD" || n.nodeName === "TH")) tabCell = n;
+					n = n.parentNode;
+				}
+			} catch (er) { /* ignore */ }
+			if (inLi) {
+				e.preventDefault();
+				__Exec_Cmd_Core(e.shiftKey ? "outdent" : "indent");
+				return;
+			}
+			if (tabCell && config.tableTabNavigation !== false) {
+				e.preventDefault();
+				try { __TableTabNavigate(tabCell, e.shiftKey); } catch (er) { /* ignore */ }
+				return;
+			}
+			if (editsel.toString()) {
+				e.preventDefault();
+				__Exec_Cmd_Core(e.shiftKey ? "outdent" : "indent");
+				return;
+			}
+			if (config.tabSpaces && config.tabSpaces > 0) {
+				e.preventDefault();
+				var inscode = "";
+				for (var i = 0; i < Math.min(config.tabSpaces, 100); i++)
+					inscode += "&nbsp;"
+				__InsertHTML(inscode);
+				__Collapse(false);
+				return;
+			}
+			return;
+		}
+
 		// Alt+Up / Alt+Down → move current block up / down (VS Code convention).
 		if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
 			if (e.key === "ArrowUp") { e.preventDefault(); try { __MoveCurrentBlock(-1); } catch (er) {} return; }
@@ -3918,8 +4179,11 @@ function RichTextEditor(container, config) {
 					__Exec_Cmd_ForUI("cut");
 					break;
 				case "c":
+				case "C":
 					// Ctrl+Shift+C → detailed word-count modal (Google Docs convention).
-					// Plain Ctrl+C remains copy.
+					// Plain Ctrl+C remains copy. NOTE: with Shift held, e.key is
+					// the UPPERCASE letter, so the uppercase case label is what
+					// actually catches the Shift combo (same trap as case "V").
 					if (e.shiftKey) {
 						e.preventDefault();
 						__ShowWordCountModal();
@@ -3929,6 +4193,9 @@ function RichTextEditor(container, config) {
 					}
 					break;
 				case "z":
+				case "Z":
+					// Uppercase case label required: Shift makes e.key "Z", so
+					// without it Ctrl+Shift+Z (Mac-style redo) never matched.
 					e.preventDefault();
 					if (e.shiftKey) __Exec_Cmd_ForUI("redo");  // Ctrl+Shift+Z = redo (Mac-style)
 					else __Exec_Cmd_ForUI("undo");
@@ -3942,8 +4209,13 @@ function RichTextEditor(container, config) {
 					__Exec_Cmd_ForUI("insertlink");
 					break;
 				case "f":
+					// "find" is only a toolbar dialog factory, not an exec
+					// command — __Exec_Cmd_ForUI("find") silently did nothing,
+					// so Ctrl+F ate the keystroke without opening anything
+					// (and blocked the browser's own find). Open the real
+					// Find & Replace dialog directly.
 					e.preventDefault();
-					__Exec_Cmd_ForUI("find");
+					__OpenFindReplaceDialog();
 					break;
 				case "s":
 					e.preventDefault();
@@ -4111,6 +4383,7 @@ function RichTextEditor(container, config) {
 	var __ismousedown;
 	var __sel_cells_start;
 	var __sel_cells_end;
+	var __mousedown_cell;	// Cell under the cursor at mousedown; drives the geometric cell-selection fallback.
 
 	function MakeSelectedCells(tds) {
 		var arr = editdoc.querySelectorAll("[__rte_selected_cell]");
@@ -4154,6 +4427,20 @@ function RichTextEditor(container, config) {
 				__SelectDoc(true)
 				MakeSelectedCells(tds);
 			}
+			else if (__mousedown_cell) {
+				// Geometric fallback: some browsers don't extend the native text
+				// selection across table cells on drag, so the query above never
+				// reports >1 cell. Detect the crossing by hit-testing the cursor
+				// position and start cell-selection from the mousedown cell.
+				var te = __GetTableCell(editdoc.elementFromPoint(e.clientX, e.clientY));
+				if (te && te != __mousedown_cell && __GetTable(te) == __GetTable(__mousedown_cell)) {
+					__ismousedown = "cells";
+					__sel_cells_start = __mousedown_cell;
+					__sel_cells_end = te;
+					__SelectDoc(true)
+					MakeSelectedCells(_DoTableOperationCore("query", "querycells", __GetTable(__mousedown_cell), __mousedown_cell, te));
+				}
+			}
 		}
 
 	})
@@ -4167,8 +4454,15 @@ function RichTextEditor(container, config) {
 	__bindEditdoc("mousedown", function (e) {
 		if (e.button == 0) __ismousedown = true;
 
+		// Preserve a multi-cell selection when right-clicking inside it, so the
+		// table context toolbar / merge can still act on the selected cells.
+		var __downCell = __GetTableCell(e.target);
+		if (e.button !== 0 && __downCell && __downCell.hasAttribute("__rte_selected_cell"))
+			return;
+
 		__sel_cells_start = null;
 		__sel_cells_end = null;
+		__mousedown_cell = __downCell;
 		MakeSelectedCells();
 
 		var node = e.target;
@@ -5718,11 +6012,17 @@ function RichTextEditor(container, config) {
 				}
 
 				div.onclick = function () {
+					___CurrentBookmark_Commit();
+					var didCommand = false;
+					var didChange = false;
 
 					function changeStyle() {
 						var list = __FindSelectionElement(cmd == "insertorderedlist" ? "ol" : "ul");
 						if (list) {
-							list.style.listStyle = pair[0];
+							if (list.style.listStyleType != pair[0]) {
+								list.style.listStyleType = pair[0];
+								didChange = true;
+							}
 							__Close_CurrentPopup(panel);
 						}
 						return list;
@@ -5730,9 +6030,14 @@ function RichTextEditor(container, config) {
 
 					if (!changeStyle()) {
 						__Exec_Cmd_ForUI(cmd);
+						didCommand = true;
 						if (!changeStyle()) {
 							console.warn("failed to find list.");
 						}
+					}
+					if (didCommand || didChange) {
+						___CurrentBookmark_Save();
+						__SetTimeout_HandleSelectionChange();
 					}
 
 				}
@@ -5750,8 +6055,21 @@ function RichTextEditor(container, config) {
 
 	__toolbar_item_factory_map["forecolor"] = __toolbar_item_factory_map["backcolor"] = function (cmd) {
 
-		// TODO: Move these font-name presets into shared config defaults.
-		var defaultcolor = cmd == "forecolor" ? "red" : "yellow";
+		var colorStoreKey = cmd.toLowerCase();
+		var fallbackcolor = colorStoreKey == "forecolor" ? "red" : "yellow";
+
+		function normalizeColorValue(value) {
+			return value == null ? "" : String(value).trim();
+		}
+
+		function getRecentColorStore() {
+			if (!editor.__rteRecentColorCommands) {
+				editor.__rteRecentColorCommands = {};
+			}
+			return editor.__rteRecentColorCommands;
+		}
+
+		var defaultcolor = normalizeColorValue(getRecentColorStore()[colorStoreKey]) || fallbackcolor;
 
 		var button = __Create_ToolbarItemSplitDropDown(cmd, function (panel) {
 
@@ -5795,7 +6113,7 @@ function RichTextEditor(container, config) {
 				__Close_CurrentPopup(panel);
 				__UI_ColorPickerDialog(cmd, function (c) {
 					execColor(c);
-				});
+				}, defaultcolor);
 			}
 		}, function () {
 			__Exec_Cmd_ForUI(cmd, defaultcolor)
@@ -5806,7 +6124,10 @@ function RichTextEditor(container, config) {
 		mask.style.backgroundColor = defaultcolor;
 
 		function execColor(c) {
+			c = normalizeColorValue(c);
+			if (!c) return;
 			defaultcolor = c;
+			getRecentColorStore()[colorStoreKey] = defaultcolor;
 			mask.style.backgroundColor = defaultcolor;
 			//editdoc.execCommand(cmd, false, c);
 			__Exec_Cmd_ForUI(cmd, c)
@@ -5900,6 +6221,27 @@ function RichTextEditor(container, config) {
 
 
 	__toolbar_item_factory_map["insertvideo"] = function (cmd) {
+		function resolveVideoEmbedUrl(raw) {
+			var value = String(raw || "").trim();
+			var m;
+			m = /^https?:\/\/(?:www\.)?youtube\.com\/watch\?(?:[^#]*&)?v=([A-Za-z0-9_-]{6,20})(?:[&#?]|$)/i.exec(value);
+			if (m) return "https://www.youtube.com/embed/" + m[1] + "?wmode=opaque";
+			m = /^https?:\/\/(?:www\.)?youtube\.com\/embed\/([A-Za-z0-9_-]{6,20})(?:[?#].*)?$/i.exec(value);
+			if (m) return "https://www.youtube.com/embed/" + m[1] + "?wmode=opaque";
+			m = /^https?:\/\/(?:www\.)?youtube\.com\/shorts\/([A-Za-z0-9_-]{6,20})(?:[?#].*)?$/i.exec(value);
+			if (m) return "https://www.youtube.com/embed/" + m[1] + "?wmode=opaque";
+			m = /^https?:\/\/youtu\.be\/([A-Za-z0-9_-]{6,20})(?:[?#].*)?$/i.exec(value);
+			if (m) return "https://www.youtube.com/embed/" + m[1] + "?wmode=opaque";
+			m = /^https?:\/\/(?:www\.)?vimeo\.com\/(\d{6,12})(?:[/?#]|$)/i.exec(value);
+			if (m) return "https://player.vimeo.com/video/" + m[1];
+			m = /^https?:\/\/player\.vimeo\.com\/video\/(\d{6,12})(?:[?#].*)?$/i.exec(value);
+			if (m) return "https://player.vimeo.com/video/" + m[1];
+			m = /^https?:\/\/dai\.ly\/([A-Za-z0-9]+)(?:[?#].*)?$/i.exec(value);
+			if (m) return "https://www.dailymotion.com/embed/video/" + m[1];
+			m = /^https?:\/\/(?:www\.)?dailymotion\.com\/video\/([A-Za-z0-9]+)(?:[?#].*)?$/i.exec(value);
+			if (m) return "https://www.dailymotion.com/embed/video/" + m[1];
+			return value;
+		}
 		return __Create_ToolbarItemDialogOrDropDownPanel(cmd, function (panel) {
 
 			var div1 = __Append(panel, "rte-dialog-line-url", "", "rte-dialog-line-input");
@@ -5910,7 +6252,7 @@ function RichTextEditor(container, config) {
 
 			_SetInputValueClassLogic(inpurl)
 
-			var existingElement = __FindSelectionElement("iframe", function (tag) { tag.getAttribute("rte-for") == "insertvideo" });
+			var existingElement = __FindSelectionElement("iframe", function (tag) { return tag.getAttribute("rte-for") == "insertvideo"; });
 			if (existingElement)
 				inpurl.value = existingElement.getAttribute("data-url")
 
@@ -5940,49 +6282,16 @@ function RichTextEditor(container, config) {
 					iframe.setAttribute("border", "0");
 					iframe.setAttribute("allowfullscreen", "");
 				}
+				iframe.setAttribute("loading", "lazy");
+				iframe.setAttribute("referrerpolicy", "strict-origin-when-cross-origin");
+				iframe.setAttribute("allow", "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share");
 
 				if (url.indexOf("<iframe") == 0) {
 					__ApplyFragment(iframe, "div", url);
 				}
 				else {
 					iframe.setAttribute("data-url", url);
-
-					//https://www.youtube.com/watch?v=pMF9r76wuV8
-					//https://www.youtube.com/embed/pMF9r76wuV8?&wmode=opaque
-
-					//https://youtu.be/Q55usVcqGAI
-
-					//https://vimeo.com/411485636 =>https://player.vimeo.com/video/411485636
-
-					//https://dai.ly/x4e5dko
-					//https://www.dailymotion.com/video/x4e5dko		=>https://www.dailymotion.com/embed/video/x4e5dko
-
-					//https://www.twitch.tv/videos/102507530	-><iframe src="https://player.twitch.tv/?video=102507530&parent=www.example.com" frameborder="0" allowfullscreen="true" scrolling="no" height="378" width="620"></iframe>
-
-					//https://flic.kr/p/8e3Scb ?
-
-					var targeturl = url;
-					var pos = url.indexOf("youtube.com/watch?v=")
-					if (pos != -1)
-						targeturl = "https://youtube.com/embed/" + url.substring(pos).split('=')[1].split('&')[0] + "?wmode=opaque";
-					var pos = url.indexOf("youtu.be/")
-					if (pos != -1)
-						targeturl = "https://youtube.com/embed/" + url.substring(pos + 9).split('?')[0] + "?wmode=opaque";
-
-					var pos = url.indexOf("//vimeo.com/")
-					if (pos != -1)
-						targeturl = "https://player.vimeo.com/video/" + url.substring(pos + 12).split('?')[0];
-
-
-					var pos = url.indexOf("dai.ly/")
-					if (pos != -1)
-						targeturl = "https://www.dailymotion.com/embed/video/" + url.substring(pos + 7).split('?')[0];
-
-					var pos = url.indexOf("dailymotion.com/video/")
-					if (pos != -1)
-						targeturl = "https://www.dailymotion.com/embed/video/" + url.substring(pos + 22).split('?')[0];
-
-					iframe.setAttribute("src", targeturl);
+					iframe.setAttribute("src", resolveVideoEmbedUrl(url));
 				}
 
 				__Close_CurrentPopup(panel);
@@ -6096,7 +6405,7 @@ function RichTextEditor(container, config) {
 
 				var file = __Append(draguploadtab, "input", "position:absolute;top:0px;left:0px;width:100%;height:100%;opacity:0.01");
 				file.type = "file";
-				file.setAttribute("accept", ".jpg,.jpeg,.png,.gif,.bmp,.webp,.svg,.zip,.rar,.pdf,.doc,.docx,.xls,.xlsx,.rtf,.txt");
+				file.setAttribute("accept", config.documentUploadAccept || ".txt,.text,.rtf,.md,.markdown,.html,.htm,.pdf,.doc,.docx,.odt,.xls,.xlsx,.csv,.tsv,.json,.xml,.zip,.rar");
 
 				draguploadtab.ondragenter = function (e) { e.preventDefault(); }
 				draguploadtab.ondragover = function (e) { e.preventDefault(); }
@@ -6530,7 +6839,7 @@ function RichTextEditor(container, config) {
 	__toolbar_item_factory_map["controlalt"] = function (cmd) {
 		return __Create_ToolbarItemDialogOrDropDownPanel(cmd, function (panel) {
 
-			var ctrl = __GetSelectedControl();
+			var ctrl = __GetSelectedControl() || __FindSelectionElement("IMG");
 
 			if (!ctrl) {
 				panel.style.cssText = "text-align:center;padding:30px;";
@@ -6566,7 +6875,10 @@ function RichTextEditor(container, config) {
 			button.innerText = "Update";
 			button.onclick = function () {
 				ctrl.setAttribute("alt", inpalt.value.trim());
-				__Close_CurrentPopup();
+				__Close_CurrentPopup(panel);
+				__SelectControl(ctrl);
+				__SetTimeout_HandleSelectionChange();
+				__Focus_Editor_Delay();
 			}
 		});
 	}
@@ -6867,7 +7179,9 @@ function RichTextEditor(container, config) {
 		}
 		option.fillpanel = function (panel) {
 			var currfont = __GetCurrentFontName();
-			var fonts = config.fontNameItems.split(",");
+			// Fallback keeps the toolbar alive if the config entry is missing
+			// (e.g. core loaded without rte-config.js, or a user set it null).
+			var fonts = String(config.fontNameItems || "Arial,Courier New,Georgia,Tahoma,Times New Roman,Verdana").split(",");
 			for (var i = 0; i < fonts.length; i++) {
 				var font = fonts[i];
 				var div = __Append_DropDownItem(panel, divonclick);
@@ -6908,7 +7222,8 @@ function RichTextEditor(container, config) {
 			input.innerText = __GetLangText("fontsize");
 		}
 		option.fillpanel = function (panel) {
-			var fonts = config.fontSizeItems.split(",");
+			// Same missing-config fallback as fontname above.
+			var fonts = String(config.fontSizeItems || "8,9,10,11,12,14,16,18,24,36,48,72").split(",");
 
 			for (var i = 0; i < fonts.length; i++) {
 				var font = fonts[i];
@@ -6937,7 +7252,7 @@ function RichTextEditor(container, config) {
 		return __Create_ToolbarItemDropDownPanel(cmd, function (panel) {
 			var rb = __Find_Selection_Root_Block();
 			var currlh = rb && rb.style.lineHeight;
-			var items = config.lineHeightItems.split(",");
+			var items = String(config.lineHeightItems || "100%,150%,200%,250%,300%").split(",");
 			for (var i = 0; i < items.length; i++) {
 				var item = items[i];
 				var div = __Append_DropDownItem(panel, divonclick);
@@ -7275,7 +7590,7 @@ function RichTextEditor(container, config) {
 		option.fillpanel = function (panel) {
 			var fn = __Find_Selection_Root_Block();
 
-			var items = config.paragraphItems.split(",");
+			var items = String(config.paragraphItems || "Normal,H1,H2,H3,H4,H5,H6").split(",");
 			for (var i = 0; i < items.length; i++) {
 				var item = items[i];
 				var div = __Append_DropDownItem(panel, divonclick);
@@ -7305,25 +7620,91 @@ function RichTextEditor(container, config) {
 		return span;
 	}
 
+	// Word-style Quick Styles. The dropdown lists named looks; "styles" applies
+	// the look to the current BLOCK, "inlinestyles" wraps the SELECTION.
+	// Override/extend looks via config.stylesItemDefinitions = { Name: "css" }
+	// and the dropdown order via config.stylesItems = "Normal,Title,...".
+	// (Replaces a long-standing "test1,test2,test3" placeholder stub that
+	// shipped in the office ribbon preset.)
+	function __GetQuickStyleDefs() {
+		var defs = {
+			"Normal": "",
+			"Title": "font-size:2em;font-weight:bold;line-height:1.25",
+			"Subtitle": "font-size:1.25em;color:#64748b",
+			"Emphasis": "font-style:italic;color:#475569",
+			"Strong": "font-weight:bold",
+			"Quote": "font-style:italic;color:#475569;border-left:3px solid #cbd5e1;padding-left:12px",
+			"Code": "font-family:Consolas,Menlo,monospace;background:#f1f5f9;padding:2px 8px;border-radius:4px",
+			"Highlight": "background:#fef9c3"
+		};
+		var custom = config.stylesItemDefinitions;
+		if (custom) { for (var k in custom) defs[k] = custom[k]; }
+		return defs;
+	}
+	function __ApplyQuickStyle(name) {
+		var defs = __GetQuickStyleDefs();
+		var css = defs[name];
+		if (css === undefined) return;
+		var block = __Find_Selection_Root_Block();
+		if (!block) return;
+		block.style.cssText = css;	// "Normal" (empty) clears the block's inline look
+	}
+	function __ApplyQuickInlineStyle(name) {
+		var defs = __GetQuickStyleDefs();
+		var css = defs[name];
+		if (css === undefined) return;
+		if (!editsel || editsel.isCollapsed || !editsel.rangeCount) return;
+		if (name === "Normal") { try { __Exec_Cmd_Core("removeformat"); } catch (e) { } return; }
+		var range = editsel.getRangeAt(0);
+		var span = editdoc.createElement("span");
+		span.style.cssText = css;
+		try { range.surroundContents(span); }
+		catch (e) {
+			// Selection crosses element boundaries: extract + wrap instead.
+			var frag = range.extractContents();
+			span.appendChild(frag);
+			range.insertNode(span);
+		}
+		try {
+			var nr = editdoc.createRange();
+			nr.selectNodeContents(span);
+			editsel.removeAllRanges(); editsel.addRange(nr);
+		} catch (e2) { }
+	}
+	function __QuickStylesFillPanel(panel, divonclick) {
+		var defs = __GetQuickStyleDefs();
+		var items = String(config.stylesItems || "Normal,Title,Subtitle,Emphasis,Strong,Quote,Code,Highlight").split(",");
+		for (var i = 0; i < items.length; i++) {
+			var nm = items[i].replace(/^\s+|\s+$/g, "");
+			if (!nm || defs[nm] === undefined) continue;
+			var div = __Append_DropDownItem(panel, divonclick);
+			div.__selecteditem = nm;
+			div.innerText = nm;
+			if (defs[nm]) div.style.cssText += ";" + defs[nm];	// live preview of the look
+		}
+	}
 	__toolbar_item_factory_map["styles"] = function (cmd, suffix) {
 		var option = {};
 		function divonclick(div) {
-			debuglog(div.__selecteditem);
 			__Exec_Cmd_ForUI("styles", div.__selecteditem);
 			__Close_CurrentPopup();
 		}
 		option.fillinput = function (input) {
-			input.innerText = "Styles";
+			input.innerText = __GetLangText("styles") || "Styles";
 		}
-		option.fillpanel = function (panel) {
-			var fonts = "test1,test2,test3".split(",");
-			for (var i = 0; i < fonts.length; i++) {
-				var font = fonts[i];
-				var div = __Append_DropDownItem(panel, divonclick);
-				div.__selecteditem = font;
-				div.innerText = font;
-			}
+		option.fillpanel = function (panel) { __QuickStylesFillPanel(panel, divonclick); }
+		return __CreateToolbarDropDown(option, cmd, suffix);
+	}
+	__toolbar_item_factory_map["inlinestyles"] = function (cmd, suffix) {
+		var option = {};
+		function divonclick(div) {
+			__Exec_Cmd_ForUI("inlinestyles", div.__selecteditem);
+			__Close_CurrentPopup();
 		}
+		option.fillinput = function (input) {
+			input.innerText = __GetLangText("inlinestyles") || "Text styles";
+		}
+		option.fillpanel = function (panel) { __QuickStylesFillPanel(panel, divonclick); }
 		return __CreateToolbarDropDown(option, cmd, suffix);
 	}
 
@@ -7392,6 +7773,20 @@ function RichTextEditor(container, config) {
 
 
 	function __Create_ToolbarItemDropDownPanel(cmd, initpanel) {
+		// Register an exec fallback so execCommand(cmd) — slash menu,
+		// keyboard shortcuts, public API — works even when the button isn't
+		// on the toolbar (same contract as the titled-dialog variant below,
+		// which registers in _cmdtocontrolmap). Without this, commands whose
+		// factory uses the plain dropdown variant (e.g. insertemoji) were
+		// silent no-ops outside a toolbar click.
+		_cmdtocontrolmap[cmd.toLowerCase()] = {
+			type: "dropdown", control: null, exec: function () {
+				var panel = __UI_CreateDialogFrame(__GetLangText(cmd), "rte-panel-" + cmd.toLowerCase(), function () {
+					// Dispose the panel when it closes.
+				});
+				initpanel(panel);
+			}
+		};
 		var span = __Default_ToolbarItemFactory(cmd);
 		span.onclick = function (e) {
 
@@ -8071,6 +8466,13 @@ function RichTextEditor(container, config) {
 
 		var cmdlower = name.toLowerCase();
 
+		// Comments-only review mode: only the comments workflow and
+		// non-mutating commands may execute; document edits are blocked.
+		if (_iscommentsonly && !/^(comment|insertcomment|resolvecomment|commentadd|copy|find|selectall|print|preview|readaloud|save)$/.test(cmdlower)) {
+			debuglog("blocked by comments-only mode", name);
+			return false;
+		}
+
 		var retval = InvokeEventHook("exec_command_" + cmdlower, cmdlower, value);
 		if (retval !== undefined)
 			return retval;
@@ -8085,6 +8487,12 @@ function RichTextEditor(container, config) {
 		}
 
 		switch (cmdlower) {
+			case "styles":
+				__ApplyQuickStyle(value);
+				return;
+			case "inlinestyles":
+				__ApplyQuickInlineStyle(value);
+				return;
 			case "justify":
 				name = cmdlower = "justifyfull";
 				break;
@@ -8150,18 +8558,33 @@ function RichTextEditor(container, config) {
 				__ToggleSelectionStyle("background-color", "backgroundColor", value, false, true)
 				break;
 			case "tablecellforecolor":
-				var rn0 = __Find_Selection_Root_Block();
-				if (!rn0) return;
-				__UI_ColorPickerDialog("forecolor", function (val) {
-					rn0.style.color = val;
-				});
+				__Table_ApplyCellColor("color", "forecolor", value);
 				break;
 			case "tablecellbackcolor":
-				var rn0 = __Find_Selection_Root_Block();
-				if (!rn0) return;
-				__UI_ColorPickerDialog("backcolor", function (val) {
-					rn0.style.backgroundColor = val;
-				});
+				__Table_ApplyCellColor("backgroundColor", "backcolor", value);
+				break;
+			case "tablecellvalign":
+				// value: top | middle | bottom (empty clears)
+				__Table_ApplyCellStyle("verticalAlign", value);
+				break;
+			case "tablecellhalign":
+				// value: left | center | right | justify (empty clears)
+				__Table_ApplyCellStyle("textAlign", value);
+				break;
+			case "tablecellproperties":
+				__UI_Dialog_CellProperties();
+				break;
+			case "tabledistributecolumns":
+				__Table_DistributeColumns();
+				break;
+			case "tabledistributerows":
+				__Table_DistributeRows();
+				break;
+			case "tablecelltype":
+				__Table_ToggleCellType();
+				break;
+			case "tableproperties":
+				__UI_Dialog_TableProperties();
 				break;
 			case "pmoveup":
 				var rn0 = __Find_Selection_Root_Block();
@@ -8512,6 +8935,19 @@ function RichTextEditor(container, config) {
 				}
 
 				var ctrlinfo = _cmdtocontrolmap[cmdlower];
+				if (ctrlinfo == null && __toolbar_item_factory_map[cmdlower]) {
+					// Dialog/dropdown commands register their open handler in
+					// _cmdtocontrolmap only when their toolbar item is CREATED.
+					// If the button isn't in this editor's toolbar config,
+					// execCommand("insertlink"/"inserttable"/"insertemoji"/...)
+					// — and everything built on it: slash menu, Ctrl+K, the
+					// public API — silently did nothing. Create the item once,
+					// detached, purely to register the handler, then exec.
+					try {
+						__toolbar_item_factory_map[cmdlower](cmdlower);
+						ctrlinfo = _cmdtocontrolmap[cmdlower];
+					} catch (er) { ctrlinfo = null; }
+				}
 				if (ctrlinfo != null) {
 					ctrlinfo.exec(value);
 					break;
@@ -8551,29 +8987,305 @@ function RichTextEditor(container, config) {
 		var table = __FindSelectionElement("table");
 		if (!table)
 			return false;
-		for (var i = 0; i < table.childNodes.length; i++) {
-			if (table.childNodes[i].nodeName == "THEAD") {
-				table.removeChild(table.childNodes[i]);
-				return;
+		// Convert every cell of a row to <td> or <th>, preserving content + attributes.
+		function __convertRowCells(row, toTag) {
+			for (var i = row.cells.length - 1; i >= 0; i--) {
+				var src = row.cells[i];
+				if (src.nodeName.toLowerCase() === toTag) continue;
+				var dst = editdoc.createElement(toTag);
+				for (var a = 0; a < src.attributes.length; a++)
+					dst.setAttribute(src.attributes[a].name, src.attributes[a].value);
+				while (src.firstChild) dst.appendChild(src.firstChild);
+				src.parentNode.replaceChild(dst, src);
 			}
 		}
-		var thead = __Append(table, "THEAD");
-		table.insertBefore(thead, table.firstChild);
-		var maxcols = 0;
-		for (var ri = 0; ri < table.rows.length; ri++) {
-			var row = table.rows[ri];
-			var colc = 0;
-			for (var ci = 0; ci < row.cells.length; ci++) {
-				colc++;
-				if (row.cells[ci].colSpan > 1)
-					colc += row.cells[ci].colSpan - 1;
+		var thead = table.querySelector("thead");
+		if (thead) {
+			// Toggle OFF: turn the header cells back into <td> and fold the rows
+			// back to the top of the table body.
+			var bodyTarget = (table.tBodies && table.tBodies[0]) || table;
+			var headrows = Array.prototype.slice.call(thead.rows);
+			for (var r = headrows.length - 1; r >= 0; r--) {
+				__convertRowCells(headrows[r], "td");
+				bodyTarget.insertBefore(headrows[r], bodyTarget.firstChild);
 			}
-			if (colc > maxcols) maxcols = colc;
+			thead.remove();
+			__SetTimeout_HandleSelectionChange();
+			return;
 		}
-		var row = __Append(thead, "TR");
-		for (var i = 0; i < maxcols; i++) {
-			__Append(row.insertCell(), "br"); // TODO: Use config for empty-cell filler markup.
+		// Toggle ON: convert the first row's cells to <th> and wrap it in <thead>.
+		var firstRow = table.rows[0];
+		if (!firstRow)
+			return false;
+		__convertRowCells(firstRow, "th");
+		var newthead = editdoc.createElement("thead");
+		newthead.appendChild(firstRow);
+		table.insertBefore(newthead, table.firstChild);
+		__SetTimeout_HandleSelectionChange();
+	}
+
+	// Apply a fore/background colour to every selected table cell (falling back
+	// to the cell containing the caret). A direct value applies immediately;
+	// otherwise the colour picker is shown. Targets the TD/TH so the whole cell
+	// is coloured (and multi-cell selections all get the colour).
+	function __Table_ApplyCellColor(styleProp, pickerType, value) {
+		var cells = editdoc.querySelectorAll("[__rte_selected_cell]");
+		if (!cells.length) {
+			var c = __GetTableCell(editsel.anchorNode);
+			cells = c ? [c] : [];
 		}
+		if (!cells.length) return;
+		function apply(val) {
+			for (var i = 0; i < cells.length; i++) cells[i].style[styleProp] = val;
+			__SetTimeout_HandleSelectionChange();
+		}
+		if (value) apply(value);
+		else __UI_ColorPickerDialog(pickerType, apply);
+	}
+
+	// Apply a CSS property to every selected table cell (falling back to the cell
+	// containing the caret). Used for cell properties like vertical / horizontal
+	// alignment. An empty value clears the inline property.
+	function __Table_ApplyCellStyle(styleProp, value) {
+		var cells = editdoc.querySelectorAll("[__rte_selected_cell]");
+		if (!cells.length) {
+			var c = __GetTableCell(editsel.anchorNode);
+			cells = c ? [c] : [];
+		}
+		if (!cells.length) return;
+		for (var i = 0; i < cells.length; i++) cells[i].style[styleProp] = value || "";
+		__SetTimeout_HandleSelectionChange();
+	}
+
+	// Distribute the table's columns to equal widths (resets manual resizing).
+	function __Table_DistributeColumns() {
+		var table = __FindSelectionElement("table");
+		if (!table || !table.rows.length) return false;
+		var cols = 0, top = table.rows[0];
+		for (var c = 0; c < top.cells.length; c++)
+			cols += Math.max(1, parseInt(top.cells[c].getAttribute("colspan")) || 1);
+		if (!cols) return false;
+		var unit = 100 / cols;
+		for (var r = 0; r < table.rows.length; r++)
+			for (var k = 0; k < table.rows[r].cells.length; k++) {
+				var span = Math.max(1, parseInt(table.rows[r].cells[k].getAttribute("colspan")) || 1);
+				table.rows[r].cells[k].style.width = (unit * span).toFixed(4) + "%";
+			}
+		__SetTimeout_HandleSelectionChange();
+		return true;
+	}
+	// Distribute the table's rows to equal (tallest) heights.
+	function __Table_DistributeRows() {
+		var table = __FindSelectionElement("table");
+		if (!table || !table.rows.length) return false;
+		var max = 0;
+		for (var r = 0; r < table.rows.length; r++)
+			max = Math.max(max, table.rows[r].getBoundingClientRect().height);
+		if (max > 0)
+			for (var r2 = 0; r2 < table.rows.length; r2++)
+				table.rows[r2].style.height = Math.round(max) + "px";
+		__SetTimeout_HandleSelectionChange();
+		return true;
+	}
+
+	// Toggle the selected cell(s) between <td> and <th> (per-cell header), based
+	// on the first cell. Distinct from the whole-row header (__Table_ToggleHeader).
+	function __Table_ToggleCellType() {
+		var snap = editdoc.querySelectorAll("[__rte_selected_cell]");
+		var list = [];
+		for (var i = 0; i < snap.length; i++) list.push(snap[i]);
+		if (!list.length) {
+			var cc = __GetTableCell(editsel.anchorNode);
+			if (cc) list.push(cc);
+		}
+		if (!list.length) return false;
+		var toTag = list[0].nodeName === "TD" ? "th" : "td";
+		for (var j = 0; j < list.length; j++) {
+			var src = list[j];
+			if (src.nodeName.toLowerCase() === toTag) continue;
+			var dst = editdoc.createElement(toTag);
+			for (var a = 0; a < src.attributes.length; a++)
+				dst.setAttribute(src.attributes[a].name, src.attributes[a].value);
+			while (src.firstChild) dst.appendChild(src.firstChild);
+			src.parentNode.replaceChild(dst, src);
+		}
+		__SetTimeout_HandleSelectionChange();
+		return true;
+	}
+
+	// Cell properties dialog — vertical/horizontal alignment, width, height,
+	// background and padding — applied to every selected cell (caret fallback).
+	function __UI_Dialog_CellProperties() {
+		var snap = editdoc.querySelectorAll("[__rte_selected_cell]");
+		var cells = [];
+		for (var i = 0; i < snap.length; i++) cells.push(snap[i]);
+		if (!cells.length) {
+			var cc = __GetTableCell(editsel.anchorNode);
+			if (cc) cells.push(cc);
+		}
+		if (!cells.length) return false;
+		var st = cells[0].style;
+
+		var dialoginner = __UI_CreateDialogFrame("Cell Properties", "rte-dialog-cellprops");
+		function lt(key, fb) { var t = __GetLangText(key); return (t && t.toLowerCase() !== key.toLowerCase()) ? t : fb; }
+		var form = __Append(dialoginner, "div", "display:flex;flex-direction:column;gap:10px;min-width:320px;padding:6px 4px;text-align:left;");
+
+		function row(labelText) {
+			var r = __Append(form, "div", "display:flex;align-items:center;gap:10px;");
+			__Append(r, "label", "width:140px;flex:none;font-size:13px;color:#475569;").innerText = labelText;
+			return r;
+		}
+		function makeSelect(r, options, current) {
+			var s = __Append(r, "select", "flex:1;padding:5px 6px;border:1px solid #cbd5e1;border-radius:6px;");
+			for (var i = 0; i < options.length; i++) {
+				var o = __Append(s, "option");
+				o.value = options[i][0];
+				o.innerText = options[i][1];
+				if (options[i][0] === current) o.selected = true;
+			}
+			return s;
+		}
+		function makeInput(r, val, ph) {
+			var inp = __Append(r, "input", "flex:1;padding:5px 6px;border:1px solid #cbd5e1;border-radius:6px;");
+			inp.type = "text";
+			inp.value = val || "";
+			if (ph) inp.placeholder = ph;
+			return inp;
+		}
+
+		var selV = makeSelect(row(lt("verticalalign", "Vertical align")),
+			[["", "—"], ["top", "Top"], ["middle", "Middle"], ["bottom", "Bottom"]], st.verticalAlign);
+		var selH = makeSelect(row(lt("horizontalalign", "Horizontal align")),
+			[["", "—"], ["left", "Left"], ["center", "Center"], ["right", "Right"], ["justify", "Justify"]], st.textAlign);
+		var inpW = makeInput(row(lt("width", "Width")), st.width, "e.g. 120px or 20%");
+		var inpH = makeInput(row(lt("height", "Height")), st.height, "e.g. 40px");
+		var inpBg = makeInput(row(lt("backgroundcolor", "Background")), st.backgroundColor, "#eef / red");
+		var inpPad = makeInput(row(lt("padding", "Padding")), st.padding, "e.g. 4px 8px");
+
+		var actions = __Append(form, "div", "display:flex;justify-content:flex-end;gap:8px;margin-top:8px;");
+		var btnCancel = __Append(actions, "rte-dialog-button", "");
+		btnCancel.innerText = lt("cancel", "Cancel");
+		btnCancel.onclick = function () { dialoginner.close(); };
+		var btnOk = __Append(actions, "rte-dialog-button", null, "rte-button-type-ok");
+		btnOk.innerText = lt("apply", "Apply");
+		btnOk.onclick = function () {
+			function setAll(prop, val) { for (var i = 0; i < cells.length; i++) cells[i].style[prop] = val; }
+			setAll("verticalAlign", selV.value);
+			setAll("textAlign", selH.value);
+			setAll("width", inpW.value);
+			setAll("height", inpH.value);
+			setAll("backgroundColor", inpBg.value);
+			setAll("padding", inpPad.value);
+			__SetTimeout_HandleSelectionChange();
+			dialoginner.close();
+		};
+		return true;
+	}
+
+	// Table properties dialog — width, border, alignment, cell spacing/padding,
+	// background — applied to the table containing the selection.
+	function __UI_Dialog_TableProperties() {
+		var table = __FindSelectionElement("table");
+		if (!table) return false;
+		function lt(key, fb) { var t = __GetLangText(key); return (t && t.toLowerCase() !== key.toLowerCase()) ? t : fb; }
+		var st = table.style;
+
+		var dialoginner = __UI_CreateDialogFrame("Table Properties", "rte-dialog-tableprops");
+		var form = __Append(dialoginner, "div", "display:flex;flex-direction:column;gap:10px;min-width:320px;padding:6px 4px;text-align:left;");
+		function row(labelText) {
+			var r = __Append(form, "div", "display:flex;align-items:center;gap:10px;");
+			__Append(r, "label", "width:140px;flex:none;font-size:13px;color:#475569;").innerText = labelText;
+			return r;
+		}
+		function makeInput(r, val, ph) {
+			var inp = __Append(r, "input", "flex:1;padding:5px 6px;border:1px solid #cbd5e1;border-radius:6px;");
+			inp.type = "text"; inp.value = val || ""; if (ph) inp.placeholder = ph;
+			return inp;
+		}
+		function makeSelect(r, options, current) {
+			var s = __Append(r, "select", "flex:1;padding:5px 6px;border:1px solid #cbd5e1;border-radius:6px;");
+			for (var i = 0; i < options.length; i++) {
+				var o = __Append(s, "option"); o.value = options[i][0]; o.innerText = options[i][1];
+				if (options[i][0] === current) o.selected = true;
+			}
+			return s;
+		}
+
+		var curAlign = "";
+		if (st.marginLeft === "auto" && st.marginRight === "auto") curAlign = "center";
+		else if (st.marginLeft === "auto") curAlign = "right";
+		else if (st.marginRight === "auto") curAlign = "left";
+
+		var inpW = makeInput(row(lt("width", "Width")), st.width, "e.g. 100% or 600px");
+		var inpBorder = makeInput(row(lt("border", "Border")), st.border, "e.g. 1px solid #ccc");
+		var selAlign = makeSelect(row(lt("alignment", "Alignment")), [["", "—"], ["left", "Left"], ["center", "Center"], ["right", "Right"]], curAlign);
+		var inpSpacing = makeInput(row(lt("cellspacing", "Cell spacing")), st.borderSpacing, "e.g. 2px");
+		var inpPadding = makeInput(row(lt("cellpadding", "Cell padding")), "", "e.g. 4px");
+		var inpBg = makeInput(row(lt("backgroundcolor", "Background")), st.backgroundColor, "#eef / red");
+
+		var actions = __Append(form, "div", "display:flex;justify-content:flex-end;gap:8px;margin-top:8px;");
+		var btnCancel = __Append(actions, "rte-dialog-button", "");
+		btnCancel.innerText = lt("cancel", "Cancel");
+		btnCancel.onclick = function () { dialoginner.close(); };
+		var btnOk = __Append(actions, "rte-dialog-button", null, "rte-button-type-ok");
+		btnOk.innerText = lt("apply", "Apply");
+		btnOk.onclick = function () {
+			table.style.width = inpW.value;
+			table.style.border = inpBorder.value;
+			table.style.cssFloat = table.style.float = "";
+			table.style.marginLeft = table.style.marginRight = "";
+			if (selAlign.value === "center") { table.style.marginLeft = "auto"; table.style.marginRight = "auto"; }
+			else if (selAlign.value === "right") { table.style.marginLeft = "auto"; table.style.marginRight = "0"; }
+			else if (selAlign.value === "left") { table.style.marginLeft = "0"; table.style.marginRight = "auto"; }
+			if (inpSpacing.value) { table.style.borderCollapse = "separate"; table.style.borderSpacing = inpSpacing.value; }
+			else { table.style.borderSpacing = ""; }
+			table.style.backgroundColor = inpBg.value;
+			if (inpPadding.value) {
+				var tds = table.querySelectorAll("td,th");
+				for (var i = 0; i < tds.length; i++) tds[i].style.padding = inpPadding.value;
+			}
+			__SetTimeout_HandleSelectionChange();
+			dialoginner.close();
+		};
+		return true;
+	}
+
+	// Tab / Shift+Tab navigation between table cells. Tab moves to the next
+	// cell in document order (Shift+Tab to the previous); Tab in the last cell
+	// appends a new row mirroring the last one. Matches Word / Google Docs.
+	function __TableTabNavigate(cell, backward) {
+		var table = __GetTable(cell);
+		if (!table) return;
+		var cells = table.querySelectorAll("td,th");
+		var idx = Array.prototype.indexOf.call(cells, cell);
+		if (idx < 0) return;
+		var target = null;
+		if (backward) {
+			if (idx === 0) return;            // already at the first cell
+			target = cells[idx - 1];
+		}
+		else if (idx >= cells.length - 1) {
+			// Last cell: append a new row with the same number of empty cells.
+			var lastRow = table.rows[table.rows.length - 1];
+			if (!lastRow) return;
+			var newRow = lastRow.cloneNode(true);
+			for (var i = 0; i < newRow.cells.length; i++) {
+				newRow.cells[i].removeAttribute("rowspan");
+				newRow.cells[i].removeAttribute("colspan");
+				newRow.cells[i].innerHTML = "<br>";
+			}
+			lastRow.parentNode.insertBefore(newRow, lastRow.nextSibling);
+			target = newRow.cells[0];
+		}
+		else {
+			target = cells[idx + 1];
+		}
+		if (!target) return;
+		var range = editdoc.createRange();
+		range.selectNodeContents(target);
+		if (!target.textContent) range.collapse(true);   // empty cell: caret at start
+		editsel.removeAllRanges();
+		editsel.addRange(range);
 		__SetTimeout_HandleSelectionChange();
 	}
 
@@ -8832,6 +9544,9 @@ function RichTextEditor(container, config) {
 		}
 
 		function InsertRowAt(insertri, refri) {	// TODO: Clone row attributes from refri.
+			insertri = Math.max(0, Math.min(insertri, rowcount));
+			refri = Math.max(0, Math.min(refri, Math.max(0, rowcount - 1)));
+			var reftr = rowcount ? table.rows[refri] : null;
 			var insertcount = colcount;
 			var processedmap = {}
 			for (var ci = 0; ci < colcount; ci++) {
@@ -8854,7 +9569,6 @@ function RichTextEditor(container, config) {
 
 			var tr = table.insertRow(insertri);
 			// Copy row height and style from the reference row when available.
-			var reftr = table.rows[refri];
 			if (reftr) {
 				if (reftr.style.cssText) tr.style.cssText = reftr.style.cssText;
 			}
@@ -8875,7 +9589,7 @@ function RichTextEditor(container, config) {
 			InsertRowAt(minri, minri);
 		}
 		if (cmdtype == "exec" && cmd == "tablerowinsertbelow") {
-			InsertRowAt(maxri + 1, maxri);
+			InsertRowAt(maxri, maxri - 1);
 		}
 
 		function InsertColumnAt(insertci, refci) {	// TODO: Clone cell attributes from refci.
@@ -10259,21 +10973,16 @@ function RichTextEditor(container, config) {
 	function __ShowSmartPasteToast(source) {
 		if (typeof document === "undefined") return;
 		var toast = document.createElement("div");
-		toast.textContent = "✨ Cleaned from " + source + " — Undo: Ctrl+Z";
-		toast.style.cssText = [
-			"position:fixed", "bottom:24px", "left:50%", "transform:translateX(-50%) translateY(8px)",
-			"background:#0f172a", "color:#f8fafc", "font:13px -apple-system,Segoe UI,sans-serif",
-			"padding:10px 18px", "border-radius:8px", "box-shadow:0 10px 28px rgba(15,23,42,.28)",
-			"z-index:" + (config.zIndexDialog || 9999), "opacity:0", "transition:opacity 180ms,transform 180ms"
-		].join(";");
+		toast.className = "rte-smart-paste-toast";
+		toast.setAttribute("role", "status");
+		toast.textContent = "Cleaned from " + source + ". Undo: Ctrl+Z";
+		toast.style.cssText = "z-index:" + (config.zIndexDialog || 9999) + ";";
 		document.body.appendChild(toast);
 		requestAnimationFrame(function () {
-			toast.style.opacity = "1";
-			toast.style.transform = "translateX(-50%) translateY(0)";
+			toast.classList.add("is-visible");
 		});
 		setTimeout(function () {
-			toast.style.opacity = "0";
-			toast.style.transform = "translateX(-50%) translateY(8px)";
+			toast.classList.remove("is-visible");
 			setTimeout(function () { if (toast.parentNode) toast.parentNode.removeChild(toast); }, 280);
 		}, 2400);
 	}
@@ -11554,6 +12263,18 @@ function RichTextEditor(container, config) {
 
 			var file_upload_handler = config.file_upload_handler || window.rte_file_upload_handler;
 			if (!file_upload_handler) {
+				if (config.fileUploadLocalObjectUrl !== false && window.URL && URL.createObjectURL) {
+					var objectUrl = URL.createObjectURL(file);
+					var localLink = __FindSelectionElement("A") || __SurroundByTagName("A");
+					if (!localLink.innerText) localLink.innerText = file.name || objectUrl;
+					localLink.setAttribute("href", objectUrl);
+					if (file.name) localLink.setAttribute("download", file.name);
+					localLink.setAttribute("data-rte-local-file", "true");
+					localLink.setAttribute("title", "Temporary local file link. Configure file_upload_handler to upload and persist this file.");
+					__SetTimeout_HandleSelectionChange();
+					__SelectControl(localLink);
+					return;
+				}
 				alert("Uploading feature not available. miss file_upload_handler.");
 				return;
 			}
@@ -11865,9 +12586,9 @@ function RichTextEditor(container, config) {
 	editor.showShortcuts = function () { __ShowShortcutsModal(); };
 	function __ShowShortcutsModal() {
 		var isMac = /Mac|iPhone|iPad|iPod/i.test(navigator.platform || "");
-		var mod = isMac ? "⌘" : "Ctrl";
-		var shift = isMac ? "⇧" : "Shift";
-		var alt = isMac ? "⌥" : "Alt";
+		var mod = isMac ? "Cmd" : "Ctrl";
+		var shift = isMac ? "Shift" : "Shift";
+		var alt = isMac ? "Option" : "Alt";
 		var groups = [
 			{ title: "Text formatting", items: [
 				["Bold", mod + "+B"],
@@ -11880,7 +12601,7 @@ function RichTextEditor(container, config) {
 			]},
 			{ title: "Paragraphs", items: [
 				["Normal paragraph", mod + "+" + alt + "+0"],
-				["Heading 1–6", mod + "+" + alt + "+1…6"],
+				["Heading 1-6", mod + "+" + alt + "+1-6"],
 				["Bulleted list", mod + "+" + shift + "+8"],
 				["Numbered list", mod + "+" + shift + "+7"],
 				["Blockquote", mod + "+" + shift + "+9"],
@@ -11911,19 +12632,19 @@ function RichTextEditor(container, config) {
 			]}
 		];
 		var dialog = __UI_CreateDialogFrame(__GetLangText("keyboardshortcuts") || "Keyboard shortcuts", "rte-dialog-shortcuts");
-		var wrap = __Append(dialog, "div", "max-height:60vh;overflow-y:auto;padding:4px 0;");
+		var wrap = __Append(dialog, "div", "", "rte-shortcuts-list");
 		for (var g = 0; g < groups.length; g++) {
 			var grp = groups[g];
-			var h = __Append(wrap, "div", "font-weight:600;color:#0f172a;font-size:13px;margin:14px 0 6px;letter-spacing:0.02em;text-transform:uppercase;opacity:0.7;");
+			var h = __Append(wrap, "div", "", "rte-shortcuts-group-title");
 			h.textContent = grp.title;
-			var table = __Append(wrap, "table", "width:100%;border-collapse:collapse;");
+			var table = __Append(wrap, "table", "", "rte-shortcuts-table");
 			for (var i = 0; i < grp.items.length; i++) {
 				var tr = __Append(table, "tr");
-				var c1 = __Append(tr, "td", "padding:5px 12px 5px 4px;color:#334155;font-size:13px;");
+				var c1 = __Append(tr, "td", "", "rte-shortcuts-command");
 				c1.textContent = grp.items[i][0];
-				var c2 = __Append(tr, "td", "padding:5px 4px;font-size:12px;text-align:right;");
+				var c2 = __Append(tr, "td", "", "rte-shortcuts-keys");
 				var kbd = (dialog.ownerDocument || document).createElement("code");
-				kbd.style.cssText = "background:#f1f5f9;border:1px solid #e2e8f0;border-radius:4px;padding:2px 6px;color:#0f172a;font-family:ui-monospace,Menlo,Consolas,monospace;";
+				kbd.className = "rte-shortcuts-kbd";
 				kbd.textContent = grp.items[i][1];
 				c2.appendChild(kbd);
 			}
@@ -11939,7 +12660,7 @@ function RichTextEditor(container, config) {
 		var trimmed = text.replace(/\s+/g, " ").replace(/^\s|\s$/g, "");
 		var charsWithSpaces = text.length;
 		var charsNoSpaces = text.replace(/\s/g, "").length;
-		var words = trimmed ? trimmed.split(" ").length : 0;
+		var words = __CountWords(text);
 		var sentences = trimmed ? (trimmed.match(/[.!?]+(\s|$)/g) || []).length || (trimmed ? 1 : 0) : 0;
 		var paragraphs = editable ? editable.querySelectorAll("p,div,h1,h2,h3,h4,h5,h6,li,blockquote").length : 0;
 		// Reading time ~200 wpm (average adult silent reading).
@@ -11949,7 +12670,7 @@ function RichTextEditor(container, config) {
 			var sel = editdoc.getSelection();
 			if (sel && sel.rangeCount > 0 && !sel.isCollapsed) selText = sel.toString();
 		} catch (e) {}
-		var selWords = selText.trim() ? selText.trim().split(/\s+/).length : 0;
+		var selWords = __CountWords(selText);
 		var selChars = selText.length;
 		var rows = [
 			["Words", words],
@@ -11960,17 +12681,23 @@ function RichTextEditor(container, config) {
 			["Reading time", minutes + " min"]
 		];
 		if (selText.length > 0) {
-			rows.push(["—", "—"]);
+			rows.push(["", ""]);
 			rows.push(["Selection: words", selWords]);
 			rows.push(["Selection: characters", selChars]);
 		}
 		var dialog = __UI_CreateDialogFrame(__GetLangText("wordcount") || "Word count", "rte-dialog-wordcount");
-		var table = __Append(dialog, "table", "border-collapse:collapse;margin:8px 0;width:100%;font-size:14px;");
+		var table = __Append(dialog, "table", "", "rte-wordcount-table");
 		for (var i = 0; i < rows.length; i++) {
 			var tr = __Append(table, "tr");
-			var cell1 = __Append(tr, "td", "padding:6px 12px 6px 4px;color:#475569;white-space:nowrap;");
+			if (rows[i][0] === "" && rows[i][1] === "") {
+				tr.className = "rte-wordcount-separator-row";
+				var sep = __Append(tr, "td", "", "rte-wordcount-separator");
+				sep.colSpan = 2;
+				continue;
+			}
+			var cell1 = __Append(tr, "td", "", "rte-wordcount-label");
 			cell1.textContent = rows[i][0];
-			var cell2 = __Append(tr, "td", "padding:6px 4px;font-weight:600;color:#0f172a;text-align:right;");
+			var cell2 = __Append(tr, "td", "", "rte-wordcount-value");
 			cell2.textContent = String(rows[i][1]);
 		}
 	}
@@ -11998,8 +12725,21 @@ function RichTextEditor(container, config) {
 			// Order matters: escapes, code, images, links, bold, italic, strike.
 			s = s.replace(/\\([\\`*_{}\[\]()<>])/g, "\x00$1\x00"); // protect escapes
 			s = s.replace(/`([^`]+?)`/g, function (m, c) { return "<code>" + esc(c) + "</code>"; });
-			s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, '<img alt="$1" src="$2"/>');
-			s = s.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, '<a href="$2">$1</a>');
+			// Sanitize the URL: reject javascript:/vbscript:/non-image data: (XSS),
+			// and escape any quote so it can't break out of the href/src attribute.
+			// An unsafe URL leaves the original markdown as literal (already-escaped) text.
+			function safeAttrUrl(url) {
+				var safe = __NormalizeInlineMarkdownLinkHref(url);
+				return safe == null ? null : safe.replace(/"/g, "&quot;");
+			}
+			s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, function (m, alt, url) {
+				var u = safeAttrUrl(url);
+				return u == null ? m : '<img alt="' + alt.replace(/"/g, "&quot;") + '" src="' + u + '"/>';
+			});
+			s = s.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, function (m, label, url) {
+				var u = safeAttrUrl(url);
+				return u == null ? m : '<a href="' + u + '">' + label + '</a>';
+			});
 			s = s.replace(/\*\*([^*\n]+?)\*\*/g, "<strong>$1</strong>");
 			s = s.replace(/__([^_\n]+?)__/g, "<strong>$1</strong>");
 			s = s.replace(/(^|[^*])\*([^*\n]+?)\*([^*]|$)/g, "$1<em>$2</em>$3");
@@ -12109,6 +12849,21 @@ function RichTextEditor(container, config) {
 				out.push("\n" + Array(parseInt(m[1], 10) + 1).join("#") + " " + inline(node).trim() + "\n");
 				return;
 			}
+			if (tag === "div") {
+				// A <div> that wraps block-level content (table / list / nested
+				// block, e.g. a columns layout or callout body) must recurse so
+				// those blocks convert properly; otherwise inline() flattens a
+				// nested table to concatenated cell text.
+				var hasBlockChild = false;
+				for (var bi = 0; bi < node.childNodes.length; bi++) {
+					var bc = node.childNodes[bi];
+					if (bc.nodeType === 1 && /^(table|ul|ol|pre|blockquote|div|hr|h[1-6])$/i.test(bc.nodeName)) { hasBlockChild = true; break; }
+				}
+				if (hasBlockChild) {
+					for (var bj = 0; bj < node.childNodes.length; bj++) block(node.childNodes[bj], ctx);
+					return;
+				}
+			}
 			if (tag === "p" || tag === "div") {
 				var t = inline(node).trim();
 				if (t) out.push("\n" + t + "\n");
@@ -12196,6 +12951,39 @@ function RichTextEditor(container, config) {
 		if (__codemodeinp) __codemodeinp.readOnly = _isreadonly;
 	}
 
+	// Comments-only review mode: blocks document edits while leaving the
+	// comments workflow (select text → add/reply/resolve) available. Unlike
+	// setReadOnly — which turns the whole document inert via designMode —
+	// the editable is made non-editable but stays selectable, so reviewers
+	// can still anchor new comments. (The config flag and these methods were
+	// previously documented but backed by a never-invoked parse-only scope.)
+	var _iscommentsonly = false;
+	function __ApplyCommentsOnlyState() {
+		// Re-applied after iframe/editable remounts (setHTMLCode rebuilds the
+		// body, which would otherwise silently re-enable editing).
+		try { if (editable) editable.contentEditable = _iscommentsonly ? "false" : "true"; } catch (e) { }
+	}
+	editor.getCommentsOnly = function () { return !!_iscommentsonly; };
+	editor.setCommentsOnly = function (bVal) {
+		if (typeof (bVal) == "undefined") bVal = true;
+		_iscommentsonly = !!bVal;
+		config.commentsOnly = _iscommentsonly;
+		__ApplyCommentsOnlyState();
+		___Update_Toolbars();
+		__SetTimeout_HandleSelectionChange();
+		try { InvokeEventHook("commentsonlychanged", "commentsonlychanged", _iscommentsonly); } catch (e) { }
+		return _iscommentsonly;
+	};
+	// editor.attachEvent is assigned later in this closure — defer binding.
+	setTimeout(function () {
+		try { editor.attachEvent("aftersethtml", __ApplyCommentsOnlyState); } catch (e) { }
+	}, 0);
+	if (config.commentsOnly) {
+		// Apply the configured initial state once the editable exists.
+		setTimeout(function () { try { editor.setCommentsOnly(true); } catch (e) { } }, 0);
+		setTimeout(__ApplyCommentsOnlyState, 300);
+	}
+
 	editor.getSelectedControl = __GetSelectedControl;
 	editor.getSelectionElement = __GetSelectionElement;
 	editor.getSelectedText = __GetSelectedText;
@@ -12256,6 +13044,29 @@ function RichTextEditor(container, config) {
 
 	editor.attachEvent = __HookEvent;
 	editor.detachEvent = __UnattachEvent;
+	// Public counterpart to attachEvent: lets plugins broadcast custom events
+	// (e.g. charlimit, comment_added) through the same hook map. Handlers
+	// receive (state, ...args) like every other hooked event.
+	editor.fireEvent = InvokeEventHook;
+
+	// Teardown hook for SPA/framework wrappers (React/Vue/Svelte/headless): removes
+	// the instance-level global listeners so unmounting an editor doesn't leak. Fires
+	// a "destroy" event first so plugins (collab, etc.) can disconnect. Idempotent.
+	editor.destroy = editor.prepareDestroy = function () {
+		if (editor.__destroyed) { return; }
+		editor.__destroyed = true;
+		try { InvokeEventHook("destroy"); } catch (e) { }
+		try { window.removeEventListener("resize", __ApplyToolbarForWidth); } catch (e) { }
+	};
+
+	// DOM event passthrough — keydown/keyup/keypress/focus/blur are part of
+	// the public attachEvent contract but nothing relayed them from the
+	// editing iframe to the hook map. __bindEditdoc survives iframe remounts.
+	__bindEditdoc("keydown", function (e) { InvokeEventHook("keydown", e); });
+	__bindEditdoc("keyup", function (e) { InvokeEventHook("keyup", e); });
+	__bindEditdoc("keypress", function (e) { InvokeEventHook("keypress", e); });
+	__bindEditdoc("focusin", function (e) { InvokeEventHook("focus", e); });
+	__bindEditdoc("focusout", function (e) { InvokeEventHook("blur", e); });
 
 	(function () {
 		for (var i = 0; i < __plugins.length; i++) {
@@ -12269,7 +13080,7 @@ function RichTextEditor(container, config) {
 		//return document.documentElement.offsetWidth <= config.maxWidthForMobile;
 	}
 	function __ApplyToolbarForWidth(updatetoolbar) {
-
+		if (editor.__destroyed) { return; }
 		if (__ShallUseMobileToolbar()) {
 			if (!toolbarMobile._init) {
 				var mobiletoolbarname = config.toolbarMobile;
@@ -12995,7 +13806,8 @@ function __UI_InsertPageBreak() {
 		closebtn.innerText = __GetLangText("close");
 		closebtn.onclick = function () { dialoginner.close(); };
 	}
-	function __UI_ColorPickerDialog(cmd, handler) {
+	function __UI_ColorPickerDialog(cmd, handler, initialColor) {
+		initialColor = initialColor == null ? "" : String(initialColor).trim();
 
 		var dialoginner = __UI_CreateDialogFrame(__GetLangText("colorpicker"), "rte-dialog-colorpicker");
 
@@ -13009,6 +13821,9 @@ function __UI_InsertPageBreak() {
 		label1.innerText = __GetLangText(cmd) + ":";
 		var input1 = __Append(divbottom, "input", "width:150px;margin-right:12px");
 		input1.type = "text";
+		if (initialColor) {
+			input1.value = initialColor;
+		}
 
 		input1.onchange = input1.onkeypress = input1.onkeyup = input1.onpaste = function () {
 			setTimeout(function () {
@@ -13026,6 +13841,9 @@ function __UI_InsertPageBreak() {
 		}
 
 		_SetInputValueClassLogic(input1, "")
+		if (initialColor) {
+			input1.onchange();
+		}
 
 		var button1 = __Append(divbottom, "rte-dialog-button", "", "rte-button-type-action");
 		var clickcallback = null;
@@ -13333,7 +14151,13 @@ function __UI_InsertPageBreak() {
 
 		var floatmode = false;
 
-		if (classname == 'rte-panel-find') {
+		// Non-modal floating dialogs (no fullscreen backdrop). Find has always
+		// floated; the link editor floats too — competitors (CKEditor balloon,
+		// Notion) edit links in light anchored panels, not blocking modals, so
+		// the document stays visible and clickable while the dialog is open.
+		// Float more dialogs via config.floatDialogPanels = "rte-panel-x,...".
+		var floatpanels = "rte-panel-find,rte-panel-insertlink," + (config.floatDialogPanels || "");
+		if ((floatpanels + ",").indexOf(classname + ",") >= 0) {
 			floatmode = true;
 		}
 
@@ -13341,9 +14165,40 @@ function __UI_InsertPageBreak() {
 			dialogouter = __Append(dialogcontainer, "rte-dialog-float", "z-index:" + config.zIndexDialog, classname);
 		else
 			dialogouter = __Append(dialogcontainer, "rte-dialog-outer", "z-index:" + config.zIndexDialog, classname);
+		var dialogTopChromeOffset = __Sync_DialogTopChromeOffset(dialogouter);
 
 		if (floatmode) {
-			//dialogouter.style.left = Math.max(0, container.offsetWidth - 450)/2 + "px";
+			// Balloon anchoring: place the float next to the selection (like
+			// CKEditor's balloon / Notion's link popover) instead of the
+			// top-right corner. Uses position:fixed + viewport coordinates —
+			// the same robust pattern as the alt-text popup — so it ignores
+			// the (possibly small) editor container and page scroll. Falls
+			// back to the CSS default (absolute, top-right) when no usable
+			// selection rect is available, or when config.balloonDialogs is
+			// explicitly false.
+			try {
+				var __selrect = null;
+				if (config.balloonDialogs !== false && editsel && editsel.rangeCount) {
+					var __rr = editsel.getRangeAt(0).getBoundingClientRect();
+					if (__rr && (__rr.width || __rr.height || __rr.top || __rr.left)) __selrect = __rr;
+				}
+				if (__selrect && iframe) {
+					var __ifr = iframe.getBoundingClientRect();
+					var __vw = window.innerWidth || document.documentElement.clientWidth;
+					var __vh = window.innerHeight || document.documentElement.clientHeight;
+					var __pw = 380, __ph = 130; // approx panel footprint for clamping
+					var __x = __ifr.left + __selrect.left;
+					var __y = __ifr.top + __selrect.bottom + 8;
+					// Flip above the selection if it would overflow the bottom.
+					if (__y + __ph > __vh) __y = Math.max(dialogTopChromeOffset + 8, __ifr.top + __selrect.top - __ph - 8);
+					__x = Math.max(8, Math.min(__x, __vw - __pw - 8));
+					__y = Math.max(dialogTopChromeOffset + 8, Math.min(__y, __vh - 40));
+					dialogouter.style.position = "fixed";
+					dialogouter.style.right = "auto";
+					dialogouter.style.left = __x + "px";
+					dialogouter.style.top = __y + "px";
+				}
+			} catch (e) { }
 		}
 
 		var dialoginner = __Append(dialogouter, "rte-dialog-inner");

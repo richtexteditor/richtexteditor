@@ -15813,3 +15813,18 @@ rte-dialog-outer.rte-panel-aiassist {
         padding-left: 8px;
     }
 }
+
+/* 2026-07-03 sticky host menu layering.
+   The React marketing shell uses a sticky header above embedded editor
+   demos. Viewport-docked AI panels must respect a host-provided top offset
+   or their header/tabs can sit underneath that menu. Standalone pages keep
+   the original 56px placement because the variable defaults to 0. */
+.richtexteditor .rte-ai-review-panel {
+    top: max(56px, calc(max(var(--rte-ai-sticky-top-offset, 0px), var(--rte-ai-detected-top-chrome, 0px)) + 12px)) !important;
+    max-height: calc(100vh - max(76px, calc(max(var(--rte-ai-sticky-top-offset, 0px), var(--rte-ai-detected-top-chrome, 0px)) + 32px))) !important;
+    z-index: 2147483647 !important;
+}
+
+.richtexteditor.rte-ai-review-host {
+    z-index: 2147483646 !important;
+}

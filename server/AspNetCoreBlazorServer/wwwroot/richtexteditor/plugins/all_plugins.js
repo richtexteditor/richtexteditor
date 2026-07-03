@@ -700,7 +700,7 @@ if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
     var cssHref = srcAttr
         ? srcAttr.replace(/[^/]+$/, "aitoolkit.css")
         : (((window.RTE_DefaultConfig && window.RTE_DefaultConfig.url_base) || "/richtexteditor") + "/plugins/aitoolkit.css");
-    if (cssHref.indexOf("?") < 0) cssHref += "?v=20260702a";
+    if (cssHref.indexOf("?") < 0) cssHref += "?v=20260703a";
     var link = document.createElement("link");
     link.rel = "stylesheet";
     link.href = cssHref;
@@ -15148,6 +15148,51 @@ function RTE_Plugin_AIToolkit() {
         return true;
     }
 
+    function getVisibleTopChromeOffset(shell) {
+        if (!document || !document.querySelectorAll || !window) {
+            return 0;
+        }
+        var nodes;
+        try {
+            nodes = document.querySelectorAll("header, nav, [data-rte-ai-sticky-offset], [data-rte-sticky-offset], .topbar, .topnav, .site-header, .navbar, [class*='SiteHeader'], [class*='site-header']");
+        } catch (e) {
+            return 0;
+        }
+        var viewportLimit = Math.min(window.innerHeight || 900, 320);
+        var maxBottom = 0;
+        for (var i = 0; i < nodes.length; i++) {
+            var node = nodes[i];
+            if (!node || node === shell || (shell && shell.contains && shell.contains(node))) {
+                continue;
+            }
+            var rect = node.getBoundingClientRect ? node.getBoundingClientRect() : null;
+            if (!rect || rect.height < 8 || rect.width < 80) {
+                continue;
+            }
+            if (rect.top > 24 || rect.bottom <= 0 || rect.bottom > viewportLimit) {
+                continue;
+            }
+            var style = window.getComputedStyle ? window.getComputedStyle(node) : null;
+            if (style && (style.display === "none" || style.visibility === "hidden" || parseFloat(style.opacity || "1") <= 0.01)) {
+                continue;
+            }
+            maxBottom = Math.max(maxBottom, rect.bottom);
+        }
+        return Math.max(0, Math.ceil(maxBottom));
+    }
+
+    function syncReviewPanelTopChromeOffset(shell) {
+        if (!shell || !shell.style) {
+            return;
+        }
+        var offset = getVisibleTopChromeOffset(shell);
+        if (offset > 0) {
+            shell.style.setProperty("--rte-ai-detected-top-chrome", offset + "px");
+        } else {
+            shell.style.removeProperty("--rte-ai-detected-top-chrome");
+        }
+    }
+
     function closeReviewPanel() {
         if (editor.__aiReviewPanel && editor.__aiReviewPanel.parentNode) {
             editor.__aiReviewPanel.parentNode.removeChild(editor.__aiReviewPanel);
@@ -15159,6 +15204,7 @@ function RTE_Plugin_AIToolkit() {
             editor.__aiReviewShell.style.minHeight = typeof editor.__aiReviewOriginalMinHeight === "string"
                 ? editor.__aiReviewOriginalMinHeight
                 : "";
+            editor.__aiReviewShell.style.removeProperty("--rte-ai-detected-top-chrome");
         }
         editor.__aiReviewPanel = null;
         editor.__aiReviewSubtitleNode = null;
@@ -15348,6 +15394,7 @@ function RTE_Plugin_AIToolkit() {
         closeReviewPanel();
         editor.__aiReviewOriginalMinHeight = shell.style ? (shell.style.minHeight || "") : "";
         shell.classList.add("rte-ai-review-host");
+        syncReviewPanelTopChromeOffset(shell);
         if (shell.style) {
             var desiredHeight = window.innerWidth <= 900 ? 460 : 520;
             shell.style.minHeight = Math.max(shell.offsetHeight || 0, desiredHeight) + "px";
@@ -15737,6 +15784,7 @@ function RTE_Plugin_AIToolkit() {
         closeReviewPanel();
         editor.__aiReviewOriginalMinHeight = shell.style ? (shell.style.minHeight || "") : "";
         shell.classList.add("rte-ai-review-host");
+        syncReviewPanelTopChromeOffset(shell);
         if (shell.style) {
             var desiredHeight = window.innerWidth <= 900 ? 460 : 520;
             shell.style.minHeight = Math.max(shell.offsetHeight || 0, desiredHeight) + "px";

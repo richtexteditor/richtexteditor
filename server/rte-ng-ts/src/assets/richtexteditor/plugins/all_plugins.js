@@ -1,5 +1,96 @@
 if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
 
+// 2026-06-07 Accessibility enhancements. Adds the assistive-technology metadata
+// an iframe-based editor needs but the core doesn't emit by default, closing the
+// most common WCAG 2.2 findings for rich-text editors:
+//   - WCAG 4.1.2 (Name, Role, Value) — the editing region gets an accessible
+//     name (role="textbox" + aria-multiline + aria-label) and the editor iframe
+//     gets a title, so screen readers announce "<label>, editing area" instead
+//     of an unlabelled frame.
+//   - WCAG 2.4.1 (Bypass Blocks) / 1.3.1 — the iframe title gives the frame a
+//     landmark name in the SR rotor.
+//   - WCAG 3.1.1 / 3.1.2 (Language) — the editing document gets a lang attribute
+//     so content is read with the correct pronunciation rules.
+//
+// Configure with:
+//   config.contentAriaLabel = "Article body. Rich text editor."   // editing area name
+//   config.contentLang      = "en"                                  // BCP-47; defaults to page <html lang> or "en"
+//   config.a11yEnhance      = false                                 // opt out
+RTE_DefaultConfig.plugin_a11yenhance = RTE_Plugin_A11yEnhance;
+if (typeof RTE_DefaultConfig.a11yEnhance === "undefined") RTE_DefaultConfig.a11yEnhance = true;
+
+function RTE_Plugin_A11yEnhance() {
+    var obj = this;
+    var config, editor;
+
+    obj.PluginName = "A11yEnhance";
+
+    obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+        if (config.a11yEnhance === false) return;
+        apply();
+        // The editor recreates its document/body after init and on aftersethtml;
+        // re-apply so the attributes survive every remount.
+        try { editor.attachEvent("ready", apply); } catch (e) {}
+        try { editor.attachEvent("aftersethtml", apply); } catch (e) {}
+        setTimeout(apply, 0); setTimeout(apply, 200);
+        editor.applyAccessibilityMetadata = apply;
+    };
+
+    function label() {
+        return config.contentAriaLabel || config.contentLabel || "Rich text editor. Editing area.";
+    }
+
+    function lang() {
+        if (config.contentLang) return config.contentLang;
+        try {
+            var hostLang = (config.container && config.container.ownerDocument &&
+                config.container.ownerDocument.documentElement.getAttribute("lang"));
+            if (hostLang) return hostLang;
+        } catch (e) {}
+        try {
+            var d = (typeof document !== "undefined") && document.documentElement.getAttribute("lang");
+            if (d) return d;
+        } catch (e) {}
+        return "en";
+    }
+
+    function apply() {
+        var doc = editor.getDocument();
+        if (!doc) return;
+
+        // 1) Editing document language.
+        try {
+            var lg = lang();
+            if (lg && doc.documentElement && doc.documentElement.getAttribute("lang") !== lg) {
+                doc.documentElement.setAttribute("lang", lg);
+            }
+        } catch (e) {}
+
+        // 2) Iframe frame title (the frame's accessible name in the SR rotor).
+        try {
+            var frame = doc.defaultView && doc.defaultView.frameElement;
+            if (frame && !frame.getAttribute("title")) frame.setAttribute("title", label());
+        } catch (e) {}
+
+        // 3) Editing region name + role.
+        try {
+            var ed = editor.getEditable();
+            if (ed && ed.nodeType === 1) {
+                if (!ed.getAttribute("role")) ed.setAttribute("role", "textbox");
+                if (!ed.getAttribute("aria-multiline")) ed.setAttribute("aria-multiline", "true");
+                if (!ed.getAttribute("aria-label") && !ed.getAttribute("aria-labelledby")) {
+                    ed.setAttribute("aria-label", label());
+                }
+            }
+        } catch (e) {}
+    }
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
 RTE_DefaultConfig.plugin_accessibilitychecker = RTE_Plugin_AccessibilityChecker;
 
 function RTE_Plugin_AccessibilityChecker() {
@@ -77,38 +168,42 @@ function RTE_Plugin_AccessibilityChecker() {
         var style = hostDoc.createElement("style");
         style.id = "rte-accessibility-checker-style";
         style.innerHTML = [
-            ".rte-a11y-shell{display:flex;align-items:stretch;gap:12px;}",
+            ".rte-a11y-shell{display:flex;align-items:stretch;gap:10px;}",
             ".rte-a11y-shell>.rte-a11y-host{flex:1 1 auto;min-width:0;}",
-            ".rte-a11y-panel{display:none;flex:0 0 320px;min-width:280px;max-width:360px;border:1px solid #dbe4f0;border-radius:18px;background:linear-gradient(180deg,#fbfdff 0%,#f5f9ff 100%);box-shadow:0 18px 40px rgba(15,23,42,.08);overflow:hidden;}",
+            ".rte-a11y-panel{display:none;flex:0 0 310px;min-width:270px;max-width:min(360px,32vw);border:1px solid rgba(148,163,184,.22);border-radius:16px;background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(248,251,255,.96));box-shadow:0 18px 42px rgba(29,78,216,.12),0 2px 8px rgba(15,23,42,.06);overflow:hidden;color:#172033;font-family:Aptos,'Segoe UI',sans-serif;}",
             ".rte-a11y-shell.is-open>.rte-a11y-panel{display:flex;flex-direction:column;}",
-            ".rte-a11y-header{padding:16px 18px 10px 18px;border-bottom:1px solid rgba(148,163,184,.18);}",
-            ".rte-a11y-kicker{font-size:11px;line-height:1.3;letter-spacing:.08em;text-transform:uppercase;color:#64748b;font-weight:700;}",
-            ".rte-a11y-title{margin-top:4px;font-size:18px;line-height:1.2;font-weight:700;color:#0f172a;}",
-            ".rte-a11y-copy{margin-top:6px;font-size:12px;line-height:1.5;color:#475569;}",
-            ".rte-a11y-toolbar{display:flex;align-items:center;justify-content:space-between;padding:10px 18px;border-bottom:1px solid rgba(148,163,184,.18);gap:12px;}",
-            ".rte-a11y-count{font-size:12px;color:#64748b;}",
-            ".rte-a11y-actions{display:flex;align-items:center;gap:10px;}",
-            ".rte-a11y-link{appearance:none;border:0;background:transparent;color:#2563eb;cursor:pointer;font-size:12px;font-weight:600;padding:0;}",
-            ".rte-a11y-body{padding:10px;overflow:auto;min-height:160px;max-height:560px;display:flex;flex-direction:column;gap:12px;}",
-            ".rte-a11y-list{display:flex;flex-direction:column;gap:8px;}",
-            ".rte-a11y-item{appearance:none;width:100%;text-align:left;border:1px solid rgba(148,163,184,.22);background:#fff;cursor:pointer;border-radius:14px;padding:12px;}",
-            ".rte-a11y-item.is-active{border-color:rgba(37,99,235,.4);box-shadow:0 0 0 2px rgba(37,99,235,.1);}",
+            ".rte-a11y-header{padding:12px 12px 9px 14px;border-bottom:1px solid rgba(148,163,184,.16);background:rgba(255,255,255,.72);}",
+            ".rte-a11y-kicker{font-size:10px;line-height:1.3;letter-spacing:.08em;text-transform:uppercase;color:#52657e;font-weight:850;}",
+            ".rte-a11y-title{margin-top:3px;font-size:15px;line-height:1.2;font-weight:850;color:#172033;}",
+            ".rte-a11y-copy{margin-top:5px;font-size:12px;line-height:1.42;color:#52657e;}",
+            ".rte-a11y-toolbar{display:flex;align-items:center;justify-content:space-between;padding:8px 10px 8px 14px;border-bottom:1px solid rgba(148,163,184,.16);gap:10px;background:rgba(255,255,255,.52);}",
+            ".rte-a11y-count{min-width:0;font-size:12px;font-weight:750;color:#52657e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
+            ".rte-a11y-actions{display:flex;align-items:center;gap:6px;}",
+            ".rte-a11y-link{appearance:none;border:1px solid rgba(100,116,139,.18);background:#fff;color:#315277;cursor:pointer;font-size:12px;font-weight:750;padding:6px 9px;border-radius:999px;line-height:1;}",
+            ".rte-a11y-link:hover,.rte-a11y-link:focus-visible{background:#eef4ff;color:#0f3f9f;border-color:rgba(37,99,235,.28);}",
+            ".rte-a11y-body{padding:6px;overflow:auto;min-height:160px;max-height:560px;display:flex;flex-direction:column;gap:8px;scrollbar-width:thin;}",
+            ".rte-a11y-list{display:flex;flex-direction:column;gap:6px;}",
+            ".rte-a11y-item{appearance:none;width:100%;text-align:left;border:1px solid rgba(148,163,184,.16);background:rgba(255,255,255,.84);cursor:pointer;border-radius:14px;padding:10px;box-shadow:0 8px 18px rgba(15,23,42,.04);transition:background 160ms ease,box-shadow 160ms ease,transform 160ms ease;}",
+            ".rte-a11y-item:hover,.rte-a11y-item:focus-visible{background:#f8fbff;border-color:rgba(37,99,235,.24);}",
+            ".rte-a11y-item.is-active{border-color:rgba(37,99,235,.36);background:#eef4ff;box-shadow:0 12px 28px rgba(37,99,235,.14);transform:translateY(-1px);}",
             ".rte-a11y-item-top{display:flex;align-items:center;justify-content:space-between;gap:10px;}",
-            ".rte-a11y-badge{display:inline-flex;align-items:center;border-radius:999px;padding:4px 8px;font-size:10px;line-height:1;font-weight:700;letter-spacing:.08em;text-transform:uppercase;}",
-            ".rte-a11y-badge-warning{background:#fef3c7;color:#92400e;}",
-            ".rte-a11y-badge-error{background:#fee2e2;color:#991b1b;}",
-            ".rte-a11y-code{font-size:11px;color:#64748b;font-family:Consolas,monospace;}",
-            ".rte-a11y-message{margin-top:8px;font-size:13px;line-height:1.5;color:#0f172a;}",
-            ".rte-a11y-detail{border:1px solid rgba(148,163,184,.22);background:#fff;border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:10px;}",
-            ".rte-a11y-detail-title{font-size:13px;font-weight:700;color:#0f172a;}",
-            ".rte-a11y-detail-copy{font-size:12px;line-height:1.5;color:#475569;}",
+            ".rte-a11y-badge{display:inline-flex;align-items:center;border-radius:999px;padding:4px 8px;font-size:10px;line-height:1;font-weight:850;letter-spacing:.08em;text-transform:uppercase;}",
+            ".rte-a11y-badge-warning{background:#fff8e8;color:#92400e;border:1px solid rgba(245,158,11,.18);}",
+            ".rte-a11y-badge-error{background:#fff1f2;color:#9f1239;border:1px solid rgba(159,18,57,.18);}",
+            ".rte-a11y-code{font-size:11px;color:#64748b;font-family:Consolas,'Cascadia Mono',monospace;}",
+            ".rte-a11y-message{margin-top:7px;font-size:13px;line-height:1.42;color:#172033;}",
+            ".rte-a11y-detail{border:1px solid rgba(148,163,184,.16);background:rgba(255,255,255,.86);border-radius:14px;padding:11px;display:flex;flex-direction:column;gap:9px;box-shadow:0 8px 18px rgba(15,23,42,.04);}",
+            ".rte-a11y-detail-title{font-size:13px;font-weight:850;color:#172033;}",
+            ".rte-a11y-detail-copy{font-size:12px;line-height:1.45;color:#52657e;}",
             ".rte-a11y-field{display:flex;flex-direction:column;gap:6px;}",
-            ".rte-a11y-label{font-size:11px;line-height:1.3;letter-spacing:.08em;text-transform:uppercase;color:#64748b;font-weight:700;}",
-            ".rte-a11y-input{width:100%;border:1px solid #cbd5e1;border-radius:10px;padding:9px 10px;font-size:13px;line-height:1.4;box-sizing:border-box;}",
+            ".rte-a11y-label{font-size:10px;line-height:1.3;letter-spacing:.08em;text-transform:uppercase;color:#52657e;font-weight:850;}",
+            ".rte-a11y-input{width:100%;border:1px solid rgba(148,163,184,.24);border-radius:12px;padding:9px 10px;font-size:13px;line-height:1.4;box-sizing:border-box;background:#fff;}",
+            ".rte-a11y-input:focus{outline:2px solid rgba(37,99,235,.18);border-color:rgba(37,99,235,.38);}",
             ".rte-a11y-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}",
-            ".rte-a11y-button{appearance:none;border:0;border-radius:10px;background:#2563eb;color:#fff;padding:9px 12px;font-size:12px;font-weight:600;cursor:pointer;}",
-            ".rte-a11y-button-secondary{background:#e2e8f0;color:#0f172a;}",
-            ".rte-a11y-empty{padding:18px 14px;border-radius:14px;background:rgba(255,255,255,.85);color:#475569;font-size:13px;line-height:1.6;border:1px dashed rgba(148,163,184,.4);}",
+            ".rte-a11y-button{appearance:none;border:1px solid #1d67ba;border-radius:999px;background:#1d67ba;color:#fff;padding:8px 12px;font-size:12px;font-weight:750;cursor:pointer;box-shadow:0 8px 16px rgba(29,103,186,.18);}",
+            ".rte-a11y-button-secondary{background:#fff;color:#315277;border-color:rgba(100,116,139,.18);box-shadow:none;}",
+            ".rte-a11y-button:hover,.rte-a11y-button:focus-visible{transform:translateY(-1px);}",
+            ".rte-a11y-empty{padding:14px;border-radius:14px;background:#fff;color:#52657e;font-size:13px;font-weight:700;line-height:1.55;border:1px dashed rgba(148,163,184,.34);}",
             "@media (max-width: 1420px){.rte-a11y-shell{display:block;}.rte-a11y-panel{margin-top:12px;max-width:none;width:100%;}.rte-a11y-body{max-height:360px;}}"
         ].join("");
         hostDoc.head.appendChild(style);
@@ -132,6 +227,7 @@ function RTE_Plugin_AccessibilityChecker() {
         panel = hostDoc.createElement("aside");
         panel.className = "rte-a11y-panel";
         panel.setAttribute("aria-label", config.accessibilityCheckerTitle);
+        panel.setAttribute("role", "complementary");
 
         var header = hostDoc.createElement("div");
         header.className = "rte-a11y-header";
@@ -141,7 +237,7 @@ function RTE_Plugin_AccessibilityChecker() {
 
         var toolbar = hostDoc.createElement("div");
         toolbar.className = "rte-a11y-toolbar";
-        toolbar.innerHTML = '<div class="rte-a11y-count" data-rte-a11y-count="1"></div><div class="rte-a11y-actions"><button type="button" class="rte-a11y-link" data-rte-a11y-refresh="1">Refresh</button><button type="button" class="rte-a11y-link" data-rte-a11y-close="1">Hide</button></div>';
+        toolbar.innerHTML = '<div class="rte-a11y-count" data-rte-a11y-count="1"></div><div class="rte-a11y-actions"><button type="button" class="rte-a11y-link" data-rte-a11y-refresh="1">Refresh</button><button type="button" class="rte-a11y-link" data-rte-a11y-close="1" aria-label="Hide accessibility checker">Hide</button></div>';
         toolbar.querySelector("[data-rte-a11y-refresh]").onclick = function () { runAudit(); };
         toolbar.querySelector("[data-rte-a11y-close]").onclick = function () { closePanel(); };
 
@@ -410,6 +506,7 @@ function RTE_Plugin_AccessibilityChecker() {
                 var button = panel.ownerDocument.createElement("button");
                 button.type = "button";
                 button.className = "rte-a11y-item" + (issueIndex === selectedIssueIndex ? " is-active" : "");
+                button.setAttribute("aria-selected", issueIndex === selectedIssueIndex ? "true" : "false");
                 button.innerHTML =
                     '<div class="rte-a11y-item-top">' +
                     '<span class="rte-a11y-badge rte-a11y-badge-' + issue.severity + '">' + issue.severity + '</span>' +
@@ -603,6 +700,7 @@ if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
     var cssHref = srcAttr
         ? srcAttr.replace(/[^/]+$/, "aitoolkit.css")
         : (((window.RTE_DefaultConfig && window.RTE_DefaultConfig.url_base) || "/richtexteditor") + "/plugins/aitoolkit.css");
+    if (cssHref.indexOf("?") < 0) cssHref += "?v=20260703a";
     var link = document.createElement("link");
     link.rel = "stylesheet";
     link.href = cssHref;
@@ -811,7 +909,7 @@ function RTE_Plugin_AIToolkit() {
                 openChatPanel(options);
             },
             closeChatPanel: function () {
-                closeChatPanel();
+                closeChatPanel({ restoreFocus: true });
             },
             toggleChatPanel: function (options) {
                 toggleChatPanel(options);
@@ -9362,7 +9460,49 @@ function RTE_Plugin_AIToolkit() {
         };
     }
 
-    function closeChatPanel() {
+    function rememberChatReturnFocus() {
+        var active = document.activeElement;
+        if (!active || active === document.body || active === document.documentElement) {
+            return;
+        }
+        if (editor.__aiChatPanel && editor.__aiChatPanel.contains && editor.__aiChatPanel.contains(active)) {
+            return;
+        }
+        if (typeof active.focus === "function") {
+            editor.__aiChatReturnFocusNode = active;
+        }
+    }
+
+    function restoreChatReturnFocus(target) {
+        if (target && target.isConnected !== false && typeof target.focus === "function" && !target.disabled) {
+            try {
+                target.focus({ preventScroll: true });
+            }
+            catch (ignore) {
+                try {
+                    target.focus();
+                }
+                catch (focusError) {
+                }
+            }
+            if (document.activeElement === target) {
+                return true;
+            }
+        }
+        if (editor && typeof editor.focus === "function") {
+            try {
+                editor.focus();
+                return true;
+            }
+            catch (ignoreEditorFocus) {
+            }
+        }
+        return false;
+    }
+
+    function closeChatPanel(options) {
+        options = options || {};
+        var returnFocusNode = editor.__aiChatReturnFocusNode || null;
         if (editor.__aiChatPanel && editor.__aiChatPanel.parentNode) {
             editor.__aiChatPanel.parentNode.removeChild(editor.__aiChatPanel);
         }
@@ -9377,6 +9517,12 @@ function RTE_Plugin_AIToolkit() {
         editor.__aiChatPanel = null;
         editor.__aiChatShell = null;
         editor.__aiChatOriginalMinHeight = null;
+        if (!options.preserveReturnFocus) {
+            editor.__aiChatReturnFocusNode = null;
+        }
+        if (options.restoreFocus) {
+            restoreChatReturnFocus(returnFocusNode);
+        }
     }
 
     function captureChatPanelFocusState(panel) {
@@ -9554,12 +9700,15 @@ function RTE_Plugin_AIToolkit() {
     function openChatPanel(options) {
         options = options || {};
         closeReviewPanel();
+        if (!isChatPanelOpen()) {
+            rememberChatReturnFocus();
+        }
         return renderChatPanel(!!options.focusComposer);
     }
 
     function toggleChatPanel(options) {
         if (editor.__aiChatPanel && editor.__aiChatPanel.isConnected) {
-            closeChatPanel();
+            closeChatPanel({ restoreFocus: true });
             return false;
         }
         return openChatPanel(options);
@@ -12369,7 +12518,7 @@ function RTE_Plugin_AIToolkit() {
         var prompts = config.aiToolkitChatPrompts || [];
         var activePrompt = getActiveChatPrompt(state, prompts);
 
-        closeChatPanel();
+        closeChatPanel({ preserveReturnFocus: true });
         editor.__aiChatOriginalMinHeight = shell.style ? (shell.style.minHeight || "") : "";
         shell.classList.add("rte-ai-chat-host");
         if (shell.style) {
@@ -12414,8 +12563,7 @@ function RTE_Plugin_AIToolkit() {
         panel.onkeydown = function (e) {
             if (e.key === "Escape") {
                 e.preventDefault();
-                closeChatPanel();
-                editor.focus();
+                closeChatPanel({ restoreFocus: true });
             }
         };
 
@@ -12467,8 +12615,7 @@ function RTE_Plugin_AIToolkit() {
         closeButton.title = "Close";
         closeButton.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>';
         closeButton.onclick = function () {
-            closeChatPanel();
-            editor.focus();
+            closeChatPanel({ restoreFocus: true });
         };
 
         // Compact scope toggle. No preview card, no summary pills, no detail
@@ -15001,6 +15148,51 @@ function RTE_Plugin_AIToolkit() {
         return true;
     }
 
+    function getVisibleTopChromeOffset(shell) {
+        if (!document || !document.querySelectorAll || !window) {
+            return 0;
+        }
+        var nodes;
+        try {
+            nodes = document.querySelectorAll("header, nav, [data-rte-ai-sticky-offset], [data-rte-sticky-offset], .topbar, .topnav, .site-header, .navbar, [class*='SiteHeader'], [class*='site-header']");
+        } catch (e) {
+            return 0;
+        }
+        var viewportLimit = Math.min(window.innerHeight || 900, 320);
+        var maxBottom = 0;
+        for (var i = 0; i < nodes.length; i++) {
+            var node = nodes[i];
+            if (!node || node === shell || (shell && shell.contains && shell.contains(node))) {
+                continue;
+            }
+            var rect = node.getBoundingClientRect ? node.getBoundingClientRect() : null;
+            if (!rect || rect.height < 8 || rect.width < 80) {
+                continue;
+            }
+            if (rect.top > 24 || rect.bottom <= 0 || rect.bottom > viewportLimit) {
+                continue;
+            }
+            var style = window.getComputedStyle ? window.getComputedStyle(node) : null;
+            if (style && (style.display === "none" || style.visibility === "hidden" || parseFloat(style.opacity || "1") <= 0.01)) {
+                continue;
+            }
+            maxBottom = Math.max(maxBottom, rect.bottom);
+        }
+        return Math.max(0, Math.ceil(maxBottom));
+    }
+
+    function syncReviewPanelTopChromeOffset(shell) {
+        if (!shell || !shell.style) {
+            return;
+        }
+        var offset = getVisibleTopChromeOffset(shell);
+        if (offset > 0) {
+            shell.style.setProperty("--rte-ai-detected-top-chrome", offset + "px");
+        } else {
+            shell.style.removeProperty("--rte-ai-detected-top-chrome");
+        }
+    }
+
     function closeReviewPanel() {
         if (editor.__aiReviewPanel && editor.__aiReviewPanel.parentNode) {
             editor.__aiReviewPanel.parentNode.removeChild(editor.__aiReviewPanel);
@@ -15012,6 +15204,7 @@ function RTE_Plugin_AIToolkit() {
             editor.__aiReviewShell.style.minHeight = typeof editor.__aiReviewOriginalMinHeight === "string"
                 ? editor.__aiReviewOriginalMinHeight
                 : "";
+            editor.__aiReviewShell.style.removeProperty("--rte-ai-detected-top-chrome");
         }
         editor.__aiReviewPanel = null;
         editor.__aiReviewSubtitleNode = null;
@@ -15201,6 +15394,7 @@ function RTE_Plugin_AIToolkit() {
         closeReviewPanel();
         editor.__aiReviewOriginalMinHeight = shell.style ? (shell.style.minHeight || "") : "";
         shell.classList.add("rte-ai-review-host");
+        syncReviewPanelTopChromeOffset(shell);
         if (shell.style) {
             var desiredHeight = window.innerWidth <= 900 ? 460 : 520;
             shell.style.minHeight = Math.max(shell.offsetHeight || 0, desiredHeight) + "px";
@@ -15343,6 +15537,52 @@ function RTE_Plugin_AIToolkit() {
             if (aOpen !== bOpen) return aOpen ? -1 : 1;
             return (b.timestamp || 0) - (a.timestamp || 0);
         });
+        var activeId = editor.__aiActiveSuggestionId || "";
+        var activeFound = false;
+        for (var ai = 0; ai < visible.length; ai++) {
+            if (visible[ai].id === activeId) { activeFound = true; break; }
+        }
+        if (!activeFound) {
+            for (var di = 0; di < visible.length; di++) {
+                if (visible[di].status === "pending" || visible[di].status === "stale") {
+                    setActiveSuggestionId(visible[di].id);
+                    activeId = visible[di].id;
+                    break;
+                }
+            }
+        }
+        var activeV2Suggestion = findSuggestionById(activeId);
+        var resolvedProgress = counts.total ? Math.max(0, Math.min(100, Math.round((resolvedCountForTabs / counts.total) * 100))) : 0;
+        var queueScopeLabel = typeFilter === "all" ? "All types" : getSuggestionTypeLabel(typeFilter);
+        var v2Center = append(panel, "div", "", "rte-ai-review-v2-center");
+        panel.insertBefore(v2Center, body);
+        v2Center.setAttribute("role", "group");
+        v2Center.setAttribute("aria-label", "AI review summary");
+        function appendReviewV2CenterTile(className, label, value, detail) {
+            var tile = append(v2Center, "div", "", "rte-ai-review-v2-center-tile " + className);
+            append(tile, "span", "", "rte-ai-review-v2-center-label", label);
+            append(tile, "span", "", "rte-ai-review-v2-center-value", value);
+            append(tile, "span", "", "rte-ai-review-v2-center-detail", detail);
+            return tile;
+        }
+        appendReviewV2CenterTile("is-queue", "Queue", pendingForBatch + " pending", queueScopeLabel + (activeTab === "pending" ? " to review" : " filter"));
+        appendReviewV2CenterTile("is-progress", "Progress", resolvedProgress + "% done", resolvedCountForTabs + " resolved of " + counts.total);
+        var nextV2Value = activeV2Suggestion
+            ? ((activeV2Suggestion.status === "pending" || activeV2Suggestion.status === "stale") ? "Review current" : "Inspect item")
+            : (pendingForBatch ? "Pick an item" : (counts.total ? "All caught up" : "Start with Ask AI"));
+        var nextV2Detail = activeV2Suggestion
+            ? summarizeSuggestionText(activeV2Suggestion.originalText || activeV2Suggestion.resultText || "AI suggestion", 72)
+            : (pendingForBatch ? "Select a card below to compare the change." : (counts.total ? "History keeps accepted and rejected changes." : "AI suggestions will appear here."));
+        var nextV2Tile = appendReviewV2CenterTile("is-next", "Next step", nextV2Value, nextV2Detail);
+        if (activeV2Suggestion) {
+            var focusV2Button = append(nextV2Tile, "button", "", "rte-ai-review-v2-center-action", "Focus");
+            focusV2Button.type = "button";
+            focusV2Button.setAttribute("aria-label", "Focus the current AI review item");
+            focusV2Button.onclick = function () {
+                setActiveSuggestionId(activeId);
+                renderReviewPanelV2(true);
+            };
+        }
 
         if (!visible.length) {
             var empty = append(body, "div", "", "rte-ai-review-v2-empty");
@@ -15364,21 +15604,6 @@ function RTE_Plugin_AIToolkit() {
                 append(empty, "div", "", "rte-ai-review-v2-empty-detail", "Try a different type, or pick a different tab.");
             }
         } else {
-            var activeId = editor.__aiActiveSuggestionId || "";
-            var activeFound = false;
-            for (var ai = 0; ai < visible.length; ai++) {
-                if (visible[ai].id === activeId) { activeFound = true; break; }
-            }
-            if (!activeFound) {
-                // First open suggestion becomes active by default.
-                for (var di = 0; di < visible.length; di++) {
-                    if (visible[di].status === "pending" || visible[di].status === "stale") {
-                        setActiveSuggestionId(visible[di].id);
-                        activeId = visible[di].id;
-                        break;
-                    }
-                }
-            }
             for (var vi = 0; vi < visible.length; vi++) {
                 (function (sug) {
                     var item = append(body, "div", "", "rte-ai-review-v2-item is-" + sug.status + (sug.id === activeId ? " is-active" : ""));
@@ -15559,6 +15784,7 @@ function RTE_Plugin_AIToolkit() {
         closeReviewPanel();
         editor.__aiReviewOriginalMinHeight = shell.style ? (shell.style.minHeight || "") : "";
         shell.classList.add("rte-ai-review-host");
+        syncReviewPanelTopChromeOffset(shell);
         if (shell.style) {
             var desiredHeight = window.innerWidth <= 900 ? 460 : 520;
             shell.style.minHeight = Math.max(shell.offsetHeight || 0, desiredHeight) + "px";
@@ -15843,6 +16069,54 @@ function RTE_Plugin_AIToolkit() {
         }
         if (activityNotice) {
             append(summary, "span", "", "rte-ai-review-summary-pill is-remote", activityNotice.count + " new shared");
+        }
+        var activeCenterSuggestion = findSuggestionById(activeFilteredSuggestionId);
+        var currentQueueLabel = typeFilter === "all" ? "All queues" : getSuggestionTypeLabel(typeFilter);
+        var visiblePendingLabel = typeFilter === "all" ? counts.pending : filteredPendingCount;
+        var nextCenterActionLabel = activeCenterSuggestion
+            ? (getReviewFocusActionDisplayLabel(activeCenterSuggestion, getPreferredReviewActionFocus(panel)) || "Review item")
+            : (nextOverallPendingId ? "Open next queue" : (counts.pending ? "Choose queue" : "All clear"));
+        var nextCenterDetail = activeCenterSuggestion
+            ? (activePendingPosition && activePendingPosition.total && activePendingPosition.index
+                ? "Item " + activePendingPosition.index + " of " + activePendingPosition.total + " in " + currentQueueLabel.toLowerCase() + "."
+                : "Current suggestion is ready.")
+            : (nextOverallPendingId
+                ? "There are pending suggestions outside this filter."
+                : (counts.pending ? "Pick a queue filter to continue." : "No pending AI suggestions remain."));
+        var reviewCenter = append(overviewSection, "div", "", "rte-ai-review-center");
+        reviewCenter.setAttribute("role", "group");
+        reviewCenter.setAttribute("aria-label", "AI review center summary");
+        function appendReviewCenterTile(className, label, value, detail) {
+            var tile = append(reviewCenter, "div", "", "rte-ai-review-center-tile " + className);
+            append(tile, "div", "", "rte-ai-review-center-label", label);
+            append(tile, "div", "", "rte-ai-review-center-value", value);
+            append(tile, "div", "", "rte-ai-review-center-detail", detail);
+            return tile;
+        }
+        appendReviewCenterTile("is-queue", "Queue", visiblePendingLabel + " pending", currentQueueLabel + (typeFilter !== "all" && counts.pending !== filteredPendingCount ? " - " + counts.pending + " total pending" : ""));
+        appendReviewCenterTile("is-progress", "Progress", progressPercent + "% done", reviewedCount + " reviewed of " + counts.total + " total");
+        var nextCenterTile = appendReviewCenterTile("is-next", "Next step", nextCenterActionLabel, nextCenterDetail);
+        if (activeFilteredSuggestionId || nextOverallPendingId) {
+            var nextCenterButton = append(nextCenterTile, "button", "", "rte-ai-review-center-action", activeFilteredSuggestionId ? "Focus" : "Open");
+            nextCenterButton.type = "button";
+            nextCenterButton.setAttribute("data-rte-ai-review-focus-key", activeFilteredSuggestionId ? "center-focus-current" : "center-open-next");
+            nextCenterButton.setAttribute("aria-label", activeFilteredSuggestionId ? "Focus the current AI review item" : "Open the next pending AI review queue");
+            nextCenterButton.onclick = function () {
+                if (activeFilteredSuggestionId) {
+                    activateReviewSuggestionWithDefaultActionFocus(activeFilteredSuggestionId, {
+                        focusPanel: true,
+                        focusAction: getPreferredReviewActionFocus()
+                    });
+                }
+                else if (nextOverallPendingId) {
+                    reviewState.typeFilter = "all";
+                    activateReviewSuggestionWithDefaultActionFocus(nextOverallPendingId, {
+                        focusPanel: true,
+                        focusAction: getPreferredReviewActionFocus(),
+                        openedQueue: true
+                    });
+                }
+            };
         }
         var redoDecisionSummaryText = buildRedoDecisionSummaryText(redoableReviewDecision);
         if (redoDecisionSummaryText) {
@@ -16790,8 +17064,18 @@ function RTE_Plugin_AIToolkit() {
         modeChip.setAttribute("aria-hidden", "true");
 
         var grid = append(dialoginner, "div", "", "demo-ai-dialog-grid");
+        var dialogIdSuffix = String(Date.now()) + "-" + String(Math.floor(Math.random() * 1000000));
+        var modeHelpId = "rte-ai-mode-help-" + dialogIdSuffix;
+        var sourceHelpId = "rte-ai-source-help-" + dialogIdSuffix;
+        var resultHelpId = "rte-ai-result-help-" + dialogIdSuffix;
+        var guidanceId = "rte-ai-apply-guidance-" + dialogIdSuffix;
+        var statusId = "rte-ai-dialog-status-" + dialogIdSuffix;
+        grid.setAttribute("role", "form");
+        grid.setAttribute("aria-label", "Ask AI controls");
 
         var compactControls = append(grid, "div", "", "demo-ai-compact-controls");
+        compactControls.setAttribute("role", "group");
+        compactControls.setAttribute("aria-label", "Ask AI setup");
 
         // 2026-05-08 compact pass: dropped the per-field uppercase mini-labels
         // ("Action" / "Language" / "Use" / blank-spacer) and the duplicate
@@ -16823,6 +17107,7 @@ function RTE_Plugin_AIToolkit() {
         // in the dialog header. */
         var modeHelp = document.createElement("div");
         modeHelp.className = "demo-ai-mode-caption is-detached";
+        modeHelp.id = modeHelpId;
 
         var languageField = append(compactControls, "div", "", "demo-ai-field demo-ai-language-field");
         var languageSelect = append(languageField, "select");
@@ -16855,6 +17140,7 @@ function RTE_Plugin_AIToolkit() {
             modeSelect.selectedIndex = 0;
         }
         updateModeHelp();
+        modeSelect.setAttribute("aria-describedby", modeHelpId);
 
         var scopeField = append(compactControls, "div", "", "demo-ai-field demo-ai-scope-field");
         // 2026-05-17 (v20260523a): Selection / Document segmented control
@@ -17007,6 +17293,8 @@ function RTE_Plugin_AIToolkit() {
         grid.appendChild(modeHelp);
 
         var textGrid = append(grid, "div", "", "demo-ai-text-grid");
+        textGrid.setAttribute("role", "group");
+        textGrid.setAttribute("aria-label", "Ask AI source and result");
 
         // 2026-05-09 (v20260509j): dropped the "Source" / "Result"
         // text-tag spans. They had no CSS rule (the class was
@@ -17031,8 +17319,11 @@ function RTE_Plugin_AIToolkit() {
         // Detached node kept in DOM so external integrations that walk
         // `.demo-ai-source-field .demo-ai-text-label-inline` keep resolving.
         append(sourceField, "span", "", "demo-ai-text-label-inline is-detached", "Source");
+        var sourceHelp = append(sourceField, "span", "", "demo-ai-field-help is-detached", "Edit the source text or prompt that Ask AI will use.");
+        sourceHelp.id = sourceHelpId;
         var sourceArea = append(sourceField, "textarea");
         sourceArea.setAttribute("aria-label", "Source text for Ask AI");
+        sourceArea.setAttribute("aria-describedby", sourceHelpId + " " + modeHelpId);
         // 2026-05-26 (v20260526a): reparent the run-row (Generate + Copy
         // buttons) from the compact-controls strip INTO the source field,
         // immediately after the source textarea. CSS positions it as an
@@ -17151,6 +17442,8 @@ function RTE_Plugin_AIToolkit() {
         var resultLabel = document.createElement("span");
         resultLabel.className = "demo-ai-text-label-inline is-detached";
         resultLabel.innerText = "Result";
+        var resultHelp = append(resultField, "span", "", "demo-ai-field-help is-detached", "Review the generated AI suggestion before applying it.");
+        resultHelp.id = resultHelpId;
         // 2026-06-03 (v20260603a): real "Copy to clipboard" affordance
         // pinned to the result corner, sibling to the "Edit prompt"
         // disclosure. Pre-pass the only copy path was the apply-row
@@ -17243,6 +17536,7 @@ function RTE_Plugin_AIToolkit() {
         var resultArea = append(resultField, "textarea");
         resultArea.readOnly = true;
         resultArea.setAttribute("aria-label", "AI suggestion result");
+        resultArea.setAttribute("aria-describedby", resultHelpId + " " + statusId);
         // 2026-05-17 (v20260520b): rows=1 lets the CSS min-height: 52px
         // floor (since v20260513a) actually bind. Browser default rows=2
         // sized the readonly textarea to ~62-67px (2 lines @ 13px /
@@ -17557,9 +17851,11 @@ function RTE_Plugin_AIToolkit() {
         // keyboard and screen-reader users a stable place to confirm the next
         // step and available alternatives.
         var applyGuidance = document.createElement("div");
+        applyGuidance.id = guidanceId;
         applyGuidance.className = "demo-ai-apply-guidance";
         applyGuidance.style.display = "none";
         applyGuidance.setAttribute("role", "group");
+        applyGuidance.setAttribute("aria-label", "Best next step");
         var applyGuidanceHeader = append(applyGuidance, "div", "", "demo-ai-apply-guidance-header");
         var applyGuidanceTitle = append(applyGuidanceHeader, "span", "", "demo-ai-apply-guidance-title", "Next");
         var applyGuidanceBadge = append(applyGuidanceHeader, "span", "", "demo-ai-apply-guidance-badge");
@@ -17567,11 +17863,15 @@ function RTE_Plugin_AIToolkit() {
         grid.appendChild(applyGuidance);
 
         var status = append(grid, "div", "", "demo-ai-dialog-status");
+        status.id = statusId;
+        status.setAttribute("role", "status");
+        status.setAttribute("aria-live", "polite");
+        status.setAttribute("aria-atomic", "true");
 
         var detailsToggle = append(grid, "button", "", "demo-ai-details-toggle", "Details");
         detailsToggle.type = "button";
         detailsToggle.setAttribute("aria-expanded", "false");
-        detailsToggle.setAttribute("aria-controls", "rte-ai-details-" + (Date.now()));
+        detailsToggle.setAttribute("aria-controls", "rte-ai-details-" + dialogIdSuffix);
         detailsToggle.title = "Show why and the operation plan";
 
         var insightGrid = append(grid, "div", "", "demo-ai-insight-grid is-collapsed");
@@ -17615,10 +17915,14 @@ function RTE_Plugin_AIToolkit() {
         };
 
         var reasonPanel = append(insightGrid, "div", "", "demo-ai-reason-panel");
+        reasonPanel.setAttribute("role", "group");
+        reasonPanel.setAttribute("aria-label", "AI rationale");
         append(reasonPanel, "label", "", "", "Why");
         var reasonCopy = append(reasonPanel, "div", "", "demo-ai-reason-copy", "The reason will appear here once a suggestion is generated.");
 
         var planPanel = append(insightGrid, "div", "", "demo-ai-plan-panel");
+        planPanel.setAttribute("role", "group");
+        planPanel.setAttribute("aria-label", "AI operation plan");
         append(planPanel, "label", "", "", "Plan");
         var planNote = document.createElement("div");
         var planStatus = append(planPanel, "div", "", "demo-ai-plan-status");
@@ -18790,11 +19094,11 @@ function RTE_Plugin_AIToolkit() {
                 return;
             }
             applyGuidance.style.display = "";
-            applyGuidanceTitle.innerText = "Next step";
+            applyGuidanceTitle.innerText = "Best next step";
             applyGuidanceBadge.innerText = recommended.label || "";
             var summaryDetail = getDialogRecommendedSummaryDetail(actionState, recommended);
             applyGuidanceDetail.innerText = summaryDetail || "";
-            applyGuidance.setAttribute("aria-label", "Next step: " + (recommended.label || "Action") + "." + (summaryDetail ? " " + summaryDetail : ""));
+            applyGuidance.setAttribute("aria-label", "Best next step: " + (recommended.label || "Action") + "." + (summaryDetail ? " " + summaryDetail : ""));
         }
 
         function rerunDialogPlanFromEditor() {
@@ -19923,6 +20227,13 @@ function RTE_Plugin_BookmarkCard() {
             state.returnValue = true;
             obj.OpenBookmarkDialog();
         });
+        try {
+            var ed = editor.getEditable();
+            if (ed) {
+                ed.addEventListener("click", onEditableClick, true);
+                ed.addEventListener("keydown", onEditableKeyDown, true);
+            }
+        } catch (e) { /* ignore */ }
         injectStyles();
     };
 
@@ -19961,6 +20272,49 @@ function RTE_Plugin_BookmarkCard() {
         try { return (new URL(url)).hostname.replace(/^www\./, ""); }
         catch (e) { return url.replace(/^https?:\/\//i, "").split("/")[0].replace(/^www\./, ""); }
     }
+    function closestBookmark(node, editable) {
+        while (node && node !== editable) {
+            if (node.nodeType === 1 && node.classList && node.classList.contains("rte-bookmark-card")) return node;
+            node = node.parentNode;
+        }
+        return null;
+    }
+    function removeBookmark(card) {
+        if (!card || !card.parentNode) return;
+        card.parentNode.removeChild(card);
+        try { if (typeof editor.fireChange === "function") editor.fireChange(); } catch (e) { /* ignore */ }
+        try { editor.focus(); } catch (e2) { /* ignore */ }
+    }
+    function onEditableClick(e) {
+        var target = e.target;
+        var editable = editor.getEditable();
+        while (target && target !== editable) {
+            if (target.nodeType === 1 && target.getAttribute && target.getAttribute("data-rte-bookmark-remove") === "1") {
+                e.preventDefault();
+                e.stopPropagation();
+                removeBookmark(closestBookmark(target, editable));
+                return;
+            }
+            target = target.parentNode;
+        }
+    }
+    function onEditableKeyDown(e) {
+        if ((e.key === "Enter" || e.key === " ") && e.target && e.target.getAttribute && e.target.getAttribute("data-rte-bookmark-remove") === "1") {
+            e.preventDefault();
+            e.stopPropagation();
+            removeBookmark(closestBookmark(e.target, editor.getEditable()));
+            return;
+        }
+        if (e.key !== "Delete" && e.key !== "Backspace") return;
+        var card = null;
+        try {
+            var sel = editor.getSelection();
+            if (sel && sel.rangeCount) card = closestBookmark(sel.getRangeAt(0).startContainer, editor.getEditable());
+        } catch (ex) { card = null; }
+        if (!card) return;
+        e.preventDefault();
+        removeBookmark(card);
+    }
 
     function buildCardHtml(meta) {
         var url = meta.url;
@@ -19971,6 +20325,7 @@ function RTE_Plugin_BookmarkCard() {
         var image = meta.image || "";
 
         var html = '<a class="rte-bookmark-card" data-rte-block="bookmark" href="' + esc(url) + '" target="_blank" rel="noopener noreferrer" contenteditable="false">';
+        html += '<span class="rte-bookmark-remove" data-rte-bookmark-remove="1" role="button" tabindex="0" aria-label="Remove bookmark" title="Remove bookmark">x</span>';
         html += '<span class="rte-bookmark-main">';
         html += '<span class="rte-bookmark-title">' + esc(title) + "</span>";
         if (desc) html += '<span class="rte-bookmark-desc">' + esc(desc) + "</span>";
@@ -20037,8 +20392,11 @@ function RTE_Plugin_BookmarkCard() {
 
     function injectStyles() {
         var css = [
-            ".rte-bookmark-card{display:flex;align-items:stretch;justify-content:space-between;gap:12px;margin:12px 0;border:1px solid rgba(15,23,42,.14);border-radius:10px;overflow:hidden;text-decoration:none;color:inherit;background:#fff;max-width:640px;transition:box-shadow 160ms,border-color 160ms}",
+            ".rte-bookmark-card{position:relative;display:flex;align-items:stretch;justify-content:space-between;gap:12px;margin:12px 0;border:1px solid rgba(15,23,42,.14);border-radius:10px;overflow:hidden;text-decoration:none;color:inherit;background:#fff;max-width:640px;transition:box-shadow 160ms,border-color 160ms}",
             ".rte-bookmark-card:hover{border-color:rgba(37,99,235,.5);box-shadow:0 6px 18px rgba(15,23,42,.10)}",
+            ".rte-bookmark-remove{position:absolute;top:7px;right:7px;width:22px;height:22px;border:1px solid rgba(15,23,42,.14);border-radius:999px;background:rgba(255,255,255,.96);color:#334155;display:flex;align-items:center;justify-content:center;font:700 13px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;box-shadow:0 4px 12px rgba(15,23,42,.12);opacity:0;transition:opacity 120ms,border-color 120ms,color 120ms;z-index:2}",
+            ".rte-bookmark-card:hover .rte-bookmark-remove,.rte-bookmark-card:focus .rte-bookmark-remove{opacity:1}",
+            ".rte-bookmark-remove:hover{border-color:rgba(220,38,38,.38);color:#b91c1c}",
             ".rte-bookmark-main{flex:1;min-width:0;padding:12px 14px;display:flex;flex-direction:column;gap:4px}",
             ".rte-bookmark-title{font-weight:600;font-size:14px;line-height:1.3;color:#0f172a;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}",
             ".rte-bookmark-desc{font-size:12px;color:#64748b;line-height:1.4;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}",
@@ -20058,6 +20416,202 @@ function RTE_Plugin_BookmarkCard() {
                 head.appendChild(st);
             }
         } catch (e) { /* ignore */ }
+    }
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
+// 2026-06-09 Character / word limit enforcement. The built-in statistics readout
+// DISPLAYS counts; this ENFORCES a maximum (comment boxes, form fields, social
+// limits) — blocks typing past the cap, truncates over-long pastes, and shows a
+// live "remaining" counter that turns red near/over the limit. Library-free.
+//
+// API:
+//   editor.getCharCount()      -> number (characters, no markup)
+//   editor.getWordCount()      -> number
+//   editor.getRemainingChars() -> number | null   (null when no maxLength set)
+//   editor.isOverLimit()       -> boolean
+// Events: fires editor "charlimit" with { chars, words, overChars, overWords }.
+// Config:
+//   config.maxLength = 0                 // max characters (0 / unset = no limit)
+//   config.maxWords = 0                  // max words (0 / unset = no limit)
+//   config.charLimitEnforce = true        // block input past the limit
+//   config.charLimitShowCounter = true    // show the floating counter
+RTE_DefaultConfig.plugin_charlimit = RTE_Plugin_CharLimit;
+
+function RTE_Plugin_CharLimit() {
+    var obj = this;
+    var config, editor, counterEl = null;
+
+    obj.PluginName = "CharLimit";
+
+    obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+
+        editor.getCharCount = function () { return countChars(); };
+        editor.getWordCount = function () { return countWords(); };
+        editor.getRemainingChars = function () { return maxChars() ? Math.max(0, maxChars() - countChars()) : null; };
+        editor.isOverLimit = function () {
+            return (maxChars() && countChars() > maxChars()) || (maxWords() && countWords() > maxWords());
+        };
+
+        if (!maxChars() && !maxWords()) return; // dormant unless a limit is configured
+
+        // The iframe editable may not exist at InitEditor time — bind setup now
+        // AND on "created", with an idempotency guard so we never double-bind.
+        setup();
+        try { editor.attachEvent("created", setup); } catch (e) {}
+        try { editor.attachEvent("ready", setup); } catch (e) {}
+        try { editor.attachEvent("aftersethtml", function () { setup(); refresh(); }); } catch (e) {}
+        // The editor may rebuild the iframe (new document) after init/created; a
+        // couple of deferred retries bind the FINAL document once it stabilizes
+        // (the idempotency guard makes re-runs cheap no-ops).
+        if (typeof setTimeout === "function") { setTimeout(setup, 0); setTimeout(setup, 300); }
+    };
+
+    function setup() {
+        // Bind on the iframe DOCUMENT (not the body): the editor recreates the
+        // editable body on init / setHTMLCode, which would orphan body-level
+        // listeners. The document is stable; capture-phase catches body events.
+        var doc = editor.getDocument && editor.getDocument();
+        if (!doc || doc.__rteCharLimitBound) { mountCounter(); refresh(); return; }
+        doc.__rteCharLimitBound = true;
+        if (config.charLimitEnforce !== false) {
+            doc.addEventListener("beforeinput", onBeforeInput, true);
+            doc.addEventListener("paste", onPaste, true);
+        }
+        doc.addEventListener("input", function () { refresh(); }, true);
+        mountCounter();
+        refresh();
+    }
+
+    function maxChars() { var n = parseInt(config.maxLength, 10); return n > 0 ? n : 0; }
+    function maxWords() { var n = parseInt(config.maxWords, 10); return n > 0 ? n : 0; }
+
+    function plainText() {
+        try {
+            var ed = editor.getEditable();
+            return ed ? (ed.innerText || ed.textContent || "") : "";
+        } catch (e) { return ""; }
+    }
+    function countChars() { return plainText().replace(/\r\n/g, "\n").length; }
+    function countWords() { var t = plainText().trim(); return t ? t.split(/\s+/).length : 0; }
+
+    function onBeforeInput(e) {
+        var t = e.inputType || "";
+        var isInsert = t === "insertText" || t === "insertReplacementText" ||
+            t === "insertCompositionText" || t === "insertParagraph" || t === "insertLineBreak";
+        if (!isInsert) return; // deletes / formatting always allowed
+        var addLen = t === "insertParagraph" || t === "insertLineBreak" ? 1 : ((e.data || "").length || 0);
+        // Allow if it shrinks/replaces a selection that frees room — approximate by
+        // checking current count; if already at/over the char cap, block inserts.
+        if (maxChars()) {
+            var cur = countChars();
+            if (cur >= maxChars() || cur + addLen > maxChars()) {
+                // Permit replacing a selection (net change may be <= 0).
+                if (!hasSelection() || cur + addLen > maxChars() + selectionLength()) { e.preventDefault(); flash(); return; }
+            }
+        }
+        if (maxWords() && t !== "insertParagraph" && countWords() >= maxWords() && /\s$/.test(e.data || " ")) {
+            // block starting a NEW word past the word cap
+            if (countWords() >= maxWords()) { e.preventDefault(); flash(); return; }
+        }
+    }
+
+    function onPaste(e) {
+        if (!maxChars()) return;
+        var remaining = maxChars() - countChars() + selectionLength();
+        if (remaining <= 0) { e.preventDefault(); flash(); return; }
+        var cd = e.clipboardData || window.clipboardData;
+        if (!cd) return;
+        var text = "";
+        try { text = cd.getData("text/plain") || ""; } catch (er) { return; }
+        if (text.length > remaining) {
+            // Truncate the paste to what fits.
+            e.preventDefault();
+            var fit = text.slice(0, remaining);
+            try { if (typeof editor.insertHTML === "function") editor.insertHTML(escapeHtml(fit).replace(/\n/g, "<br>")); }
+            catch (e2) {}
+            flash();
+        }
+    }
+
+    function hasSelection() {
+        try { var s = editor.getSelection(); return s && s.rangeCount > 0 && !s.isCollapsed; } catch (e) { return false; }
+    }
+    function selectionLength() {
+        try { var s = editor.getSelection(); return s && !s.isCollapsed ? (s.toString() || "").length : 0; } catch (e) { return 0; }
+    }
+
+    function escapeHtml(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+
+    function mountCounter() {
+        if (config.charLimitShowCounter === false) return;
+        if (counterEl && counterEl.parentNode) return;
+        var host = findHost();
+        if (!host) return;
+        injectStyles(host.ownerDocument);
+        counterEl = host.ownerDocument.createElement("div");
+        counterEl.className = "rte-charlimit-counter";
+        counterEl.setAttribute("aria-live", "polite");
+        host.appendChild(counterEl);
+    }
+
+    function findHost() {
+        try {
+            // The iframe lives in the MAIN document inside a positioned wrapper —
+            // the right place for an absolutely-positioned overlay counter.
+            var ifr = editor.iframe || (editor.getDocument && editor.getDocument().defaultView && editor.getDocument().defaultView.frameElement);
+            if (ifr) {
+                var w = ifr.parentNode;
+                while (w && w.nodeType === 1) {
+                    var cs = (w.ownerDocument.defaultView || window).getComputedStyle(w);
+                    if (cs && cs.position !== "static") return w;
+                    if (w.className && typeof w.className === "string" && /rte[_-](outer|container|wrapper)/i.test(w.className)) {
+                        try { if (cs && cs.position === "static") w.style.position = "relative"; } catch (e) {}
+                        return w;
+                    }
+                    w = w.parentNode;
+                }
+                if (ifr.parentNode) { try { ifr.parentNode.style.position = ifr.parentNode.style.position || "relative"; } catch (e) {} return ifr.parentNode; }
+            }
+            return null;
+        } catch (e) { return null; }
+    }
+
+    function injectStyles(doc) {
+        if (doc.querySelector("style[data-rte-charlimit]")) return;
+        var st = doc.createElement("style");
+        st.setAttribute("data-rte-charlimit", "1");
+        st.textContent = ".rte-charlimit-counter{position:absolute;right:10px;bottom:6px;z-index:5;font:11px -apple-system,Segoe UI,sans-serif;color:#64748b;background:rgba(255,255,255,.85);padding:1px 7px;border-radius:9px;pointer-events:none}" +
+            ".rte-charlimit-counter.is-near{color:#b45309}.rte-charlimit-counter.is-over{color:#dc2626;font-weight:600}";
+        (doc.head || doc.documentElement).appendChild(st);
+    }
+
+    function refresh() {
+        var chars = countChars(), words = countWords();
+        var overChars = maxChars() ? Math.max(0, chars - maxChars()) : 0;
+        var overWords = maxWords() ? Math.max(0, words - maxWords()) : 0;
+        if (counterEl) {
+            var txt = "";
+            if (maxChars()) txt = chars + " / " + maxChars();
+            else if (maxWords()) txt = words + " / " + maxWords() + " words";
+            counterEl.textContent = txt;
+            counterEl.classList.remove("is-near", "is-over");
+            if ((maxChars() && chars > maxChars()) || (maxWords() && words > maxWords())) counterEl.classList.add("is-over");
+            else if ((maxChars() && chars >= maxChars() * 0.9) || (maxWords() && words >= maxWords() * 0.9)) counterEl.classList.add("is-near");
+        }
+        try { if (typeof editor.fireEvent === "function") editor.fireEvent("charlimit", { chars: chars, words: words, overChars: overChars, overWords: overWords }); } catch (e) {}
+    }
+
+    function flash() {
+        if (!counterEl) return;
+        counterEl.classList.add("is-over");
+        try {
+            counterEl.animate([{ transform: "translateX(0)" }, { transform: "translateX(-3px)" }, { transform: "translateX(3px)" }, { transform: "translateX(0)" }], { duration: 160 });
+        } catch (e) {}
     }
 }
 
@@ -20147,6 +20701,16 @@ function RTE_Plugin_Comments() {
         return { id: "user", name: "User", color: "#2563eb" };
     }
 
+    // The sidebar/composer are body-appended, outside the editor container, so
+    // the container's rte-dark class can't reach them via CSS. Mirror forced
+    // dark mode by adding rte-comment-dark; automatic dark uses a media query.
+    function isEditorDark() {
+        try {
+            var host = editor.container || (editor.getEditable && editor.getEditable().closest && editor.getEditable().closest(".richtexteditor"));
+            return !!(host && host.classList && host.classList.contains("rte-dark"));
+        } catch (e) { return false; }
+    }
+
     function listComments(filter) {
         if (!editor.reviewLedger) return [];
         return editor.reviewLedger.list().filter(function (e) {
@@ -20201,7 +20765,7 @@ function RTE_Plugin_Comments() {
         options = options || {};
         var host = editor.iframe.ownerDocument;
         composer = host.createElement("div");
-        composer.className = "rte-comment-composer";
+        composer.className = "rte-comment-composer" + (isEditorDark() ? " rte-comment-dark" : "");
         composer.setAttribute("role", "dialog");
         composer.setAttribute("aria-label", "Add comment");
 
@@ -20212,7 +20776,7 @@ function RTE_Plugin_Comments() {
 
         var textarea = host.createElement("textarea");
         textarea.className = "rte-comment-composer-textarea";
-        textarea.placeholder = "Type your comment…";
+        textarea.placeholder = "Type your comment...";
         textarea.rows = 3;
         composer.appendChild(textarea);
 
@@ -20327,6 +20891,7 @@ function RTE_Plugin_Comments() {
         if (sidebar && sidebar.isConnected) renderSidebar();
         else openSidebar();
         focusComment(id);
+        try { if (typeof editor.fireEvent === "function") editor.fireEvent("comment_added", { id: id, text: text, author: user }); } catch (e) { }
         return id;
     }
 
@@ -20352,6 +20917,7 @@ function RTE_Plugin_Comments() {
         if (span) unwrapKeepChildren(span);
         editor.reviewLedger.update(commentId, { status: "resolved", decidedAt: Date.now() });
         if (sidebar && sidebar.isConnected) renderSidebar();
+        try { if (typeof editor.fireEvent === "function") editor.fireEvent("comment_resolved", { id: commentId }); } catch (e) { }
         return true;
     }
 
@@ -20406,7 +20972,7 @@ function RTE_Plugin_Comments() {
         if (sidebar && sidebar.isConnected) { renderSidebar(); return; }
         var host = editor.iframe.ownerDocument;
         sidebar = host.createElement("div");
-        sidebar.className = "rte-comment-sidebar";
+        sidebar.className = "rte-comment-sidebar" + (isEditorDark() ? " rte-comment-dark" : "");
         sidebar.setAttribute("role", "complementary");
         sidebar.setAttribute("aria-label", "Comments");
         var shell = getEditorShell();
@@ -20455,19 +21021,23 @@ function RTE_Plugin_Comments() {
         header.appendChild(close);
         sidebar.appendChild(header);
 
+        var list = host.createElement("div");
+        list.className = "rte-comment-list";
+        sidebar.appendChild(list);
+
         var entries = listComments({ status: "pending" });
         if (!entries.length) {
             var empty = host.createElement("div");
             empty.className = "rte-comment-empty";
             empty.textContent = "No open comments. Select text and click the Comment button to start.";
-            sidebar.appendChild(empty);
+            list.appendChild(empty);
             return;
         }
 
         entries.sort(function (a, b) { return (b.createdAt || 0) - (a.createdAt || 0); });
 
         for (var i = 0; i < entries.length; i++) {
-            sidebar.appendChild(renderEntry(entries[i], host));
+            list.appendChild(renderEntry(entries[i], host));
         }
     }
 
@@ -20475,6 +21045,7 @@ function RTE_Plugin_Comments() {
         var wrap = host.createElement("div");
         wrap.className = "rte-comment-item";
         wrap.setAttribute("data-comment-ref", entry.id);
+        wrap.setAttribute("role", "article");
 
         var topRow = host.createElement("div");
         topRow.className = "rte-comment-item-top";
@@ -20501,11 +21072,13 @@ function RTE_Plugin_Comments() {
         resolveBtn.type = "button";
         resolveBtn.className = "rte-comment-action rte-comment-resolve";
         resolveBtn.textContent = "Resolve";
+        resolveBtn.setAttribute("aria-label", "Resolve comment");
         resolveBtn.addEventListener("mousedown", function (e) { e.preventDefault(); resolveComment(entry.id); });
         var delBtn = host.createElement("button");
         delBtn.type = "button";
         delBtn.className = "rte-comment-action rte-comment-delete";
         delBtn.textContent = "Delete";
+        delBtn.setAttribute("aria-label", "Delete comment");
         delBtn.addEventListener("mousedown", function (e) { e.preventDefault(); deleteComment(entry.id); });
         actions.appendChild(resolveBtn);
         actions.appendChild(delBtn);
@@ -20556,7 +21129,8 @@ function RTE_Plugin_Comments() {
         var replyInput = host.createElement("input");
         replyInput.type = "text";
         replyInput.className = "rte-comment-reply-input";
-        replyInput.placeholder = "Reply…";
+        replyInput.placeholder = "Reply...";
+        replyInput.setAttribute("aria-label", "Reply to comment");
         replyInput.addEventListener("keydown", function (e) {
             if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
@@ -20607,42 +21181,70 @@ function RTE_Plugin_Comments() {
             style.setAttribute("data-rte-comments", "1");
             style.textContent = [
                 ".rte-comment-sidebar-host{display:flex!important;align-items:stretch}",
-                ".rte-comment-sidebar{width:300px;min-width:260px;max-width:340px;margin-left:12px;padding:0;background:#fafbff;border:1px solid rgba(15,23,42,.08);border-radius:12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:13px;color:#0f172a;display:flex;flex-direction:column;max-height:calc(100vh - 120px);overflow:hidden}",
-                ".rte-comment-sidebar-header{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid rgba(15,23,42,.08);font-weight:600}",
-                ".rte-comment-sidebar-title{font-size:14px}",
-                ".rte-comment-sidebar-close{border:0;background:transparent;cursor:pointer;color:#64748b;padding:4px;border-radius:6px}",
-                ".rte-comment-sidebar-close:hover{background:rgba(15,23,42,.05);color:#0f172a}",
-                ".rte-comment-empty{padding:16px;color:#64748b;font-size:12px}",
-                ".rte-comment-sidebar > :nth-child(n+2){overflow-y:auto}",
-                ".rte-comment-item{padding:12px 14px;border-bottom:1px solid rgba(15,23,42,.06);transition:background 200ms ease}",
-                ".rte-comment-item:last-child{border-bottom:0}",
-                ".rte-comment-item-active{background:#eef2ff}",
-                ".rte-comment-item-top{display:flex;align-items:center;gap:10px}",
-                ".rte-comment-avatar{width:28px;height:28px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700;flex:0 0 28px}",
+                ".rte-comment-sidebar{width:310px;min-width:270px;max-width:min(360px,32vw);margin-left:12px;padding:0;background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(248,251,255,.96));border:1px solid rgba(148,163,184,.22);border-radius:16px;font-family:Aptos,'Segoe UI',sans-serif;font-size:13px;color:#172033;display:flex;flex-direction:column;max-height:calc(100vh - 120px);overflow:hidden;box-shadow:0 18px 42px rgba(29,78,216,.12),0 2px 8px rgba(15,23,42,.06)}",
+                ".rte-comment-sidebar-header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 10px 9px 14px;border-bottom:1px solid rgba(148,163,184,.16);font-weight:750;background:rgba(255,255,255,.72)}",
+                ".rte-comment-sidebar-title{font-size:13px;font-weight:850;letter-spacing:.02em}",
+                ".rte-comment-sidebar-close{width:28px;height:28px;border:1px solid rgba(100,116,139,.18);background:#fff;cursor:pointer;color:#64748b;padding:0;border-radius:999px;display:inline-flex;align-items:center;justify-content:center}",
+                ".rte-comment-sidebar-close:hover,.rte-comment-sidebar-close:focus-visible{background:#eef4ff;color:#0f3f9f;border-color:rgba(37,99,235,.28)}",
+                ".rte-comment-list{flex:1;min-height:0;overflow-y:auto;padding:6px;scrollbar-width:thin}",
+                ".rte-comment-empty{margin:6px;padding:14px;color:#52657e;font-size:12px;font-weight:700;line-height:1.45;text-align:center;background:#fff;border:1px dashed rgba(148,163,184,.28);border-radius:13px}",
+                ".rte-comment-item{padding:10px;border:1px solid rgba(148,163,184,.14);border-radius:14px;background:rgba(255,255,255,.82);box-shadow:0 8px 18px rgba(15,23,42,.04);transition:background 200ms ease,box-shadow 200ms ease,transform 200ms ease}",
+                ".rte-comment-item+.rte-comment-item{margin-top:7px}",
+                ".rte-comment-item-active{background:#eef4ff;box-shadow:0 12px 28px rgba(37,99,235,.14);transform:translateY(-1px)}",
+                ".rte-comment-item-top{display:grid;grid-template-columns:30px minmax(0,1fr) auto;align-items:center;gap:8px}",
+                ".rte-comment-avatar{width:30px;height:30px;border-radius:11px;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:800;flex:0 0 30px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.28)}",
                 ".rte-comment-namewrap{flex:1;min-width:0}",
-                ".rte-comment-name{font-weight:600;font-size:12px;line-height:1.2}",
+                ".rte-comment-name{font-weight:800;font-size:12px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
                 ".rte-comment-when{font-size:11px;color:#64748b}",
-                ".rte-comment-actions{display:flex;gap:4px}",
-                ".rte-comment-action{font-size:11px;padding:3px 8px;border-radius:6px;border:1px solid rgba(15,23,42,.1);background:#fff;cursor:pointer}",
-                ".rte-comment-resolve{color:#1e40af;border-color:rgba(30,64,175,.2);background:#eef2ff}",
-                ".rte-comment-delete{color:#991b1b;border-color:rgba(153,27,27,.2);background:#fee2e2}",
-                ".rte-comment-quote{margin:6px 0;padding:6px 10px;background:rgba(255,245,157,.5);border-left:3px solid #f9a825;border-radius:4px;font-size:11px;color:#52525b;cursor:pointer}",
-                ".rte-comment-quote:hover{background:rgba(255,238,88,.8)}",
-                ".rte-comment-body{margin-top:6px;font-size:13px;line-height:1.45;color:#0f172a;white-space:pre-wrap}",
-                ".rte-comment-reply{display:flex;gap:8px;margin-top:10px;padding-top:8px;border-top:1px dashed rgba(15,23,42,.08)}",
-                ".rte-comment-reply-avatar{width:22px;height:22px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:700;flex:0 0 22px}",
+                ".rte-comment-actions{display:flex;gap:4px;align-items:center}",
+                ".rte-comment-action{font-size:11px;font-weight:750;padding:4px 8px;border-radius:999px;border:1px solid rgba(100,116,139,.16);background:#fff;cursor:pointer}",
+                ".rte-comment-action:hover,.rte-comment-action:focus-visible{transform:translateY(-1px)}",
+                ".rte-comment-resolve{color:#0f3f9f;border-color:rgba(37,99,235,.2);background:#eef4ff}",
+                ".rte-comment-delete{color:#9f1239;border-color:rgba(159,18,57,.18);background:#fff1f2}",
+                ".rte-comment-quote{margin:8px 0 0;padding:7px 9px;background:#fff8e8;border:1px solid rgba(245,158,11,.18);border-left:3px solid #f59e0b;border-radius:11px;font-size:11px;color:#67430a;cursor:pointer;line-height:1.35}",
+                ".rte-comment-quote:hover{background:#fff3cf}",
+                ".rte-comment-body{margin-top:8px;font-size:13px;line-height:1.45;color:#172033;white-space:pre-wrap}",
+                ".rte-comment-reply{display:flex;gap:8px;margin-top:10px;padding-top:9px;border-top:1px dashed rgba(148,163,184,.22)}",
+                ".rte-comment-reply-avatar{width:24px;height:24px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:800;flex:0 0 24px}",
                 ".rte-comment-reply-body{flex:1;min-width:0}",
                 ".rte-comment-reply-name{font-size:11px;color:#64748b}",
-                ".rte-comment-reply-text{font-size:12px;color:#0f172a;line-height:1.45;white-space:pre-wrap;margin-top:2px}",
+                ".rte-comment-reply-text{font-size:12px;color:#172033;line-height:1.45;white-space:pre-wrap;margin-top:2px}",
                 ".rte-comment-reply-composer{margin-top:8px;display:flex}",
-                ".rte-comment-reply-input{flex:1;padding:6px 10px;border-radius:8px;border:1px solid rgba(15,23,42,.12);font:inherit;font-size:12px}",
-                ".rte-comment-composer{position:absolute;z-index:2147483000;width:320px;background:#fff;border:1px solid rgba(15,23,42,.08);box-shadow:0 12px 32px rgba(15,23,42,.18);border-radius:10px;padding:12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}",
-                ".rte-comment-composer-header{font-weight:600;font-size:13px;margin-bottom:8px;color:#0f172a}",
-                ".rte-comment-composer-textarea{width:100%;box-sizing:border-box;padding:8px 10px;border-radius:8px;border:1px solid rgba(15,23,42,.12);font:inherit;font-size:13px;resize:vertical;min-height:72px}",
-                ".rte-comment-composer-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}",
-                ".rte-comment-btn{padding:6px 14px;border-radius:8px;border:1px solid rgba(15,23,42,.12);font:inherit;font-size:12px;cursor:pointer}",
-                ".rte-comment-btn-ghost{background:#fff;color:#64748b}",
-                ".rte-comment-btn-primary{background:#1d67ba;color:#fff;border-color:#1d67ba}"
+                ".rte-comment-reply-input{flex:1;min-width:0;padding:7px 10px;border-radius:999px;border:1px solid rgba(148,163,184,.24);font:inherit;font-size:12px;background:#fff}",
+                ".rte-comment-reply-input:focus,.rte-comment-composer-textarea:focus{outline:2px solid rgba(37,99,235,.18);border-color:rgba(37,99,235,.38)}",
+                ".rte-comment-composer{position:absolute;z-index:2147483000;width:min(320px,calc(100vw - 24px));background:linear-gradient(180deg,#fff,#f8fbff);border:1px solid rgba(148,163,184,.22);box-shadow:0 18px 42px rgba(29,78,216,.16),0 2px 8px rgba(15,23,42,.08);border-radius:16px;padding:12px;font-family:Aptos,'Segoe UI',sans-serif;color:#172033}",
+                ".rte-comment-composer-header{font-weight:850;font-size:13px;margin-bottom:8px;color:#172033}",
+                ".rte-comment-composer-textarea{width:100%;box-sizing:border-box;padding:9px 10px;border-radius:12px;border:1px solid rgba(148,163,184,.24);font:inherit;font-size:13px;resize:vertical;min-height:70px;background:#fff}",
+                ".rte-comment-composer-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:9px}",
+                ".rte-comment-btn{min-height:30px;padding:0 13px;border-radius:999px;border:1px solid rgba(100,116,139,.18);font:750 12px/1 Aptos,'Segoe UI',sans-serif;cursor:pointer}",
+                ".rte-comment-btn-ghost{background:#fff;color:#52657e}",
+                ".rte-comment-btn-primary{background:#1d67ba;color:#fff;border-color:#1d67ba;box-shadow:0 8px 16px rgba(29,103,186,.18)}",
+                // Dark mode — the sidebar/composer are body-appended (outside the
+                // editor container) so the .rte-dark class can't reach them. Apply
+                // automatically via prefers-color-scheme, and via an explicit
+                // .rte-comment-dark class set when the editor is forced dark.
+                "@media (prefers-color-scheme:dark){",
+                "  .rte-comment-sidebar,.rte-comment-composer{background:linear-gradient(180deg,#1e293b,#0f172a);border-color:#334155;color:#e2e8f0}",
+                "  .rte-comment-sidebar-header{background:rgba(30,41,59,.72);border-color:#334155}",
+                "  .rte-comment-item{background:rgba(30,41,59,.85);border-color:#334155}",
+                "  .rte-comment-item-active{background:#1e3a8a}",
+                "  .rte-comment-empty{background:#0f172a;color:#94a3b8;border-color:#334155}",
+                "  .rte-comment-when,.rte-comment-reply-name{color:#94a3b8}",
+                "  .rte-comment-body,.rte-comment-reply-text,.rte-comment-composer-header{color:#e2e8f0}",
+                "  .rte-comment-reply-input,.rte-comment-composer-textarea{background:#0f172a;color:#e2e8f0;border-color:#334155}",
+                "  .rte-comment-action,.rte-comment-btn-ghost,.rte-comment-sidebar-close{background:#0f172a;color:#cbd5e1;border-color:#334155}",
+                "  .rte-comment-quote{background:rgba(245,158,11,.12);color:#fcd34d}",
+                "}",
+                ".rte-comment-dark.rte-comment-sidebar,.rte-comment-dark.rte-comment-composer{background:linear-gradient(180deg,#1e293b,#0f172a);border-color:#334155;color:#e2e8f0}",
+                ".rte-comment-dark .rte-comment-sidebar-header{background:rgba(30,41,59,.72);border-color:#334155}",
+                ".rte-comment-dark .rte-comment-item{background:rgba(30,41,59,.85);border-color:#334155}",
+                ".rte-comment-dark .rte-comment-item-active{background:#1e3a8a}",
+                ".rte-comment-dark .rte-comment-empty{background:#0f172a;color:#94a3b8;border-color:#334155}",
+                ".rte-comment-dark .rte-comment-when,.rte-comment-dark .rte-comment-reply-name{color:#94a3b8}",
+                ".rte-comment-dark .rte-comment-body,.rte-comment-dark .rte-comment-reply-text,.rte-comment-dark .rte-comment-composer-header{color:#e2e8f0}",
+                ".rte-comment-dark .rte-comment-reply-input,.rte-comment-dark .rte-comment-composer-textarea{background:#0f172a;color:#e2e8f0;border-color:#334155}",
+                ".rte-comment-dark .rte-comment-action,.rte-comment-dark .rte-comment-btn-ghost,.rte-comment-dark .rte-comment-sidebar-close{background:#0f172a;color:#cbd5e1;border-color:#334155}",
+                ".rte-comment-dark .rte-comment-quote{background:rgba(245,158,11,.12);color:#fcd34d}"
             ].join("\n");
             host.head.appendChild(style);
         }
@@ -20767,26 +21369,27 @@ function RTE_Plugin_ContentMinimap() {
         var style = hostDoc.createElement("style");
         style.id = "rte-content-minimap-style";
         style.innerHTML = [
-            ".rte-content-minimap-shell{display:flex;align-items:stretch;gap:12px;}",
+            ".rte-content-minimap-shell{display:flex;align-items:stretch;gap:10px;}",
             ".rte-content-minimap-shell>.rte-content-minimap-host{flex:1 1 auto;min-width:0;}",
-            ".rte-content-minimap-panel{display:none;flex:0 0 var(--rte-content-minimap-width,168px);min-width:148px;max-width:220px;border:1px solid #dbe4f0;border-radius:18px;background:linear-gradient(180deg,#fbfdff 0%,#f5f9ff 100%);box-shadow:0 18px 40px rgba(15,23,42,.08);overflow:hidden;}",
+            ".rte-content-minimap-panel{display:none;flex:0 0 var(--rte-content-minimap-width,168px);min-width:148px;max-width:220px;border:1px solid rgba(148,163,184,.22);border-radius:16px;background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(248,251,255,.96));box-shadow:0 18px 42px rgba(29,78,216,.12),0 2px 8px rgba(15,23,42,.06);overflow:hidden;color:#172033;font-family:Aptos,'Segoe UI',sans-serif;}",
             ".rte-content-minimap-shell.is-open>.rte-content-minimap-panel{display:flex;flex-direction:column;}",
-            ".rte-content-minimap-header{padding:14px 14px 10px 14px;border-bottom:1px solid rgba(148,163,184,.18);}",
-            ".rte-content-minimap-kicker{font-size:11px;line-height:1.3;letter-spacing:.08em;text-transform:uppercase;color:#64748b;font-weight:700;}",
-            ".rte-content-minimap-title{margin-top:4px;font-size:17px;line-height:1.2;font-weight:700;color:#0f172a;}",
-            ".rte-content-minimap-copy{margin-top:6px;font-size:12px;line-height:1.5;color:#475569;}",
-            ".rte-content-minimap-toolbar{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid rgba(148,163,184,.18);gap:10px;}",
-            ".rte-content-minimap-meta{font-size:12px;color:#64748b;}",
-            ".rte-content-minimap-close{appearance:none;border:0;background:transparent;color:#475569;cursor:pointer;font-size:12px;font-weight:600;padding:0;}",
-            ".rte-content-minimap-body{padding:10px;overflow:auto;min-height:140px;max-height:520px;}",
-            ".rte-content-minimap-canvas{position:relative;border-radius:14px;background:#fff;border:1px solid rgba(148,163,184,.22);overflow:hidden;min-height:120px;}",
-            ".rte-content-minimap-preview{position:relative;transform-origin:top left;pointer-events:none;color:#0f172a;background:#fff;}",
+            ".rte-content-minimap-header{padding:12px 12px 9px 14px;border-bottom:1px solid rgba(148,163,184,.16);background:rgba(255,255,255,.72);}",
+            ".rte-content-minimap-kicker{font-size:10px;line-height:1.3;letter-spacing:.08em;text-transform:uppercase;color:#52657e;font-weight:850;}",
+            ".rte-content-minimap-title{margin-top:3px;font-size:15px;line-height:1.2;font-weight:850;color:#172033;}",
+            ".rte-content-minimap-copy{margin-top:5px;font-size:12px;line-height:1.42;color:#52657e;}",
+            ".rte-content-minimap-toolbar{display:flex;align-items:center;justify-content:space-between;padding:8px 10px 8px 14px;border-bottom:1px solid rgba(148,163,184,.16);gap:8px;background:rgba(255,255,255,.52);}",
+            ".rte-content-minimap-meta{min-width:0;font-size:12px;font-weight:750;color:#52657e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
+            ".rte-content-minimap-close{appearance:none;border:1px solid rgba(100,116,139,.18);background:#fff;color:#315277;cursor:pointer;font-size:12px;font-weight:750;padding:6px 9px;border-radius:999px;line-height:1;}",
+            ".rte-content-minimap-close:hover,.rte-content-minimap-close:focus-visible{background:#eef4ff;color:#0f3f9f;border-color:rgba(37,99,235,.28);}",
+            ".rte-content-minimap-body{padding:6px;overflow:auto;min-height:140px;max-height:520px;scrollbar-width:thin;}",
+            ".rte-content-minimap-canvas{position:relative;border-radius:14px;background:#fff;border:1px solid rgba(148,163,184,.18);overflow:hidden;min-height:120px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.7);}",
+            ".rte-content-minimap-preview{position:relative;transform-origin:top left;pointer-events:none;color:#172033;background:#fff;}",
             ".rte-content-minimap-preview>*{max-width:100%;}",
             ".rte-content-minimap-preview img,.rte-content-minimap-preview table,.rte-content-minimap-preview iframe,.rte-content-minimap-preview video{max-width:100% !important;}",
             ".rte-content-minimap-preview [contenteditable]{pointer-events:none;}",
-            ".rte-content-minimap-viewport{position:absolute;left:0;right:0;border:1px solid rgba(37,99,235,.55);background:linear-gradient(180deg,rgba(37,99,235,.14) 0%,rgba(14,165,233,.1) 100%);box-shadow:inset 0 0 0 1px rgba(255,255,255,.35);border-radius:10px;cursor:grab;}",
+            ".rte-content-minimap-viewport{position:absolute;left:0;right:0;border:1px solid rgba(37,99,235,.62);background:linear-gradient(180deg,rgba(37,99,235,.18) 0%,rgba(14,165,233,.12) 100%);box-shadow:inset 0 0 0 1px rgba(255,255,255,.48),0 8px 18px rgba(37,99,235,.16);border-radius:10px;cursor:grab;}",
             ".rte-content-minimap-viewport.is-dragging{cursor:grabbing;}",
-            ".rte-content-minimap-empty{position:absolute;inset:auto 10px 10px 10px;padding:10px;border-radius:10px;background:rgba(248,250,252,.95);color:#64748b;font-size:12px;line-height:1.5;}",
+            ".rte-content-minimap-empty{position:absolute;inset:auto 8px 8px 8px;padding:10px;border-radius:12px;background:rgba(255,255,255,.94);color:#52657e;font-size:12px;font-weight:700;line-height:1.45;border:1px dashed rgba(148,163,184,.32);}",
             "@media (max-width: 1100px){.rte-content-minimap-shell{display:block;}.rte-content-minimap-panel{margin-top:12px;max-width:none;width:100%;}.rte-content-minimap-body{max-height:280px;}}"
         ].join("");
         hostDoc.head.appendChild(style);
@@ -20811,6 +21414,7 @@ function RTE_Plugin_ContentMinimap() {
         panel.className = "rte-content-minimap-panel";
         panel.style.setProperty("--rte-content-minimap-width", String(Math.max(148, config.contentMinimapWidth || 168)) + "px");
         panel.setAttribute("aria-label", config.contentMinimapTitle);
+        panel.setAttribute("role", "complementary");
 
         var header = hostDoc.createElement("div");
         header.className = "rte-content-minimap-header";
@@ -20836,6 +21440,7 @@ function RTE_Plugin_ContentMinimap() {
         close.type = "button";
         close.className = "rte-content-minimap-close";
         close.innerText = "Hide";
+        close.setAttribute("aria-label", "Hide content minimap");
         close.onclick = function () { closePanel(); };
         toolbar.appendChild(meta);
         toolbar.appendChild(close);
@@ -20851,6 +21456,7 @@ function RTE_Plugin_ContentMinimap() {
 
         viewport = hostDoc.createElement("div");
         viewport.className = "rte-content-minimap-viewport";
+        viewport.setAttribute("role", "presentation");
         viewport.addEventListener("mousedown", beginViewportDrag, false);
 
         empty = hostDoc.createElement("div");
@@ -21050,6 +21656,181 @@ function RTE_Plugin_ContentMinimap() {
         scrollEl.scrollTop = maxTop ? Math.round((nextTop / maxTop) * maxScroll) : 0;
         syncViewport();
     }
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
+// 2026-06-07 Dialog accessibility. The editor's dialogs/popups render as
+// <rte-dropdown-panel class="rte-panel-general"> containers that hold an
+// <rte-dialog-header> title (e.g. "Insert Link") and fields wrapped in
+// <rte-dialog-line-URL>, <rte-dialog-line-TEXT>, etc. — but the panel carries no
+// role/aria-label and the fields carry no programmatic label, so a screen-reader
+// user lands in an unnamed dialog on unlabeled inputs (WCAG 4.1.2 / 1.3.1 / 3.3.2).
+//
+// This plugin adds the missing metadata WITHOUT touching the core, deriving every
+// name from the editor's OWN markup (never guessing): the dialog name is the
+// header text, and each field's label is the `rte-dialog-line-<X>` suffix. Plain
+// dropdowns (color/font pickers — no <rte-dialog-header>) are deliberately left
+// alone so they aren't mislabeled as dialogs.
+//
+// Disable with config.dialogA11y = false.
+RTE_DefaultConfig.plugin_dialoga11y = RTE_Plugin_DialogA11y;
+if (typeof RTE_DefaultConfig.dialogA11y === "undefined") RTE_DefaultConfig.dialogA11y = true;
+
+function RTE_Plugin_DialogA11y() {
+    var obj = this;
+    var config, editor, boundDoc = null, observer = null, timer = null;
+    var pending = [];
+
+    obj.PluginName = "DialogA11y";
+
+    // Nicer wording for known field-line suffixes; anything else is title-cased.
+    var LINE_LABELS = {
+        URL: "URL", SRC: "Source URL", HREF: "URL", LINK: "URL",
+        TEXT: "Text", TITLE: "Title", NAME: "Name", CAPTION: "Caption",
+        TARGET: "Open in a new window", ALT: "Alternative text",
+        WIDTH: "Width", HEIGHT: "Height", SIZE: "Size",
+        CLASS: "CSS class", STYLE: "Style", LANG: "Language",
+        ROWS: "Rows", COLS: "Columns", COLUMNS: "Columns", BORDER: "Border"
+    };
+
+    obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+        if (config.dialogA11y === false) return;
+        setup();
+        try { editor.attachEvent("ready", setup); } catch (e) {}
+        setTimeout(setup, 0); setTimeout(setup, 300);
+        editor.applyDialogAccessibility = function () { enhanceAll(hostDoc()); };
+    };
+
+    function hostDoc() {
+        try { if (config.container && config.container.ownerDocument) return config.container.ownerDocument; } catch (e) {}
+        return (typeof document !== "undefined") ? document : null;
+    }
+
+    function setup() {
+        var host = hostDoc(); if (!host) return;
+        enhanceAll(host);
+        if (host === boundDoc || observer) return;
+        boundDoc = host;
+        try {
+            var MO = (host.defaultView && host.defaultView.MutationObserver) || window.MutationObserver;
+            observer = new MO(onMutations);
+            observer.observe(host.body || host.documentElement, {
+                subtree: true, childList: true, attributes: true, attributeFilter: ["style", "class", "hidden"]
+            });
+        } catch (e) {}
+    }
+
+    function onMutations(muts) {
+        for (var i = 0; i < muts.length; i++) {
+            var m = muts[i];
+            if (m.type === "attributes" && isPanel(m.target)) schedule(m.target);
+            if (m.addedNodes) {
+                for (var j = 0; j < m.addedNodes.length; j++) {
+                    var n = m.addedNodes[j];
+                    if (n.nodeType !== 1) continue;
+                    if (isPanel(n)) schedule(n);
+                    if (n.querySelectorAll) {
+                        var ps = n.querySelectorAll("rte-dropdown-panel,[class*='rte-panel-general']");
+                        for (var k = 0; k < ps.length; k++) schedule(ps[k]);
+                    }
+                }
+            }
+        }
+    }
+
+    function isPanel(el) {
+        return el && el.nodeType === 1 &&
+            (el.tagName === "RTE-DROPDOWN-PANEL" || /rte-panel-general/.test(el.className || ""));
+    }
+
+    function schedule(panel) {
+        if (pending.indexOf(panel) < 0) pending.push(panel);
+        if (timer) return;
+        timer = setTimeout(function () {
+            timer = null;
+            var list = pending.slice(); pending.length = 0;
+            for (var i = 0; i < list.length; i++) {
+                enhancePanel(list[i]);
+                // Some dialog fields render lazily after the panel opens; run a
+                // second pass so they still get labelled.
+                (function (pnl) { setTimeout(function () { enhancePanel(pnl); }, 60); })(list[i]);
+            }
+        }, 0);
+    }
+
+    function enhanceAll(host) {
+        if (!host || !host.querySelectorAll) return;
+        var ps = host.querySelectorAll("rte-dropdown-panel,[class*='rte-panel-general']");
+        for (var i = 0; i < ps.length; i++) enhancePanel(ps[i]);
+    }
+
+    function enhancePanel(panel) {
+        if (!panel || panel.nodeType !== 1 || !panel.querySelector) return;
+        var headerEl = panel.querySelector("rte-dialog-header");
+        if (!headerEl) return; // only header-bearing panels are dialogs
+
+        var name = (headerEl.textContent || "").trim()
+            .replace(/\s*\((?:Ctrl|Cmd|Alt|Shift|⌘|⇧|⌥)[^)]*\)\s*$/i, "").trim();
+
+        // A titled, form-bearing popup is a dialog, not a menu — override the
+        // core's default role="menu" (a menu must not contain text fields).
+        var role = panel.getAttribute("role");
+        if (!role || role === "menu") panel.setAttribute("role", "dialog");
+        if (name && !panel.getAttribute("aria-label") && !panel.getAttribute("aria-labelledby")) {
+            panel.setAttribute("aria-label", name);
+        }
+
+        var fields = panel.querySelectorAll("input,select,textarea");
+        for (var i = 0; i < fields.length; i++) {
+            var f = fields[i];
+            if (f.type === "hidden") continue;
+            if (f.getAttribute("aria-label") || f.getAttribute("aria-labelledby")) continue;
+            if (f.labels && f.labels.length) continue;
+            var label = fieldLabel(f, name);
+            if (label) f.setAttribute("aria-label", label);
+        }
+    }
+
+    function fieldLabel(f, dialogName) {
+        // 1) nearest <rte-dialog-line-X> ancestor — the suffix is the field meaning
+        var n = f.parentElement;
+        for (var i = 0; i < 8 && n; i++) {
+            var mm = /^RTE-DIALOG-LINE-(.+)$/.exec(n.tagName || "");
+            if (mm) {
+                var key = mm[1].toUpperCase().replace(/-/g, " ").trim();
+                var first = key.split(" ")[0];
+                if (LINE_LABELS[key]) return LINE_LABELS[key];
+                if (LINE_LABELS[first]) return LINE_LABELS[first];
+                return titleCase(key);
+            }
+            n = n.parentElement;
+        }
+        // 2) placeholder
+        var ph = f.getAttribute("placeholder"); if (ph) return ph;
+        // 3) nearby visible text
+        var near = nearbyText(f); if (near) return near;
+        // 4) contextual fallback (the dialog name) — not wrong, just generic
+        return dialogName || null;
+    }
+
+    function nearbyText(f) {
+        var prev = f.previousElementSibling;
+        if (prev && prev.textContent && prev.textContent.trim() && prev.textContent.trim().length < 30) return prev.textContent.trim();
+        var par = f.parentElement;
+        if (par) {
+            for (var k = 0; k < par.childNodes.length; k++) {
+                var nd = par.childNodes[k];
+                if (nd.nodeType === 3 && nd.textContent.trim()) return nd.textContent.trim().slice(0, 40);
+            }
+        }
+        return "";
+    }
+
+    function titleCase(s) { return s.toLowerCase().replace(/\b\w/g, function (c) { return c.toUpperCase(); }); }
 }
 
 if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
@@ -21323,6 +22104,376 @@ function RTE_Plugin_Dictation() {
 
 if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
 
+// 2026-06-09 Document import — the natural pair to Export-to-Word/Markdown/PDF.
+// Opens a local file and loads it into the editor. Library-free for the common
+// formats: Markdown (.md/.markdown via the core fromMarkdown engine), HTML
+// (.html/.htm), plain text (.txt), and Word's HTML-based format (.doc, which
+// Word saves as MSO-flavored HTML) — Word junk (mso-* styles, o:/w: tags,
+// conditional comments) is stripped the same way paste-from-Word is.
+//
+// Zipped .docx is NOT parseable library-free (it's a ZIP of XML); for it (or to
+// override any type) supply config.documentImportResolver(file) returning an
+// HTML string or Promise<string>, so a server/library can convert it.
+//
+// API:
+//   editor.openImportDialog(options?)        -> file picker, then import
+//   editor.importFile(file, options?)        -> import a File object (Promise)
+//   editor.htmlFromImportText(text, kind)     -> convert text to HTML (kind: md|html|txt|doc)
+// Command: exec_command "importdocument" opens the picker. Slash: "/import".
+// Config:
+//   config.documentImport = false                 // disable
+//   config.documentImportMode = "replace" | "insert"   // default "replace"
+//   config.documentImportAccept = ".md,.markdown,.html,.htm,.txt,.doc,.docx"
+//   config.documentImportResolver = function(file){ return htmlOrPromise; }
+RTE_DefaultConfig.plugin_documentimport = RTE_Plugin_DocumentImport;
+if (typeof RTE_DefaultConfig.documentImport === "undefined") RTE_DefaultConfig.documentImport = true;
+
+function RTE_Plugin_DocumentImport() {
+    var obj = this;
+    var config, editor;
+
+    obj.PluginName = "DocumentImport";
+
+    obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+        if (config.documentImport === false) return;
+
+        editor.htmlFromImportText = function (text, kind) { return toHtml(String(text == null ? "" : text), kind); };
+        editor.importFile = function (file, options) { return importFile(file, options || {}); };
+        editor.openImportDialog = function (options) { return openPicker(options || {}); };
+
+        editor.attachEvent("exec_command_importdocument", function (state) {
+            state.returnValue = true;
+            state.stopBubble = true;
+            openPicker({});
+        });
+
+        if (editor.slashCommands && typeof editor.slashCommands.register === "function") {
+            try {
+                editor.slashCommands.register({
+                    id: "import-document",
+                    title: "Import document",
+                    description: "Open a Markdown, HTML, text, or Word (.doc) file into the editor",
+                    keywords: ["import", "open", "file", "word", "markdown", "upload"],
+                    action: function () { openPicker({}); }
+                });
+            } catch (e) {}
+        }
+    };
+
+    function kindFromName(name) {
+        var n = String(name || "").toLowerCase();
+        if (/\.(md|markdown|mdown|mkd)$/.test(n)) return "md";
+        if (/\.html?$/.test(n)) return "html";
+        if (/\.doc$/.test(n)) return "doc";
+        if (/\.docx$/.test(n)) return "docx";
+        if (/\.txt$/.test(n)) return "txt";
+        return "txt";
+    }
+
+    function esc(s) {
+        return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    // Strip Word/MSO debris from .doc HTML (same intent as paste-from-Word).
+    function cleanWordHtml(html) {
+        var h = String(html || "");
+        // body only, drop head/xml/style islands and conditional comments
+        var bodyMatch = /<body[^>]*>([\s\S]*?)<\/body>/i.exec(h);
+        if (bodyMatch) h = bodyMatch[1];
+        h = h.replace(/<!--\[if[\s\S]*?\[endif\]-->/gi, "");
+        h = h.replace(/<!--[\s\S]*?-->/g, "");
+        h = h.replace(/<\/?(o:p|o:|w:|xml|style|meta|link|title|head)[^>]*>/gi, "");
+        h = h.replace(/<\\?\?xml[^>]*>/gi, "");
+        // strip mso-* declarations + empty style/class/lang attrs
+        h = h.replace(/\sstyle="[^"]*"/gi, function (m) {
+            var cleaned = m.replace(/mso-[^;"]*;?/gi, "").replace(/style="\s*;*\s*"/i, "");
+            return /style="\s*"/.test(cleaned) || cleaned === ' style=""' ? "" : cleaned;
+        });
+        h = h.replace(/\sclass="Mso[^"]*"/gi, "");
+        h = h.replace(/\s(lang|xmlns(:\w+)?)="[^"]*"/gi, "");
+        return h;
+    }
+
+    function toHtml(text, kind) {
+        switch (kind) {
+            case "md":
+                if (editor && typeof editor.fromMarkdown === "function") return editor.fromMarkdown(text, { apply: false });
+                return "<p>" + esc(text).replace(/\n{2,}/g, "</p><p>").replace(/\n/g, "<br>") + "</p>";
+            case "html":
+                return text;
+            case "doc":
+                return cleanWordHtml(text);
+            case "txt":
+            default:
+                var paras = String(text).replace(/\r\n?/g, "\n").split(/\n{2,}/);
+                return paras.map(function (p) {
+                    return "<p>" + esc(p).replace(/\n/g, "<br>") + "</p>";
+                }).join("");
+        }
+    }
+
+    function applyHtml(html, mode) {
+        if (html == null) return false;
+        if (mode === "insert") {
+            if (typeof editor.insertHTML === "function") { editor.insertHTML(html); return true; }
+        }
+        if (typeof editor.setHTMLCode === "function") { editor.setHTMLCode(html); return true; }
+        return false;
+    }
+
+    function importFile(file, options) {
+        var mode = options.mode || config.documentImportMode || "replace";
+        return new Promise(function (resolve) {
+            if (!file) { resolve(false); return; }
+            var kind = kindFromName(file.name);
+
+            // BYOK resolver wins for any type (lets a host handle .docx etc.).
+            if (typeof config.documentImportResolver === "function") {
+                try {
+                    var r = config.documentImportResolver(file);
+                    Promise.resolve(r).then(function (html) {
+                        if (typeof html === "string") { resolve(applyHtml(html, mode)); }
+                        else { builtin(); }
+                    }, function () { builtin(); });
+                    return;
+                } catch (e) { builtin(); return; }
+            }
+            builtin();
+
+            function builtin() {
+                if (kind === "docx") {
+                    // Library-free .docx: unzip word/document.xml (native
+                    // DecompressionStream) + transform WordprocessingML -> HTML.
+                    if (!docxSupported()) {
+                        notify("This browser can't unpack .docx (no DecompressionStream). Save as .doc/.html/.md, or wire config.documentImportResolver.");
+                        resolve(false);
+                        return;
+                    }
+                    readDocx(file).then(function (html) {
+                        if (html != null) resolve(applyHtml(html, mode));
+                        else { notify("Could not read this .docx file."); resolve(false); }
+                    }, function () { notify("Could not read this .docx file."); resolve(false); });
+                    return;
+                }
+                if (typeof FileReader === "undefined") { resolve(false); return; }
+                var reader = new FileReader();
+                reader.onload = function () {
+                    var html = toHtml(reader.result, kind);
+                    resolve(applyHtml(html, mode));
+                };
+                reader.onerror = function () { resolve(false); };
+                reader.readAsText(file);
+            }
+        });
+    }
+
+    function openPicker(options) {
+        try {
+            var input = document.createElement("input");
+            input.type = "file";
+            input.accept = options.accept || config.documentImportAccept || ".md,.markdown,.html,.htm,.txt,.doc,.docx";
+            input.style.position = "fixed";
+            input.style.left = "-9999px";
+            input.addEventListener("change", function () {
+                var f = input.files && input.files[0];
+                if (f) importFile(f, options);
+                setTimeout(function () { try { document.body.removeChild(input); } catch (e) {} }, 0);
+            });
+            document.body.appendChild(input);
+            input.click();
+            return true;
+        } catch (e) {
+            if (window.console) console.error("documentimport: openPicker failed", e);
+            return false;
+        }
+    }
+
+    // ---- library-free .docx (ZIP of XML) ----
+    function docxSupported() {
+        return typeof DecompressionStream === "function" && typeof DOMParser === "function" &&
+            (typeof Response === "function" || typeof Blob === "function");
+    }
+
+    // Locate an entry via the ZIP central directory (reliable comp sizes/offsets).
+    function findZipEntry(bytes, wantName) {
+        var dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        // End Of Central Directory: signature 0x06054b50, scan from the end.
+        var eocd = -1;
+        for (var i = bytes.length - 22; i >= 0 && i >= bytes.length - 22 - 65536; i--) {
+            if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+        }
+        if (eocd < 0) return null;
+        var cdOffset = dv.getUint32(eocd + 16, true);
+        var cdCount = dv.getUint16(eocd + 10, true);
+        var p = cdOffset;
+        for (var n = 0; n < cdCount; n++) {
+            if (dv.getUint32(p, true) !== 0x02014b50) break;
+            var method = dv.getUint16(p + 10, true);
+            var compSize = dv.getUint32(p + 20, true);
+            var nameLen = dv.getUint16(p + 28, true);
+            var extraLen = dv.getUint16(p + 30, true);
+            var commentLen = dv.getUint16(p + 32, true);
+            var localOff = dv.getUint32(p + 42, true);
+            // Normalize separators: the ZIP spec mandates "/", but some Windows
+            // tools (.NET ZipFile on older runtimes) emit "\".
+            var name = utf8(bytes.subarray(p + 46, p + 46 + nameLen)).replace(/\\/g, "/");
+            if (name === wantName) {
+                var lh = new DataView(bytes.buffer, bytes.byteOffset + localOff, 30);
+                var lNameLen = lh.getUint16(26, true);
+                var lExtraLen = lh.getUint16(28, true);
+                var dataStart = localOff + 30 + lNameLen + lExtraLen;
+                return { method: method, data: bytes.subarray(dataStart, dataStart + compSize) };
+            }
+            p += 46 + nameLen + extraLen + commentLen;
+        }
+        return null;
+    }
+
+    function utf8(u8) {
+        try { return new TextDecoder("utf-8").decode(u8); } catch (e) {
+            var s = ""; for (var i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]); return s;
+        }
+    }
+
+    function inflateRaw(u8) {
+        // method 0 = stored, 8 = deflate (raw).
+        var ds = new DecompressionStream("deflate-raw");
+        var blob = new Blob([u8]);
+        return new Response(blob.stream().pipeThrough(ds)).arrayBuffer().then(function (ab) {
+            return new Uint8Array(ab);
+        });
+    }
+
+    function readDocx(file) {
+        var bufPromise = file.arrayBuffer ? file.arrayBuffer() : new Promise(function (res, rej) {
+            var r = new FileReader(); r.onload = function () { res(r.result); }; r.onerror = rej; r.readAsArrayBuffer(file);
+        });
+        return bufPromise.then(function (ab) {
+            var bytes = new Uint8Array(ab);
+            var entry = findZipEntry(bytes, "word/document.xml");
+            if (!entry) return null;
+            var xmlPromise = entry.method === 0 ? Promise.resolve(entry.data) : inflateRaw(entry.data);
+            return xmlPromise.then(function (xmlBytes) { return docxXmlToHtml(utf8(xmlBytes)); });
+        });
+    }
+
+    function docxXmlToHtml(xml) {
+        var doc = new DOMParser().parseFromString(xml, "application/xml");
+        var W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+        function els(parent, ln) { return parent.getElementsByTagNameNS(W, ln); }
+        function firstChildEl(parent, ln) {
+            for (var i = 0; i < parent.childNodes.length; i++) {
+                var c = parent.childNodes[i];
+                if (c.nodeType === 1 && c.localName === ln && c.namespaceURI === W) return c;
+            }
+            return null;
+        }
+        function runText(r) {
+            var t = "", kids = r.childNodes;
+            for (var i = 0; i < kids.length; i++) {
+                var c = kids[i];
+                if (c.nodeType !== 1) continue;
+                if (c.localName === "t") t += c.textContent || "";
+                else if (c.localName === "tab") t += "\t";
+                else if (c.localName === "br" || c.localName === "cr") t += "\n";
+            }
+            return t;
+        }
+        function runHtml(r) {
+            var txt = esc(runText(r));
+            if (!txt) return "";
+            txt = txt.replace(/\n/g, "<br>");
+            var rpr = firstChildEl(r, "rPr");
+            if (rpr) {
+                if (firstChildEl(rpr, "b")) txt = "<strong>" + txt + "</strong>";
+                if (firstChildEl(rpr, "i")) txt = "<em>" + txt + "</em>";
+                if (firstChildEl(rpr, "u")) txt = "<u>" + txt + "</u>";
+                if (firstChildEl(rpr, "strike")) txt = "<s>" + txt + "</s>";
+            }
+            return txt;
+        }
+        function paraInner(p) {
+            var h = "", kids = p.childNodes;
+            for (var i = 0; i < kids.length; i++) {
+                var c = kids[i];
+                if (c.nodeType === 1 && c.localName === "r" && c.namespaceURI === W) h += runHtml(c);
+                else if (c.nodeType === 1 && c.localName === "hyperlink") {
+                    for (var j = 0; j < c.childNodes.length; j++) if (c.childNodes[j].localName === "r") h += runHtml(c.childNodes[j]);
+                }
+            }
+            return h;
+        }
+        function paraStyle(p) {
+            var ppr = firstChildEl(p, "pPr"); if (!ppr) return {};
+            var info = {};
+            var ps = firstChildEl(ppr, "pStyle");
+            if (ps) { var v = ps.getAttributeNS(W, "val") || ps.getAttribute("w:val") || ""; var m = /heading(\d)/i.exec(v); if (m) info.heading = Math.min(6, parseInt(m[1], 10)); }
+            if (firstChildEl(ppr, "numPr")) info.list = true;
+            return info;
+        }
+        var body = els(doc, "body")[0];
+        if (!body) return "";
+        var out = [], inList = false;
+        function closeList() { if (inList) { out.push("</ul>"); inList = false; } }
+        for (var i = 0; i < body.childNodes.length; i++) {
+            var node = body.childNodes[i];
+            if (node.nodeType !== 1 || node.namespaceURI !== W) continue;
+            if (node.localName === "p") {
+                var st = paraStyle(node);
+                var inner = paraInner(node);
+                if (st.list) { if (!inList) { out.push("<ul>"); inList = true; } out.push("<li>" + (inner || "") + "</li>"); continue; }
+                closeList();
+                if (st.heading) out.push("<h" + st.heading + ">" + (inner || "") + "</h" + st.heading + ">");
+                else out.push("<p>" + (inner || "<br>") + "</p>");
+            } else if (node.localName === "tbl") {
+                closeList();
+                out.push(tableHtml(node));
+            }
+        }
+        closeList();
+        return out.join("\n");
+
+        function tableHtml(tbl) {
+            var rows = [], kids = tbl.childNodes;
+            for (var i = 0; i < kids.length; i++) {
+                var tr = kids[i];
+                if (tr.nodeType !== 1 || tr.localName !== "tr") continue;
+                var cells = [];
+                for (var j = 0; j < tr.childNodes.length; j++) {
+                    var tc = tr.childNodes[j];
+                    if (tc.nodeType !== 1 || tc.localName !== "tc") continue;
+                    var cellHtml = "";
+                    for (var k = 0; k < tc.childNodes.length; k++) {
+                        if (tc.childNodes[k].localName === "p") cellHtml += "<p>" + (paraInner(tc.childNodes[k]) || "<br>") + "</p>";
+                    }
+                    cells.push("<td>" + cellHtml + "</td>");
+                }
+                rows.push("<tr>" + cells.join("") + "</tr>");
+            }
+            return "<table>" + rows.join("") + "</table>";
+        }
+    }
+
+    function notify(msg) {
+        try {
+            if (editor && typeof editor.createDialog === "function") {
+                var d = editor.createDialog((editor.getLangText && editor.getLangText("importtitle")) || "Import document", "rte-dialog-import");
+                var w = d.ownerDocument.createElement("div");
+                w.style.cssText = "padding:16px;max-width:420px;font:13px -apple-system,Segoe UI,sans-serif;line-height:1.5";
+                w.textContent = msg;
+                d.appendChild(w);
+                return;
+            }
+        } catch (e) {}
+        if (window.console) console.warn("documentimport:", msg);
+    }
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
 RTE_DefaultConfig.plugin_documentoutline = RTE_Plugin_DocumentOutline;
 
 function RTE_Plugin_DocumentOutline() {
@@ -21401,24 +22552,25 @@ function RTE_Plugin_DocumentOutline() {
         var style = hostDoc.createElement("style");
         style.id = "rte-document-outline-style";
         style.innerHTML = [
-            ".rte-document-outline-shell{display:flex;align-items:stretch;gap:12px;}",
+            ".rte-document-outline-shell{display:flex;align-items:stretch;gap:10px;}",
             ".rte-document-outline-shell>.rte-document-outline-host{flex:1 1 auto;min-width:0;}",
-            ".rte-document-outline-panel{display:none;flex:0 0 280px;min-width:240px;max-width:320px;border:1px solid #dbe4f0;border-radius:18px;background:linear-gradient(180deg,#fbfdff 0%,#f5f9ff 100%);box-shadow:0 18px 40px rgba(15,23,42,.08);overflow:hidden;}",
+            ".rte-document-outline-panel{display:none;flex:0 0 286px;min-width:248px;max-width:min(330px,30vw);border:1px solid rgba(148,163,184,.22);border-radius:16px;background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(248,251,255,.96));box-shadow:0 18px 42px rgba(29,78,216,.12),0 2px 8px rgba(15,23,42,.06);overflow:hidden;color:#172033;font-family:Aptos,'Segoe UI',sans-serif;}",
             ".rte-document-outline-shell.is-open>.rte-document-outline-panel{display:flex;flex-direction:column;}",
-            ".rte-document-outline-header{padding:16px 18px 10px 18px;border-bottom:1px solid rgba(148,163,184,.18);}",
-            ".rte-document-outline-kicker{font-size:11px;line-height:1.3;letter-spacing:.08em;text-transform:uppercase;color:#64748b;font-weight:700;}",
-            ".rte-document-outline-title{margin-top:4px;font-size:18px;line-height:1.2;font-weight:700;color:#0f172a;}",
-            ".rte-document-outline-copy{margin-top:6px;font-size:12px;line-height:1.5;color:#475569;}",
-            ".rte-document-outline-toolbar{display:flex;align-items:center;justify-content:space-between;padding:10px 18px;border-bottom:1px solid rgba(148,163,184,.18);gap:12px;}",
-            ".rte-document-outline-count{font-size:12px;color:#64748b;}",
-            ".rte-document-outline-close{appearance:none;border:0;background:transparent;color:#475569;cursor:pointer;font-size:12px;font-weight:600;padding:0;}",
-            ".rte-document-outline-body{padding:8px 10px 10px 10px;overflow:auto;min-height:140px;max-height:520px;}",
-            ".rte-document-outline-list{display:flex;flex-direction:column;gap:4px;}",
-            ".rte-document-outline-item{appearance:none;width:100%;text-align:left;border:0;background:transparent;color:#0f172a;cursor:pointer;border-radius:12px;padding:10px 12px 10px calc(12px + (var(--rte-outline-level,1) - 1) * 14px);font-size:13px;line-height:1.4;font-weight:500;}",
-            ".rte-document-outline-item:hover{background:rgba(37,99,235,.08);}",
-            ".rte-document-outline-item.is-active{background:linear-gradient(90deg,rgba(37,99,235,.12) 0%,rgba(14,165,233,.08) 100%);color:#1d4ed8;}",
-            ".rte-document-outline-item-level{display:block;font-size:10px;line-height:1.2;letter-spacing:.08em;text-transform:uppercase;color:#94a3b8;margin-bottom:2px;}",
-            ".rte-document-outline-empty{padding:20px 12px;color:#64748b;font-size:13px;line-height:1.5;}",
+            ".rte-document-outline-header{padding:12px 12px 9px 14px;border-bottom:1px solid rgba(148,163,184,.16);background:rgba(255,255,255,.72);}",
+            ".rte-document-outline-kicker{font-size:10px;line-height:1.3;letter-spacing:.08em;text-transform:uppercase;color:#52657e;font-weight:850;}",
+            ".rte-document-outline-title{margin-top:3px;font-size:15px;line-height:1.2;font-weight:850;color:#172033;}",
+            ".rte-document-outline-copy{margin-top:5px;font-size:12px;line-height:1.42;color:#52657e;}",
+            ".rte-document-outline-toolbar{display:flex;align-items:center;justify-content:space-between;padding:8px 10px 8px 14px;border-bottom:1px solid rgba(148,163,184,.16);gap:10px;background:rgba(255,255,255,.52);}",
+            ".rte-document-outline-count{min-width:0;font-size:12px;font-weight:750;color:#52657e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
+            ".rte-document-outline-close{appearance:none;border:1px solid rgba(100,116,139,.18);background:#fff;color:#315277;cursor:pointer;font-size:12px;font-weight:750;padding:6px 9px;border-radius:999px;line-height:1;}",
+            ".rte-document-outline-close:hover,.rte-document-outline-close:focus-visible{background:#eef4ff;color:#0f3f9f;border-color:rgba(37,99,235,.28);}",
+            ".rte-document-outline-body{padding:6px;overflow:auto;min-height:140px;max-height:520px;scrollbar-width:thin;}",
+            ".rte-document-outline-list{display:flex;flex-direction:column;gap:5px;}",
+            ".rte-document-outline-item{appearance:none;width:100%;text-align:left;border:1px solid transparent;background:transparent;color:#172033;cursor:pointer;border-radius:12px;padding:8px 10px 8px calc(10px + (var(--rte-outline-level,1) - 1) * 12px);font-size:13px;line-height:1.35;font-weight:650;}",
+            ".rte-document-outline-item:hover,.rte-document-outline-item:focus-visible{background:#f8fbff;border-color:rgba(37,99,235,.18);}",
+            ".rte-document-outline-item.is-active{background:#eef4ff;border-color:rgba(37,99,235,.26);color:#0f3f9f;box-shadow:0 8px 18px rgba(37,99,235,.1);}",
+            ".rte-document-outline-item-level{display:inline-flex;margin:0 0 3px;padding:2px 6px;border-radius:999px;background:#fff;color:#64748b;font-size:10px;line-height:1.1;letter-spacing:.08em;text-transform:uppercase;font-weight:850;box-shadow:inset 0 0 0 1px rgba(148,163,184,.18);}",
+            ".rte-document-outline-empty{margin:6px;padding:14px;color:#52657e;font-size:13px;font-weight:700;line-height:1.55;background:#fff;border:1px dashed rgba(148,163,184,.34);border-radius:14px;}",
             "@media (max-width: 1100px){.rte-document-outline-shell{display:block;}.rte-document-outline-panel{margin-top:12px;max-width:none;width:100%;}.rte-document-outline-body{max-height:320px;}}"
         ].join("");
         hostDoc.head.appendChild(style);
@@ -21442,6 +22594,7 @@ function RTE_Plugin_DocumentOutline() {
         panel = hostDoc.createElement("aside");
         panel.className = "rte-document-outline-panel";
         panel.setAttribute("aria-label", config.documentOutlineTitle);
+        panel.setAttribute("role", "complementary");
 
         var header = hostDoc.createElement("div");
         header.className = "rte-document-outline-header";
@@ -21467,6 +22620,7 @@ function RTE_Plugin_DocumentOutline() {
         close.type = "button";
         close.className = "rte-document-outline-close";
         close.innerText = "Hide";
+        close.setAttribute("aria-label", "Hide document outline");
         close.onclick = function () { closePanel(); };
         toolbar.appendChild(count);
         toolbar.appendChild(close);
@@ -21605,8 +22759,9 @@ function RTE_Plugin_DocumentOutline() {
         var buttons = list.querySelectorAll(".rte-document-outline-item");
         for (var i = 0; i < buttons.length; i++) {
             var button = buttons[i];
-            if (button.getAttribute("data-rte-outline-id") === activeHeadingId) button.classList.add("is-active");
-            else button.classList.remove("is-active");
+            var active = button.getAttribute("data-rte-outline-id") === activeHeadingId;
+            button.classList.toggle("is-active", active);
+            button.setAttribute("aria-current", active ? "true" : "false");
         }
     }
 
@@ -21639,6 +22794,7 @@ function RTE_Plugin_DocumentOutline() {
                 button.className = "rte-document-outline-item";
                 button.style.setProperty("--rte-outline-level", String(item.level));
                 button.setAttribute("data-rte-outline-id", item.id);
+                button.setAttribute("aria-current", "false");
 
                 var level = panel.ownerDocument.createElement("span");
                 level.className = "rte-document-outline-item-level";
@@ -21794,14 +22950,19 @@ function RTE_Plugin_EmailToolkit() {
         var html = obj.BuildEmailHTML({});
         var dlg = editor.createDialog((editor.getLangText && editor.getLangText("emailexporttitle")) || "Export email HTML", "rte-dialog-email");
         var close = typeof dlg.close === "function" ? function () { dlg.close(); } : function () { editor.closeCurrentPopup(); };
-        var wrap = append(dlg, "div", "padding:14px;min-width:460px;font:13px -apple-system,Segoe UI,sans-serif");
-        append(wrap, "div", "color:#64748b;margin-bottom:8px").innerText =
+        var wrap = append(dlg, "div", "", "rte-email-export");
+        append(wrap, "div", "", "rte-email-export-copy").innerText =
             "Inline-styled HTML for email clients (class/style blocks resolved to inline styles). Copy and paste into your email tool.";
-        var ta = append(wrap, "textarea", "width:100%;box-sizing:border-box;min-height:200px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font:12px ui-monospace,Consolas,monospace;resize:vertical");
+        var ta = append(wrap, "textarea", "", "rte-email-export-code");
         ta.value = html;
         ta.readOnly = true;
-        var foot = append(wrap, "div", "display:flex;justify-content:flex-end;gap:8px;margin-top:12px");
-        var copyBtn = append(foot, "button", "padding:6px 14px;border:1px solid #1d67ba;border-radius:8px;background:#1d67ba;color:#fff;cursor:pointer");
+        ta.setAttribute("aria-label", "Inline-styled email HTML");
+        var status = append(wrap, "div", "", "rte-email-export-status");
+        status.setAttribute("role", "status");
+        status.setAttribute("aria-live", "polite");
+        status.textContent = "Ready to copy " + html.length + " characters.";
+        var foot = append(wrap, "div", "", "rte-email-export-footer");
+        var copyBtn = append(foot, "button", "", "rte-email-export-button rte-email-export-button-primary");
         copyBtn.type = "button"; copyBtn.textContent = "Copy";
         copyBtn.onclick = function () {
             ta.select();
@@ -21809,10 +22970,11 @@ function RTE_Plugin_EmailToolkit() {
                 if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(ta.value); }
                 else { dlg.ownerDocument.execCommand("copy"); }
                 copyBtn.textContent = "Copied";
-                setTimeout(function () { copyBtn.textContent = "Copy"; }, 1400);
+                status.textContent = "Copied email HTML to the clipboard.";
+                setTimeout(function () { copyBtn.textContent = "Copy"; status.textContent = "Ready to copy " + html.length + " characters."; }, 1400);
             } catch (e) { /* ignore */ }
         };
-        var closeBtn = append(foot, "button", "padding:6px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;cursor:pointer");
+        var closeBtn = append(foot, "button", "", "rte-email-export-button");
         closeBtn.type = "button"; closeBtn.textContent = "Close"; closeBtn.onclick = close;
         setTimeout(function () { ta.focus(); }, 0);
     };
@@ -21969,18 +23131,25 @@ function RTE_Plugin_EmojiAutocomplete() {
         if (!pop) {
             pop = hostDoc.createElement("div");
             pop.className = "rte-emoji-pop";
-            pop.style.cssText = "position:fixed;z-index:2147483600;background:#fff;border:1px solid #e2e8f0;" +
-                "border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.18);padding:4px;min-width:200px;max-width:280px;" +
-                "font:13px -apple-system,Segoe UI,sans-serif;overflow:hidden";
+            pop.setAttribute("role", "listbox");
+            pop.setAttribute("aria-label", "Emoji suggestions");
+            pop.style.cssText = "position:fixed;z-index:2147483600;";
             hostDoc.body.appendChild(pop);
         }
         pop.innerHTML = "";
         items.forEach(function (it, i) {
             var row = hostDoc.createElement("div");
-            row.style.cssText = "display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:7px;cursor:pointer;" +
-                (i === sel ? "background:#eef2ff;" : "");
-            row.innerHTML = "<span style='font-size:18px;line-height:1'>" + it.emo + "</span><span style='color:#475569'>:" +
-                it.code.replace(/&/g, "&amp;").replace(/</g, "&lt;") + ":</span>";
+            row.className = "rte-emoji-pop-row" + (i === sel ? " is-active" : "");
+            row.setAttribute("role", "option");
+            row.setAttribute("aria-selected", i === sel ? "true" : "false");
+            var glyph = hostDoc.createElement("span");
+            glyph.className = "rte-emoji-pop-glyph";
+            glyph.textContent = it.emo;
+            var code = hostDoc.createElement("span");
+            code.className = "rte-emoji-pop-code";
+            code.textContent = ":" + it.code + ":";
+            row.appendChild(glyph);
+            row.appendChild(code);
             row.onmousedown = function (e) { e.preventDefault(); sel = i; commit(); };
             row.onmouseenter = function () { sel = i; highlightRows(); };
             pop.appendChild(row);
@@ -22000,7 +23169,10 @@ function RTE_Plugin_EmojiAutocomplete() {
     function highlightRows() {
         if (!pop) return;
         var rows = pop.childNodes;
-        for (var i = 0; i < rows.length; i++) rows[i].style.background = (i === sel) ? "#eef2ff" : "";
+        for (var i = 0; i < rows.length; i++) {
+            rows[i].classList.toggle("is-active", i === sel);
+            rows[i].setAttribute("aria-selected", i === sel ? "true" : "false");
+        }
     }
 
     function onKeyDown(e) {
@@ -22277,7 +23449,13 @@ function RTE_Plugin_GhostComplete() {
 
         // Public API.
         editor.setGhostTextResolver = function (fn) { config.ghostTextResolver = (typeof fn === "function") ? fn : null; };
-        editor.requestGhostText = function () { scheduleRequest(0); };
+        editor.requestGhostText = function () {
+            // Manual invocation (slash menu / API) with no resolver configured
+            // used to be a silent no-op — surface a transient setup hint so
+            // the user learns WHY nothing happened and how to enable it.
+            if (typeof config.ghostTextResolver !== "function") { showSetupHint(); return; }
+            scheduleRequest(0);
+        };
         editor.acceptGhostText = function () { return accept(); };
         editor.dismissGhostText = function () { clearGhost(); };
         editor.hasGhostText = function () { return !!ghostEl; };
@@ -22464,6 +23642,24 @@ function RTE_Plugin_GhostComplete() {
         } catch (e) {} finally { busy = false; }
         try { if (typeof editor.fireChange === "function") editor.fireChange(); } catch (e) {}
         return true;
+    }
+
+    function showSetupHint() {
+        try {
+            var ifr = editor.iframe || (editor.getDocument && editor.getDocument().defaultView && editor.getDocument().defaultView.frameElement);
+            var host = ifr && ifr.parentNode ? ifr.parentNode : document.body;
+            if (host.querySelector && host.querySelector(".rte-ghost-hint")) return;
+            var tip = (host.ownerDocument || document).createElement("div");
+            tip.className = "rte-ghost-hint";
+            tip.setAttribute("role", "status");
+            tip.textContent = "AI completion isn't configured — supply config.ghostTextResolver (or editor.setGhostTextResolver) to enable inline suggestions.";
+            tip.style.cssText = "position:absolute;left:50%;bottom:12px;transform:translateX(-50%);z-index:20;" +
+                "max-width:90%;padding:7px 14px;border-radius:8px;background:#1f2937;color:#f9fafb;" +
+                "font:12px/1.5 -apple-system,Segoe UI,sans-serif;box-shadow:0 4px 14px rgba(0,0,0,.25);pointer-events:none";
+            try { if (host !== document.body && (host.ownerDocument.defaultView || window).getComputedStyle(host).position === "static") host.style.position = "relative"; } catch (e2) {}
+            host.appendChild(tip);
+            setTimeout(function () { try { if (tip.parentNode) tip.parentNode.removeChild(tip); } catch (e3) {} }, 4500);
+        } catch (e) {}
     }
 
     function injectStyles(doc) {
@@ -22666,6 +23862,7 @@ function RTE_Plugin_Html2PDF() {
 
 
 
+
 if (!RTE_DefaultConfig.svgCode_imageeditor) {
 	RTE_DefaultConfig.svgCode_imageeditor = '<svg viewBox="-2 -2 20 20" fill="#5F6368"><style>.st0{fill:#f6f6f6}.st1{fill:#424242}.st2{fill:none}.st3{fill:#f0eff1}</style><path class="st0" d="M1 0v6H0v10h10v-1h6V0z" id="outline"/><g id="icon_x5F_bg"><path class="st1" d="M2 5h1v1H2zM2 3h1v1H2zM2 1h1v1H2zM4 1h1.001v1H4zM6 1h1v1H6zM8 1h1v1H8zM10 1h1v1h-1zM12 1h1v1h-1zM14 1h1v1h-1zM14 3h1v1h-1zM14 5h1v1h-1zM14 7h1v1h-1zM14 9h1v1h-1zM14 10.999h1V12h-1zM14 13h1v1h-1zM12 13h1v1h-1zM11 11V5H5v1H4V4h8v7z"/><circle class="st1" cx="6.192" cy="9.807" r=".807"/><path class="st1" d="M1 7v8h8V7H1zm1 7.001v-.28l2.537-1.463L7.554 14l.001.001H2zm6-.93l-3.463-1.982L2 12.491v-4.49h6v5.07zM10 13h1v1h-1z"/></g><g id="icon_x5F_fg"><path class="st2" d="M2 14h5.554v.001H2z"/><path class="st3" d="M11 5v6h-1V6H5V5z"/><path class="st3" d="M2 12.491l2.537-1.402L8 13.071v-5.07H2v4.49zM6.192 9a.807.807 0 1 1 .001 1.615A.807.807 0 0 1 6.192 9z"/><path class="st3" d="M2 13.721V14h5.554l-3.017-1.742z"/></g></svg>';
 }
@@ -22819,6 +24016,7 @@ function RTE_Plugin_ImageEditor() {
 		iframe.contentDocument.close();
 	}
 }
+
 
 
 
@@ -23143,6 +24341,7 @@ function RTE_Plugin_InsertCode() {
 
 
 
+
 RTE_DefaultConfig.plugin_insertemoji = RTE_Plugin_InsertEmoji;
 
 function RTE_Plugin_InsertEmoji() {
@@ -23371,6 +24570,7 @@ function RTE_Plugin_InsertEmoji() {
 
 
 
+
 RTE_DefaultConfig.plugin_insertgallery = RTE_Plugin_InsertGallery;
 
 function RTE_Plugin_InsertGallery() {
@@ -23559,6 +24759,7 @@ function RTE_Plugin_InsertGallery() {
         var search = append(toolbar, "input", "", "rte-gallery-browser-search");
         search.type = "search";
         search.placeholder = "Search images";
+        search.setAttribute("aria-label", "Search images");
 
         var fileInput = append(toolbar, "input", "display:none;");
         fileInput.type = "file";
@@ -23566,8 +24767,12 @@ function RTE_Plugin_InsertGallery() {
         fileInput.multiple = true;
 
         var status = append(browser, "div", "", "rte-gallery-browser-status");
+        status.setAttribute("role", "status");
+        status.setAttribute("aria-live", "polite");
         var surface = append(browser, "div", "", "rte-gallery-browser-surface");
         var grid = append(surface, "div", "", "rte-gallery-browser-grid");
+        grid.setAttribute("role", "listbox");
+        grid.setAttribute("aria-label", "Available images");
         var empty = append(surface, "div", "", "rte-gallery-browser-empty");
         empty.innerText = "No images match this search. Upload a file or adjust the filter.";
 
@@ -23649,6 +24854,8 @@ function RTE_Plugin_InsertGallery() {
                 (function (item) {
                     var card = append(grid, "button", "", "rte-gallery-browser-card");
                     card.type = "button";
+                    card.setAttribute("role", "option");
+                    card.setAttribute("aria-selected", item.url === selectedUrl ? "true" : "false");
                     if (item.url === selectedUrl) {
                         card.classList.add("is-selected");
                     }
@@ -23838,10 +25045,15 @@ function RTE_Plugin_InsertTemplate() {
         var search = append(toolbar, "input", "", "rte-dialog-browser-search");
         search.type = "search";
         search.placeholder = "Search templates";
+        search.setAttribute("aria-label", "Search templates");
         var count = append(toolbar, "div", "", "rte-dialog-browser-count");
+        count.setAttribute("role", "status");
+        count.setAttribute("aria-live", "polite");
 
         var scrollpanel = append(browser, "div", "", "rte-dialog-browser-scrollpanel");
         var grid = append(scrollpanel, "div", "", "rte-dialog-browser-grid rte-template-grid");
+        grid.setAttribute("role", "listbox");
+        grid.setAttribute("aria-label", "Available templates");
         var empty = append(scrollpanel, "div", "", "rte-dialog-browser-empty");
         empty.innerText = "No templates match the current filter.";
 
@@ -23929,6 +25141,8 @@ function RTE_Plugin_InsertTemplate() {
                 (function (item) {
                     var card = append(grid, "button", "", "rte-dialog-browser-card");
                     card.type = "button";
+                    card.setAttribute("role", "option");
+                    card.setAttribute("aria-selected", item.id === selectedId ? "true" : "false");
                     if (item.id === selectedId) {
                         card.classList.add("is-selected");
                     }
@@ -24135,34 +25349,32 @@ function RTE_Plugin_LocalDraft() {
         showBar(d);
     }
 
-    // --- Minimal, inline-styled restore bar in the host page ---
+    // --- Compact restore bar in the host page ---
     function showBar(draft) {
         hideBar();
         var host = hostElement();
         if (!host || !host.parentNode) return;
         var when = friendlyTime(draft.t);
         bar = document.createElement("div");
+        bar.className = "rte-localdraft-bar";
         bar.setAttribute("data-rte-localdraft", "1");
         // Announce the recovery offer to assistive tech.
         bar.setAttribute("role", "status");
         bar.setAttribute("aria-live", "polite");
-        bar.style.cssText = "display:flex;align-items:center;gap:10px;padding:8px 12px;margin:0 0 6px 0;" +
-            "background:#fef9e7;border:1px solid #f6d365;border-radius:6px;font:13px/1.4 -apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#6b5900;";
         var msg = document.createElement("span");
-        msg.style.cssText = "flex:1;";
+        msg.className = "rte-localdraft-message";
         msg.textContent = "An unsaved draft" + (when ? (" from " + when) : "") + " was found.";
-        var restore = mkBtn("Restore", "#1d67ba", "#fff");
-        var discard = mkBtn("Discard", "transparent", "#6b5900");
-        discard.style.border = "1px solid #d8c97a";
+        var restore = mkBtn("Restore", "primary");
+        var discard = mkBtn("Discard", "secondary");
         restore.onclick = function () { editor.restoreLocalDraft(); };
         discard.onclick = function () { editor.clearLocalDraft(); };
         bar.appendChild(msg); bar.appendChild(restore); bar.appendChild(discard);
         host.parentNode.insertBefore(bar, host);
     }
-    function mkBtn(label, bg, fg) {
+    function mkBtn(label, tone) {
         var b = document.createElement("button");
         b.type = "button"; b.textContent = label;
-        b.style.cssText = "cursor:pointer;border:none;border-radius:5px;padding:5px 12px;font:600 13px sans-serif;background:" + bg + ";color:" + fg + ";";
+        b.className = "rte-localdraft-button is-" + tone;
         return b;
     }
     function hideBar() { if (bar && bar.parentNode) { bar.parentNode.removeChild(bar); } bar = null; }
@@ -24572,12 +25784,23 @@ function RTE_Plugin_Mention() {
         return -1;
     }
 
+    // Item display helpers. Accept the common `{name, email}` shape (what most
+    // mention data sources / CKEditor-style configs use) as well as the native
+    // `{label, subtitle}` shape, so a plain `[{id, name, email}]` list renders
+    // and filters correctly without remapping.
+    function itemLabel(item) {
+        return (item && (item.label || item.name || item.id)) || "";
+    }
+    function itemSubtitle(item) {
+        return (item && (item.subtitle || item.email)) || "";
+    }
+
     function filterStatic(list, q) {
         if (!Array.isArray(list)) return [];
         if (!q) return list.slice(0, 50);
         var ql = q.toLowerCase();
         return list.filter(function (item) {
-            var hay = ((item.label || "") + " " + (item.subtitle || "") + " " + (item.id || "")).toLowerCase();
+            var hay = (itemLabel(item) + " " + itemSubtitle(item) + " " + (item.id || "")).toLowerCase();
             return hay.indexOf(ql) !== -1;
         });
     }
@@ -24772,6 +25995,7 @@ function RTE_Plugin_Mention() {
                 btn.type = "button";
                 btn.className = "rte-mention-item" + (index === activeIndex ? " rte-mention-item-active" : "");
                 btn.setAttribute("role", "option");
+                btn.setAttribute("aria-selected", index === activeIndex ? "true" : "false");
                 btn.setAttribute("data-index", index);
 
                 if (activeTrigger.renderItem) {
@@ -24809,7 +26033,7 @@ function RTE_Plugin_Mention() {
             img.alt = "";
             avatar.appendChild(img);
         } else {
-            avatar.textContent = initialsOf(item.label || item.id || "?");
+            avatar.textContent = initialsOf(itemLabel(item) || "?");
         }
         btn.appendChild(avatar);
 
@@ -24817,12 +26041,13 @@ function RTE_Plugin_Mention() {
         body.className = "rte-mention-body";
         var label = popupHost.createElement("span");
         label.className = "rte-mention-label";
-        label.textContent = item.label || item.id || "";
+        label.textContent = itemLabel(item);
         body.appendChild(label);
-        if (item.subtitle) {
+        var subtitleText = itemSubtitle(item);
+        if (subtitleText) {
             var sub = popupHost.createElement("span");
             sub.className = "rte-mention-subtitle";
-            sub.textContent = item.subtitle;
+            sub.textContent = subtitleText;
             body.appendChild(sub);
         }
         btn.appendChild(body);
@@ -24840,8 +26065,9 @@ function RTE_Plugin_Mention() {
         var nodes = popupEl.querySelectorAll(".rte-mention-item");
         for (var i = 0; i < nodes.length; i++) {
             var idx = +nodes[i].getAttribute("data-index");
-            if (idx === activeIndex) nodes[i].classList.add("rte-mention-item-active");
-            else nodes[i].classList.remove("rte-mention-item-active");
+            var active = idx === activeIndex;
+            nodes[i].classList.toggle("rte-mention-item-active", active);
+            nodes[i].setAttribute("aria-selected", active ? "true" : "false");
         }
         scrollActiveIntoView();
     }
@@ -24901,7 +26127,7 @@ function RTE_Plugin_Mention() {
             span.setAttribute("contenteditable", "false");
             span.setAttribute("data-rte-mention-id", item.id != null ? item.id : "");
             span.setAttribute("data-rte-mention-trigger", triggerDef.trigger);
-            span.textContent = triggerDef.trigger + (item.label || item.id || "");
+            span.textContent = triggerDef.trigger + itemLabel(item);
         }
         if (!span) return;
 
@@ -24954,19 +26180,19 @@ function RTE_Plugin_Mention() {
         var style = host.createElement("style");
         style.setAttribute("data-rte-mention", "1");
         style.textContent = [
-            ".rte-mention-popup{position:absolute;z-index:2147483000;min-width:260px;max-width:340px;max-height:300px;overflow-y:auto;background:#fff;border:1px solid rgba(15,23,42,.08);box-shadow:0 12px 32px rgba(15,23,42,.18),0 2px 6px rgba(15,23,42,.06);border-radius:10px;padding:4px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:13px;color:#0f172a}",
-            ".rte-mention-item{display:flex;align-items:center;gap:10px;width:calc(100% - 8px);padding:6px 10px;border:0;background:transparent;text-align:left;cursor:pointer;color:inherit;font:inherit;border-radius:6px;margin:0 4px}",
-            ".rte-mention-item:hover,.rte-mention-item-active{background:#eef2ff;color:#1e3a8a}",
-            ".rte-mention-avatar{flex:0 0 28px;width:28px;height:28px;border-radius:50%;overflow:hidden;display:inline-flex;align-items:center;justify-content:center;background:#e2e8f0;color:#475569;font-size:11px;font-weight:600;letter-spacing:.02em}",
+            ".rte-mention-popup{position:absolute;z-index:2147483000;min-width:240px;max-width:min(340px,calc(100vw - 24px));max-height:min(320px,60vh);overflow-y:auto;padding:5px;background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(248,251,255,.96));border:1px solid rgba(148,163,184,.22);box-shadow:0 18px 42px rgba(29,78,216,.16),0 2px 8px rgba(15,23,42,.08);border-radius:14px;font-family:Aptos,'Segoe UI',sans-serif;font-size:13px;color:#172033;scrollbar-width:thin}",
+            ".rte-mention-item{display:flex;align-items:center;gap:9px;width:100%;min-height:40px;padding:6px 8px;border:0;background:transparent;text-align:left;cursor:pointer;color:inherit;font:inherit;border-radius:11px}",
+            ".rte-mention-item:hover,.rte-mention-item-active{background:#eef4ff;color:#0f3f9f}",
+            ".rte-mention-avatar{flex:0 0 30px;width:30px;height:30px;border-radius:11px;overflow:hidden;display:inline-flex;align-items:center;justify-content:center;background:#e7eefb;color:#315277;font-size:11px;font-weight:800;letter-spacing:.02em;box-shadow:inset 0 0 0 1px rgba(148,163,184,.18)}",
             ".rte-mention-avatar img{width:100%;height:100%;object-fit:cover}",
-            ".rte-mention-item-active .rte-mention-avatar{background:#c7d2fe;color:#1e3a8a}",
+            ".rte-mention-item-active .rte-mention-avatar{background:#ffffff;color:#0f3f9f}",
             ".rte-mention-body{display:flex;flex-direction:column;min-width:0;flex:1}",
-            ".rte-mention-label{font-weight:600;font-size:13px;line-height:1.3}",
-            ".rte-mention-subtitle{font-size:11px;color:#64748b;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}",
-            ".rte-mention-item-active .rte-mention-subtitle{color:#1e3a8a}",
-            ".rte-mention-loading,.rte-mention-empty{padding:12px 16px;color:#64748b;font-size:12px;text-align:center}",
-            ".rte-mention{display:inline-block;padding:1px 6px;border-radius:4px;background:#eef2ff;color:#1e3a8a;font-weight:500;cursor:default;border:1px solid rgba(30,58,138,.15)}",
-            ".rte-mention:hover{background:#e0e7ff}"
+            ".rte-mention-label{font-weight:750;font-size:13px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+            ".rte-mention-subtitle{font-size:11px;color:#64748b;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}",
+            ".rte-mention-item-active .rte-mention-subtitle{color:#315277}",
+            ".rte-mention-loading,.rte-mention-empty{padding:14px 16px;color:#52657e;font-size:12px;font-weight:700;text-align:center}",
+            ".rte-mention{display:inline-block;padding:1px 7px;border-radius:999px;background:#eef4ff;color:#0f3f9f;font-weight:650;cursor:default;border:1px solid rgba(37,99,235,.16)}",
+            ".rte-mention:hover{background:#e4edff}"
         ].join("\n");
         host.head.appendChild(style);
 
@@ -24976,8 +26202,8 @@ function RTE_Plugin_Mention() {
             var iStyle = editdoc.createElement("style");
             iStyle.setAttribute("data-rte-mention-inline", "1");
             iStyle.textContent = [
-                ".rte-mention{display:inline-block;padding:1px 6px;border-radius:4px;background:#eef2ff;color:#1e3a8a;font-weight:500;cursor:default;border:1px solid rgba(30,58,138,.15);user-select:all}",
-                ".rte-mention:hover{background:#e0e7ff}"
+                ".rte-mention{display:inline-block;padding:1px 7px;border-radius:999px;background:#eef4ff;color:#0f3f9f;font-weight:650;cursor:default;border:1px solid rgba(37,99,235,.16);user-select:all}",
+                ".rte-mention:hover{background:#e4edff}"
             ].join("\n");
             editdoc.head.appendChild(iStyle);
         }
@@ -25033,6 +26259,28 @@ function RTE_Plugin_MermaidDiagram() {
                 var b = closestDiagram(e.target, ed);
                 if (b) { e.preventDefault(); obj.OpenDiagramDialog(b); }
             });
+            if (ed) ed.addEventListener("click", function (e) {
+                var node = e.target;
+                while (node && node !== ed) {
+                    if (node.nodeType === 1 && node.getAttribute && node.getAttribute("data-rte-mermaid-remove") === "1") {
+                        var b = closestDiagram(node, ed);
+                        if (b) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            removeDiagram(b);
+                        }
+                        return;
+                    }
+                    node = node.parentNode;
+                }
+            }, true);
+            if (ed) ed.addEventListener("keydown", function (e) {
+                if (e.key !== "Delete" && e.key !== "Backspace") return;
+                var b = findDiagramAtSelection();
+                if (!b) return;
+                e.preventDefault();
+                removeDiagram(b);
+            }, true);
         } catch (e) { /* ignore */ }
     };
 
@@ -25067,14 +26315,23 @@ function RTE_Plugin_MermaidDiagram() {
             return closestDiagram(sel.getRangeAt(0).startContainer, editor.getEditable());
         } catch (e) { return null; }
     }
+    function removeDiagram(block) {
+        if (!block || !block.parentNode) return;
+        block.parentNode.removeChild(block);
+        try { if (typeof editor.fireChange === "function") editor.fireChange(); } catch (e) { /* ignore */ }
+        try { editor.focus(); } catch (e2) { /* ignore */ }
+    }
 
     // Inject block CSS at insert/render time (the iframe head isn't ready at
     // InitEditor). head -> documentElement fallback.
     function injectStyles(doc) {
         if (!doc || doc.getElementById("rte-mermaid-styles")) return;
         var css =
-            ".rte-mermaid{display:block;margin:12px 0;padding:12px;border:1px solid #e2e8f0;border-radius:10px;" +
+            ".rte-mermaid{position:relative;display:block;margin:12px 0;padding:12px;border:1px solid #e2e8f0;border-radius:10px;" +
             "background:#fff;text-align:center;overflow:auto;}" +
+            ".rte-mermaid-remove{position:absolute;top:7px;right:7px;width:24px;height:24px;border:1px solid rgba(15,23,42,.14);border-radius:999px;background:rgba(255,255,255,.96);color:#334155;font:700 13px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;box-shadow:0 4px 12px rgba(15,23,42,.12);opacity:0;cursor:pointer;transition:opacity 120ms,border-color 120ms,color 120ms;}" +
+            ".rte-mermaid:hover .rte-mermaid-remove,.rte-mermaid-remove:focus{opacity:1;}" +
+            ".rte-mermaid-remove:hover{border-color:rgba(220,38,38,.38);color:#b91c1c;}" +
             ".rte-mermaid svg{max-width:100%;height:auto;}" +
             ".rte-mermaid .rte-mermaid-src{display:block;text-align:left;white-space:pre;overflow:auto;" +
             "font:12px ui-monospace,Consolas,monospace;color:#334155;background:#f8fafc;border-radius:6px;padding:10px;margin:0;}" +
@@ -25154,6 +26411,7 @@ function RTE_Plugin_MermaidDiagram() {
         var enc = escAttr(source);
         return '<div class="rte-mermaid" data-rte-diagram="1" data-diagram="' + enc + '" contenteditable="false"' +
             (pendingId ? ' id="' + pendingId + '"' : '') + '>' +
+            '<button type="button" class="rte-mermaid-remove" data-rte-mermaid-remove="1" aria-label="Remove diagram" title="Remove diagram">x</button>' +
             '<div class="rte-mermaid-render"><pre class="rte-mermaid-src">' + escText(source) + '</pre></div>' +
             '</div>';
     }
@@ -25245,6 +26503,155 @@ function RTE_Plugin_MermaidDiagram() {
             editor.focus();
         };
     };
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
+// 2026-06-09 Readability statistics. An instant, LOCAL, no-API writing-assistant
+// readout (Hemingway / Yoast style) that complements the built-in word/char
+// count: Flesch Reading Ease, Flesch-Kincaid Grade Level, reading time, and the
+// sentence/word/syllable breakdown. Pure computation — works offline, no key,
+// no library. Read-only (never mutates the document).
+//
+// API:
+//   editor.getReadabilityStats(text?)  -> { words, sentences, syllables, characters,
+//        avgWordsPerSentence, avgSyllablesPerWord, fleschReadingEase, fleschKincaidGrade,
+//        readingTimeMinutes, readingTimeText, easeLabel }
+//   editor.countSyllables(word)        -> number (heuristic)
+// Command: exec_command "readability" opens a stats dialog. Slash: "/readability".
+// Config:
+//   config.readabilityStats = false           // disable
+//   config.readabilityWordsPerMinute = 200     // reading-speed for the time estimate
+RTE_DefaultConfig.plugin_readabilitystats = RTE_Plugin_ReadabilityStats;
+if (typeof RTE_DefaultConfig.readabilityStats === "undefined") RTE_DefaultConfig.readabilityStats = true;
+
+function RTE_Plugin_ReadabilityStats() {
+    var obj = this;
+    var config, editor;
+
+    obj.PluginName = "ReadabilityStats";
+
+    obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+        if (config.readabilityStats === false) return;
+
+        editor.countSyllables = function (w) { return countSyllables(w); };
+        editor.getReadabilityStats = function (text) { return compute(text != null ? String(text) : currentText()); };
+
+        editor.attachEvent("exec_command_readability", function (state) {
+            state.returnValue = true;
+            state.stopBubble = true;
+            openDialog();
+        });
+
+        if (editor.slashCommands && typeof editor.slashCommands.register === "function") {
+            try {
+                editor.slashCommands.register({
+                    id: "readability-stats",
+                    title: "Readability statistics",
+                    description: "Flesch reading ease, grade level, and reading time",
+                    keywords: ["readability", "flesch", "grade", "reading", "stats", "score"],
+                    action: function () { openDialog(); }
+                });
+            } catch (e) {}
+        }
+    };
+
+    function currentText() {
+        try {
+            var ed = editor.getEditable && editor.getEditable();
+            if (ed) return ed.innerText || ed.textContent || "";
+        } catch (e) {}
+        return "";
+    }
+
+    // Heuristic English syllable counter (good enough for Flesch metrics).
+    function countSyllables(word) {
+        word = String(word || "").toLowerCase().replace(/[^a-z]/g, "");
+        if (!word) return 0;
+        if (word.length <= 3) return 1;
+        word = word.replace(/(?:[^laeiouy]es|ed|[^laeiouy]e)$/, "").replace(/^y/, "");
+        var m = word.match(/[aeiouy]{1,2}/g);
+        return m ? m.length : 1;
+    }
+
+    function compute(text) {
+        text = String(text || "").replace(/\s+/g, " ").trim();
+        var wordTokens = text ? text.split(/\s+/) : [];
+        var words = wordTokens.length;
+        // Sentences: terminal . ! ? (collapsed runs). At least 1 if there is text.
+        var sentenceMatches = text.match(/[^.!?]+[.!?]+/g);
+        var sentences = sentenceMatches ? sentenceMatches.length : (words ? 1 : 0);
+        if (words && sentences === 0) sentences = 1;
+        var syllables = 0;
+        for (var i = 0; i < wordTokens.length; i++) syllables += countSyllables(wordTokens[i]);
+        var characters = text.replace(/\s/g, "").length;
+
+        var wps = sentences ? words / sentences : 0;
+        var spw = words ? syllables / words : 0;
+        var ease = words ? (206.835 - 1.015 * wps - 84.6 * spw) : 0;
+        var grade = words ? (0.39 * wps + 11.8 * spw - 15.59) : 0;
+        ease = Math.round(ease * 10) / 10;
+        grade = Math.round(grade * 10) / 10;
+
+        var wpm = parseInt(config.readabilityWordsPerMinute, 10) || 200;
+        var minutes = words / wpm;
+        var readingTimeText = minutes < 1 ? (Math.max(1, Math.round(minutes * 60)) + " sec") : (Math.round(minutes) + " min");
+
+        return {
+            words: words, sentences: sentences, syllables: syllables, characters: characters,
+            avgWordsPerSentence: Math.round(wps * 10) / 10,
+            avgSyllablesPerWord: Math.round(spw * 100) / 100,
+            fleschReadingEase: ease,
+            fleschKincaidGrade: Math.max(0, grade),
+            readingTimeMinutes: Math.round(minutes * 10) / 10,
+            readingTimeText: readingTimeText,
+            easeLabel: easeLabel(ease)
+        };
+    }
+
+    function easeLabel(ease) {
+        if (ease >= 90) return "Very easy (5th grade)";
+        if (ease >= 80) return "Easy (6th grade)";
+        if (ease >= 70) return "Fairly easy (7th grade)";
+        if (ease >= 60) return "Standard (8–9th grade)";
+        if (ease >= 50) return "Fairly difficult (10–12th grade)";
+        if (ease >= 30) return "Difficult (college)";
+        return "Very difficult (college graduate)";
+    }
+
+    function openDialog() {
+        var s = compute(currentText());
+        try {
+            var d = editor.createDialog((editor.getLangText && editor.getLangText("readabilitytitle")) || "Readability statistics", "rte-dialog-readability");
+            var doc = d.ownerDocument;
+            var wrap = doc.createElement("div");
+            wrap.style.cssText = "padding:14px 18px;min-width:340px;font:13px -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#0f172a";
+
+            var rows = [
+                ["Flesch Reading Ease", s.fleschReadingEase + "  —  " + s.easeLabel, true],
+                ["Flesch–Kincaid Grade", String(s.fleschKincaidGrade), false],
+                ["Reading time", s.readingTimeText, false],
+                ["Words", String(s.words), false],
+                ["Sentences", String(s.sentences), false],
+                ["Avg words / sentence", String(s.avgWordsPerSentence), false],
+                ["Avg syllables / word", String(s.avgSyllablesPerWord), false],
+                ["Characters (no spaces)", String(s.characters), false]
+            ];
+            for (var i = 0; i < rows.length; i++) {
+                var r = doc.createElement("div");
+                r.style.cssText = "display:flex;justify-content:space-between;gap:24px;padding:6px 0;border-bottom:1px solid #eef2f7" + (rows[i][2] ? ";font-weight:600;font-size:14px" : "");
+                var k = doc.createElement("span"); k.textContent = rows[i][0]; k.style.color = "#475569";
+                var v = doc.createElement("span"); v.textContent = rows[i][1]; v.style.textAlign = "right";
+                r.appendChild(k); r.appendChild(v); wrap.appendChild(r);
+            }
+            d.appendChild(wrap);
+        } catch (e) {
+            if (window.console) console.warn("readabilitystats:", s);
+        }
+    }
 }
 
 if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
@@ -25432,7 +26839,7 @@ function RTE_Plugin_ReadAloud() {
         voices.forEach(function (v, i) {
             var o = voiceSel.ownerDocument.createElement("option");
             o.value = v.name; o.textContent = v.name + " (" + v.lang + ")";
-            if (v.default) o.textContent += " ★";
+            if (v.default) o.textContent += " (default)";
             voiceSel.appendChild(o);
         });
         if (cur) voiceSel.value = cur;
@@ -25449,7 +26856,7 @@ function RTE_Plugin_ReadAloud() {
     function btn(parent, label, title) {
         var b = parent.ownerDocument.createElement("button");
         b.type = "button"; b.textContent = label; if (title) b.title = title;
-        b.style.cssText = "border:1px solid #cbd5e1;background:#fff;border-radius:8px;padding:6px 10px;cursor:pointer;font:13px -apple-system,Segoe UI,sans-serif";
+        b.className = "rte-readaloud-button";
         parent.appendChild(b); return b;
     }
     obj.OpenBar = function () {
@@ -25457,18 +26864,15 @@ function RTE_Plugin_ReadAloud() {
         var d = document;
         bar = d.createElement("div");
         bar.className = "rte-readaloud-bar";
-        bar.style.cssText = "position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:2147483600;" +
-            "display:flex;align-items:center;gap:8px;background:#fff;border:1px solid #e2e8f0;border-radius:12px;" +
-            "box-shadow:0 8px 30px rgba(0,0,0,.18);padding:8px 12px;font:13px -apple-system,Segoe UI,sans-serif";
-        var title = d.createElement("span"); title.textContent = "🔊"; title.style.cssText = "font-size:15px"; bar.appendChild(title);
-        playBtn = btn(bar, "▶ Play", "Play / Pause");
-        var stopBtn = btn(bar, "■ Stop", "Stop");
-        voiceSel = d.createElement("select"); voiceSel.style.cssText = "max-width:180px;border:1px solid #cbd5e1;border-radius:8px;padding:5px 6px;font:12px -apple-system,Segoe UI,sans-serif"; bar.appendChild(voiceSel);
-        rateSel = d.createElement("select"); rateSel.style.cssText = "border:1px solid #cbd5e1;border-radius:8px;padding:5px 6px;font:12px -apple-system,Segoe UI,sans-serif";
-        ["0.75", "1", "1.25", "1.5", "2"].forEach(function (r) { var o = d.createElement("option"); o.value = r; o.textContent = r + "×"; if (r === "1") o.selected = true; rateSel.appendChild(o); });
+        var title = d.createElement("span"); title.className = "rte-readaloud-title"; title.textContent = "Read"; bar.appendChild(title);
+        playBtn = btn(bar, "Play", "Play / Pause");
+        var stopBtn = btn(bar, "Stop", "Stop");
+        voiceSel = d.createElement("select"); voiceSel.className = "rte-readaloud-voice"; voiceSel.title = "Voice"; bar.appendChild(voiceSel);
+        rateSel = d.createElement("select"); rateSel.className = "rte-readaloud-rate"; rateSel.title = "Speed";
+        ["0.75", "1", "1.25", "1.5", "2"].forEach(function (r) { var o = d.createElement("option"); o.value = r; o.textContent = r + "x"; if (r === "1") o.selected = true; rateSel.appendChild(o); });
         bar.appendChild(rateSel);
-        statusEl = d.createElement("span"); statusEl.style.cssText = "color:#64748b;min-width:120px"; bar.appendChild(statusEl);
-        var closeBtn = btn(bar, "✕", "Close"); closeBtn.style.borderColor = "transparent";
+        statusEl = d.createElement("span"); statusEl.className = "rte-readaloud-status"; bar.appendChild(statusEl);
+        var closeBtn = btn(bar, "Close", "Close"); closeBtn.className += " is-close";
         d.body.appendChild(bar);
 
         loadVoices();
@@ -25490,7 +26894,7 @@ function RTE_Plugin_ReadAloud() {
         bar = null; playBtn = statusEl = voiceSel = rateSel = null;
     };
 
-    function updatePlayBtn() { if (playBtn) playBtn.textContent = (speaking && !paused) ? "⏸ Pause" : "▶ Play"; }
+    function updatePlayBtn() { if (playBtn) playBtn.textContent = (speaking && !paused) ? "Pause" : "Play"; }
     function setStatus(t) { if (statusEl) statusEl.textContent = t; }
 }
 
@@ -25887,6 +27291,7 @@ function RTE_Plugin_RevisionHistory() {
         lastSnapshotHtml = html;
         persistStore();
         if (dialog && dialog.isConnected) renderDialog();
+        try { if (typeof editor.fireEvent === "function") editor.fireEvent("revision_snapshot", { id: entry.id, label: entry.label, isNamed: entry.isNamed, createdAt: entry.createdAt }); } catch (e) { }
         return entry;
     }
 
@@ -26050,9 +27455,17 @@ function RTE_Plugin_RevisionHistory() {
         var host = editor.iframe.ownerDocument;
         if (!host || !host.body) return;
         dialog = host.createElement("div");
-        dialog.className = "rte-rev-dialog";
+        // Body-appended modal — mirror the editor's forced dark mode (automatic
+        // dark is handled by a prefers-color-scheme media query in the styles).
+        var __revDark = false;
+        try {
+            var __h = editor.container || (editor.getEditable && editor.getEditable().closest && editor.getEditable().closest(".richtexteditor"));
+            __revDark = !!(__h && __h.classList && __h.classList.contains("rte-dark"));
+        } catch (e) {}
+        dialog.className = "rte-rev-dialog" + (__revDark ? " rte-rev-dark" : "");
         dialog.setAttribute("role", "dialog");
-        dialog.setAttribute("aria-label", "Revision history");
+        dialog.setAttribute("aria-modal", "true");
+        dialog.setAttribute("aria-labelledby", "rte-rev-dialog-title");
 
         var backdrop = host.createElement("div");
         backdrop.className = "rte-rev-backdrop";
@@ -26089,6 +27502,7 @@ function RTE_Plugin_RevisionHistory() {
         var header = host.createElement("div");
         header.className = "rte-rev-header";
         var title = host.createElement("div");
+        title.id = "rte-rev-dialog-title";
         title.className = "rte-rev-title";
         title.textContent = "Revision history";
         header.appendChild(title);
@@ -26109,6 +27523,7 @@ function RTE_Plugin_RevisionHistory() {
         closeBtn.type = "button";
         closeBtn.className = "rte-rev-btn rte-rev-btn-ghost";
         closeBtn.textContent = "Close";
+        closeBtn.setAttribute("aria-label", "Close revision history");
         closeBtn.addEventListener("mousedown", function (e) { e.preventDefault(); closeDialog(); });
         actions.appendChild(closeBtn);
         header.appendChild(actions);
@@ -26120,11 +27535,13 @@ function RTE_Plugin_RevisionHistory() {
         // Left: list
         var list = host.createElement("div");
         list.className = "rte-rev-list";
+        list.setAttribute("role", "listbox");
+        list.setAttribute("aria-label", "Saved revisions");
         var entries = editor.revisionHistory.list();
         if (!entries.length) {
             var empty = host.createElement("div");
             empty.className = "rte-rev-empty";
-            empty.textContent = "No revisions yet. Click \u201CSave version now\u201D to capture the current document.";
+            empty.textContent = "No revisions yet. Click \"Save version now\" to capture the current document.";
             list.appendChild(empty);
         } else {
             if (!dialogSelectedId || !findById(dialogSelectedId)) {
@@ -26135,6 +27552,8 @@ function RTE_Plugin_RevisionHistory() {
                     var row = host.createElement("button");
                     row.type = "button";
                     row.className = "rte-rev-row" + (e.id === dialogSelectedId ? " rte-rev-row-active" : "");
+                    row.setAttribute("role", "option");
+                    row.setAttribute("aria-selected", e.id === dialogSelectedId ? "true" : "false");
                     var dot = host.createElement("span");
                     dot.className = "rte-rev-dot";
                     dot.style.background = (e.author && e.author.color) || "#64748b";
@@ -26169,14 +27588,20 @@ function RTE_Plugin_RevisionHistory() {
 
             var tabs = host.createElement("div");
             tabs.className = "rte-rev-tabs";
+            tabs.setAttribute("role", "tablist");
+            tabs.setAttribute("aria-label", "Revision view");
             var tabPreview = host.createElement("button");
             tabPreview.type = "button";
             tabPreview.className = "rte-rev-tab" + (dialogView === "preview" ? " rte-rev-tab-active" : "");
+            tabPreview.setAttribute("role", "tab");
+            tabPreview.setAttribute("aria-selected", dialogView === "preview" ? "true" : "false");
             tabPreview.textContent = "Preview";
             tabPreview.addEventListener("mousedown", function (e) { e.preventDefault(); dialogView = "preview"; renderDialog(); });
             var tabDiff = host.createElement("button");
             tabDiff.type = "button";
             tabDiff.className = "rte-rev-tab" + (dialogView === "diff" ? " rte-rev-tab-active" : "");
+            tabDiff.setAttribute("role", "tab");
+            tabDiff.setAttribute("aria-selected", dialogView === "diff" ? "true" : "false");
             tabDiff.textContent = "Diff vs current";
             tabDiff.addEventListener("mousedown", function (e) { e.preventDefault(); dialogView = "diff"; renderDialog(); });
             tabs.appendChild(tabPreview);
@@ -26234,7 +27659,11 @@ function RTE_Plugin_RevisionHistory() {
             restoreBtn.type = "button";
             restoreBtn.className = "rte-rev-btn rte-rev-btn-primary";
             restoreBtn.textContent = "Restore this version";
-            restoreBtn.addEventListener("mousedown", function (e) { e.preventDefault(); restore(selected.id); });
+            restoreBtn.addEventListener("mousedown", function (e) { e.preventDefault(); });
+            restoreBtn.addEventListener("click", function (e) {
+                e.preventDefault();
+                restore(selected.id);
+            });
             footerBtns.appendChild(delBtn);
             footerBtns.appendChild(restoreBtn);
             footer.appendChild(labelInfo);
@@ -26263,40 +27692,87 @@ function RTE_Plugin_RevisionHistory() {
         var style = host.createElement("style");
         style.setAttribute("data-rte-revisionhistory", "1");
         style.textContent = [
-            ".rte-rev-dialog{position:fixed;inset:0;z-index:2147483600;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:13px;color:#0f172a}",
-            ".rte-rev-backdrop{position:absolute;inset:0;background:rgba(15,23,42,.35);display:flex;align-items:center;justify-content:center;padding:24px}",
-            ".rte-rev-panel{background:#fff;border-radius:14px;width:100%;max-width:980px;max-height:86vh;display:flex;flex-direction:column;box-shadow:0 24px 48px rgba(15,23,42,.3);overflow:hidden}",
-            ".rte-rev-header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid rgba(15,23,42,.08)}",
-            ".rte-rev-title{font-size:15px;font-weight:600}",
-            ".rte-rev-header-actions{display:flex;gap:8px}",
-            ".rte-rev-btn{padding:7px 14px;border-radius:8px;border:1px solid rgba(15,23,42,.12);font:inherit;font-size:12px;cursor:pointer;background:#fff;color:#0f172a}",
-            ".rte-rev-btn-ghost{background:#fff;color:#33506f}",
-            ".rte-rev-btn-primary{background:#1d67ba;color:#fff;border-color:#1d67ba}",
-            ".rte-rev-btn-danger{background:#fee2e2;color:#991b1b;border-color:rgba(153,27,27,.2)}",
-            ".rte-rev-body{display:flex;flex:1;min-height:0}",
-            ".rte-rev-list{width:240px;border-right:1px solid rgba(15,23,42,.08);overflow-y:auto;background:#fafbff}",
-            ".rte-rev-empty{padding:18px;color:#64748b;font-size:12px;line-height:1.5}",
-            ".rte-rev-row{display:flex;align-items:center;gap:8px;width:100%;padding:10px 12px;border:0;border-bottom:1px solid rgba(15,23,42,.05);background:transparent;text-align:left;cursor:pointer;font:inherit;color:inherit}",
-            ".rte-rev-row:hover{background:#eef2ff}",
-            ".rte-rev-row-active{background:#eef2ff}",
-            ".rte-rev-dot{width:8px;height:8px;border-radius:50%;flex:0 0 8px}",
+            ".rte-rev-dialog{position:fixed;inset:0;z-index:2147483600;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:13px;color:#172033}",
+            ".rte-rev-backdrop{position:absolute;inset:0;background:linear-gradient(135deg,rgba(12,18,32,.44),rgba(40,54,77,.26));display:flex;align-items:center;justify-content:center;padding:18px}",
+            ".rte-rev-panel{background:linear-gradient(180deg,#ffffff 0%,#f8fbff 100%);border:1px solid rgba(117,137,163,.28);border-radius:20px;width:min(960px,calc(100vw - 28px));max-height:min(82vh,740px);display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(35,48,72,.26);overflow:hidden}",
+            ".rte-rev-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-bottom:1px solid rgba(117,137,163,.18);background:rgba(255,255,255,.72)}",
+            ".rte-rev-title{font-size:16px;font-weight:760;letter-spacing:-.01em;color:#172033}",
+            ".rte-rev-header-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}",
+            ".rte-rev-btn{padding:8px 12px;border-radius:999px;border:1px solid rgba(116,135,162,.25);font:inherit;font-size:12px;font-weight:680;line-height:1;cursor:pointer;background:#fff;color:#223652;box-shadow:0 1px 2px rgba(32,45,66,.06);transition:background .14s ease,border-color .14s ease,box-shadow .14s ease,transform .14s ease}",
+            ".rte-rev-btn:hover{background:#f5f8fc;border-color:rgba(81,111,151,.42);box-shadow:0 5px 14px rgba(32,45,66,.09);transform:translateY(-1px)}",
+            ".rte-rev-btn:focus-visible{outline:2px solid rgba(56,122,255,.34);outline-offset:2px}",
+            ".rte-rev-btn-ghost{background:#fff;color:#34506f}",
+            ".rte-rev-btn-primary{background:linear-gradient(135deg,#2563eb,#1d67ba);color:#fff;border-color:rgba(29,103,186,.85);box-shadow:0 8px 18px rgba(37,99,235,.22)}",
+            ".rte-rev-btn-primary:hover{background:linear-gradient(135deg,#1d4ed8,#195fad);color:#fff;border-color:rgba(29,78,216,.9);box-shadow:0 9px 20px rgba(37,99,235,.28)}",
+            ".rte-rev-btn-danger{background:#fff5f5;color:#9f1d1d;border-color:rgba(190,45,45,.22)}",
+            ".rte-rev-body{display:flex;flex:1;min-height:0;background:linear-gradient(90deg,#f8fbff 0%,#fff 42%)}",
+            ".rte-rev-list{width:258px;flex:0 0 258px;border-right:1px solid rgba(117,137,163,.18);overflow-y:auto;background:rgba(244,248,253,.78);padding:10px}",
+            ".rte-rev-empty{padding:16px;border:1px dashed rgba(99,118,145,.28);border-radius:14px;background:#fff;color:#5b6c81;font-size:12px;line-height:1.5}",
+            ".rte-rev-row{display:flex;align-items:center;gap:10px;width:100%;padding:10px;border:1px solid transparent;border-radius:14px;background:transparent;text-align:left;cursor:pointer;font:inherit;color:inherit}",
+            ".rte-rev-row:hover{background:#fff;border-color:rgba(93,122,161,.24);box-shadow:0 8px 18px rgba(33,48,70,.08)}",
+            ".rte-rev-row-active{background:#eef6ff;border-color:rgba(37,99,235,.28);box-shadow:0 8px 22px rgba(37,99,235,.12)}",
+            ".rte-rev-dot{width:9px;height:9px;border-radius:50%;flex:0 0 9px;box-shadow:0 0 0 3px rgba(255,255,255,.95),0 0 0 4px rgba(96,116,140,.18)}",
             ".rte-rev-row-col{flex:1;min-width:0}",
-            ".rte-rev-row-who{font-weight:600;font-size:12px;line-height:1.2}",
-            ".rte-rev-row-when{font-size:11px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
-            ".rte-rev-pane{flex:1;display:flex;flex-direction:column;min-width:0}",
-            ".rte-rev-tabs{display:flex;gap:4px;padding:10px 14px 0;border-bottom:1px solid rgba(15,23,42,.08)}",
-            ".rte-rev-tab{padding:7px 14px;border:0;background:transparent;border-bottom:2px solid transparent;font:inherit;font-size:12px;color:#64748b;cursor:pointer}",
-            ".rte-rev-tab-active{color:#0f172a;border-bottom-color:#1d67ba;font-weight:600}",
-            ".rte-rev-content{flex:1;overflow:auto;padding:0}",
-            ".rte-rev-preview-frame{width:100%;height:100%;min-height:360px;border:0;display:block}",
-            ".rte-rev-diff{margin:0;padding:14px 16px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.5;white-space:pre-wrap;color:#0f172a;background:#fafbff;min-height:100%}",
+            ".rte-rev-row-who{font-weight:720;font-size:12px;line-height:1.25;color:#172033}",
+            ".rte-rev-row-when{margin-top:2px;font-size:11px;color:#637487;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+            ".rte-rev-pane{flex:1;display:flex;flex-direction:column;min-width:0;padding:10px}",
+            ".rte-rev-tabs{display:flex;align-self:flex-start;gap:3px;padding:3px;margin:0 0 10px;border:1px solid rgba(117,137,163,.2);border-radius:999px;background:#eef3f8}",
+            ".rte-rev-tab{padding:7px 12px;border:0;border-radius:999px;background:transparent;font:inherit;font-size:12px;font-weight:680;color:#637487;cursor:pointer}",
+            ".rte-rev-tab:hover{color:#1d3557;background:rgba(255,255,255,.58)}",
+            ".rte-rev-tab:focus-visible{outline:2px solid rgba(56,122,255,.34);outline-offset:2px}",
+            ".rte-rev-tab-active{color:#163966;background:#fff;box-shadow:0 2px 7px rgba(35,48,72,.08)}",
+            ".rte-rev-content{flex:1;overflow:auto;padding:0;border:1px solid rgba(117,137,163,.18);border-radius:16px;background:#fff;min-height:300px}",
+            ".rte-rev-preview-frame{width:100%;height:100%;min-height:330px;border:0;display:block;background:#fff}",
+            ".rte-rev-diff{margin:0;padding:14px 16px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.55;white-space:pre-wrap;color:#172033;background:#fbfdff;min-height:100%}",
             ".rte-rev-diff-line{display:block}",
-            ".rte-rev-diff-add{background:#dcfce7;color:#166534}",
-            ".rte-rev-diff-del{background:#fee2e2;color:#991b1b}",
-            ".rte-rev-diff-eq{color:#475569}",
-            ".rte-rev-footer{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-top:1px solid rgba(15,23,42,.08);background:#fafbff}",
-            ".rte-rev-footer-info{font-size:12px;color:#64748b}",
-            ".rte-rev-footer-btns{display:flex;gap:8px}"
+            ".rte-rev-diff-add{background:#e8f8ef;color:#17633f}",
+            ".rte-rev-diff-del{background:#fff0f0;color:#9f1d1d}",
+            ".rte-rev-diff-eq{color:#556575}",
+            ".rte-rev-footer{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0 0;background:transparent}",
+            ".rte-rev-footer-info{font-size:12px;color:#637487;min-height:18px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+            ".rte-rev-footer-btns{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}",
+            "@media(max-width:720px){.rte-rev-backdrop{padding:10px;align-items:flex-start}.rte-rev-panel{width:calc(100vw - 20px);max-height:calc(100vh - 20px);border-radius:16px}.rte-rev-header{align-items:flex-start;flex-direction:column}.rte-rev-body{flex-direction:column}.rte-rev-list{width:auto;flex:0 0 auto;max-height:178px;border-right:0;border-bottom:1px solid rgba(117,137,163,.18)}.rte-rev-pane{min-height:360px}.rte-rev-footer{align-items:stretch;flex-direction:column}.rte-rev-footer-info{white-space:normal}.rte-rev-footer-btns{justify-content:stretch}.rte-rev-footer-btns .rte-rev-btn{flex:1}}",
+            // Dark mode — modal is body-appended; auto via prefers-color-scheme +
+            // explicit .rte-rev-dark class when the editor is forced dark. The
+            // preview iframe stays white (it renders the actual document).
+            "@media (prefers-color-scheme:dark){",
+            "  .rte-rev-dialog{color:#e2e8f0}",
+            "  .rte-rev-panel{background:linear-gradient(180deg,#1e293b,#0f172a);border-color:#334155}",
+            "  .rte-rev-header{background:rgba(30,41,59,.72);border-color:#334155}",
+            "  .rte-rev-title,.rte-rev-row-who{color:#e2e8f0}",
+            "  .rte-rev-btn,.rte-rev-btn-ghost{background:#0f172a;color:#cbd5e1;border-color:#334155}",
+            "  .rte-rev-btn:hover{background:#334155}",
+            "  .rte-rev-btn-primary,.rte-rev-btn-primary:hover{background:linear-gradient(135deg,#2563eb,#1d4ed8);color:#fff;border-color:#3b82f6}",
+            "  .rte-rev-body{background:#0f172a}",
+            "  .rte-rev-list{background:rgba(15,23,42,.6);border-color:#334155}",
+            "  .rte-rev-empty{background:#1e293b;color:#94a3b8;border-color:#334155}",
+            "  .rte-rev-row:hover{background:#1e293b;border-color:#334155}",
+            "  .rte-rev-row-active{background:#1e3a8a;border-color:#3b82f6}",
+            "  .rte-rev-row-when,.rte-rev-footer-info{color:#94a3b8}",
+            "  .rte-rev-tabs{background:#1e293b;border-color:#334155}",
+            "  .rte-rev-tab{color:#94a3b8}.rte-rev-tab-active{color:#fff;background:#1d4ed8}",
+            "  .rte-rev-diff{background:#0f172a;color:#cbd5e1}.rte-rev-diff-eq{color:#94a3b8}",
+            "  .rte-rev-diff-add{background:rgba(16,185,129,.16);color:#6ee7b7}",
+            "  .rte-rev-diff-del{background:rgba(244,63,94,.16);color:#fda4af}",
+            "}",
+            ".rte-rev-dark{color:#e2e8f0}",
+            ".rte-rev-dark .rte-rev-panel{background:linear-gradient(180deg,#1e293b,#0f172a);border-color:#334155}",
+            ".rte-rev-dark .rte-rev-header{background:rgba(30,41,59,.72);border-color:#334155}",
+            ".rte-rev-dark .rte-rev-title,.rte-rev-dark .rte-rev-row-who{color:#e2e8f0}",
+            ".rte-rev-dark .rte-rev-btn,.rte-rev-dark .rte-rev-btn-ghost{background:#0f172a;color:#cbd5e1;border-color:#334155}",
+            ".rte-rev-dark .rte-rev-btn:hover{background:#334155}",
+            ".rte-rev-dark .rte-rev-btn-primary,.rte-rev-dark .rte-rev-btn-primary:hover{background:linear-gradient(135deg,#2563eb,#1d4ed8);color:#fff;border-color:#3b82f6}",
+            ".rte-rev-dark .rte-rev-body{background:#0f172a}",
+            ".rte-rev-dark .rte-rev-list{background:rgba(15,23,42,.6);border-color:#334155}",
+            ".rte-rev-dark .rte-rev-empty{background:#1e293b;color:#94a3b8;border-color:#334155}",
+            ".rte-rev-dark .rte-rev-row:hover{background:#1e293b;border-color:#334155}",
+            ".rte-rev-dark .rte-rev-row-active{background:#1e3a8a;border-color:#3b82f6}",
+            ".rte-rev-dark .rte-rev-row-when,.rte-rev-dark .rte-rev-footer-info{color:#94a3b8}",
+            ".rte-rev-dark .rte-rev-tabs{background:#1e293b;border-color:#334155}",
+            ".rte-rev-dark .rte-rev-tab{color:#94a3b8}.rte-rev-dark .rte-rev-tab-active{color:#fff;background:#1d4ed8}",
+            ".rte-rev-dark .rte-rev-diff{background:#0f172a;color:#cbd5e1}.rte-rev-dark .rte-rev-diff-eq{color:#94a3b8}",
+            ".rte-rev-dark .rte-rev-diff-add{background:rgba(16,185,129,.16);color:#6ee7b7}",
+            ".rte-rev-dark .rte-rev-diff-del{background:rgba(244,63,94,.16);color:#fda4af}"
         ].join("\n");
         host.head.appendChild(style);
     }
@@ -26392,7 +27868,10 @@ function RTE_Plugin_SlashCommand() {
             keywords: (def.keywords || []).slice(),
             icon: def.icon || "",
             iconSvg: def.iconSvg || "",
-            run: def.run
+            // Accept `action` as an alias for `run` — external registrations
+            // (and reasonable guesses at the API) shouldn't yield a menu item
+            // that silently does nothing.
+            run: def.run || def.action
         };
     }
 
@@ -26493,7 +27972,7 @@ function RTE_Plugin_SlashCommand() {
                 function () { editor.execCommand("inserttodolist"); });
         }
         if (!editor.isCommandEnabled || editor.isCommandEnabled("insertdiagram")) {
-            push("Insert", "diagram", "Diagram", "Insert a Mermaid diagram (flowchart, sequence…)", ["mermaid", "flowchart", "sequence", "gantt", "graph", "uml"], iconDiagram(),
+            push("Insert", "diagram", "Diagram", "Insert a Mermaid diagram", ["mermaid", "flowchart", "sequence", "gantt", "graph", "uml"], iconDiagram(),
                 function () { editor.execCommand("insertdiagram"); });
         }
         if (!editor.isCommandEnabled || editor.isCommandEnabled("insertbookmark")) {
@@ -26515,6 +27994,14 @@ function RTE_Plugin_SlashCommand() {
         if (!editor.isCommandEnabled || editor.isCommandEnabled("emailexport")) {
             push("Tools", "emailexport", "Export email HTML", "Inline-styled HTML for email", ["email", "inline", "mail", "newsletter", "html"], iconEmail(),
                 function () { editor.execCommand("emailexport"); });
+        }
+        if (typeof editor.openFindDialog === "function") {
+            push("Tools", "findreplace", "Find & replace", "Search the document and replace text", ["find", "replace", "search", "query", "substitute"], iconFind(),
+                function () { editor.openFindDialog(); });
+        }
+        if (typeof editor.showShortcuts === "function") {
+            push("Tools", "shortcuts", "Keyboard shortcuts", "Show the keyboard shortcut cheat sheet (Ctrl+/)", ["keyboard", "shortcuts", "hotkeys", "keys", "help", "cheat"], iconKeyboard(),
+                function () { editor.showShortcuts(); });
         }
         if (typeof editor.foldAtCaret === "function") {
             push("Tools", "foldsection", "Fold section", "Collapse the section under the current heading", ["fold", "collapse", "heading", "outline", "section"], iconFold(),
@@ -26567,9 +28054,17 @@ function RTE_Plugin_SlashCommand() {
                         keywords: ["ai", action.id],
                         iconSvg: config["svgCode_aiassist_" + (action.icon || action.id)] || config.svgCode_aiassist || "",
                         run: function () {
-                            if (editor.aiToolkit && typeof editor.aiToolkit.resolveAction === "function") {
-                                editor.aiToolkit.resolveAction(action.id);
-                            }
+                            // resolveAction() only RESOLVES a definition (returns a
+                            // promise with the result spec) — it never opens UI or
+                            // touches the document, so these entries were silent
+                            // no-ops. Route to the EXECUTING entry points instead.
+                            var tk = editor.aiToolkit;
+                            if (!tk) return;
+                            if (action.id === "chat-panel" && typeof tk.openChatPanel === "function") { tk.openChatPanel(); return; }
+                            if (action.id === "review-panel" && typeof tk.openReviewPanel === "function") { tk.openReviewPanel(); return; }
+                            if (action.id === "open-dialog" && typeof tk.openDialog === "function") { tk.openDialog(); return; }
+                            if (typeof tk.runQuickAction === "function") { tk.runQuickAction(action.id); return; }
+                            if (typeof tk.resolveAction === "function") tk.resolveAction(action.id);
                         }
                     }));
                 })(config.aiToolkitActions[i]);
@@ -26581,6 +28076,7 @@ function RTE_Plugin_SlashCommand() {
 
     function onEditDocKeyDown(e) {
         if (composing) return;
+
 
         if (popupEl) {
             switch (e.key) {
@@ -26719,6 +28215,14 @@ function RTE_Plugin_SlashCommand() {
         popupHost = editor.iframe.ownerDocument;
         popupEl = popupHost.createElement("div");
         popupEl.className = "rte-slash-popup";
+        // The popup is body-appended (outside the editor container), so the
+        // container's rte-dark class can't reach it via CSS. Mirror forced
+        // dark mode here; automatic (prefers-color-scheme) dark is handled by
+        // the media query in the injected stylesheet.
+        try {
+            var host = editor.container || (editor.getEditable && editor.getEditable().closest && editor.getEditable().closest(".richtexteditor"));
+            if (host && host.classList && host.classList.contains("rte-dark")) popupEl.className += " rte-slash-popup-dark";
+        } catch (e) {}
         popupEl.setAttribute("role", "listbox");
         popupEl.setAttribute("aria-label", "Slash commands");
         popupHost.body.appendChild(popupEl);
@@ -26750,6 +28254,7 @@ function RTE_Plugin_SlashCommand() {
                 item.type = "button";
                 item.className = "rte-slash-item" + (index === activeIndex ? " rte-slash-item-active" : "");
                 item.setAttribute("role", "option");
+                item.setAttribute("aria-selected", index === activeIndex ? "true" : "false");
                 item.setAttribute("data-index", index);
 
                 var icon = popupHost.createElement("span");
@@ -26805,8 +28310,9 @@ function RTE_Plugin_SlashCommand() {
         var items = popupEl.querySelectorAll(".rte-slash-item");
         for (var i = 0; i < items.length; i++) {
             var idx = +items[i].getAttribute("data-index");
-            if (idx === activeIndex) items[i].classList.add("rte-slash-item-active");
-            else items[i].classList.remove("rte-slash-item-active");
+            var active = idx === activeIndex;
+            items[i].classList.toggle("rte-slash-item-active", active);
+            items[i].setAttribute("aria-selected", active ? "true" : "false");
         }
         scrollActiveIntoView();
     }
@@ -26901,18 +28407,42 @@ function RTE_Plugin_SlashCommand() {
         var style = host.createElement("style");
         style.setAttribute("data-rte-slashcommand", "1");
         style.textContent = [
-            ".rte-slash-popup{position:absolute;z-index:2147483000;min-width:280px;max-width:340px;max-height:320px;overflow-y:auto;background:#fff;border:1px solid rgba(15,23,42,.08);box-shadow:0 12px 32px rgba(15,23,42,.18),0 2px 6px rgba(15,23,42,.06);border-radius:10px;padding:4px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:13px;color:#0f172a}",
-            ".rte-slash-section{padding:8px 14px 4px;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#64748b}",
-            ".rte-slash-item{display:flex;align-items:center;gap:10px;width:100%;padding:8px 12px;border:0;background:transparent;text-align:left;cursor:pointer;color:inherit;font:inherit;border-radius:6px;margin:0 4px;width:calc(100% - 8px)}",
-            ".rte-slash-item:hover,.rte-slash-item-active{background:#eef2ff;color:#1e3a8a}",
-            ".rte-slash-item-icon{flex:0 0 22px;height:22px;display:inline-flex;align-items:center;justify-content:center;color:#475569}",
-            ".rte-slash-item-active .rte-slash-item-icon{color:#1e3a8a}",
-            ".rte-slash-item-icon svg{width:18px;height:18px}",
+            "/* 2026-07-03 slash command polish */",
+            ".rte-slash-popup{position:absolute;z-index:2147483000;min-width:280px;max-width:min(390px,calc(100vw - 24px));max-height:min(360px,64vh);overflow-y:auto;overscroll-behavior:contain;padding:6px;background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(248,251,255,.96));background-clip:padding-box;border:1px solid rgba(148,163,184,.22);box-shadow:0 16px 36px rgba(29,78,216,.14),0 2px 8px rgba(15,23,42,.08);border-radius:8px;font-family:Aptos,'Segoe UI',sans-serif;font-size:13px;color:#172033;scrollbar-width:thin}",
+            ".rte-slash-section{position:sticky;top:0;z-index:1;margin:4px 0 2px;padding:6px 8px 4px;background:linear-gradient(180deg,rgba(248,251,255,.98),rgba(248,251,255,.86));color:#52657e;font-size:10px;font-weight:850;letter-spacing:.08em;text-transform:uppercase}",
+            ".rte-slash-item{display:grid;grid-template-columns:28px minmax(0,1fr);align-items:center;gap:8px;width:100%;min-height:40px;padding:6px 8px;border:0;background:transparent;text-align:left;cursor:pointer;color:inherit;font:inherit;border-radius:8px}",
+            ".rte-slash-item:hover,.rte-slash-item-active{background:#eef4ff;color:#1559d6}",
+            ".rte-slash-item:focus-visible{outline:2px solid rgba(37,99,235,.22);outline-offset:2px}",
+            ".rte-slash-item-icon{flex:0 0 28px;width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;color:#315277;background:#ffffff;border-radius:8px;box-shadow:inset 0 0 0 1px rgba(148,163,184,.18)}",
+            ".rte-slash-item-active .rte-slash-item-icon{color:#1559d6;background:#ffffff}",
+            ".rte-slash-item-icon svg{display:block;width:16px;height:16px;pointer-events:none}",
             ".rte-slash-item-body{display:flex;flex-direction:column;min-width:0;flex:1}",
-            ".rte-slash-item-title{font-weight:600;font-size:13px;line-height:1.3}",
-            ".rte-slash-item-desc{font-size:11px;color:#64748b;line-height:1.3;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
-            ".rte-slash-item-active .rte-slash-item-desc{color:#1e3a8a}",
-            ".rte-slash-empty{padding:14px 16px;color:#64748b;font-size:12px;text-align:center}"
+            ".rte-slash-item-title{font-weight:780;font-size:13px;line-height:1.24;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+            ".rte-slash-item-desc{font-size:11px;color:#64748b;line-height:1.24;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+            ".rte-slash-item-active .rte-slash-item-desc{color:#315277}",
+            ".rte-slash-empty{padding:16px;color:#52657e;font-size:12px;font-weight:700;text-align:center}",
+            // Dark mode — applied automatically via prefers-color-scheme, and via
+            // an explicit .rte-slash-popup-dark class set when the editor is in
+            // forced dark mode (the popup is body-appended, outside the editor
+            // container, so the container's .rte-dark class can't reach it).
+            "@media (prefers-color-scheme:dark){",
+            "  .rte-slash-popup{background:linear-gradient(180deg,#1e293b,#0f172a);border-color:#334155;color:#e2e8f0;box-shadow:0 20px 46px rgba(0,0,0,.5),0 2px 8px rgba(0,0,0,.4)}",
+            "  .rte-slash-section{background:linear-gradient(180deg,rgba(30,41,59,.98),rgba(30,41,59,.86));color:#94a3b8}",
+            "  .rte-slash-item:hover,.rte-slash-item-active{background:#1d4ed8;color:#fff}",
+            "  .rte-slash-item-icon{color:#cbd5e1;background:#0f172a;box-shadow:inset 0 0 0 1px rgba(148,163,184,.25)}",
+            "  .rte-slash-item-active .rte-slash-item-icon{color:#fff;background:#1e3a8a}",
+            "  .rte-slash-item-desc{color:#94a3b8}",
+            "  .rte-slash-item-active .rte-slash-item-desc{color:#dbeafe}",
+            "  .rte-slash-empty{color:#94a3b8}",
+            "}",
+            ".rte-slash-popup-dark{background:linear-gradient(180deg,#1e293b,#0f172a);border-color:#334155;color:#e2e8f0;box-shadow:0 20px 46px rgba(0,0,0,.5),0 2px 8px rgba(0,0,0,.4)}",
+            ".rte-slash-popup-dark .rte-slash-section{background:linear-gradient(180deg,rgba(30,41,59,.98),rgba(30,41,59,.86));color:#94a3b8}",
+            ".rte-slash-popup-dark .rte-slash-item:hover,.rte-slash-popup-dark .rte-slash-item-active{background:#1d4ed8;color:#fff}",
+            ".rte-slash-popup-dark .rte-slash-item-icon{color:#cbd5e1;background:#0f172a;box-shadow:inset 0 0 0 1px rgba(148,163,184,.25)}",
+            ".rte-slash-popup-dark .rte-slash-item-active .rte-slash-item-icon{color:#fff;background:#1e3a8a}",
+            ".rte-slash-popup-dark .rte-slash-item-desc{color:#94a3b8}",
+            ".rte-slash-popup-dark .rte-slash-item-active .rte-slash-item-desc{color:#dbeafe}",
+            ".rte-slash-popup-dark .rte-slash-empty{color:#94a3b8}"
         ].join("\n");
         host.head.appendChild(style);
     }
@@ -26946,6 +28476,8 @@ function RTE_Plugin_SlashCommand() {
     function iconReadAloud() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16 8.5a4 4 0 010 7"/><path d="M19 6a7 7 0 010 12"/></svg>'; }
     function iconTodo() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="7" height="7" rx="1.5"/><path d="M4.5 7.5 6 9l2.5-3"/><line x1="13" y1="6" x2="21" y2="6"/><line x1="13" y1="13" x2="21" y2="13"/><line x1="3" y1="17" x2="21" y2="17"/><line x1="3" y1="20.5" x2="14" y2="20.5"/></svg>'; }
     function iconFold() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l3 3 3-3"/><path d="M9 18l3-3 3 3"/><line x1="4" y1="12" x2="20" y2="12"/></svg>'; }
+    function iconKeyboard() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M18 14h.01M9 14h6"/></svg>'; }
+    function iconFind() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6.5"/><line x1="15.5" y1="15.5" x2="21" y2="21"/></svg>'; }
     function iconTypewriter() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="9" width="18" height="7" rx="1"/><path d="M7 9V5h10v4"/><line x1="7" y1="20" x2="17" y2="20"/></svg>'; }
     function iconFocus() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M3 12h3M18 12h3M12 3v3M12 18v3"/></svg>'; }
     function iconMarkdown() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M6 15V9l3 3 3-3v6"/><path d="M17 9v6M14.5 12.5L17 15l2.5-2.5"/></svg>'; }
@@ -27037,13 +28569,20 @@ function RTE_Plugin_SmartChips() {
     obj.OpenDateChip = function () {
         var dlg = editor.createDialog((editor.getLangText && editor.getLangText("insertdatechiptitle")) || "Date", "rte-dialog-datechip");
         var close = typeof dlg.close === "function" ? function () { dlg.close(); } : function () { editor.closeCurrentPopup(); };
-        var wrap = append(dlg, "div", "padding:12px;min-width:240px;font:13px -apple-system,Segoe UI,sans-serif");
+        var wrap = append(dlg, "div", "", "rte-chip-dialog rte-chip-date-dialog");
+        append(wrap, "div", "", "rte-chip-dialog-copy").textContent = "Choose a quick date or insert a custom date chip.";
 
         function quick(label, d) {
-            var b = append(wrap, "button", "display:block;width:100%;text-align:left;padding:7px 10px;border:0;background:transparent;border-radius:6px;cursor:pointer;font:13px inherit", "rte-datechip-quick");
+            var b = append(wrap, "button", "", "rte-chip-quick");
             b.type = "button"; b.textContent = label + " — " + fmtDate(d);
             b.onmouseover = function () { b.style.background = "#eef2ff"; };
             b.onmouseout = function () { b.style.background = "transparent"; };
+            b.textContent = "";
+            append(b, "span", "", "rte-chip-quick-label").textContent = label;
+            append(b, "span", "", "rte-chip-quick-value").textContent = fmtDate(d);
+            b.onmouseover = null;
+            b.onmouseout = null;
+            b.setAttribute("aria-label", "Insert " + label + ", " + fmtDate(d));
             b.onclick = function () { close(); insertChip("date", fmtDate(d), isoDate(d)); };
             return b;
         }
@@ -27054,10 +28593,11 @@ function RTE_Plugin_SmartChips() {
         quick("Yesterday", addDays(now, -1));
         quick("Next week", addDays(now, 7));
 
-        var pickRow = append(wrap, "div", "display:flex;gap:6px;margin-top:8px;padding-top:8px;border-top:1px solid #e2e8f0");
-        var di = append(pickRow, "input", "flex:1;padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;font:13px inherit");
+        var pickRow = append(wrap, "div", "", "rte-chip-pick-row");
+        var di = append(pickRow, "input", "", "rte-chip-input");
         di.type = "date"; di.value = isoDate(now);
-        var go = append(pickRow, "button", "padding:6px 12px;border:1px solid #1d67ba;border-radius:6px;background:#1d67ba;color:#fff;cursor:pointer");
+        di.setAttribute("aria-label", "Custom date");
+        var go = append(pickRow, "button", "", "rte-chip-action rte-chip-action-primary");
         go.type = "button"; go.textContent = "Insert";
         go.onclick = function () {
             var parts = (di.value || "").split("-");
@@ -27074,39 +28614,54 @@ function RTE_Plugin_SmartChips() {
     obj.OpenChipMenu = function () {
         var dlg = editor.createDialog((editor.getLangText && editor.getLangText("insertchiptitle")) || "Insert chip", "rte-dialog-chip");
         var close = typeof dlg.close === "function" ? function () { dlg.close(); } : function () { editor.closeCurrentPopup(); };
-        var wrap = append(dlg, "div", "padding:12px;min-width:280px;font:13px -apple-system,Segoe UI,sans-serif");
+        var wrap = append(dlg, "div", "", "rte-chip-dialog rte-chip-menu-dialog");
+        append(wrap, "div", "", "rte-chip-dialog-copy").textContent = "Insert a date, person, or link chip into the document.";
 
-        var typeRow = append(wrap, "div", "display:flex;gap:6px;margin-bottom:10px");
+        var typeRow = append(wrap, "div", "", "rte-chip-type-tabs");
+        typeRow.setAttribute("role", "tablist");
+        typeRow.setAttribute("aria-label", "Chip type");
         var types = [["date", "Date"], ["person", "Person"], ["link", "Link"]];
         var current = "date";
-        var body = append(wrap, "div", "");
+        var body = append(wrap, "div", "", "rte-chip-dialog-body");
         var typeButtons = {};
         types.forEach(function (t) {
-            var b = append(typeRow, "button", "flex:1;padding:6px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;cursor:pointer", "");
+            var b = append(typeRow, "button", "", "rte-chip-type-tab");
             b.type = "button"; b.textContent = t[1];
+            b.setAttribute("role", "tab");
+            b.setAttribute("aria-selected", t[0] === current ? "true" : "false");
             typeButtons[t[0]] = b;
             b.onclick = function () { current = t[0]; highlight(); renderBody(); };
         });
-        function highlight() { types.forEach(function (t) { typeButtons[t[0]].style.background = (t[0] === current) ? "#eef2ff" : "#fff"; }); }
+        function highlight() {
+            types.forEach(function (t) {
+                var active = t[0] === current;
+                typeButtons[t[0]].classList.toggle("is-selected", active);
+                typeButtons[t[0]].setAttribute("aria-selected", active ? "true" : "false");
+            });
+        }
 
         function renderBody() {
             body.innerHTML = "";
             if (current === "date") {
-                var note = append(body, "div", "color:#64748b;margin-bottom:8px");
+                var note = append(body, "div", "", "rte-chip-field-label");
                 note.textContent = "Insert a date chip:";
-                var di = append(body, "input", "width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px");
+                var di = append(body, "input", "", "rte-chip-input");
                 di.type = "date"; di.value = isoDate(new Date(editor.__chipNow || Date.now()));
+                di.setAttribute("aria-label", "Date chip value");
                 addInsert(function () {
                     var p = (di.value || "").split("-");
                     if (p.length === 3) { var d = new Date(+p[0], +p[1] - 1, +p[2]); close(); insertChip("date", fmtDate(d), di.value); }
                 });
             } else {
-                var lbl = append(body, "div", "color:#64748b;margin-bottom:6px");
+                var lbl = append(body, "div", "", "rte-chip-field-label");
                 lbl.textContent = current === "person" ? "Name (or search):" : "URL:";
-                var input = append(body, "input", "width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px");
+                var input = append(body, "input", "", "rte-chip-input");
                 input.type = current === "link" ? "url" : "text";
                 input.placeholder = current === "person" ? "Jane Doe" : "https://example.com";
-                var results = append(body, "div", "margin-top:6px");
+                input.setAttribute("aria-label", current === "person" ? "Person chip name" : "Link chip URL");
+                var results = append(body, "div", "", "rte-chip-results");
+                results.setAttribute("role", "listbox");
+                results.setAttribute("aria-label", "Chip suggestions");
                 // BYOK resolver: live suggestions
                 if (config.chipResolver && typeof config.chipResolver === "function") {
                     input.oninput = function () {
@@ -27118,8 +28673,9 @@ function RTE_Plugin_SmartChips() {
                             if (p && p.then) p.then(function (list) {
                                 results.innerHTML = "";
                                 (list || []).slice(0, 6).forEach(function (it) {
-                                    var r = append(results, "button", "display:block;width:100%;text-align:left;padding:5px 8px;border:0;background:#f8fafc;border-radius:5px;margin-top:3px;cursor:pointer", "");
+                                    var r = append(results, "button", "", "rte-chip-suggestion");
                                     r.type = "button"; r.textContent = it.label || it.value;
+                                    r.setAttribute("role", "option");
                                     r.onclick = function () { close(); insertChip(current, it.label || it.value, it.value || it.label, it.href); };
                                 });
                             });
@@ -27149,8 +28705,8 @@ function RTE_Plugin_SmartChips() {
             }
         }
         function addInsert(fn) {
-            var foot = append(body, "div", "display:flex;justify-content:flex-end;margin-top:10px");
-            var ok = append(foot, "button", "padding:6px 14px;border:1px solid #1d67ba;border-radius:6px;background:#1d67ba;color:#fff;cursor:pointer");
+            var foot = append(body, "div", "", "rte-chip-dialog-footer");
+            var ok = append(foot, "button", "", "rte-chip-action rte-chip-action-primary");
             ok.type = "button"; ok.textContent = "Insert"; ok.onclick = fn;
         }
         highlight(); renderBody();
@@ -27158,11 +28714,11 @@ function RTE_Plugin_SmartChips() {
 
     function injectStyles() {
         var css = [
-            ".rte-chip{display:inline-flex;align-items:center;gap:4px;padding:1px 8px 1px 6px;margin:0 1px;border-radius:11px;background:#eef2ff;color:#3730a3;font-size:.92em;line-height:1.5;white-space:nowrap;text-decoration:none;vertical-align:baseline;cursor:default;user-select:none}",
-            ".rte-chip-icon{display:inline-flex;align-items:center;opacity:.85}",
-            ".rte-chip-date{background:#ecfeff;color:#0e7490}",
-            ".rte-chip-person{background:#eef2ff;color:#3730a3}",
-            ".rte-chip-link{background:#f0fdf4;color:#15803d;cursor:pointer}",
+            ".rte-chip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px 2px 6px;margin:0 1px;border:1px solid rgba(100,116,139,.16);border-radius:999px;background:linear-gradient(180deg,#f8fbff,#eef4ff);color:#315277;font-size:.92em;line-height:1.45;white-space:nowrap;text-decoration:none;vertical-align:baseline;cursor:default;user-select:none;box-shadow:0 1px 2px rgba(15,23,42,.06)}",
+            ".rte-chip-icon{display:inline-flex;align-items:center;opacity:.9}",
+            ".rte-chip-date{background:linear-gradient(180deg,#f0fdff,#e6f8fb);color:#0e7490;border-color:rgba(14,116,144,.18)}",
+            ".rte-chip-person{background:linear-gradient(180deg,#f6f7ff,#eef2ff);color:#3730a3;border-color:rgba(55,48,163,.18)}",
+            ".rte-chip-link{background:linear-gradient(180deg,#f5fff8,#ecfdf4);color:#15803d;border-color:rgba(21,128,61,.18);cursor:pointer}",
             ".rte-chip-link:hover{text-decoration:underline}"
         ].join("\n");
         try {
@@ -27546,10 +29102,15 @@ function RTE_Plugin_TrackedChanges() {
             rejectAll: function (filter) { return rejectAll(filter); },
             accept: function (id) { return acceptEntry(id); },
             reject: function (id) { return rejectEntry(id); },
-            list: function () {
+            list: function (opts) {
                 if (!editor.reviewLedger) return [];
+                // Default to the PENDING review queue (matches the internal
+                // accept/reject semantics). Pass {all:true} for full history
+                // including accepted/rejected entries (also via reviewLedger.list()).
+                var includeAll = opts && opts.all === true;
                 return editor.reviewLedger.list().filter(function (e) {
-                    return e.changeType === "insert" || e.changeType === "delete";
+                    if (e.changeType !== "insert" && e.changeType !== "delete") return false;
+                    return includeAll || e.status === "pending";
                 });
             }
         };
@@ -27562,6 +29123,8 @@ function RTE_Plugin_TrackedChanges() {
             btn.__tcSync = function () {
                 if (enabled) btn.classList.add("rte-ui-active");
                 else btn.classList.remove("rte-ui-active");
+                btn.setAttribute("aria-pressed", enabled ? "true" : "false");
+                btn.setAttribute("title", enabled ? "Suggesting mode is on" : "Turn on suggesting mode");
             };
             btn.__tcSync();
             return btn;
@@ -27637,9 +29200,11 @@ function RTE_Plugin_TrackedChanges() {
         var range = sel.getRangeAt(0);
         if (!range.collapsed) {
             // Selection replace: wrap selection as delete, then insert new text.
-            wrapRangeAsDelete(range);
+            if (!wrapRangeAsDelete(range)) return;
             // After wrapping, caret should be past the delete span; re-fetch selection.
             range = sel.getRangeAt(0);
+            createInsertSpan(text, range);
+            return;
         }
 
         var mergeTarget = adjacentInsertSpan(range);
@@ -27887,11 +29452,11 @@ function RTE_Plugin_TrackedChanges() {
     }
 
     function wrapRangeAsDelete(range) {
-        if (range.collapsed) return;
+        if (range.collapsed) return false;
         var editdoc = editor.getDocument();
 
         var fragment = range.cloneContents();
-        if (!fragmentHasText(fragment)) return;
+        if (!fragmentHasText(fragment)) return false;
 
         // Find existing same-author delete spans adjacent to the range so we can merge
         // sequential backspaces / forward deletes into one contiguous span.
@@ -27925,7 +29490,7 @@ function RTE_Plugin_TrackedChanges() {
             if (beforeId && editor.reviewLedger) {
                 editor.reviewLedger.update(beforeId, { text: mergeBefore.textContent });
             }
-            return;
+            return true;
         }
 
         if (mergeAfter) {
@@ -27941,7 +29506,7 @@ function RTE_Plugin_TrackedChanges() {
             if (afterMergeId && editor.reviewLedger) {
                 editor.reviewLedger.update(afterMergeId, { text: mergeAfter.textContent });
             }
-            return;
+            return true;
         }
 
         var span = editdoc.createElement("span");
@@ -27972,6 +29537,7 @@ function RTE_Plugin_TrackedChanges() {
             sourceLabel: "Suggested delete",
             createdAt: Date.now()
         });
+        return true;
     }
 
     function adjacentDeleteSpan(range, side, user) {
@@ -28124,10 +29690,12 @@ function RTE_Plugin_TrackedChanges() {
             var style = host.createElement("style");
             style.setAttribute("data-rte-trackchanges", "1");
             style.textContent = [
-                ".richtexteditor rte-toolbar-button.rte_command_trackchanges.rte-ui-active{background:#eef2ff;color:#1e3a8a;box-shadow:inset 0 0 0 1px rgba(30,58,138,.25)}",
-                ".rte-tc{border-radius:2px;padding:0 1px}",
-                ".rte-tc-insert{text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:2px}",
-                ".rte-tc-delete{text-decoration:line-through;opacity:.85}"
+                ".richtexteditor rte-toolbar-button.rte_command_trackchanges{position:relative;border-radius:8px;transition:background .14s ease,color .14s ease,box-shadow .14s ease}",
+                ".richtexteditor rte-toolbar-button.rte_command_trackchanges.rte-ui-active{background:linear-gradient(135deg,#e9f7ef,#eef5ff);color:#17633f;box-shadow:inset 0 0 0 1px rgba(34,132,82,.28),0 6px 14px rgba(34,132,82,.12)}",
+                ".richtexteditor rte-toolbar-button.rte_command_trackchanges.rte-ui-active:after{content:'';position:absolute;right:5px;top:5px;width:6px;height:6px;border-radius:50%;background:#22a66a;box-shadow:0 0 0 2px #fff}",
+                ".rte-tc{border-radius:4px;padding:0 2px;box-decoration-break:clone;-webkit-box-decoration-break:clone}",
+                ".rte-tc-insert{background:linear-gradient(180deg,rgba(232,248,239,.78),rgba(232,248,239,.38));color:#125b39;text-decoration:underline;text-decoration-color:#22a66a;text-decoration-thickness:2px;text-underline-offset:3px}",
+                ".rte-tc-delete{background:linear-gradient(180deg,rgba(255,240,240,.82),rgba(255,240,240,.42));color:#9f1d1d;text-decoration:line-through;text-decoration-color:#dc4c4c;text-decoration-thickness:2px;opacity:.92}"
             ].join("\n");
             host.head.appendChild(style);
         }
@@ -28137,9 +29705,9 @@ function RTE_Plugin_TrackedChanges() {
             var iStyle = editdoc.createElement("style");
             iStyle.setAttribute("data-rte-trackchanges-inline", "1");
             iStyle.textContent = [
-                ".rte-tc{border-radius:2px;padding:0 1px}",
-                ".rte-tc-insert{text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:2px}",
-                ".rte-tc-delete{text-decoration:line-through;opacity:.85}"
+                ".rte-tc{border-radius:4px;padding:0 2px;box-decoration-break:clone;-webkit-box-decoration-break:clone}",
+                ".rte-tc-insert{background:linear-gradient(180deg,rgba(232,248,239,.78),rgba(232,248,239,.38));color:#125b39;text-decoration:underline;text-decoration-color:#22a66a;text-decoration-thickness:2px;text-underline-offset:3px}",
+                ".rte-tc-delete{background:linear-gradient(180deg,rgba(255,240,240,.82),rgba(255,240,240,.42));color:#9f1d1d;text-decoration:line-through;text-decoration-color:#dc4c4c;text-decoration-thickness:2px;opacity:.92}"
             ].join("\n");
             editdoc.head.appendChild(iStyle);
         }
@@ -28352,6 +29920,179 @@ function RTE_Plugin_Typewriter() {
 
 if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
 
+// 2026-06-09 Export to Word. Closes the "no Word export" gap vs CKEditor /
+// TinyMCE (both gate Word export behind premium). Library-free: wraps the
+// document's HTML in a Word-compatible HTML container (MSO namespaces + print
+// view + @page setup) and downloads it as a .doc, which Microsoft Word and
+// LibreOffice open natively with formatting, tables, images, and lists intact.
+// Read-only exporter — never mutates the document. Uses editor.getHTMLCode(),
+// which already strips runtime-only classes, so the export is clean.
+//
+// API:
+//   editor.getWordDocument(options)        -> full Word-compatible HTML string
+//   editor.exportToWord(filename, options) -> downloads <filename>.doc
+//   editor.downloadWord(filename, options)  (alias)
+// Toolbar/command: exec_command "exportword". Slash: "/export word".
+// Config:
+//   config.wordExport = false                  // disable
+//   config.wordExportFileName = "report"        // default base name
+//   config.wordExportFontFamily = "Calibri, sans-serif"
+//   config.wordExportFontSize = "11pt"
+//   config.wordExportPageSize = "8.5in 11in"    // @page size (Letter default; "21cm 29.7cm" for A4)
+//   config.wordExportMargin = "1in"
+//   config.wordExportLandscape = false
+RTE_DefaultConfig.plugin_wordexport = RTE_Plugin_WordExport;
+if (typeof RTE_DefaultConfig.wordExport === "undefined") RTE_DefaultConfig.wordExport = true;
+
+function RTE_Plugin_WordExport() {
+    var obj = this;
+    var config, editor;
+
+    obj.PluginName = "WordExport";
+
+    obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+        if (config.wordExport === false) return;
+
+        // getWordDocument(options): the full Word-compatible HTML string.
+        editor.getWordDocument = function (options) { return buildWordHtml(options || {}); };
+
+        // exportToWord(filename, options): download as <filename>.doc.
+        editor.exportToWord = function (filename, options) {
+            var html = buildWordHtml(options || {});
+            var base = sanitizeName(filename) || sanitizeName(config.wordExportFileName) || defaultBase();
+            return triggerDownload(html, base + ".doc");
+        };
+        editor.downloadWord = editor.exportToWord;
+
+        editor.attachEvent("exec_command_exportword", function (state) {
+            state.returnValue = true;
+            state.stopBubble = true;
+            try { editor.exportToWord(); } catch (e) { if (window.console) console.error("wordexport:", e); }
+        });
+
+        // Discoverable as a slash command when the slash plugin is present.
+        if (editor.slashCommands && typeof editor.slashCommands.register === "function") {
+            try {
+                editor.slashCommands.register({
+                    id: "export-word",
+                    title: "Export to Word",
+                    description: "Download the document as a .doc Word file",
+                    keywords: ["word", "doc", "docx", "export", "download"],
+                    run: function () { editor.exportToWord(); }
+                });
+            } catch (e) {}
+        }
+    };
+
+    function esc(s) {
+        return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    function bodyHtml() {
+        // getHTMLCode() yields the serialized, runtime-class-free document HTML.
+        if (editor && typeof editor.getHTMLCode === "function") {
+            var h = editor.getHTMLCode();
+            if (h != null) return h;
+        }
+        var ed = editor && editor.getEditable ? editor.getEditable() : null;
+        return ed ? ed.innerHTML : "";
+    }
+
+    function buildWordHtml(options) {
+        var font = options.fontFamily || config.wordExportFontFamily || "Calibri, 'Segoe UI', Arial, sans-serif";
+        var fontSize = options.fontSize || config.wordExportFontSize || "11pt";
+        var pageSize = options.pageSize || config.wordExportPageSize || "8.5in 11in";
+        var margin = options.margin || config.wordExportMargin || "1in";
+        var landscape = (typeof options.landscape !== "undefined") ? options.landscape : config.wordExportLandscape;
+        var title = esc(options.title || documentTitle() || "Document");
+        var view = landscape ? "Print" : "Print";
+        var orientation = landscape ? "landscape" : "portrait";
+
+        // The MSO XML island tells Word to open in Print view at 100% zoom.
+        // @page controls paper size/margins; the base body style sets the
+        // default font. Inline styles in the body HTML take precedence, so the
+        // document's own formatting is preserved.
+        return "" +
+            "<!DOCTYPE html>\r\n" +
+            "<html xmlns:o=\"urn:schemas-microsoft-com:office:office\" " +
+            "xmlns:w=\"urn:schemas-microsoft-com:office:word\" " +
+            "xmlns=\"http://www.w3.org/TR/REC-html40\">\r\n" +
+            "<head>\r\n" +
+            "<meta charset=\"utf-8\">\r\n" +
+            "<meta name=\"ProgId\" content=\"Word.Document\">\r\n" +
+            "<title>" + title + "</title>\r\n" +
+            "<!--[if gte mso 9]><xml>\r\n" +
+            "<w:WordDocument><w:View>" + view + "</w:View><w:Zoom>100</w:Zoom>" +
+            "<w:DoNotOptimizeForBrowser/></w:WordDocument>\r\n" +
+            "</xml><![endif]-->\r\n" +
+            "<style>\r\n" +
+            "@page { size: " + esc(pageSize) + " " + orientation + "; margin: " + esc(margin) + "; }\r\n" +
+            "body { font-family: " + esc(font) + "; font-size: " + esc(fontSize) + "; color: #000; }\r\n" +
+            "table { border-collapse: collapse; }\r\n" +
+            "td, th { border: 1px solid #999; padding: 4px 8px; }\r\n" +
+            "img { max-width: 100%; height: auto; }\r\n" +
+            "blockquote { border-left: 3px solid #ccc; margin-left: 0; padding-left: 12px; color: #444; }\r\n" +
+            "pre { font-family: Consolas, 'Courier New', monospace; background: #f4f4f4; padding: 8px; }\r\n" +
+            "</style>\r\n" +
+            "</head>\r\n" +
+            "<body>\r\n" + bodyHtml() + "\r\n</body>\r\n</html>";
+    }
+
+    function documentTitle() {
+        try {
+            var ed = editor.getEditable();
+            if (ed) {
+                var h = ed.querySelector("h1,h2,h3");
+                if (h && h.textContent) return h.textContent.trim().slice(0, 80);
+            }
+        } catch (e) {}
+        return "";
+    }
+
+    function defaultBase() {
+        var t = documentTitle();
+        var clean = sanitizeName(t);
+        return clean || "document";
+    }
+
+    function sanitizeName(name) {
+        if (!name) return "";
+        // Strip control chars + filesystem-reserved characters, collapse spaces.
+        return String(name)
+            .replace(/[\\/:*?"<>| -]+/g, " ")
+            .replace(/\s+/g, " ")
+            .trim()
+            .slice(0, 80);
+    }
+
+    function triggerDownload(text, filename) {
+        try {
+            // Prefix a UTF-8 BOM so Word reads the encoding correctly.
+            var blob = new Blob(["﻿", text], { type: "application/msword;charset=utf-8" });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement("a");
+            a.href = url;
+            a.download = filename;
+            a.style.display = "none";
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(function () {
+                try { document.body.removeChild(a); } catch (e) {}
+                try { URL.revokeObjectURL(url); } catch (e) {}
+            }, 0);
+            return true;
+        } catch (e) {
+            if (window.console) console.error("wordexport download failed:", e);
+            return false;
+        }
+    }
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
 RTE_DefaultConfig.plugin_yjscollab = RTE_Plugin_YjsCollab;
 
 // Yjs collaboration — Option B scope:
@@ -28493,7 +30234,11 @@ function RTE_Plugin_YjsCollab() {
                     ydoc: doc,
                     provider: provider,
                     awareness: provider.awareness,
-                    fragmentName: options.fragmentName || "default"
+                    fragmentName: options.fragmentName || "default",
+                    // Forward the app's Yjs module so the engine builds nodes with
+                    // the SAME Yjs instance as `doc` (avoids the dual-Yjs
+                    // "Unexpected content type" crash). Falls back to window.Y.
+                    Y: options.Y || (typeof window !== "undefined" ? window.Y : null)
                 });
                 session.cleanup.push(function () {
                     try { session.crdtBinding && session.crdtBinding.dispose(); }
@@ -28951,8 +30696,12 @@ function RTE_Plugin_YjsCollab() {
 
             var caretEl = document.createElement("div");
             caretEl.className = "rte-collab-caret";
-            caretEl.style.left = (ir.left + rect.left + window.pageXOffset) + "px";
-            caretEl.style.top = (ir.top + rect.top + window.pageYOffset) + "px";
+            // Viewport coordinates (the overlay is position:fixed). Do NOT add
+            // pageX/YOffset: a page-absolute caret inside an absolute overlay on
+            // <body> extends document height on scrolled/tall pages and, with the
+            // scroll re-render below, runs away (host page ballooned to ~83000px).
+            caretEl.style.left = (ir.left + rect.left) + "px";
+            caretEl.style.top = (ir.top + rect.top) + "px";
             caretEl.style.height = (rect.height || 18) + "px";
             caretEl.style.background = peer.user.color;
 
@@ -29024,7 +30773,7 @@ function RTE_Plugin_YjsCollab() {
         var style = document.createElement("style");
         style.setAttribute("data-rte-collab", "1");
         style.textContent = [
-            ".rte-collab-overlay{position:absolute;top:0;left:0;pointer-events:none;z-index:2147482900}",
+            ".rte-collab-overlay{position:fixed;top:0;left:0;pointer-events:none;z-index:2147482900}",
             ".rte-collab-caret{position:absolute;width:2px;pointer-events:none}",
             ".rte-collab-caret-label{position:absolute;top:-18px;left:0;padding:1px 6px;border-radius:4px;color:#fff;font:10px/1.3 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;white-space:nowrap;font-weight:600;letter-spacing:.01em;box-shadow:0 1px 2px rgba(15,23,42,.15)}",
             ".rte-collab-presence{display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:10px 10px 0 0;background:#f4f7ff;border:1px solid rgba(71,85,155,.15);border-bottom:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#33506f;margin:0}",

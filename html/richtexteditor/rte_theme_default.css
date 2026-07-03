@@ -402,9 +402,9 @@ rte-resizecorner {
 }
 
 
-/* Compact selection float toolbar — sized like Google Docs/Notion (~33px tall).
-   Was: 5px padding + 30px buttons = 45px tall, reported as too big. Glyphs are
-   intentionally LARGE relative to the chrome: 19px icons in a 2px frame. */
+/* Compact selection float toolbar - sized like Google Docs/Notion (~31px tall).
+   Was: 5px padding + 30px buttons = 45px tall; keep the floating glyphs
+   smaller than the main toolbar so selection actions do not feel oversized. */
 rte-control-toolbar {
     display: inline-flex;
     align-items: center;
@@ -434,9 +434,9 @@ rte-control-toolbar {
 
 .rte-modern rte-control-toolbar rte-toolbar-button, .rte-modern rte-control-toolbar rte-toolbar-splitbutton, .rte-modern rte-control-toolbar rte-toolbar-dropdown {
     margin: 0;
-    border-radius: 7px;
-    width: 28px;
-    height: 27px;
+    border-radius: 6px;
+    width: 26px;
+    height: 25px;
     padding: 0;
     color: #334155;
     transition: background-color 120ms ease, color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
@@ -446,30 +446,30 @@ rte-control-toolbar {
 .rte-modern rte-control-toolbar rte-toolbar-splitbutton svg,
 .rte-modern rte-control-toolbar rte-toolbar-dropdown svg,
 .rte-modern rte-control-toolbar rte-toolbar-arrowbutton svg {
-    width: 19px !important;
-    height: 19px !important;
+    width: 16px !important;
+    height: 16px !important;
 }
 
 /* The global rte-line-spliter rule carries `margin: 10px auto !important`,
    which inflates the float toolbar's row height — neutralize it here. */
 .rte-modern rte-control-toolbar rte-line-spliter {
     margin: 0 2px !important;
-    height: 16px;
+    height: 14px;
 }
 
 .rte-modern rte-control-toolbar rte-toolbar-arrowbutton {
     margin: 0;
-    border-radius: 7px;
-    height: 27px;
-    width: 38px;
-    padding-right: 12px;
-    background-position: 25px 8px;
-    background-size: 11px 11px;
+    border-radius: 6px;
+    height: 25px;
+    width: 35px;
+    padding-right: 10px;
+    background-position: 23px 7px;
+    background-size: 10px 10px;
 }
 
 .rte-modern rte-control-toolbar rte-line-break {
     width: 1px;
-    height: 16px;
+    height: 14px;
     margin: 0 3px;
     background: rgba(148,163,184,.35);
 }
@@ -494,7 +494,7 @@ rte-control-toolbar {
 }
 
 rte-control-toolbar .rte-link-url-preview {
-    min-height: 30px;
+    min-height: 28px;
     border-radius: 999px;
     background: #f1f7ff;
     border: 1px solid rgba(29,103,186,.16);
@@ -4700,4 +4700,52 @@ rte-dropdown-panel .rte-dialog-button:active {
         border-color: rgba(96,165,250,.46);
         box-shadow: inset 0 0 0 1px rgba(96,165,250,.24);
     }
+}
+
+/* 2026-07-03 dialog top-chrome guard.
+   Dialogs must clear host sticky menus and also sit above editor dropdown
+   panels, which use a higher default z-index than config.zIndexDialog. */
+rte-dialog-outer,
+rte-dialog-float,
+.rte-alt-editor-popup,
+.rte-find-replace-dialog,
+.rte-ai-context-menu,
+.rte-image-quickbar {
+    --rte-dialog-effective-top-chrome: max(var(--rte-ai-sticky-top-offset, 0px), var(--rte-dialog-detected-top-chrome, 0px));
+}
+
+rte-dialog-outer {
+    top: max(0px, var(--rte-dialog-effective-top-chrome)) !important;
+    box-sizing: border-box;
+    padding: 12px;
+    overflow: auto;
+    overscroll-behavior: contain;
+    z-index: 2147483646 !important;
+}
+
+rte-dialog-outer rte-dialog-inner {
+    max-height: min(88vh, 760px, calc(100vh - max(32px, calc(var(--rte-dialog-effective-top-chrome) + 32px)))) !important;
+}
+
+rte-dialog-float {
+    top: max(12px, calc(var(--rte-dialog-effective-top-chrome) + 12px));
+    max-height: calc(100vh - max(32px, calc(var(--rte-dialog-effective-top-chrome) + 32px)));
+    z-index: 2147483646 !important;
+}
+
+rte-dialog-float rte-dialog-inner {
+    max-height: inherit;
+    overflow: auto;
+}
+
+.rte-alt-editor-popup,
+.rte-find-replace-dialog,
+.rte-ai-context-menu {
+    z-index: 2147483646 !important;
+}
+
+.rte-find-replace-dialog {
+    top: max(80px, calc(var(--rte-dialog-effective-top-chrome) + 12px)) !important;
+    max-height: calc(100vh - max(104px, calc(var(--rte-dialog-effective-top-chrome) + 32px)));
+    overflow: auto;
 }
