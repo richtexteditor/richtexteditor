@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://richtexteditor.com/docs/
+    about: Configuration reference, JavaScript API, guides
+  - name: Pre-sales & licensing questions
+    url: https://richtexteditor.com/support/
+    about: Live chat and email support
