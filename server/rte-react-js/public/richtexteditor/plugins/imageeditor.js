@@ -106,7 +106,13 @@ function RTE_Plugin_ImageEditor() {
 			btns.innerHTML = '';
 			var savebtn = __Append(btns, "button", "");
 			savebtn.innerText = "Save";
+			var status = __Append(btns, "div", "margin-left:10px;font-size:12px;color:#b42318;", "rte-imageeditor-upload-status");
+			status.setAttribute("role", "status");
+			status.setAttribute("aria-live", "polite");
 			savebtn.onclick = function () {
+				status.innerText = "";
+				savebtn.disabled = true;
+				savebtn.innerText = "Saving...";
 
 				var dataurl = imgeditor.toDataURL();
 				if (!config.file_upload_handler) {
@@ -125,13 +131,11 @@ function RTE_Plugin_ImageEditor() {
 						dialoginner.close();
 						return;
 					}
-					if (error) {
-						//TODO:retry dialog or cancel
-						alert("upload failed , TODO:show retry dialog or cancel");
-					}
-					else {
-						alert("Developer warning : ");
-					}
+					savebtn.disabled = false;
+					savebtn.innerText = "Save";
+					status.innerText = error
+						? "Upload failed. Check your connection and try again."
+						: "The upload did not return a file URL. Please try again.";
 				});
 
 

@@ -436,9 +436,8 @@ function RTE_Plugin_SlashCommand() {
         popupEl = popupHost.createElement("div");
         popupEl.className = "rte-slash-popup";
         // The popup is body-appended (outside the editor container), so the
-        // container's rte-dark class can't reach it via CSS. Mirror forced
-        // dark mode here; automatic (prefers-color-scheme) dark is handled by
-        // the media query in the injected stylesheet.
+        // container's rte-dark class can't reach it via CSS. Mirror only an
+        // explicit forced-dark editor; system color preference stays light.
         try {
             var host = editor.container || (editor.getEditable && editor.getEditable().closest && editor.getEditable().closest(".richtexteditor"));
             if (host && host.classList && host.classList.contains("rte-dark")) popupEl.className += " rte-slash-popup-dark";
@@ -641,20 +640,8 @@ function RTE_Plugin_SlashCommand() {
             ".rte-slash-item-desc{font-size:11px;color:#64748b;line-height:1.24;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
             ".rte-slash-item-active .rte-slash-item-desc{color:#315277}",
             ".rte-slash-empty{padding:16px;color:#52657e;font-size:12px;font-weight:700;text-align:center}",
-            // Dark mode — applied automatically via prefers-color-scheme, and via
-            // an explicit .rte-slash-popup-dark class set when the editor is in
-            // forced dark mode (the popup is body-appended, outside the editor
-            // container, so the container's .rte-dark class can't reach it).
-            "@media (prefers-color-scheme:dark){",
-            "  .rte-slash-popup{background:linear-gradient(180deg,#1e293b,#0f172a);border-color:#334155;color:#e2e8f0;box-shadow:0 20px 46px rgba(0,0,0,.5),0 2px 8px rgba(0,0,0,.4)}",
-            "  .rte-slash-section{background:linear-gradient(180deg,rgba(30,41,59,.98),rgba(30,41,59,.86));color:#94a3b8}",
-            "  .rte-slash-item:hover,.rte-slash-item-active{background:#1d4ed8;color:#fff}",
-            "  .rte-slash-item-icon{color:#cbd5e1;background:#0f172a;box-shadow:inset 0 0 0 1px rgba(148,163,184,.25)}",
-            "  .rte-slash-item-active .rte-slash-item-icon{color:#fff;background:#1e3a8a}",
-            "  .rte-slash-item-desc{color:#94a3b8}",
-            "  .rte-slash-item-active .rte-slash-item-desc{color:#dbeafe}",
-            "  .rte-slash-empty{color:#94a3b8}",
-            "}",
+            // The command menu remains light by default. Its explicit
+            // rte-slash-popup-dark rules below follow a forced-dark editor.
             ".rte-slash-popup-dark{background:linear-gradient(180deg,#1e293b,#0f172a);border-color:#334155;color:#e2e8f0;box-shadow:0 20px 46px rgba(0,0,0,.5),0 2px 8px rgba(0,0,0,.4)}",
             ".rte-slash-popup-dark .rte-slash-section{background:linear-gradient(180deg,rgba(30,41,59,.98),rgba(30,41,59,.86));color:#94a3b8}",
             ".rte-slash-popup-dark .rte-slash-item:hover,.rte-slash-popup-dark .rte-slash-item-active{background:#1d4ed8;color:#fff}",

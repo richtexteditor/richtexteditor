@@ -21,6 +21,10 @@ function RTE_Plugin_TrackedChanges() {
         config.currentUser = config.currentUser || null;
         config.trackChangesInsertClass = config.trackChangesInsertClass || "rte-tc rte-tc-insert";
         config.trackChangesDeleteClass = config.trackChangesDeleteClass || "rte-tc rte-tc-delete";
+        // Optional application policy for accept/reject. Return false to keep a
+        // suggestion pending. The default remains permissive for compatibility.
+        config.reviewCanDecide = config.reviewCanDecide || null;
+        config.onReviewDecisionDenied = config.onReviewDecisionDenied || null;
 
         // Toolbar command — only surfaces if the editor page adds it to a toolbar slot.
         config.text_trackchanges = config.text_trackchanges || "Suggesting mode";
@@ -45,6 +49,10 @@ function RTE_Plugin_TrackedChanges() {
             rejectAll: function (filter) { return rejectAll(filter); },
             accept: function (id) { return acceptEntry(id); },
             reject: function (id) { return rejectEntry(id); },
+            canDecide: function (id, action) {
+                var entry = editor.reviewLedger && editor.reviewLedger.get(id);
+                return !!entry && canDecide(entry, action || "accept");
+            },
             list: function (opts) {
                 if (!editor.reviewLedger) return [];
                 // Default to the PENDING review queue (matches the internal
@@ -562,29 +570,50 @@ function RTE_Plugin_TrackedChanges() {
 
     // --- accept / reject ---
 
+    function decisionUser() {
+        return config.currentUser || { id: "user", name: "User", color: "#2563eb" };
+    }
+
+    function canDecide(entry, action) {
+        if (typeof config.reviewCanDecide !== "function") return true;
+        var allowed = false;
+        var user = decisionUser();
+        try { allowed = config.reviewCanDecide(entry, action, user, editor) !== false; }
+        catch (err) {
+            console.warn("trackedchanges: reviewCanDecide threw; denying decision.", err);
+        }
+        if (allowed) return true;
+        var detail = { entry: entry, action: action, user: user };
+        try { typeof config.onReviewDecisionDenied === "function" && config.onReviewDecisionDenied(detail); } catch (ignore) { }
+        try { typeof editor.fireEvent === "function" && editor.fireEvent("review_decision_denied", detail); } catch (ignore2) { }
+        return false;
+    }
+
     function acceptEntry(id) {
         var entry = editor.reviewLedger.get(id);
         if (!entry) return false;
+        if (!canDecide(entry, "accept")) return false;
         var span = editor.getEditable().querySelector('[data-tc-id="' + cssEscape(id) + '"]');
         if (entry.changeType === "insert") {
             if (span) unwrapKeepChildren(span);
         } else if (entry.changeType === "delete") {
             if (span) span.remove();
         }
-        editor.reviewLedger.update(id, { status: "accepted", decidedAt: Date.now() });
+        editor.reviewLedger.update(id, { status: "accepted", decidedAt: Date.now(), decidedBy: decisionUser() });
         return true;
     }
 
     function rejectEntry(id) {
         var entry = editor.reviewLedger.get(id);
         if (!entry) return false;
+        if (!canDecide(entry, "reject")) return false;
         var span = editor.getEditable().querySelector('[data-tc-id="' + cssEscape(id) + '"]');
         if (entry.changeType === "insert") {
             if (span) span.remove();
         } else if (entry.changeType === "delete") {
             if (span) unwrapKeepChildren(span);
         }
-        editor.reviewLedger.update(id, { status: "rejected", decidedAt: Date.now() });
+        editor.reviewLedger.update(id, { status: "rejected", decidedAt: Date.now(), decidedBy: decisionUser() });
         return true;
     }
 
@@ -592,16 +621,18 @@ function RTE_Plugin_TrackedChanges() {
         var entries = editor.reviewLedger.list(filter).filter(function (e) {
             return (e.changeType === "insert" || e.changeType === "delete") && e.status === "pending";
         });
-        for (var i = 0; i < entries.length; i++) acceptEntry(entries[i].id);
-        return entries.length;
+        var accepted = 0;
+        for (var i = 0; i < entries.length; i++) if (acceptEntry(entries[i].id)) accepted++;
+        return accepted;
     }
 
     function rejectAll(filter) {
         var entries = editor.reviewLedger.list(filter).filter(function (e) {
             return (e.changeType === "insert" || e.changeType === "delete") && e.status === "pending";
         });
-        for (var i = 0; i < entries.length; i++) rejectEntry(entries[i].id);
-        return entries.length;
+        var rejected = 0;
+        for (var i = 0; i < entries.length; i++) if (rejectEntry(entries[i].id)) rejected++;
+        return rejected;
     }
 
     function unwrapKeepChildren(el) {

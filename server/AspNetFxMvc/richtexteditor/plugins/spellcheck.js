@@ -62,6 +62,8 @@ function RTE_Plugin_SpellCheck() {
             var host = editable.ownerDocument;
             var t = host.createElement("div");
             t.className = "rte-spell-toast";
+            t.setAttribute("role", "status");
+            t.setAttribute("aria-live", "polite");
             t.textContent = msg;
             host.body.appendChild(t);
             setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 2600);
@@ -111,7 +113,7 @@ function RTE_Plugin_SpellCheck() {
             "rte-dialog-spell"
         );
         var close = typeof dlg.close === "function" ? function () { dlg.close(); } : function () { editor.closeCurrentPopup(); };
-        var wrap = append(dlg, "div", "padding:14px;min-width:420px;max-height:60vh;overflow:auto;font:13px -apple-system,Segoe UI,sans-serif");
+        var wrap = append(dlg, "div", "box-sizing:border-box;width:min(420px,calc(100vw - 32px));max-height:60vh;overflow:auto;padding:14px;font:13px -apple-system,Segoe UI,sans-serif");
         var status = append(wrap, "div", "color:#64748b;margin-bottom:8px");
         status.innerText = "Checking…";
         var list = append(wrap, "div", "");
@@ -134,7 +136,7 @@ function RTE_Plugin_SpellCheck() {
                     append(sug, "span", "font-size:12px;color:#94a3b8").textContent = "(no suggestions)";
                 }
                 suggestions.forEach(function (s) {
-                    var chip = append(sug, "button", "font-size:12px;padding:3px 10px;border:1px solid #cbd5e1;border-radius:14px;background:#f8fafc;cursor:pointer");
+                    var chip = append(sug, "button", "font-size:12px;padding:4px 9px;border:1px solid #cbd5e1;border-radius:6px;background:#f8fbff;color:#315277;cursor:pointer");
                     chip.type = "button";
                     chip.textContent = s;
                     chip.onclick = function () {
@@ -165,7 +167,8 @@ function RTE_Plugin_SpellCheck() {
 
     function injectStyles() {
         var css = [
-            ".rte-spell-toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#0f172a;color:#fff;padding:8px 16px;border-radius:8px;font:13px -apple-system,Segoe UI,sans-serif;z-index:2147483600;box-shadow:0 8px 24px rgba(15,23,42,.28)}",
+            "/* 2026-07-12 spell-check feedback precision */",
+            ".rte-spell-toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);max-width:calc(100vw - 32px);padding:9px 12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#172033;font:600 13px/1.35 -apple-system,Segoe UI,sans-serif;z-index:2147483600;box-shadow:0 10px 24px rgba(15,23,42,.14)}",
             ".rte-spell-row:last-child{border-bottom:0}"
         ].join("\n");
         try {

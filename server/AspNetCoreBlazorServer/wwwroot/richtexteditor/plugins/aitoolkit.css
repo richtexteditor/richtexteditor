@@ -110,6 +110,7 @@
 }
 
 .richtexteditor .rte-ai-chat-panel {
+    /* 2026-07-12 AI surface precision */
     position: absolute;
     top: 48px;
     right: 12px;
@@ -124,7 +125,7 @@
     grid-template-rows: auto auto auto auto minmax(180px, 1fr) auto auto;
     gap: 10px;
     padding: 12px;
-    border-radius: 14px;
+    border-radius: 8px;
     border: 1px solid rgba(28, 42, 59, 0.12);
     background: rgba(255, 255, 255, 0.98);
     box-shadow: 0 14px 32px rgba(15, 23, 42, 0.14);
@@ -143,7 +144,7 @@
     grid-template-rows: auto auto auto minmax(0, 1fr);
     gap: 10px;
     padding: 12px;
-    border-radius: 14px;
+    border-radius: 8px;
     border: 1px solid rgba(28, 42, 59, 0.12);
     background: rgba(255, 255, 255, 0.98);
     box-shadow: 0 14px 32px rgba(15, 23, 42, 0.14);
@@ -173,7 +174,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border-radius: 999px;
+    border-radius: 8px;
     color: #1559d6;
     background: linear-gradient(180deg, #f8fbff 0%, #e8f3ff 100%);
     box-shadow: inset 0 0 0 1px rgba(21, 89, 214, 0.14);
@@ -211,7 +212,7 @@
     gap: 14px;
     align-items: center;
     padding: 12px;
-    border-radius: 20px;
+    border-radius: 8px;
     border: 1px solid rgba(20, 36, 58, 0.08);
     background:
         radial-gradient(circle at top right, rgba(124, 58, 237, 0.08), transparent 32%),
@@ -231,7 +232,7 @@
 .rte-panel-aiassist .rte-ai-hero-media {
     position: relative;
     height: 88px;
-    border-radius: 16px;
+    border-radius: 8px;
     overflow: hidden;
     background: linear-gradient(135deg, #dbeafe 0%, #ede9fe 100%);
     box-shadow: 0 12px 28px rgba(37, 99, 235, 0.16);
@@ -286,7 +287,7 @@
     padding: 0;
     margin: 0;
     border: 1px solid rgba(28, 42, 59, 0.12);
-    border-radius: 999px;
+    border-radius: 7px;
     background: #ffffff;
     color: #475569;
     cursor: pointer;
@@ -439,7 +440,7 @@
 
 .richtexteditor .rte-ai-chat-empty {
     padding: 10px 12px;
-    border-radius: 10px;
+    border-radius: 8px;
     background: #f8fafc;
     border: 1px dashed rgba(28, 42, 59, 0.14);
     color: #64758a;
@@ -451,7 +452,7 @@
     display: grid;
     gap: 6px;
     padding: 10px 12px;
-    border-radius: 12px;
+    border-radius: 8px;
     border: 1px solid rgba(28, 42, 59, 0.08);
     background: #f9fbff;
 }
@@ -501,7 +502,7 @@
     min-height: 88px;
     padding: 11px 12px;
     border: 1px solid rgba(28, 42, 59, 0.12);
-    border-radius: 14px;
+    border-radius: 8px;
     background: #fcfdff;
     font: inherit;
     font-size: 13px;
@@ -15827,4 +15828,59 @@ rte-dialog-outer.rte-panel-aiassist {
 
 .richtexteditor.rte-ai-review-host {
     z-index: 2147483646 !important;
+}
+
+/* 2026-07-12 AI surface precision. Keep the assistant visually aligned with
+   the editor and, critically, reserve the top stack layer for modal dialogs. */
+.richtexteditor .rte-ai-chat-panel,
+.richtexteditor .rte-ai-review-panel {
+    border-color: #d8e1ee;
+    background: #ffffff;
+    box-shadow: 0 16px 38px rgba(15, 23, 42, 0.15);
+}
+
+.richtexteditor .rte-ai-hero,
+.rte-panel-aiassist .rte-ai-hero {
+    border-radius: 8px;
+    background: #f8fbff;
+    box-shadow: none;
+}
+
+.richtexteditor .rte-ai-hero-media,
+.rte-panel-aiassist .rte-ai-hero-media {
+    border-radius: 6px;
+    box-shadow: none;
+}
+
+.demo-ai-inline-hint.demo-ai-inline-hint-version {
+    background: #eef5ff;
+    color: #1d67ba;
+}
+
+/* Modal dialogs use 2147483646 in the shared theme. The review panel and
+   its host must remain below that layer so an active assistant cannot cover
+   a dialog header or close button. */
+.richtexteditor .rte-ai-review-panel {
+    z-index: 2147483645 !important;
+}
+
+.richtexteditor.rte-ai-review-host {
+    z-index: 2147483644 !important;
+}
+
+/* The main toolbar uses 28px controls, while selection controls are a compact
+   26 by 25px. Do not let the AI command expand the selection quickbar. */
+.richtexteditor rte-control-toolbar rte-toolbar-button.rte_command_aiassist {
+    width: 26px !important;
+    height: 25px !important;
+    min-width: 26px !important;
+    min-height: 25px !important;
+}
+
+/* Keep the padded Ask AI surface inside a narrow viewport. Older theme rules
+   set a viewport-based width on the content box, which could exceed the
+   available width once the dialog's horizontal padding was added. */
+.rte-panel-aiassist rte-dialog-inner {
+    box-sizing: border-box;
+    max-width: 100%;
 }

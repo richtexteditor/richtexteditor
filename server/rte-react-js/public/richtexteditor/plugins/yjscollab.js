@@ -2,12 +2,10 @@ if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
 
 RTE_DefaultConfig.plugin_yjscollab = RTE_Plugin_YjsCollab;
 
-// Yjs collaboration — Option B scope:
+// Yjs collaboration:
 //   • Awareness (live cursors + presence)
 //   • Shared reviewLedger (AI suggestions, tracked changes, comments all sync)
-//
-// NOT in scope:
-//   • Concurrent text editing (no content-level CRDT binding — see v1.1 / Option C)
+//   • Opt-in per-node content CRDT via textSync: "crdt" and crdt-engine.js
 //
 // Yjs is a PEER DEPENDENCY. Customers load Y.Doc + a provider themselves; this plugin
 // binds to whatever they pass in.
@@ -41,6 +39,7 @@ function RTE_Plugin_YjsCollab() {
             detach: function () { return detach(); },
             isAttached: function () { return !!session; },
             getSession: function () { return session; },
+            getStatus: function () { return getStatus(); },
             peers: function () { return session ? getRemotePeers() : []; },
             setUser: function (user) { if (session) updateLocalUser(user); }
         };
@@ -80,6 +79,7 @@ function RTE_Plugin_YjsCollab() {
                 : (config.collabTextSync === true);
         }
         var textSyncMode;       // "off" | "legacy" | "crdt"
+        var fallbackReason = null;
         var textMap = null;
         var crdtBinding = null;
         if (requestedTextSync === "crdt") {
@@ -87,9 +87,11 @@ function RTE_Plugin_YjsCollab() {
             if (Crdt && typeof Crdt.attachCrdtBinding === "function") {
                 textSyncMode = "crdt";
             } else {
-                console.warn("yjscollab: textSync \"crdt\" requested but richtexteditor/plugins/crdt-engine.js is not loaded — falling back to legacy snapshot mode.");
-                textSyncMode = "legacy";
-                textMap = doc.getText(config.collabTextName || "richtextbox.body");
+                fallbackReason = "crdt-engine-unavailable";
+                textSyncMode = options.requireCrdt || config.collabRequireCrdt ? "off" : "legacy";
+                if (textSyncMode === "legacy") {
+                    textMap = doc.getText(config.collabTextName || "richtextbox.body");
+                }
             }
         } else if (requestedTextSync === true) {
             textSyncMode = "legacy";
@@ -106,6 +108,8 @@ function RTE_Plugin_YjsCollab() {
             textMap: textMap,
             textSyncEnabled: textSyncMode !== "off",
             textSyncMode: textSyncMode,
+            requestedTextSync: requestedTextSync || false,
+            fallbackReason: fallbackReason,
             crdtBinding: crdtBinding,
             user: user,
             cleanup: []
@@ -152,10 +156,15 @@ function RTE_Plugin_YjsCollab() {
                     catch (ignore) { }
                 });
             } catch (err) {
-                console.warn("yjscollab: CRDT engine attach failed; falling back to legacy mode.", err);
-                session.textSyncMode = "legacy";
-                session.textMap = doc.getText(config.collabTextName || "richtextbox.body");
-                wireTextSync();
+                session.fallbackReason = "crdt-attach-failed";
+                session.crdtError = err;
+                if (options.requireCrdt || config.collabRequireCrdt) {
+                    session.textSyncMode = "off";
+                } else {
+                    session.textSyncMode = "legacy";
+                    session.textMap = doc.getText(config.collabTextName || "richtextbox.body");
+                    wireTextSync();
+                }
             }
         } else if (session.textSyncMode === "legacy" && session.textMap) {
             wireTextSync();
@@ -167,7 +176,36 @@ function RTE_Plugin_YjsCollab() {
         renderPresence();
         renderRemoteCursors();
 
+        notifyStatus();
+
         return session;
+    }
+
+    function getStatus() {
+        if (!session) {
+            return { attached: false, textSyncMode: "off", requestedTextSync: false, fallbackReason: null };
+        }
+        return {
+            attached: true,
+            textSyncMode: session.textSyncMode,
+            requestedTextSync: session.requestedTextSync,
+            fallbackReason: session.fallbackReason || null,
+            peerCount: getRemotePeers().length
+        };
+    }
+
+    function notifyStatus() {
+        var status = getStatus();
+        if (status.fallbackReason) {
+            var modeNote = status.textSyncMode === "legacy"
+                ? " Falling back to legacy snapshot synchronization."
+                : " Content synchronization is disabled; presence and the review ledger remain active.";
+            console.warn("yjscollab: " + status.fallbackReason + "." + modeNote);
+        }
+        var callback = config.onCollabStatus;
+        if (typeof callback === "function") {
+            try { callback(status); } catch (ignore) { }
+        }
     }
 
     function detach() {

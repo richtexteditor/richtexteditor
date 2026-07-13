@@ -27,6 +27,8 @@
         white-space: nowrap;
         -webkit-overflow-scrolling: touch;
         touch-action: pan-x;
+        scroll-snap-type: x proximity;
+        scroll-padding-inline: 4px;
         scrollbar-width: none;
         position: sticky;
         top: 0;
@@ -45,6 +47,7 @@
         align-items: center;
         flex: 0 0 auto;
         min-width: 0;
+        scroll-snap-align: start;
     }
 
     /* 2026-07-02 mobile toolbar polish. Keep tap targets large, but make the
@@ -129,7 +132,8 @@
         bottom: 0 !important;
         top: auto !important;
         box-sizing: border-box;
-        width: 100vw;
+        width: auto;
+        max-width: 100vw;
         max-height: min(60vh, calc(100vh - 24px));
         border-top-left-radius: 8px;
         border-top-right-radius: 8px;
@@ -138,10 +142,12 @@
         background: #fff;
         background-clip: padding-box;
         box-shadow: 0 -12px 32px rgba(15, 23, 42, 0.12);
-        padding: 10px 8px 22px;
+        padding: 10px 8px max(22px, calc(env(safe-area-inset-bottom, 0px) + 12px));
         overflow-y: auto;
         overscroll-behavior: contain;
-        z-index: 2147483647;
+        /* Modal dialogs use 2147483646 in the shared theme. A dropdown sheet
+           must stay beneath that layer so it cannot cover a dialog header. */
+        z-index: 2147483645;
     }
 
     .richtexteditor.rte-mobile rte-floattoolbar,
@@ -202,21 +208,21 @@
     }
 
     @media (prefers-color-scheme: dark) {
-        .richtexteditor.rte-mobile:not(.rte-light) rte-toolbar.rte-toolbar-mobile {
+        .richtexteditor.rte-auto-dark.rte-mobile:not(.rte-light) rte-toolbar.rte-toolbar-mobile {
             background: var(--rte-surface-raised, #1e293b);
         }
 
-        .richtexteditor.rte-mobile:not(.rte-light) rte-toolbar-button,
-        .richtexteditor.rte-mobile:not(.rte-light) rte-toolbar-splitbutton,
-        .richtexteditor.rte-mobile:not(.rte-light) rte-toolbar-dropdown,
-        .richtexteditor.rte-mobile:not(.rte-light) rte-toolbar-arrowbutton {
+        .richtexteditor.rte-auto-dark.rte-mobile:not(.rte-light) rte-toolbar-button,
+        .richtexteditor.rte-auto-dark.rte-mobile:not(.rte-light) rte-toolbar-splitbutton,
+        .richtexteditor.rte-auto-dark.rte-mobile:not(.rte-light) rte-toolbar-dropdown,
+        .richtexteditor.rte-auto-dark.rte-mobile:not(.rte-light) rte-toolbar-arrowbutton {
             color: var(--rte-icon-color, #cbd5e1);
         }
 
-        .richtexteditor.rte-mobile:not(.rte-light) rte-toolbar-button.rte-command-active,
-        .richtexteditor.rte-mobile:not(.rte-light) rte-toolbar-splitbutton.rte-command-active,
-        .richtexteditor.rte-mobile:not(.rte-light) rte-toolbar-dropdown.rte-command-active,
-        .richtexteditor.rte-mobile:not(.rte-light) rte-toolbar-arrowbutton.rte-command-active {
+        .richtexteditor.rte-auto-dark.rte-mobile:not(.rte-light) rte-toolbar-button.rte-command-active,
+        .richtexteditor.rte-auto-dark.rte-mobile:not(.rte-light) rte-toolbar-splitbutton.rte-command-active,
+        .richtexteditor.rte-auto-dark.rte-mobile:not(.rte-light) rte-toolbar-dropdown.rte-command-active,
+        .richtexteditor.rte-auto-dark.rte-mobile:not(.rte-light) rte-toolbar-arrowbutton.rte-command-active {
             color: #bfdbfe;
             background-color: #1e3a5f;
             border-color: rgba(96,165,250,.46);

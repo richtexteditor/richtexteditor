@@ -28,11 +28,24 @@
 		\****************************************************************/
 
 
+		var _colorPickerMemoryStore = {};
 		function SetCookie(name, value, seconds) {
-			localStorage.setItem("rte-" + name, value);
+			var key = "rte-" + name;
+			try {
+				localStorage.setItem(key, value);
+			}
+			catch (e) {
+				_colorPickerMemoryStore[key] = String(value);
+			}
 		}
 		function GetCookie(name) {
-			return localStorage.getItem("rte-" + name);
+			var key = "rte-" + name;
+			try {
+				return localStorage.getItem(key);
+			}
+			catch (e) {
+				return _colorPickerMemoryStore[key] || null;
+			}
 		}
 		function GetCookieDictionary() {
 			var dict = {};
@@ -126,13 +139,11 @@
 			if (span) span.value = color;
 		}
 		function do_saverecent(color) {
-			if (!color) return;
-			if (color.length != 7) return;
-			if (color.substring(0, 1) != "#") return;
-			var hex = color.substring(1, 7);
+			var hex = normalizeHexInput(color);
+			if (!hex) return;
 			var recent = GetCookie("RecentColors");
-			console.log("load recent", recent);
 			if (!recent) recent = "";
+			recent = recent.toUpperCase();
 			if ((recent.length % 6) != 0) recent = "";
 			for (var i = 0; i < recent.length; i += 6) {
 				if (recent.substr(i, 6) == hex) {
@@ -143,9 +154,32 @@
 			if (recent.length > 31 * 6)
 				recent = recent.substr(0, 31 * 6);
 			recent = hex + recent;
-			//alert(recent);
 			SetCookie("RecentColors", recent, 60 * 60 * 24 * 365);
-			console.log("save recent", recent);
+		}
+
+		function normalizeHexInput(value) {
+			if (value === null || value === undefined) return null;
+			var color = String(value).replace(/^\s+|\s+$/g, "");
+			if (color.substring(0, 1) == "#") color = color.substring(1);
+			if (/^[0-9a-f]{3}$/i.test(color)) {
+				color = color.charAt(0) + color.charAt(0) + color.charAt(1) + color.charAt(1) + color.charAt(2) + color.charAt(2);
+			}
+			if (/^[0-9a-f]{6}$/i.test(color)) return color.toUpperCase();
+			var rgbMatch = /^rgb\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)$/i.exec(color);
+			if (!rgbMatch) return null;
+			var rgb = [Number(rgbMatch[1]), Number(rgbMatch[2]), Number(rgbMatch[3])];
+			if (rgb[0] > 255 || rgb[1] > 255 || rgb[2] > 255) return null;
+			return RgbToHex(rgb).toUpperCase();
+		}
+
+		function handleHexPaste(e) {
+			var clipboard = e.clipboardData || window.clipboardData;
+			var value = clipboard && clipboard.getData ? clipboard.getData("text") || clipboard.getData("Text") : "";
+			var hex = normalizeHexInput(value);
+			if (!hex) return;
+			e.preventDefault();
+			frm.txtHex.value = hex;
+			Hex_Changed(e);
 		}
 
 		setCallback(do_saverecent);
@@ -228,6 +262,7 @@
 			frm.txtRGB_Blue.onkeypress = validateNumber;
 			frm.txtHex.onkeyup = Hex_Changed;
 			frm.txtHex.onkeypress = validateHex;
+			frm.txtHex.onpaste = handleHexPaste;
 			frm.btnWebSafeColor.onclick = btnWebSafeColor_Click;
 			frm.rdoHSB_Hue.onclick = rdoHsb_Hue_Click;
 			frm.rdoHSB_Saturation.onclick = rdoHsb_Saturation_Click;
@@ -332,6 +367,13 @@
 				document.getElementById("pnlRGB_Green"), msg.RgbGreenTooltip,
 				document.getElementById("pnlRGB_Blue"), msg.RgbBlueTooltip
 			);
+			frm.txtHSB_Hue.setAttribute("aria-label", msg.HsbHueTooltip);
+			frm.txtHSB_Saturation.setAttribute("aria-label", msg.HsbSaturationTooltip);
+			frm.txtHSB_Brightness.setAttribute("aria-label", msg.HsbBrightnessTooltip);
+			frm.txtRGB_Red.setAttribute("aria-label", msg.RgbRedTooltip);
+			frm.txtRGB_Green.setAttribute("aria-label", msg.RgbGreenTooltip);
+			frm.txtRGB_Blue.setAttribute("aria-label", msg.RgbBlueTooltip);
+			frm.txtHex.setAttribute("aria-label", "Hexadecimal color value");
 
 		}
 		function window_load(e) {
@@ -358,9 +400,14 @@
 					hex = recent.substr((i - 1) * 6, 6);
 					var rgb = HexToRgb(hex);
 					var title = formatString(msg.RecentTooltip, hex, rgb[0], rgb[1], rgb[2]);
-					SetBg(document.getElementById("pnlRecent" + i), hex);
-					SetTitle(document.getElementById("pnlRecent" + i), title);
-					document.getElementById("pnlRecent" + i).onclick = pnlRecent_Click;
+					var recentColor = document.getElementById("pnlRecent" + i);
+					SetBg(recentColor, hex);
+					SetTitle(recentColor, title);
+					recentColor.setAttribute("role", "button");
+					recentColor.setAttribute("aria-label", title);
+					recentColor.tabIndex = 0;
+					recentColor.onclick = pnlRecent_Click;
+					recentColor.onkeydown = pnlRecent_KeyDown;
 				}
 				else
 					document.getElementById("pnlRecent" + i).style.border = "0px";
@@ -384,6 +431,13 @@
 			}
 			frm.txtHex.value = color;
 			Hex_Changed(e);
+		}
+		function pnlRecent_KeyDown(e) {
+			var key = e.key || e.keyCode;
+			if (key == "Enter" || key == " " || key == 13 || key == 32) {
+				e.preventDefault();
+				pnlRecent_Click({ target: e.currentTarget || e.target });
+			}
 		}
 		function pnlOldClick_Click(e) {
 			frm.txtHex.value = document.getElementById("pnlOldColor").style.backgroundColor.substr(1, 6).toUpperCase();
@@ -518,8 +572,8 @@
 		function validateNumber(e) {
 			var key = String.fromCharCode(e.which);
 			if (IgnoreKey(e)) return;
-			if ("01234567879".indexOf(key) != -1) return;
-			e.which = 0;
+			if ("0123456789".indexOf(key) != -1) return;
+			rejectKey(e);
 		}
 		function validateHex(e) {
 			if (IgnoreKey(e)) return;
@@ -528,8 +582,12 @@
 				//e.which = key.toUpperCase().charCodeAt(0);
 				return;
 			}
-			if ("01234567879ABCDEF".indexOf(key) != -1) return;
-			//e.which = 0;	
+			if ("0123456789ABCDEF".indexOf(key) != -1) return;
+			rejectKey(e);
+		}
+		function rejectKey(e) {
+			if (e.preventDefault) e.preventDefault();
+			e.which = 0;
 		}
 		function IgnoreKey(e) {
 			var key = String.fromCharCode(e.which);
@@ -543,7 +601,7 @@
 			selectCancel();
 		}
 		function btnOK_Click() {
-			var hex = "#"+ new String(frm.txtHex.value);
+			var hex = "#" + Form_Get_Hex();
 			//alert(hex);
 			do_saverecent(hex);
 			selectColor(hex);
@@ -596,6 +654,7 @@
 			Form_Set_Rgb(rgb);
 			Form_Set_Hsb(hsb);
 			SetBg(document.getElementById("pnlNewColor"), hex);
+			announceColor(hex, rgb);
 			SetupCursors(e);
 			SetupGradients();
 			checkWebSafe();
@@ -608,6 +667,7 @@
 			Form_Set_Hsb(hsb);
 			Form_Set_Hex(hex);
 			SetBg(document.getElementById("pnlNewColor"), hex);
+			announceColor(hex, rgb);
 			SetupCursors(e);
 			SetupGradients();
 			checkWebSafe();
@@ -620,6 +680,7 @@
 			Form_Set_Rgb(rgb);
 			Form_Set_Hex(hex);
 			SetBg(document.getElementById("pnlNewColor"), hex);
+			announceColor(hex, rgb);
 			SetupCursors(e);
 			SetupGradients();
 			checkWebSafe();
@@ -627,6 +688,38 @@
 		}
 		function Form_Set_Hex(hex) {
 			frm.txtHex.value = hex;
+		}
+
+		function getColorFamily(rgb) {
+			var hsb = RgbToHsb(rgb);
+			if (hsb[1] < 0.12) {
+				if (hsb[2] < 0.18) return "black";
+				if (hsb[2] > 0.9) return "white";
+				return "gray";
+			}
+			var hue = Math.round((hsb[0] * 360) % 360);
+			if (hue < 15 || hue >= 345) return "red";
+			if (hue < 45) return "orange";
+			if (hue < 70) return "yellow";
+			if (hue < 165) return "green";
+			if (hue < 195) return "cyan";
+			if (hue < 255) return "blue";
+			if (hue < 290) return "purple";
+			if (hue < 330) return "magenta";
+			return "rose";
+		}
+
+		function announceColor(hex, rgb) {
+			var description = "Selected " + getColorFamily(rgb) + ", #" + hex +
+				", red " + rgb[0] + ", green " + rgb[1] + ", blue " + rgb[2];
+			var preview = document.getElementById("pnlNewColor");
+			if (preview) {
+				preview.setAttribute("role", "img");
+				preview.setAttribute("aria-label", description);
+				preview.title = description;
+			}
+			var live = document.getElementById("colorAnnouncement");
+			if (live) live.textContent = description;
 		}
 
 		function Form_Get_Hex() {
@@ -648,19 +741,19 @@
 			hsb[0] = new Number(frm.txtHSB_Hue.value) / 360;
 			hsb[1] = new Number(frm.txtHSB_Saturation.value) / 100;
 			hsb[2] = new Number(frm.txtHSB_Brightness.value) / 100;
-			if (hsb[0] > 1 || isNaN(hsb[0])) {
-				hsb[0] = 1;
-				frm.txtHSB_Hue.value = 360;
+			if (hsb[0] < 0 || hsb[0] > 1 || isNaN(hsb[0])) {
+				hsb[0] = hsb[0] < 0 ? 0 : 1;
+				frm.txtHSB_Hue.value = hsb[0] * 360;
 				alert(formatString(msg.BadNumber, 0, 360));
 			}
-			if (hsb[1] > 1 || isNaN(hsb[1])) {
-				hsb[1] = 1;
-				frm.txtHSB_Saturation.value = 100;
+			if (hsb[1] < 0 || hsb[1] > 1 || isNaN(hsb[1])) {
+				hsb[1] = hsb[1] < 0 ? 0 : 1;
+				frm.txtHSB_Saturation.value = hsb[1] * 100;
 				alert(formatString(msg.BadNumber, 0, 100));
 			}
-			if (hsb[2] > 1 || isNaN(hsb[2])) {
-				hsb[2] = 1;
-				frm.txtHSB_Brightness.value = 100;
+			if (hsb[2] < 0 || hsb[2] > 1 || isNaN(hsb[2])) {
+				hsb[2] = hsb[2] < 0 ? 0 : 1;
+				frm.txtHSB_Brightness.value = hsb[2] * 100;
 				alert(formatString(msg.BadNumber, 0, 100));
 			}
 			return hsb;
@@ -678,19 +771,19 @@
 			rgb[1] = new Number(frm.txtRGB_Green.value);
 			rgb[2] = new Number(frm.txtRGB_Blue.value);
 
-			if (rgb[0] > 255 || isNaN(rgb[0]) || rgb[0] != Math.round(rgb[0])) {
-				rgb[0] = 255;
-				frm.txtRGB_Red.value = 255;
+			if (rgb[0] < 0 || rgb[0] > 255 || isNaN(rgb[0]) || rgb[0] != Math.round(rgb[0])) {
+				rgb[0] = rgb[0] < 0 ? 0 : 255;
+				frm.txtRGB_Red.value = rgb[0];
 				alert(formatString(msg.BadNumber, 0, 255));
 			}
-			if (rgb[1] > 255 || isNaN(rgb[1]) || rgb[1] != Math.round(rgb[1])) {
-				rgb[1] = 255;
-				frm.txtRGB_Green.value = 255;
+			if (rgb[1] < 0 || rgb[1] > 255 || isNaN(rgb[1]) || rgb[1] != Math.round(rgb[1])) {
+				rgb[1] = rgb[1] < 0 ? 0 : 255;
+				frm.txtRGB_Green.value = rgb[1];
 				alert(formatString(msg.BadNumber, 0, 255));
 			}
-			if (rgb[2] > 255 || isNaN(rgb[2]) || rgb[2] != Math.round(rgb[2])) {
-				rgb[2] = 255;
-				frm.txtRGB_Blue.value = 255;
+			if (rgb[2] < 0 || rgb[2] > 255 || isNaN(rgb[2]) || rgb[2] != Math.round(rgb[2])) {
+				rgb[2] = rgb[2] < 0 ? 0 : 255;
+				frm.txtRGB_Blue.value = rgb[2];
 				alert(formatString(msg.BadNumber, 0, 255));
 			}
 			return rgb;
@@ -2307,6 +2400,97 @@ Elements
 			overflow: hidden;
 		}
 
+		/* 2026-07-12 color picker precision pass: retain the established
+		   absolute layout while replacing the legacy system-control chrome. */
+		#colorpickerpanel {
+			width: 480px;
+			box-sizing: border-box;
+			border: 1px solid #d8e1ee;
+			border-radius: 8px;
+			background: #f8fbff;
+			box-shadow: inset 0 1px 0 rgba(255,255,255,.92);
+			font-family: "Segoe UI", Arial, sans-serif;
+		}
+
+		#colorpickerpanel INPUT {
+			box-sizing: border-box;
+			border: 1px solid #b8c5d6;
+			border-radius: 6px;
+			background: #ffffff;
+			color: #172033;
+			font-family: "Segoe UI", Arial, sans-serif;
+			font-size: 12px;
+		}
+
+		#colorpickerpanel INPUT:focus {
+			border-color: #2875d3;
+			box-shadow: 0 0 0 3px rgba(40,117,211,.16);
+			outline: none;
+		}
+
+		#colorpickerpanel .Button {
+			height: 24px;
+			border: 1px solid #1d67ba;
+			border-radius: 6px;
+			background: #1d67ba;
+			color: #ffffff;
+			font-family: "Segoe UI", Arial, sans-serif;
+			font-size: 12px;
+			font-weight: 600;
+			cursor: pointer;
+		}
+
+		#colorpickerpanel .Button:hover,
+		#colorpickerpanel .Button:focus {
+			background: #1559d6;
+			border-color: #1559d6;
+			outline: none;
+		}
+
+		#btnCancel {
+			border-color: #b8c5d6 !important;
+			background: #ffffff !important;
+			color: #334155 !important;
+		}
+
+		#btnCancel:hover,
+		#btnCancel:focus {
+			border-color: #7ea7d8 !important;
+			background: #eef5ff !important;
+			color: #1559d6 !important;
+		}
+
+		#pnlOldColor,
+		#pnlNewColor {
+			border: 0;
+			border-radius: 6px;
+		}
+
+		#pnlOldColorBorder,
+		#pnlNewColorBorder {
+			border: 1px solid rgba(71,85,105,.42);
+			border-radius: 7px;
+			background: transparent;
+		}
+
+		#pnlRecent DIV {
+			width: 12px;
+			height: 12px;
+			border: 1px solid rgba(71,85,105,.42);
+			border-radius: 3px;
+			cursor: pointer;
+		}
+
+		#pnlRecent DIV:hover {
+			outline: 2px solid rgba(40,117,211,.42);
+			outline-offset: 1px;
+		}
+
+		#pnlRecent DIV:focus {
+			outline: 2px solid #2875d3;
+			outline-offset: 1px;
+		}
+
 	</style>
 
 
@@ -2335,6 +2519,7 @@ Elements
 	<div id="ajaxdiv">
 
 		<div id="colorpickerpanel" style="position: relative; text-align: left; height: 350px">
+			<div id="colorAnnouncement" aria-live="polite" aria-atomic="true" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap"></div>
 			<!--
 			-----------------------------------------------------
 			Author: Lewis E. Moten III

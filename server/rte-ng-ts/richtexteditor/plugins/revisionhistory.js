@@ -23,6 +23,8 @@ function RTE_Plugin_RevisionHistory() {
         config.revisionHistoryMaxEntries = config.revisionHistoryMaxEntries || 50;
         config.revisionHistoryAutoSnapshotMs = config.revisionHistoryAutoSnapshotMs || 0;
         config.revisionHistoryUrl = config.revisionHistoryUrl || "";
+        config.revisionHistoryRequestHeaders = config.revisionHistoryRequestHeaders || null;
+        config.onRevisionHistorySyncError = config.onRevisionHistorySyncError || null;
         config.text_revisionhistory = config.text_revisionhistory || "Revision history";
 
         appendToolbarCommand("toolbar_default", "#{revisionhistory}");
@@ -143,14 +145,46 @@ function RTE_Plugin_RevisionHistory() {
             var xhr = new XMLHttpRequest();
             xhr.open("POST", config.revisionHistoryUrl, true);
             xhr.setRequestHeader("Content-Type", "application/json");
+            var headers = resolveRequestHeaders();
+            for (var name in headers) {
+                if (!Object.prototype.hasOwnProperty.call(headers, name)) continue;
+                if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name)) continue;
+                var value = String(headers[name]);
+                if (/\r|\n/.test(value)) continue;
+                try { xhr.setRequestHeader(name, value); } catch (ignore) { }
+            }
+            xhr.onerror = function () { reportRemoteFailure({ reason: "network", status: xhr.status || 0 }); };
+            xhr.onload = function () {
+                if (xhr.status < 200 || xhr.status >= 300) {
+                    reportRemoteFailure({ reason: "http", status: xhr.status, responseText: (xhr.responseText || "").slice(0, 512) });
+                }
+            };
             xhr.send(JSON.stringify({
                 documentKey: config.aiToolkitPersistenceKey || "",
                 savedAt: Date.now(),
                 revisions: store
             }));
         } catch (err) {
-            console.warn("revisionhistory: remote POST failed:", err);
+            reportRemoteFailure({ reason: "exception", error: err });
         }
+    }
+
+    function resolveRequestHeaders() {
+        var source = config.revisionHistoryRequestHeaders;
+        if (typeof source === "function") {
+            try { source = source(editor); }
+            catch (err) {
+                reportRemoteFailure({ reason: "header-provider", error: err });
+                return {};
+            }
+        }
+        return source && typeof source === "object" ? source : {};
+    }
+
+    function reportRemoteFailure(detail) {
+        console.warn("revisionhistory: remote persistence failed:", detail && detail.reason, detail && detail.status);
+        try { typeof config.onRevisionHistorySyncError === "function" && config.onRevisionHistorySyncError(detail); } catch (ignore) { }
+        try { typeof editor.fireEvent === "function" && editor.fireEvent("revision_history_sync_error", detail); } catch (ignore2) { }
     }
 
     function restoreStore() {
@@ -346,8 +380,7 @@ function RTE_Plugin_RevisionHistory() {
         var host = editor.iframe.ownerDocument;
         if (!host || !host.body) return;
         dialog = host.createElement("div");
-        // Body-appended modal — mirror the editor's forced dark mode (automatic
-        // dark is handled by a prefers-color-scheme media query in the styles).
+        // Body-appended modal mirrors only an editor explicitly forced dark.
         var __revDark = false;
         try {
             var __h = editor.container || (editor.getEditable && editor.getEditable().closest && editor.getEditable().closest(".richtexteditor"));
@@ -585,11 +618,12 @@ function RTE_Plugin_RevisionHistory() {
         style.textContent = [
             ".rte-rev-dialog{position:fixed;inset:0;z-index:2147483600;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:13px;color:#172033}",
             ".rte-rev-backdrop{position:absolute;inset:0;background:linear-gradient(135deg,rgba(12,18,32,.44),rgba(40,54,77,.26));display:flex;align-items:center;justify-content:center;padding:18px}",
-            ".rte-rev-panel{background:linear-gradient(180deg,#ffffff 0%,#f8fbff 100%);border:1px solid rgba(117,137,163,.28);border-radius:20px;width:min(960px,calc(100vw - 28px));max-height:min(82vh,740px);display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(35,48,72,.26);overflow:hidden}",
+            "/* 2026-07-12 revision dialog precision */",
+            ".rte-rev-panel{background:linear-gradient(180deg,#ffffff 0%,#f8fbff 100%);border:1px solid rgba(117,137,163,.28);border-radius:8px;width:min(960px,calc(100vw - 28px));max-height:min(82vh,740px);display:flex;flex-direction:column;box-shadow:0 16px 40px rgba(35,48,72,.18);overflow:hidden}",
             ".rte-rev-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-bottom:1px solid rgba(117,137,163,.18);background:rgba(255,255,255,.72)}",
             ".rte-rev-title{font-size:16px;font-weight:760;letter-spacing:-.01em;color:#172033}",
             ".rte-rev-header-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}",
-            ".rte-rev-btn{padding:8px 12px;border-radius:999px;border:1px solid rgba(116,135,162,.25);font:inherit;font-size:12px;font-weight:680;line-height:1;cursor:pointer;background:#fff;color:#223652;box-shadow:0 1px 2px rgba(32,45,66,.06);transition:background .14s ease,border-color .14s ease,box-shadow .14s ease,transform .14s ease}",
+            ".rte-rev-btn{padding:8px 12px;border-radius:7px;border:1px solid rgba(116,135,162,.25);font:inherit;font-size:12px;font-weight:680;line-height:1;cursor:pointer;background:#fff;color:#223652;box-shadow:0 1px 2px rgba(32,45,66,.06);transition:background .14s ease,border-color .14s ease,box-shadow .14s ease,transform .14s ease}",
             ".rte-rev-btn:hover{background:#f5f8fc;border-color:rgba(81,111,151,.42);box-shadow:0 5px 14px rgba(32,45,66,.09);transform:translateY(-1px)}",
             ".rte-rev-btn:focus-visible{outline:2px solid rgba(56,122,255,.34);outline-offset:2px}",
             ".rte-rev-btn-ghost{background:#fff;color:#34506f}",
@@ -598,8 +632,8 @@ function RTE_Plugin_RevisionHistory() {
             ".rte-rev-btn-danger{background:#fff5f5;color:#9f1d1d;border-color:rgba(190,45,45,.22)}",
             ".rte-rev-body{display:flex;flex:1;min-height:0;background:linear-gradient(90deg,#f8fbff 0%,#fff 42%)}",
             ".rte-rev-list{width:258px;flex:0 0 258px;border-right:1px solid rgba(117,137,163,.18);overflow-y:auto;background:rgba(244,248,253,.78);padding:10px}",
-            ".rte-rev-empty{padding:16px;border:1px dashed rgba(99,118,145,.28);border-radius:14px;background:#fff;color:#5b6c81;font-size:12px;line-height:1.5}",
-            ".rte-rev-row{display:flex;align-items:center;gap:10px;width:100%;padding:10px;border:1px solid transparent;border-radius:14px;background:transparent;text-align:left;cursor:pointer;font:inherit;color:inherit}",
+            ".rte-rev-empty{padding:16px;border:1px dashed rgba(99,118,145,.28);border-radius:8px;background:#fff;color:#5b6c81;font-size:12px;line-height:1.5}",
+            ".rte-rev-row{display:flex;align-items:center;gap:10px;width:100%;padding:10px;border:1px solid transparent;border-radius:8px;background:transparent;text-align:left;cursor:pointer;font:inherit;color:inherit}",
             ".rte-rev-row:hover{background:#fff;border-color:rgba(93,122,161,.24);box-shadow:0 8px 18px rgba(33,48,70,.08)}",
             ".rte-rev-row-active{background:#eef6ff;border-color:rgba(37,99,235,.28);box-shadow:0 8px 22px rgba(37,99,235,.12)}",
             ".rte-rev-dot{width:9px;height:9px;border-radius:50%;flex:0 0 9px;box-shadow:0 0 0 3px rgba(255,255,255,.95),0 0 0 4px rgba(96,116,140,.18)}",
@@ -607,12 +641,12 @@ function RTE_Plugin_RevisionHistory() {
             ".rte-rev-row-who{font-weight:720;font-size:12px;line-height:1.25;color:#172033}",
             ".rte-rev-row-when{margin-top:2px;font-size:11px;color:#637487;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
             ".rte-rev-pane{flex:1;display:flex;flex-direction:column;min-width:0;padding:10px}",
-            ".rte-rev-tabs{display:flex;align-self:flex-start;gap:3px;padding:3px;margin:0 0 10px;border:1px solid rgba(117,137,163,.2);border-radius:999px;background:#eef3f8}",
-            ".rte-rev-tab{padding:7px 12px;border:0;border-radius:999px;background:transparent;font:inherit;font-size:12px;font-weight:680;color:#637487;cursor:pointer}",
+            ".rte-rev-tabs{display:flex;align-self:flex-start;gap:3px;padding:3px;margin:0 0 10px;border:1px solid rgba(117,137,163,.2);border-radius:7px;background:#eef3f8}",
+            ".rte-rev-tab{padding:7px 12px;border:0;border-radius:6px;background:transparent;font:inherit;font-size:12px;font-weight:680;color:#637487;cursor:pointer}",
             ".rte-rev-tab:hover{color:#1d3557;background:rgba(255,255,255,.58)}",
             ".rte-rev-tab:focus-visible{outline:2px solid rgba(56,122,255,.34);outline-offset:2px}",
             ".rte-rev-tab-active{color:#163966;background:#fff;box-shadow:0 2px 7px rgba(35,48,72,.08)}",
-            ".rte-rev-content{flex:1;overflow:auto;padding:0;border:1px solid rgba(117,137,163,.18);border-radius:16px;background:#fff;min-height:300px}",
+            ".rte-rev-content{flex:1;overflow:auto;padding:0;border:1px solid rgba(117,137,163,.18);border-radius:8px;background:#fff;min-height:300px}",
             ".rte-rev-preview-frame{width:100%;height:100%;min-height:330px;border:0;display:block;background:#fff}",
             ".rte-rev-diff{margin:0;padding:14px 16px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.55;white-space:pre-wrap;color:#172033;background:#fbfdff;min-height:100%}",
             ".rte-rev-diff-line{display:block}",
@@ -622,30 +656,9 @@ function RTE_Plugin_RevisionHistory() {
             ".rte-rev-footer{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0 0;background:transparent}",
             ".rte-rev-footer-info{font-size:12px;color:#637487;min-height:18px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
             ".rte-rev-footer-btns{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}",
-            "@media(max-width:720px){.rte-rev-backdrop{padding:10px;align-items:flex-start}.rte-rev-panel{width:calc(100vw - 20px);max-height:calc(100vh - 20px);border-radius:16px}.rte-rev-header{align-items:flex-start;flex-direction:column}.rte-rev-body{flex-direction:column}.rte-rev-list{width:auto;flex:0 0 auto;max-height:178px;border-right:0;border-bottom:1px solid rgba(117,137,163,.18)}.rte-rev-pane{min-height:360px}.rte-rev-footer{align-items:stretch;flex-direction:column}.rte-rev-footer-info{white-space:normal}.rte-rev-footer-btns{justify-content:stretch}.rte-rev-footer-btns .rte-rev-btn{flex:1}}",
-            // Dark mode — modal is body-appended; auto via prefers-color-scheme +
-            // explicit .rte-rev-dark class when the editor is forced dark. The
-            // preview iframe stays white (it renders the actual document).
-            "@media (prefers-color-scheme:dark){",
-            "  .rte-rev-dialog{color:#e2e8f0}",
-            "  .rte-rev-panel{background:linear-gradient(180deg,#1e293b,#0f172a);border-color:#334155}",
-            "  .rte-rev-header{background:rgba(30,41,59,.72);border-color:#334155}",
-            "  .rte-rev-title,.rte-rev-row-who{color:#e2e8f0}",
-            "  .rte-rev-btn,.rte-rev-btn-ghost{background:#0f172a;color:#cbd5e1;border-color:#334155}",
-            "  .rte-rev-btn:hover{background:#334155}",
-            "  .rte-rev-btn-primary,.rte-rev-btn-primary:hover{background:linear-gradient(135deg,#2563eb,#1d4ed8);color:#fff;border-color:#3b82f6}",
-            "  .rte-rev-body{background:#0f172a}",
-            "  .rte-rev-list{background:rgba(15,23,42,.6);border-color:#334155}",
-            "  .rte-rev-empty{background:#1e293b;color:#94a3b8;border-color:#334155}",
-            "  .rte-rev-row:hover{background:#1e293b;border-color:#334155}",
-            "  .rte-rev-row-active{background:#1e3a8a;border-color:#3b82f6}",
-            "  .rte-rev-row-when,.rte-rev-footer-info{color:#94a3b8}",
-            "  .rte-rev-tabs{background:#1e293b;border-color:#334155}",
-            "  .rte-rev-tab{color:#94a3b8}.rte-rev-tab-active{color:#fff;background:#1d4ed8}",
-            "  .rte-rev-diff{background:#0f172a;color:#cbd5e1}.rte-rev-diff-eq{color:#94a3b8}",
-            "  .rte-rev-diff-add{background:rgba(16,185,129,.16);color:#6ee7b7}",
-            "  .rte-rev-diff-del{background:rgba(244,63,94,.16);color:#fda4af}",
-            "}",
+            "@media(max-width:720px){.rte-rev-backdrop{padding:10px;align-items:flex-start}.rte-rev-panel{width:calc(100vw - 20px);max-height:calc(100vh - 20px);border-radius:8px}.rte-rev-header{align-items:flex-start;flex-direction:column}.rte-rev-body{flex-direction:column}.rte-rev-list{width:auto;flex:0 0 auto;max-height:178px;border-right:0;border-bottom:1px solid rgba(117,137,163,.18)}.rte-rev-pane{min-height:360px}.rte-rev-footer{align-items:stretch;flex-direction:column}.rte-rev-footer-info{white-space:normal}.rte-rev-footer-btns{justify-content:stretch}.rte-rev-footer-btns .rte-rev-btn{flex:1}}",
+            // Revision history stays light unless the editor explicitly adds
+            // rte-rev-dark. The preview frame still renders document content.
             ".rte-rev-dark{color:#e2e8f0}",
             ".rte-rev-dark .rte-rev-panel{background:linear-gradient(180deg,#1e293b,#0f172a);border-color:#334155}",
             ".rte-rev-dark .rte-rev-header{background:rgba(30,41,59,.72);border-color:#334155}",
