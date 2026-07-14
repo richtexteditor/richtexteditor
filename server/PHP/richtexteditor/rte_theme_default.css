@@ -451,21 +451,8 @@ rte-control-toolbar {
 .rte-modern rte-control-toolbar rte-toolbar-splitbutton svg,
 .rte-modern rte-control-toolbar rte-toolbar-dropdown svg,
 .rte-modern rte-control-toolbar rte-toolbar-arrowbutton svg {
-    width: 15px !important;
-    height: 15px !important;
-}
-
-/* 2026-07-12 selection float-toolbar precision: the compact toolbar keeps
-   its 26px controls, but its glyphs should not visually outweigh the text. */
-.rte-modern rte-control-toolbar rte-toolbar-button svg,
-.rte-modern rte-control-toolbar rte-toolbar-button svg *,
-.rte-modern rte-control-toolbar rte-toolbar-splitbutton svg,
-.rte-modern rte-control-toolbar rte-toolbar-splitbutton svg *,
-.rte-modern rte-control-toolbar rte-toolbar-dropdown svg,
-.rte-modern rte-control-toolbar rte-toolbar-dropdown svg *,
-.rte-modern rte-control-toolbar rte-toolbar-arrowbutton svg,
-.rte-modern rte-control-toolbar rte-toolbar-arrowbutton svg * {
-    stroke-width: 1.55 !important;
+    width: 16px !important;
+    height: 16px !important;
 }
 
 /* The global rte-line-spliter rule carries `margin: 10px auto !important`,
@@ -2026,9 +2013,7 @@ rte-menuspliter {
 }
 
 rte-floatpanel {
-    /* Floating editor-local controls must not cover host sticky navigation.
-       True dialogs use the dedicated top layer declared later in this file. */
-    z-index: 49;
+    z-index: 101;
     background: linear-gradient(180deg, rgba(255,255,255,.96) 0%, rgba(248,251,255,.94) 100%) !important;
     border: solid 1px rgba(148,163,184,.42) !important;
     border-radius: 15px !important;
@@ -2091,11 +2076,10 @@ rte-floatpanel {
             transform: translateY(-1px);
         }
 
-/* 2026-07-12 paragraph rail precision: preserve 20px hit targets while
-   reducing the visual weight of the left-side paragraph controls. */
+/* 2026-07-03 paragraph rail icon polish */
 rte-floatpanel.rte-floatpanel-paragraphop {
-    width: 26px !important;
-    padding: 8px 3px 3px !important;
+    width: 28px !important;
+    padding: 9px 3px 4px !important;
     border-color: rgba(148,163,184,.34) !important;
     border-radius: 11px !important;
     background: linear-gradient(180deg, rgba(255,255,255,.94) 0%, rgba(248,250,252,.91) 100%) !important;
@@ -2140,8 +2124,8 @@ rte-floatpanel.rte-floatpanel-paragraphop {
 
         rte-floatpanel.rte-floatpanel-paragraphop rte-toolbar-button svg {
             display: block !important;
-            width: 12px !important;
-            height: 12px !important;
+            width: 13px !important;
+            height: 13px !important;
             margin: 0 !important;
             color: currentColor;
             pointer-events: none;
@@ -2151,12 +2135,12 @@ rte-floatpanel.rte-floatpanel-paragraphop {
         rte-floatpanel.rte-floatpanel-paragraphop rte-toolbar-button svg * {
             stroke-linecap: round;
             stroke-linejoin: round;
-            stroke-width: 1.2 !important;
+            stroke-width: 1.35 !important;
         }
 
         rte-floatpanel.rte-floatpanel-paragraphop rte-toolbar-button.rte_command_pmore svg {
-            width: 11px !important;
-            height: 11px !important;
+            width: 12px !important;
+            height: 12px !important;
             opacity: .72;
         }
 
@@ -4782,92 +4766,13 @@ rte-dropdown-panel .rte-dialog-button:active {
 
     .richtexteditor.rte-auto-dark.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-button.rte-command-active,
     .richtexteditor.rte-auto-dark.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-arrowbutton.rte-command-active,
-.richtexteditor.rte-auto-dark.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-splitbutton.rte-command-active,
-.richtexteditor.rte-auto-dark.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-dropdown.rte-command-active {
-    color: #bfdbfe;
-    background-color: #1e3a5f;
-    border-color: rgba(96,165,250,.46);
-    box-shadow: inset 0 0 0 1px rgba(96,165,250,.24);
-}
-}
-
-/* 2026-07-12 editor precision pass.
-   Keep dialog and command surfaces compact, predictable, and above every
-   toolbar/popover. The editor is an authoring tool, so its chrome should read
-   as a quiet workspace rather than a collection of rounded marketing cards. */
-rte-dialog-outer {
-    z-index: 2147483400 !important;
-}
-
-rte-dialog-outer rte-dialog-inner,
-rte-dialog-outer .rte-dialog-browser,
-rte-dialog-outer .rte-gallery-browser,
-rte-dropdown-panel,
-.rte-alt-editor-popup,
-.rte-find-replace-dialog,
-.rte-ai-context-menu {
-    border-radius: 8px;
-}
-
-rte-dialog-outer rte-dialog-inner {
-    background: #ffffff;
-    box-shadow: 0 22px 54px rgba(15, 23, 42, 0.22), 0 0 0 1px rgba(15, 23, 42, 0.05);
-}
-
-rte-dialog-outer rte-dialog-inner rte-dialog-header,
-rte-dropdown-panel rte-dialog-header {
-    background: #ffffff;
-}
-
-rte-dialog-outer rte-dialog-button,
-rte-dropdown-panel rte-dialog-button,
-rte-dropdown-panel .rte-dialog-button,
-.rte-alt-editor-save,
-.rte-find-replace-all {
-    border-radius: 7px;
-    background: #1d67ba;
-    box-shadow: none;
-}
-
-rte-dialog-outer rte-dialog-button:hover,
-rte-dropdown-panel rte-dialog-button:hover,
-rte-dropdown-panel .rte-dialog-button:hover,
-.rte-alt-editor-save:hover,
-.rte-find-replace-all:hover {
-    background: #1559d6;
-    box-shadow: none;
-}
-
-rte-dialog-outer .rte-dialog-line-input input[type=text],
-rte-dialog-outer .rte-dialog-line-input input[type=number],
-rte-dialog-outer .rte-dialog-line-input input[type=url],
-rte-dialog-outer .rte-dialog-line-input input[type=email],
-rte-dialog-outer .rte-dialog-line-input textarea,
-rte-dialog-outer .rte-dialog-line-input select,
-rte-dropdown-panel .rte-dialog-line-input input[type=text],
-rte-dropdown-panel .rte-dialog-line-input input[type=number],
-rte-dropdown-panel .rte-dialog-line-input input[type=url],
-rte-dropdown-panel .rte-dialog-line-input textarea,
-rte-dropdown-panel .rte-dialog-line-input select,
-.rte-alt-editor-input,
-.rte-find-replace-dialog input {
-    border-radius: 7px;
-}
-
-rte-dialog-outer .rte-dialog-browser-card,
-rte-dialog-outer .rte-gallery-browser-card,
-rte-dropdown-panel rte-dropdown-menuitem,
-rte-dropdown-panel.rte-menu-hideicon rte-dropdown-menuitem,
-rte-toolbar-dropdown-item {
-    border-radius: 6px;
-}
-
-.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-button svg,
-.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-arrowbutton svg,
-.richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-splitbutton svg,
-.rte-modern rte-dropdown-panel rte-toolbar-button svg {
-    width: 16px !important;
-    height: 16px !important;
+    .richtexteditor.rte-auto-dark.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-splitbutton.rte-command-active,
+    .richtexteditor.rte-auto-dark.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-dropdown.rte-command-active {
+        color: #bfdbfe;
+        background-color: #1e3a5f;
+        border-color: rgba(96,165,250,.46);
+        box-shadow: inset 0 0 0 1px rgba(96,165,250,.24);
+    }
 }
 
 /* 2026-07-03 dialog top-chrome guard.
@@ -4892,73 +4797,7 @@ rte-dialog-outer {
 }
 
 rte-dialog-outer rte-dialog-inner {
-    box-sizing: border-box;
-    max-width: calc(100vw - 24px);
     max-height: min(88vh, 760px, calc(100vh - max(32px, calc(var(--rte-dialog-effective-top-chrome) + 32px)))) !important;
-}
-
-/* 2026-07-12 dialog content rhythm. Keep authoring dialogs compact enough for
-   repeated use while preserving legible controls and clear action hierarchy. */
-rte-dialog-outer rte-dialog-inner rte-dialog-header,
-rte-dropdown-panel rte-dialog-header {
-    margin: -10px -15px 12px;
-    padding: 12px 14px;
-    min-height: 44px;
-    box-sizing: border-box;
-    border-bottom-color: #e2e8f0;
-    font-size: 14px;
-    line-height: 20px;
-    color: #172033;
-}
-
-rte-dialog-outer rte-dialog-header-close {
-    top: 10px;
-    right: 10px;
-    width: 24px;
-    height: 24px;
-    padding: 4px;
-    border-radius: 6px;
-}
-
-rte-dialog-outer rte-dialog-header-close:hover {
-    color: #1559d6;
-    background: #eef5ff;
-}
-
-rte-dialog-outer rte-dialog-footer,
-rte-dialog-outer rte-dialog-line-action {
-    margin: 2px 0 0;
-    padding: 12px 14px 2px;
-    border-top-color: #e2e8f0;
-}
-
-rte-dialog-outer .rte-dialog-line-input,
-rte-dialog-outer rte-dialog-line-target {
-    margin: 10px 12px;
-}
-
-rte-dialog-outer rte-dialog-button,
-rte-dropdown-panel rte-dialog-button,
-rte-dropdown-panel .rte-dialog-button {
-    min-height: 32px;
-    margin: 3px;
-    padding: 5px 14px;
-    font-size: 13px;
-    line-height: 20px;
-}
-
-rte-dialog-outer .rte-button-type-cancel,
-rte-dropdown-panel .rte-button-type-cancel {
-    color: #334155;
-    background: #ffffff;
-    border-color: #cbd5e1;
-}
-
-rte-dialog-outer .rte-button-type-cancel:hover,
-rte-dropdown-panel .rte-button-type-cancel:hover {
-    color: #1559d6;
-    background: #eef5ff;
-    border-color: #8db8ef;
 }
 
 rte-dialog-float {
@@ -4982,118 +4821,4 @@ rte-dialog-float rte-dialog-inner {
     top: max(80px, calc(var(--rte-dialog-effective-top-chrome) + 12px)) !important;
     max-height: calc(100vh - max(104px, calc(var(--rte-dialog-effective-top-chrome) + 32px)));
     overflow: auto;
-}
-
-/* 2026-07-12 light quick-action controls. Transient editor utilities should
-   match the light authoring surface instead of reading as isolated dark pills. */
-.rte-image-quickbar {
-    gap: 2px;
-    padding: 4px;
-    border-color: #d8e1ee;
-    border-radius: 8px;
-    background: #ffffff;
-    color: #334155;
-    box-shadow: 0 10px 26px rgba(15, 23, 42, 0.16), 0 0 0 1px rgba(15, 23, 42, 0.04);
-}
-
-.rte-image-quickbar-button {
-    min-height: 26px;
-    padding: 3px 8px;
-    border-radius: 6px;
-    color: inherit;
-    font-weight: 650;
-}
-
-.rte-image-quickbar-button:hover,
-.rte-image-quickbar-button:focus-visible {
-    background: #eef5ff;
-    color: #1559d6;
-}
-
-.rte-smart-paste-toast {
-    border-color: #d8e1ee;
-    border-radius: 8px;
-    background: #ffffff;
-    color: #334155;
-    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.16), 0 0 0 1px rgba(15, 23, 42, 0.04);
-}
-
-/* Comment dialog uses native buttons created by the optional comment plugin,
-   so give it the same geometry and action hierarchy as core dialog controls. */
-rte-dialog-outer.rte-dialog-insertcomment .rte-comment-selection-preview {
-    max-height: 60px;
-    margin-bottom: 12px;
-    padding: 8px 10px;
-    overflow: hidden;
-    border: 1px solid #d8e6f8;
-    border-left: 3px solid #1d67ba;
-    border-radius: 6px;
-    background: #f8fbff;
-    color: #475569;
-    font-size: 12px;
-    line-height: 18px;
-}
-
-rte-dialog-outer.rte-dialog-insertcomment .rte-comment-dialog-label {
-    display: block;
-    margin-bottom: 6px;
-    color: #334155;
-    font-size: 13px;
-    font-weight: 600;
-}
-
-rte-dialog-outer.rte-dialog-insertcomment .rte-comment-dialog-input {
-    width: 100%;
-    min-height: 84px;
-    padding: 8px 10px;
-    resize: vertical;
-    border: 1px solid #b8c5d6;
-    border-radius: 7px;
-    color: #172033;
-    font: inherit;
-    font-size: 13px;
-}
-
-rte-dialog-outer.rte-dialog-insertcomment .rte-comment-dialog-input:focus {
-    outline: none;
-    border-color: #2875d3;
-    box-shadow: 0 0 0 3px rgba(40, 117, 211, 0.14);
-}
-
-rte-dialog-outer.rte-dialog-insertcomment .rte-comment-dialog-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 6px;
-    margin-top: 12px;
-}
-
-rte-dialog-outer.rte-dialog-insertcomment .rte-comment-dialog-actions button {
-    min-height: 32px;
-    padding: 5px 14px;
-    border: 1px solid #1d67ba;
-    border-radius: 7px;
-    background: #1d67ba;
-    color: #ffffff;
-    font: 600 13px/20px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    cursor: pointer;
-}
-
-rte-dialog-outer.rte-dialog-insertcomment .rte-comment-dialog-actions .rte-comment-dialog-cancel {
-    border-color: #cbd5e1;
-    background: #ffffff;
-    color: #334155;
-}
-
-rte-dialog-outer.rte-dialog-insertcomment .rte-comment-dialog-actions button:hover,
-rte-dialog-outer.rte-dialog-insertcomment .rte-comment-dialog-actions button:focus-visible {
-    background: #1559d6;
-    border-color: #1559d6;
-    outline: none;
-}
-
-rte-dialog-outer.rte-dialog-insertcomment .rte-comment-dialog-actions .rte-comment-dialog-cancel:hover,
-rte-dialog-outer.rte-dialog-insertcomment .rte-comment-dialog-actions .rte-comment-dialog-cancel:focus-visible {
-    background: #eef5ff;
-    border-color: #8db8ef;
-    color: #1559d6;
 }

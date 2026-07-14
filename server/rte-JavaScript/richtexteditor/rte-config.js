@@ -246,8 +246,6 @@ RTE_DefaultConfig.trackChangesEnabled = true;
 RTE_DefaultConfig.currentUser = null; // { id, name, color } — required to track changes
 RTE_DefaultConfig.trackChangesInsertClass = "rte-tc rte-tc-insert";
 RTE_DefaultConfig.trackChangesDeleteClass = "rte-tc rte-tc-delete";
-RTE_DefaultConfig.reviewCanDecide = null; // Optional (entry, action, user, editor) => boolean policy for accept/reject.
-RTE_DefaultConfig.onReviewDecisionDenied = null; // Optional ({ entry, action, user }) callback for denied review decisions.
 
 // Comments — select text, click the "Comment" toolbar button (or call editor.comments.add()),
 // type a note. The selection is wrapped in a highlighted <span class="rte-comment"> and a
@@ -266,21 +264,16 @@ RTE_DefaultConfig.revisionHistoryEnabled = true;
 RTE_DefaultConfig.revisionHistoryMaxEntries = 50;
 RTE_DefaultConfig.revisionHistoryAutoSnapshotMs = 0;
 RTE_DefaultConfig.revisionHistoryUrl = "";
-RTE_DefaultConfig.revisionHistoryRequestHeaders = null; // Object or (editor) => object; use for same-origin CSRF headers.
-RTE_DefaultConfig.onRevisionHistorySyncError = null; // Optional ({ reason, status?, error? }) callback for remote persistence failures.
 
-// Yjs collaboration. Yjs + a provider (y-websocket / y-webrtc / y-indexeddb) are peer
-// dependencies. Load crdt-engine.js and call editor.collab.attach({ doc, provider,
-// textSync: "crdt" }) for concurrent content editing; without textSync, the plugin syncs
-// presence and the shared review ledger only. Set collabRequireCrdt or requireCrdt to prevent
-// a requested CRDT session from falling back to legacy snapshot synchronization.
+// Yjs collaboration (Option B: presence + shared review ledger; NO content CRDT in v1).
+// Yjs + a provider (y-websocket / y-webrtc / y-indexeddb) are PEER DEPENDENCIES — customers
+// load them separately and call editor.collab.attach({ doc, provider, user }).
+// The plugin handles: awareness (live cursors + presence), and bridging editor.reviewLedger
+// into a shared Y.Map so AI suggestions, tracked changes, and comments replicate across peers.
 RTE_DefaultConfig.collabEnabled = true;
 RTE_DefaultConfig.collabLedgerMapName = "reviewLedger";
 RTE_DefaultConfig.collabShowPresence = true;
 RTE_DefaultConfig.collabShowRemoteCursors = true;
-RTE_DefaultConfig.collabTextSync = false;
-RTE_DefaultConfig.collabRequireCrdt = false;
-RTE_DefaultConfig.onCollabStatus = null;
 
 
 RTE_DefaultConfig.inlineStyles = [["Red", "color:red", "color:red"], ["Bold", "font-weight:bold", "font-weight:bold"], ["Mark", "my-cls-mark"], ["Warning", "my-cls-warning"]]; // Default CSS styles for inline styles dropdown. 
@@ -366,8 +359,8 @@ RTE_DefaultConfig.pngCode_all = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAA
 
 RTE_DefaultConfig.svgCode_default = '<svg viewBox="2 1 20 20"><path d="M17 3H7c-1.1 0-1.99.9-1.99 2L5 21l7-3 7 3V5c0-1.1-.9-2-2-2zm0 15l-5-2.18L7 18V5h10v13z"/></svg>';
 RTE_DefaultConfig.svgCode_insertcode = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="8 7 3 12 8 17"/><polyline points="16 7 21 12 16 17"/><line x1="14" y1="5" x2="10" y2="19"/></svg>';
-RTE_DefaultConfig.svgCode_aiassist = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" aria-hidden="true"><defs><linearGradient id="rte-ai-robot-face" x1="5.2" y1="6.2" x2="18.8" y2="17.2" gradientUnits="userSpaceOnUse"><stop stop-color="#38bdf8"/><stop offset=".55" stop-color="#2563eb"/><stop offset="1" stop-color="#7c3aed"/></linearGradient></defs><path d="M12 4.2V2.5" stroke="#f59e0b" stroke-width="1.7" stroke-linecap="round"/><rect x="5.2" y="6.2" width="13.6" height="11" rx="3.1" fill="url(#rte-ai-robot-face)" stroke="#1d4ed8" stroke-width="1.35"/><circle cx="9.4" cy="11.4" r="1.2" fill="#fef3c7"/><circle cx="14.6" cy="11.4" r="1.2" fill="#fef3c7"/><path d="M9.7 14.5c.7.55 1.45.82 2.3.82s1.6-.27 2.3-.82" stroke="#ffffff" stroke-width="1.55" stroke-linecap="round"/><path d="M7.2 19.4l1.1-2.2M16.8 19.4l-1.1-2.2" stroke="#2563eb" stroke-width="1.55" stroke-linecap="round"/></svg>';
-RTE_DefaultConfig.svgCode_aiassist = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" aria-hidden="true"><defs><linearGradient id="rte-ai-bot-v4-shell" x1="4.2" y1="5.8" x2="19.8" y2="18.4" gradientUnits="userSpaceOnUse"><stop stop-color="#22d3ee"/><stop offset=".52" stop-color="#2563eb"/><stop offset="1" stop-color="#4338ca"/></linearGradient><linearGradient id="rte-ai-bot-v4-visor" x1="7.8" y1="9" x2="16.2" y2="13.8" gradientUnits="userSpaceOnUse"><stop stop-color="#f8fafc"/><stop offset="1" stop-color="#bfdbfe"/></linearGradient></defs><path d="M12 2.6v2.3" stroke="#f59e0b" stroke-width="1.7" stroke-linecap="round"/><circle cx="12" cy="2.6" r=".9" fill="#fbbf24"/><path d="M4.9 12.2h-1a1.4 1.4 0 010-2.8h1M19.1 9.4h1a1.4 1.4 0 010 2.8h-1" stroke="#2563eb" stroke-width="1.25" stroke-linecap="round"/><rect x="5.2" y="5.9" width="13.6" height="12.2" rx="4" fill="url(#rte-ai-bot-v4-shell)" stroke="#1e40af" stroke-width="1.15"/><rect x="7.6" y="8.8" width="8.8" height="5.2" rx="2.6" fill="url(#rte-ai-bot-v4-visor)" opacity=".98"/><circle cx="10.2" cy="11.4" r=".9" fill="#0f172a"/><circle cx="13.8" cy="11.4" r=".9" fill="#0f172a"/><path d="M9.5 15.3c.78.52 1.6.78 2.5.78s1.72-.26 2.5-.78" stroke="#eff6ff" stroke-width="1.35" stroke-linecap="round"/><path d="M7.7 20.2l1.15-2.15M16.3 20.2l-1.15-2.15" stroke="#2563eb" stroke-width="1.45" stroke-linecap="round"/><path d="M18.6 5.1l.45-.95.45.95.95.45-.95.45-.45.95-.45-.95-.95-.45z" fill="#fde68a"/></svg>';
+RTE_DefaultConfig.svgCode_aiassist = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true"><defs><linearGradient id="rte-ai-robot-face" x1="5.2" y1="6.2" x2="18.8" y2="17.2" gradientUnits="userSpaceOnUse"><stop stop-color="#38bdf8"/><stop offset=".55" stop-color="#2563eb"/><stop offset="1" stop-color="#7c3aed"/></linearGradient></defs><path d="M12 4.2V2.5" stroke="#f59e0b" stroke-width="1.7" stroke-linecap="round"/><rect x="5.2" y="6.2" width="13.6" height="11" rx="3.1" fill="url(#rte-ai-robot-face)" stroke="#1d4ed8" stroke-width="1.35"/><circle cx="9.4" cy="11.4" r="1.2" fill="#fef3c7"/><circle cx="14.6" cy="11.4" r="1.2" fill="#fef3c7"/><path d="M9.7 14.5c.7.55 1.45.82 2.3.82s1.6-.27 2.3-.82" stroke="#ffffff" stroke-width="1.55" stroke-linecap="round"/><path d="M7.2 19.4l1.1-2.2M16.8 19.4l-1.1-2.2" stroke="#2563eb" stroke-width="1.55" stroke-linecap="round"/></svg>';
+RTE_DefaultConfig.svgCode_aiassist = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true"><defs><linearGradient id="rte-ai-bot-v4-shell" x1="4.2" y1="5.8" x2="19.8" y2="18.4" gradientUnits="userSpaceOnUse"><stop stop-color="#22d3ee"/><stop offset=".52" stop-color="#2563eb"/><stop offset="1" stop-color="#4338ca"/></linearGradient><linearGradient id="rte-ai-bot-v4-visor" x1="7.8" y1="9" x2="16.2" y2="13.8" gradientUnits="userSpaceOnUse"><stop stop-color="#f8fafc"/><stop offset="1" stop-color="#bfdbfe"/></linearGradient></defs><path d="M12 2.6v2.3" stroke="#f59e0b" stroke-width="1.7" stroke-linecap="round"/><circle cx="12" cy="2.6" r=".9" fill="#fbbf24"/><path d="M4.9 12.2h-1a1.4 1.4 0 010-2.8h1M19.1 9.4h1a1.4 1.4 0 010 2.8h-1" stroke="#2563eb" stroke-width="1.25" stroke-linecap="round"/><rect x="5.2" y="5.9" width="13.6" height="12.2" rx="4" fill="url(#rte-ai-bot-v4-shell)" stroke="#1e40af" stroke-width="1.15"/><rect x="7.6" y="8.8" width="8.8" height="5.2" rx="2.6" fill="url(#rte-ai-bot-v4-visor)" opacity=".98"/><circle cx="10.2" cy="11.4" r=".9" fill="#0f172a"/><circle cx="13.8" cy="11.4" r=".9" fill="#0f172a"/><path d="M9.5 15.3c.78.52 1.6.78 2.5.78s1.72-.26 2.5-.78" stroke="#eff6ff" stroke-width="1.35" stroke-linecap="round"/><path d="M7.7 20.2l1.15-2.15M16.3 20.2l-1.15-2.15" stroke="#2563eb" stroke-width="1.45" stroke-linecap="round"/><path d="M18.6 5.1l.45-.95.45.95.95.45-.95.45-.45.95-.45-.95-.95-.45z" fill="#fde68a"/></svg>';
 RTE_DefaultConfig.svgCode_empty = '<svg viewBox="0 0 20 20"></svg>';
 RTE_DefaultConfig.svgCode_close = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
 RTE_DefaultConfig.svgCode_DialogClose = '<svg viewBox="0 0 18 18"><path fill="currentColor" d="M11.5,9.5l5-5c0.2-0.2,0.2-0.6-0.1-0.9l-1-1c-0.3-0.3-0.7-0.3-0.9-0.1l-5,5l-5-5C4.3,2.3,3.9,2.4,3.6,2.6l-1,1 C2.4,3.9,2.3,4.3,2.5,4.5l5,5l-5,5c-0.2,0.2-0.2,0.6,0.1,0.9l1,1c0.3,0.3,0.7,0.3,0.9,0.1l5-5l5,5c0.2,0.2,0.6,0.2,0.9-0.1l1-1 c0.3-0.3,0.3-0.7,0.1-0.9L11.5,9.5z"/></svg>';

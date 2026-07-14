@@ -709,8 +709,8 @@ if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
 })();
 
 if (!RTE_DefaultConfig.svgCode_aiassist) {
-    RTE_DefaultConfig.svgCode_aiassist = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" aria-hidden="true"><defs><linearGradient id="rte-ai-robot-shell" x1="5" y1="6" x2="19" y2="18" gradientUnits="userSpaceOnUse"><stop stop-color="#1fb6ff"/><stop offset=".52" stop-color="#2563eb"/><stop offset="1" stop-color="#7c3aed"/></linearGradient><linearGradient id="rte-ai-robot-glow" x1="8" y1="10" x2="16" y2="15" gradientUnits="userSpaceOnUse"><stop stop-color="#fef9c3"/><stop offset="1" stop-color="#fde68a"/></linearGradient></defs><path d="M12 2.4v2.4" stroke="#f59e0b" stroke-width="1.7" stroke-linecap="round"/><circle cx="12" cy="2.4" r="1" fill="#fbbf24"/><rect x="5.1" y="6.1" width="13.8" height="11.2" rx="3.4" fill="url(#rte-ai-robot-shell)" stroke="#1e40af" stroke-width="1.2"/><path d="M8.2 6.1V5.8A1.8 1.8 0 0110 4h4a1.8 1.8 0 011.8 1.8v.3" stroke="#93c5fd" stroke-width="1.2" stroke-linecap="round"/><rect x="7.7" y="9.2" width="8.6" height="4.8" rx="2.4" fill="#0f172a" opacity=".26"/><circle cx="10" cy="11.6" r="1.15" fill="url(#rte-ai-robot-glow)"/><circle cx="14" cy="11.6" r="1.15" fill="url(#rte-ai-robot-glow)"/><path d="M9.4 14.9c.8.55 1.66.83 2.6.83s1.8-.28 2.6-.83" stroke="#ffffff" stroke-width="1.45" stroke-linecap="round"/><path d="M8.1 19.2l1-2.1M15.9 19.2l-1-2.1" stroke="#2563eb" stroke-width="1.5" stroke-linecap="round"/><path d="M18.8 6.4l.55-1.25.55 1.25 1.25.55-1.25.55-.55 1.25-.55-1.25-1.25-.55z" fill="#fef08a"/></svg>';
-    RTE_DefaultConfig.svgCode_aiassist = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" aria-hidden="true"><defs><linearGradient id="rte-ai-bot-v4-shell" x1="4.2" y1="5.8" x2="19.8" y2="18.4" gradientUnits="userSpaceOnUse"><stop stop-color="#22d3ee"/><stop offset=".52" stop-color="#2563eb"/><stop offset="1" stop-color="#4338ca"/></linearGradient><linearGradient id="rte-ai-bot-v4-visor" x1="7.8" y1="9" x2="16.2" y2="13.8" gradientUnits="userSpaceOnUse"><stop stop-color="#f8fafc"/><stop offset="1" stop-color="#bfdbfe"/></linearGradient></defs><path d="M12 2.6v2.3" stroke="#f59e0b" stroke-width="1.7" stroke-linecap="round"/><circle cx="12" cy="2.6" r=".9" fill="#fbbf24"/><path d="M4.9 12.2h-1a1.4 1.4 0 010-2.8h1M19.1 9.4h1a1.4 1.4 0 010 2.8h-1" stroke="#2563eb" stroke-width="1.25" stroke-linecap="round"/><rect x="5.2" y="5.9" width="13.6" height="12.2" rx="4" fill="url(#rte-ai-bot-v4-shell)" stroke="#1e40af" stroke-width="1.15"/><rect x="7.6" y="8.8" width="8.8" height="5.2" rx="2.6" fill="url(#rte-ai-bot-v4-visor)" opacity=".98"/><circle cx="10.2" cy="11.4" r=".9" fill="#0f172a"/><circle cx="13.8" cy="11.4" r=".9" fill="#0f172a"/><path d="M9.5 15.3c.78.52 1.6.78 2.5.78s1.72-.26 2.5-.78" stroke="#eff6ff" stroke-width="1.35" stroke-linecap="round"/><path d="M7.7 20.2l1.15-2.15M16.3 20.2l-1.15-2.15" stroke="#2563eb" stroke-width="1.45" stroke-linecap="round"/><path d="M18.6 5.1l.45-.95.45.95.95.45-.95.45-.45.95-.45-.95-.95-.45z" fill="#fde68a"/></svg>';
+    RTE_DefaultConfig.svgCode_aiassist = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true"><defs><linearGradient id="rte-ai-robot-shell" x1="5" y1="6" x2="19" y2="18" gradientUnits="userSpaceOnUse"><stop stop-color="#1fb6ff"/><stop offset=".52" stop-color="#2563eb"/><stop offset="1" stop-color="#7c3aed"/></linearGradient><linearGradient id="rte-ai-robot-glow" x1="8" y1="10" x2="16" y2="15" gradientUnits="userSpaceOnUse"><stop stop-color="#fef9c3"/><stop offset="1" stop-color="#fde68a"/></linearGradient></defs><path d="M12 2.4v2.4" stroke="#f59e0b" stroke-width="1.7" stroke-linecap="round"/><circle cx="12" cy="2.4" r="1" fill="#fbbf24"/><rect x="5.1" y="6.1" width="13.8" height="11.2" rx="3.4" fill="url(#rte-ai-robot-shell)" stroke="#1e40af" stroke-width="1.2"/><path d="M8.2 6.1V5.8A1.8 1.8 0 0110 4h4a1.8 1.8 0 011.8 1.8v.3" stroke="#93c5fd" stroke-width="1.2" stroke-linecap="round"/><rect x="7.7" y="9.2" width="8.6" height="4.8" rx="2.4" fill="#0f172a" opacity=".26"/><circle cx="10" cy="11.6" r="1.15" fill="url(#rte-ai-robot-glow)"/><circle cx="14" cy="11.6" r="1.15" fill="url(#rte-ai-robot-glow)"/><path d="M9.4 14.9c.8.55 1.66.83 2.6.83s1.8-.28 2.6-.83" stroke="#ffffff" stroke-width="1.45" stroke-linecap="round"/><path d="M8.1 19.2l1-2.1M15.9 19.2l-1-2.1" stroke="#2563eb" stroke-width="1.5" stroke-linecap="round"/><path d="M18.8 6.4l.55-1.25.55 1.25 1.25.55-1.25.55-.55 1.25-.55-1.25-1.25-.55z" fill="#fef08a"/></svg>';
+    RTE_DefaultConfig.svgCode_aiassist = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true"><defs><linearGradient id="rte-ai-bot-v4-shell" x1="4.2" y1="5.8" x2="19.8" y2="18.4" gradientUnits="userSpaceOnUse"><stop stop-color="#22d3ee"/><stop offset=".52" stop-color="#2563eb"/><stop offset="1" stop-color="#4338ca"/></linearGradient><linearGradient id="rte-ai-bot-v4-visor" x1="7.8" y1="9" x2="16.2" y2="13.8" gradientUnits="userSpaceOnUse"><stop stop-color="#f8fafc"/><stop offset="1" stop-color="#bfdbfe"/></linearGradient></defs><path d="M12 2.6v2.3" stroke="#f59e0b" stroke-width="1.7" stroke-linecap="round"/><circle cx="12" cy="2.6" r=".9" fill="#fbbf24"/><path d="M4.9 12.2h-1a1.4 1.4 0 010-2.8h1M19.1 9.4h1a1.4 1.4 0 010 2.8h-1" stroke="#2563eb" stroke-width="1.25" stroke-linecap="round"/><rect x="5.2" y="5.9" width="13.6" height="12.2" rx="4" fill="url(#rte-ai-bot-v4-shell)" stroke="#1e40af" stroke-width="1.15"/><rect x="7.6" y="8.8" width="8.8" height="5.2" rx="2.6" fill="url(#rte-ai-bot-v4-visor)" opacity=".98"/><circle cx="10.2" cy="11.4" r=".9" fill="#0f172a"/><circle cx="13.8" cy="11.4" r=".9" fill="#0f172a"/><path d="M9.5 15.3c.78.52 1.6.78 2.5.78s1.72-.26 2.5-.78" stroke="#eff6ff" stroke-width="1.35" stroke-linecap="round"/><path d="M7.7 20.2l1.15-2.15M16.3 20.2l-1.15-2.15" stroke="#2563eb" stroke-width="1.45" stroke-linecap="round"/><path d="M18.6 5.1l.45-.95.45.95.95.45-.95.45-.45.95-.45-.95-.95-.45z" fill="#fde68a"/></svg>';
 }
 
 if (!RTE_DefaultConfig.svgCode_aiassist_open_dialog) {
@@ -723,22 +723,22 @@ if (!RTE_DefaultConfig.svgCode_aiassist_chat) {
     RTE_DefaultConfig.svgCode_aiassist_chat = RTE_DefaultConfig.svgCode_aiassist;
 }
 if (!RTE_DefaultConfig.svgCode_aiassist_proofread) {
-    RTE_DefaultConfig.svgCode_aiassist_proofread = '<svg viewBox="0 0 24 24" fill="none" stroke="#5F6368" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="4.5"/><path d="M14 14l5 5"/><path d="M8.8 10.5l1.2 1.3 2.3-2.5"/></svg>';
+    RTE_DefaultConfig.svgCode_aiassist_proofread = '<svg viewBox="0 0 24 24" fill="none" stroke="#5F6368" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="4.5"/><path d="M14 14l5 5"/><path d="M8.8 10.5l1.2 1.3 2.3-2.5"/></svg>';
 }
 if (!RTE_DefaultConfig.svgCode_aiassist_rewrite) {
-    RTE_DefaultConfig.svgCode_aiassist_rewrite = '<svg viewBox="0 0 24 24" fill="none" stroke="#5F6368" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h11"/><path d="M4 12h8"/><path d="M4 17h11"/><path d="M16 5l4 4-6.5 6.5H9.5v-4z"/></svg>';
+    RTE_DefaultConfig.svgCode_aiassist_rewrite = '<svg viewBox="0 0 24 24" fill="none" stroke="#5F6368" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h11"/><path d="M4 12h8"/><path d="M4 17h11"/><path d="M16 5l4 4-6.5 6.5H9.5v-4z"/></svg>';
 }
 if (!RTE_DefaultConfig.svgCode_aiassist_translate) {
-    RTE_DefaultConfig.svgCode_aiassist_translate = '<svg viewBox="0 0 24 24" fill="none" stroke="#5F6368" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6.5h10"/><path d="M8 4v2.5"/><path d="M11 6.5c-.6 2.9-2.2 5.3-4.7 7.1"/><path d="M6.5 10.5c1.2.9 2.5 1.6 3.9 2.1"/><path d="M14.5 9.5h5"/><path d="M17 7v2.5"/><path d="M15 19l2-4.5 2 4.5"/><path d="M15.8 17.2h2.4"/></svg>';
+    RTE_DefaultConfig.svgCode_aiassist_translate = '<svg viewBox="0 0 24 24" fill="none" stroke="#5F6368" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6.5h10"/><path d="M8 4v2.5"/><path d="M11 6.5c-.6 2.9-2.2 5.3-4.7 7.1"/><path d="M6.5 10.5c1.2.9 2.5 1.6 3.9 2.1"/><path d="M14.5 9.5h5"/><path d="M17 7v2.5"/><path d="M15 19l2-4.5 2 4.5"/><path d="M15.8 17.2h2.4"/></svg>';
 }
 if (!RTE_DefaultConfig.svgCode_aiassist_comment) {
-    RTE_DefaultConfig.svgCode_aiassist_comment = '<svg viewBox="0 0 24 24" fill="none" stroke="#5F6368" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 7.5A3.5 3.5 0 019.5 4h8A3.5 3.5 0 0121 7.5v5a3.5 3.5 0 01-3.5 3.5H12l-4.5 3v-3H6A3.5 3.5 0 012.5 12.5v-5A3.5 3.5 0 016 4"/><path d="M8 9h8"/><path d="M8 12h5"/></svg>';
+    RTE_DefaultConfig.svgCode_aiassist_comment = '<svg viewBox="0 0 24 24" fill="none" stroke="#5F6368" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 7.5A3.5 3.5 0 019.5 4h8A3.5 3.5 0 0121 7.5v5a3.5 3.5 0 01-3.5 3.5H12l-4.5 3v-3H6A3.5 3.5 0 012.5 12.5v-5A3.5 3.5 0 016 4"/><path d="M8 9h8"/><path d="M8 12h5"/></svg>';
 }
 if (!RTE_DefaultConfig.svgCode_aiassist_paragraph) {
-    RTE_DefaultConfig.svgCode_aiassist_paragraph = '<svg viewBox="0 0 24 24" fill="none" stroke="#5F6368" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h8"/><path d="M5 12h14"/><path d="M5 17h10"/><path d="M18 5v6"/><path d="M15 8h6"/></svg>';
+    RTE_DefaultConfig.svgCode_aiassist_paragraph = '<svg viewBox="0 0 24 24" fill="none" stroke="#5F6368" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h8"/><path d="M5 12h14"/><path d="M5 17h10"/><path d="M18 5v6"/><path d="M15 8h6"/></svg>';
 }
 if (!RTE_DefaultConfig.svgCode_aiassist_justify) {
-    RTE_DefaultConfig.svgCode_aiassist_justify = '<svg viewBox="0 0 24 24" fill="none" stroke="#5F6368" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h14"/><path d="M5 11h14"/><path d="M5 15h9"/><path d="M16 14l2 2 3-4"/></svg>';
+    RTE_DefaultConfig.svgCode_aiassist_justify = '<svg viewBox="0 0 24 24" fill="none" stroke="#5F6368" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h14"/><path d="M5 11h14"/><path d="M5 15h9"/><path d="M16 14l2 2 3-4"/></svg>';
 }
 
 RTE_DefaultConfig.plugin_aitoolkit = RTE_Plugin_AIToolkit;
@@ -23862,7 +23862,6 @@ function RTE_Plugin_Html2PDF() {
 
 
 
-
 if (!RTE_DefaultConfig.svgCode_imageeditor) {
 	RTE_DefaultConfig.svgCode_imageeditor = '<svg viewBox="-2 -2 20 20" fill="#5F6368"><style>.st0{fill:#f6f6f6}.st1{fill:#424242}.st2{fill:none}.st3{fill:#f0eff1}</style><path class="st0" d="M1 0v6H0v10h10v-1h6V0z" id="outline"/><g id="icon_x5F_bg"><path class="st1" d="M2 5h1v1H2zM2 3h1v1H2zM2 1h1v1H2zM4 1h1.001v1H4zM6 1h1v1H6zM8 1h1v1H8zM10 1h1v1h-1zM12 1h1v1h-1zM14 1h1v1h-1zM14 3h1v1h-1zM14 5h1v1h-1zM14 7h1v1h-1zM14 9h1v1h-1zM14 10.999h1V12h-1zM14 13h1v1h-1zM12 13h1v1h-1zM11 11V5H5v1H4V4h8v7z"/><circle class="st1" cx="6.192" cy="9.807" r=".807"/><path class="st1" d="M1 7v8h8V7H1zm1 7.001v-.28l2.537-1.463L7.554 14l.001.001H2zm6-.93l-3.463-1.982L2 12.491v-4.49h6v5.07zM10 13h1v1h-1z"/></g><g id="icon_x5F_fg"><path class="st2" d="M2 14h5.554v.001H2z"/><path class="st3" d="M11 5v6h-1V6H5V5z"/><path class="st3" d="M2 12.491l2.537-1.402L8 13.071v-5.07H2v4.49zM6.192 9a.807.807 0 1 1 .001 1.615A.807.807 0 0 1 6.192 9z"/><path class="st3" d="M2 13.721V14h5.554l-3.017-1.742z"/></g></svg>';
 }
@@ -24016,7 +24015,6 @@ function RTE_Plugin_ImageEditor() {
 		iframe.contentDocument.close();
 	}
 }
-
 
 
 
@@ -24341,7 +24339,6 @@ function RTE_Plugin_InsertCode() {
 
 
 
-
 RTE_DefaultConfig.plugin_insertemoji = RTE_Plugin_InsertEmoji;
 
 function RTE_Plugin_InsertEmoji() {
@@ -24566,7 +24563,6 @@ function RTE_Plugin_InsertEmoji() {
 
 
 }
-
 
 
 

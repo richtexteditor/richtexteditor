@@ -246,8 +246,6 @@ RTE_DefaultConfig.trackChangesEnabled = true;
 RTE_DefaultConfig.currentUser = null; // { id, name, color } — required to track changes
 RTE_DefaultConfig.trackChangesInsertClass = "rte-tc rte-tc-insert";
 RTE_DefaultConfig.trackChangesDeleteClass = "rte-tc rte-tc-delete";
-RTE_DefaultConfig.reviewCanDecide = null; // Optional (entry, action, user, editor) => boolean policy for accept/reject.
-RTE_DefaultConfig.onReviewDecisionDenied = null; // Optional ({ entry, action, user }) callback for denied review decisions.
 
 // Comments — select text, click the "Comment" toolbar button (or call editor.comments.add()),
 // type a note. The selection is wrapped in a highlighted <span class="rte-comment"> and a
@@ -266,21 +264,16 @@ RTE_DefaultConfig.revisionHistoryEnabled = true;
 RTE_DefaultConfig.revisionHistoryMaxEntries = 50;
 RTE_DefaultConfig.revisionHistoryAutoSnapshotMs = 0;
 RTE_DefaultConfig.revisionHistoryUrl = "";
-RTE_DefaultConfig.revisionHistoryRequestHeaders = null; // Object or (editor) => object; use for same-origin CSRF headers.
-RTE_DefaultConfig.onRevisionHistorySyncError = null; // Optional ({ reason, status?, error? }) callback for remote persistence failures.
 
-// Yjs collaboration. Yjs + a provider (y-websocket / y-webrtc / y-indexeddb) are peer
-// dependencies. Load crdt-engine.js and call editor.collab.attach({ doc, provider,
-// textSync: "crdt" }) for concurrent content editing; without textSync, the plugin syncs
-// presence and the shared review ledger only. Set collabRequireCrdt or requireCrdt to prevent
-// a requested CRDT session from falling back to legacy snapshot synchronization.
+// Yjs collaboration (Option B: presence + shared review ledger; NO content CRDT in v1).
+// Yjs + a provider (y-websocket / y-webrtc / y-indexeddb) are PEER DEPENDENCIES — customers
+// load them separately and call editor.collab.attach({ doc, provider, user }).
+// The plugin handles: awareness (live cursors + presence), and bridging editor.reviewLedger
+// into a shared Y.Map so AI suggestions, tracked changes, and comments replicate across peers.
 RTE_DefaultConfig.collabEnabled = true;
 RTE_DefaultConfig.collabLedgerMapName = "reviewLedger";
 RTE_DefaultConfig.collabShowPresence = true;
 RTE_DefaultConfig.collabShowRemoteCursors = true;
-RTE_DefaultConfig.collabTextSync = false;
-RTE_DefaultConfig.collabRequireCrdt = false;
-RTE_DefaultConfig.onCollabStatus = null;
 
 
 RTE_DefaultConfig.inlineStyles = [["Red", "color:red", "color:red"], ["Bold", "font-weight:bold", "font-weight:bold"], ["Mark", "my-cls-mark"], ["Warning", "my-cls-warning"]]; // Default CSS styles for inline styles dropdown. 
@@ -853,29 +846,27 @@ RTE_DefaultConfig.plugin_insertcomment = function () {
             var selectedText = sel && !sel.isCollapsed ? sel.toString() : "";
 
             var dialoginner = editor.createDialog("Add Comment", "rte-dialog-insertcomment");
-            dialoginner.style.padding = "14px";
+            dialoginner.style.padding = "16px";
             if (selectedText) {
                 var preview = document.createElement("div");
-                preview.className = "rte-comment-selection-preview";
+                preview.style.cssText = "background:#f5f5f5;border-left:3px solid #0f8b8d;padding:8px 12px;margin-bottom:12px;font-size:12px;color:#555;border-radius:0 4px 4px 0;max-height:60px;overflow:hidden;";
                 preview.innerText = selectedText.substring(0, 120) + (selectedText.length > 120 ? "..." : "");
                 dialoginner.appendChild(preview);
             }
             var label = document.createElement("label");
             label.innerText = "Comment:";
-            label.className = "rte-comment-dialog-label";
+            label.style.cssText = "display:block;margin-bottom:6px;font-size:13px;font-weight:600;";
             dialoginner.appendChild(label);
             var textarea = document.createElement("textarea");
-            textarea.id = "rte-comment-input-" + new Date().getTime();
-            label.htmlFor = textarea.id;
             textarea.placeholder = "Type your comment...";
-            textarea.className = "rte-comment-dialog-input";
+            textarea.style.cssText = "width:100%;height:80px;padding:8px;border:1px solid #ccc;border-radius:4px;font-size:13px;box-sizing:border-box;resize:vertical;";
             dialoginner.appendChild(textarea);
             var btnRow = document.createElement("div");
-            btnRow.className = "rte-comment-dialog-actions";
+            btnRow.style.cssText = "margin-top:12px;text-align:right;";
             var insertBtn = document.createElement("button");
             insertBtn.innerText = "Add Comment";
             insertBtn.type = "button";
-            insertBtn.className = "rte-comment-dialog-submit";
+            insertBtn.style.cssText = "padding:6px 18px;background:#0f8b8d;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px;";
             insertBtn.onclick = function () {
                 var comment = textarea.value.replace(/^\s+|\s+$/g, "");
                 if (comment && selectedText) {
@@ -886,30 +877,11 @@ RTE_DefaultConfig.plugin_insertcomment = function () {
                     mark.setAttribute("data-comment", comment);
                     try { range.surroundContents(mark); } catch (e) {}
                 } else if (comment) {
-                    var safeComment = comment.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-                    editor.insertHTML('<span class="rte-comment-marker" contenteditable="false" style="background:#fff9c4;border:1px solid #f9a825;border-radius:3px;padding:1px 6px;font-size:11px;color:#f57f17;cursor:pointer;" title="' + safeComment + '">&#128172; Comment</span>');
+                    editor.insertHTML('<span class="rte-comment-marker" contenteditable="false" style="background:#fff9c4;border:1px solid #f9a825;border-radius:3px;padding:1px 6px;font-size:11px;color:#f57f17;cursor:pointer;" title="' + comment.replace(/"/g, "&quot;") + '">&#128172; Comment</span>');
                 }
                 dialoginner.close();
                 editor.focus();
             };
-            var cancelBtn = document.createElement("button");
-            cancelBtn.innerText = "Cancel";
-            cancelBtn.type = "button";
-            cancelBtn.className = "rte-comment-dialog-cancel";
-            cancelBtn.onclick = function () {
-                dialoginner.close();
-                editor.focus();
-            };
-            textarea.onkeydown = function (event) {
-                if (event.key === "Escape") {
-                    event.preventDefault();
-                    cancelBtn.click();
-                } else if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-                    event.preventDefault();
-                    insertBtn.click();
-                }
-            };
-            btnRow.appendChild(cancelBtn);
             btnRow.appendChild(insertBtn);
             dialoginner.appendChild(btnRow);
             setTimeout(function () { textarea.focus(); }, 100);

@@ -47,14 +47,23 @@
     min-width: 28px;
 }
 
-.richtexteditor rte-toolbar-button.rte_command_aiassist svg,
-.richtexteditor rte-toolbar-arrowbutton.rte_command_aiassist svg,
-.richtexteditor rte-toolbar-dropdown.rte_command_aiassist svg,
-.richtexteditor rte-control-toolbar rte-toolbar-button.rte_command_aiassist svg,
-.richtexteditor rte-control-toolbar rte-toolbar-arrowbutton.rte_command_aiassist svg,
-.richtexteditor rte-control-toolbar rte-toolbar-dropdown.rte_command_aiassist svg {
-    /* Size is button-box-driven via the inline width/height:100% rte.js sets on
-       every icon svg; only the color is themed here. */
+.richtexteditor rte-toolbar-button.rte_command_aiassist.rte_command_aiassist.rte_command_aiassist.rte_command_aiassist svg,
+.richtexteditor rte-toolbar-arrowbutton.rte_command_aiassist.rte_command_aiassist.rte_command_aiassist.rte_command_aiassist svg,
+.richtexteditor rte-toolbar-dropdown.rte_command_aiassist.rte_command_aiassist.rte_command_aiassist.rte_command_aiassist svg,
+.richtexteditor rte-control-toolbar rte-toolbar-button.rte_command_aiassist.rte_command_aiassist.rte_command_aiassist.rte_command_aiassist svg,
+.richtexteditor rte-control-toolbar rte-toolbar-arrowbutton.rte_command_aiassist.rte_command_aiassist.rte_command_aiassist.rte_command_aiassist svg,
+.richtexteditor rte-control-toolbar rte-toolbar-dropdown.rte_command_aiassist.rte_command_aiassist.rte_command_aiassist.rte_command_aiassist svg {
+    /* Size is normally button-box-driven via the inline width/height:100% rte.js
+       sets on every icon svg (all icons render ~16-18px regardless of their own
+       svg width/height attributes). Override to make the AI brand mark read a
+       little bigger than the surrounding monochrome icons. The repeated
+       .rte_command_aiassist class (not a typo) bumps specificity above the
+       rte-modern skin's generic ".richtexteditor.rte-modern.rte-desktop
+       rte-toolbar.rte-toolbar-desktop rte-toolbar-button svg" rule in
+       rte_theme_default.css, which otherwise wins on higher specificity even
+       though both rules are !important. */
+    width: 20px !important;
+    height: 20px !important;
     color: inherit;
 }
 

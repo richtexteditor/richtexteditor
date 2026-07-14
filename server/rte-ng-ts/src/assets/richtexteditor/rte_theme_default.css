@@ -1,6 +1,6 @@
-﻿
+
 /* ===== Design tokens =====
-   Override these CSS custom properties to retheme the editor chrome — the
+   Override these CSS custom properties to retheme the editor chrome �� the
    same architecture CKEditor 5 documents for its --ck-* variables. Icons in
    rte-config.js use fill/stroke="currentColor" and follow --rte-icon-color.
    The built-in dark mode (end of this file) is pure token overrides. */
@@ -52,6 +52,11 @@ rte-toolbar-button, rte-toolbar-splitbutton, rte-toolbar-dropdown, rte-toolbar-a
         max-width: none !important;
         max-height: none !important;
         border-radius: 0px !important;
+        /* Force a dedicated compositing layer: without this, Chromium can fail to
+           repaint the element over sticky/fixed page content (e.g. a sticky header)
+           when position and z-index change together, leaving stale pixels on screen. */
+        transform: translateZ(0) !important;
+        will-change: transform !important;
     }
 
         .richtexteditor.rte-fullpage rte-toolbar {
@@ -182,7 +187,7 @@ rte-codebox {
     }
 }
 
-/* 2026-05-19 Reading mode — hides toolbars + status, leaves only the editing
+/* 2026-05-19 Reading mode �� hides toolbars + status, leaves only the editing
    surface for distraction-free writing. Toggle via editor.toggleReadingMode(). */
 .richtexteditor.rte-reading-mode rte-toolbar,
 .richtexteditor.rte-reading-mode rte-subtoolbar,
@@ -220,7 +225,7 @@ rte-codebox {
     border-color: rgba(37, 99, 235, .35);
 }
 
-/* 2026-05-11 Block drag handles (Notion-style ⋮⋮ on left edge of blocks).
+/* 2026-05-11 Block drag handles (Notion-style ?? on left edge of blocks).
    Activated via config.blockDragHandles = true. */
 .rte-block-drag-handle {
     position: absolute;
@@ -419,7 +424,7 @@ rte-control-toolbar {
     animation: rteFloatToolbarIn 130ms ease-out;
 }
 
-/* The generic rte-toolbar-group adds 2px padding — remove it here so the
+/* The generic rte-toolbar-group adds 2px padding �� remove it here so the
    buttons fill the bar (smaller chrome, larger-feeling icons). */
 .rte-modern rte-control-toolbar rte-toolbar-group {
     padding: 0;
@@ -451,7 +456,7 @@ rte-control-toolbar {
 }
 
 /* The global rte-line-spliter rule carries `margin: 10px auto !important`,
-   which inflates the float toolbar's row height — neutralize it here. */
+   which inflates the float toolbar's row height �� neutralize it here. */
 .rte-modern rte-control-toolbar rte-line-spliter {
     margin: 0 2px !important;
     height: 14px;
@@ -773,7 +778,7 @@ rte-color-button-mask {
 }
 
 
-/* Rounded interactive states for the desktop toolbar — matches the selection
+/* Rounded interactive states for the desktop toolbar �� matches the selection
    float toolbar (7px) and modern editors (Google Docs/Notion). Previously the
    main toolbar's hover/active/focus highlights were hard squares. */
 .rte-modern rte-toolbar-button,
@@ -831,7 +836,7 @@ rte-color-button-mask {
         height: 36px;
         margin-bottom: -4px;
         background-position: 23px 8px;
-        /* Open dropdown reads as a tab connected to its panel — square the
+        /* Open dropdown reads as a tab connected to its panel �� square the
            bottom corners so the rounded button doesn't detach from the panel. */
         border-bottom-left-radius: 0;
         border-bottom-right-radius: 0;
@@ -2071,6 +2076,74 @@ rte-floatpanel {
             transform: translateY(-1px);
         }
 
+/* 2026-07-03 paragraph rail icon polish */
+rte-floatpanel.rte-floatpanel-paragraphop {
+    width: 28px !important;
+    padding: 9px 3px 4px !important;
+    border-color: rgba(148,163,184,.34) !important;
+    border-radius: 11px !important;
+    background: linear-gradient(180deg, rgba(255,255,255,.94) 0%, rgba(248,250,252,.91) 100%) !important;
+    box-shadow: 0 8px 20px rgba(15,23,42,.1), inset 0 1px 0 rgba(255,255,255,.9) !important;
+    opacity: .86 !important;
+}
+
+    rte-floatpanel.rte-floatpanel-paragraphop::before {
+        top: 4px;
+        width: 10px;
+        height: 3px;
+        background: radial-gradient(circle, #94a3b8 .9px, transparent 1.3px) 0 0 / 4px 3px;
+        opacity: .62;
+    }
+
+    rte-floatpanel.rte-floatpanel-paragraphop rte-toolbar-group {
+        padding: 0;
+    }
+
+    rte-floatpanel.rte-floatpanel-paragraphop rte-toolbar-button {
+        box-sizing: border-box;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 20px !important;
+        height: 20px !important;
+        min-width: 20px !important;
+        min-height: 20px !important;
+        margin: 1px 0;
+        border-radius: 6px;
+        color: #6b7280;
+        opacity: .8;
+    }
+
+        rte-floatpanel.rte-floatpanel-paragraphop rte-toolbar-button:hover {
+            background: rgba(37,99,235,.08);
+            color: #1559d6;
+            box-shadow: inset 0 0 0 1px rgba(37,99,235,.1);
+            opacity: 1;
+            transform: translateY(-.5px);
+        }
+
+        rte-floatpanel.rte-floatpanel-paragraphop rte-toolbar-button svg {
+            display: block !important;
+            width: 13px !important;
+            height: 13px !important;
+            margin: 0 !important;
+            color: currentColor;
+            pointer-events: none;
+        }
+
+        rte-floatpanel.rte-floatpanel-paragraphop rte-toolbar-button svg,
+        rte-floatpanel.rte-floatpanel-paragraphop rte-toolbar-button svg * {
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            stroke-width: 1.35 !important;
+        }
+
+        rte-floatpanel.rte-floatpanel-paragraphop rte-toolbar-button.rte_command_pmore svg {
+            width: 12px !important;
+            height: 12px !important;
+            opacity: .72;
+        }
+
 
 .rte-current-item {
     background-color: #eef2f7;
@@ -2819,13 +2892,13 @@ rte-dropdown-panel.rte-panel-insertdocument .rte-dialog-button.rte-button-type-c
 }
 
 /* ===========================================================================
- * 2026-05-08 dialog polish layer — applies to every editor dialog (insert
+ * 2026-05-08 dialog polish layer �� applies to every editor dialog (insert
  * video / link / image / code / table / find / template / gallery / etc.)
  *
  * Until this layer landed, every dialog inherited `min-width: 300px` from
  * the base `rte-dialog-inner` rule above. That worked for two-button
  * confirmations but felt cramped for URL fields, code editors, and any
- * dialog with a textarea — the input was about 270 px wide once you
+ * dialog with a textarea �� the input was about 270 px wide once you
  * subtracted the 12 px margin on each side.
  *
  * The rules below set sensible per-dialog defaults, modernise the input
@@ -2902,7 +2975,7 @@ rte-dialog-outer .rte-dialog-line-input textarea:focus {
     box-shadow: 0 0 0 3px rgba(21, 89, 214, 0.16);
 }
 
-/* The label that floats above the input (Url / Width / etc.) — modern
+/* The label that floats above the input (Url / Width / etc.) �� modern
    feel: smaller, less shouty colour. */
 rte-dialog-outer .rte-dialog-line-input rte-dialog-input-label {
     font-size: 11px;
@@ -2934,7 +3007,7 @@ rte-dialog-outer rte-dialog-button {
 
 /* === Per-dialog width hints === */
 
-/* Insert video: just a URL textarea — bigger so users can paste long
+/* Insert video: just a URL textarea �� bigger so users can paste long
    YouTube / Vimeo links without horizontal scroll. */
 rte-dialog-outer.rte-dialog-insertvideo rte-dialog-inner {
     min-width: 520px;
@@ -2947,7 +3020,7 @@ rte-dialog-outer .rte-dialog-line-url textarea {
     word-break: break-all;
 }
 
-/* Insert link / image-by-url: same family — bigger than the default, but
+/* Insert link / image-by-url: same family �� bigger than the default, but
    not as wide as the code editor. */
 rte-dialog-outer.rte-dialog-insertlink rte-dialog-inner,
 rte-dialog-outer.rte-panel-insertimage-byurl rte-dialog-inner,
@@ -2961,13 +3034,13 @@ rte-dialog-outer.rte-dialog-insertcode rte-dialog-inner {
     max-width: min(880px, calc(100vw - 32px));
 }
 
-/* Insert table / find / general — keep a consistent 460 px floor. */
+/* Insert table / find / general �� keep a consistent 460 px floor. */
 rte-dialog-outer.rte-panel-find rte-dialog-inner,
 rte-dialog-outer.rte-panel-general rte-dialog-inner {
     min-width: 460px;
 }
 
-/* Insert gallery / template / paste cleanup — comfortable wide layouts
+/* Insert gallery / template / paste cleanup �� comfortable wide layouts
    for picking from a grid. */
 rte-dialog-outer.rte-dialog-insertgallery rte-dialog-inner,
 rte-dialog-outer.rte-dialog-inserttemplate rte-dialog-inner,
@@ -2977,7 +3050,7 @@ rte-dialog-outer.rte-dialog-pasteword rte-dialog-inner {
     max-width: min(960px, calc(100vw - 32px));
 }
 
-/* Image editor / HTML2PDF — full creative surface. */
+/* Image editor / HTML2PDF �� full creative surface. */
 rte-dialog-outer.rte-dialog-imageeditor rte-dialog-inner,
 rte-dialog-outer.rte-dialog-html2pdf rte-dialog-inner {
     min-width: 760px;
@@ -3493,7 +3566,7 @@ rte-toolbar-dropdown-item:focus-visible {
     box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.12);
 }
 
-/* Dark-mode hover for toolbar dropdown items — the light-blue gradient above is
+/* Dark-mode hover for toolbar dropdown items �� the light-blue gradient above is
    light-only; without this it renders washed-out (light gradient + dark-blue
    text) over the dark panel. */
 .rte-dark rte-toolbar-dropdown-item:hover,
@@ -3503,8 +3576,8 @@ rte-toolbar-dropdown-item:focus-visible {
     box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.18);
 }
 @media (prefers-color-scheme: dark) {
-    .richtexteditor:not(.rte-light) rte-toolbar-dropdown-item:hover,
-    .richtexteditor:not(.rte-light) rte-toolbar-dropdown-item:focus-visible {
+    .richtexteditor.rte-auto-dark:not(.rte-light) rte-toolbar-dropdown-item:hover,
+    .richtexteditor.rte-auto-dark:not(.rte-light) rte-toolbar-dropdown-item:focus-visible {
         background: var(--rte-hover-bg, #334155);
         color: var(--rte-text, #cbd5e1);
         box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.18);
@@ -4361,10 +4434,10 @@ rte-dropdown-panel .rte-dialog-button:active {
 }
 
 /* ============================================================ */
-/* Dark mode (UI chrome only — the document canvas stays white, */
+/* Dark mode (UI chrome only �� the document canvas stays white, */
 /* like Google Docs' dark UI, so authored content isn't harmed).*/
-/* AUTOMATIC via prefers-color-scheme; opt out by adding class  */
-/* rte-light to the editor element, force on with rte-dark.     */
+/* Explicit dark mode by default; add rte-auto-dark to      */
+/* follow prefers-color-scheme; force on with rte-dark.      */
 /* Implemented purely as design-token overrides (see the token  */
 /* block at the top of this file).                              */
 /* ============================================================ */
@@ -4381,10 +4454,10 @@ rte-dropdown-panel .rte-dialog-button:active {
 }
 
 @media (prefers-color-scheme: dark) {
-    .richtexteditor:not(.rte-light),
-    .richtexteditor:not(.rte-light) .rte-absolute,
-    .richtexteditor:not(.rte-light) rte-dropdown-panel,
-    .richtexteditor:not(.rte-light) rte-control-toolbar {
+    .richtexteditor.rte-auto-dark:not(.rte-light),
+    .richtexteditor.rte-auto-dark:not(.rte-light) .rte-absolute,
+    .richtexteditor.rte-auto-dark:not(.rte-light) rte-dropdown-panel,
+    .richtexteditor.rte-auto-dark:not(.rte-light) rte-control-toolbar {
         --rte-icon-color: #cbd5e1;
         --rte-surface: #0f172a;
         --rte-surface-raised: #1e293b;
@@ -4426,15 +4499,15 @@ rte-dropdown-panel .rte-dialog-button:active {
     background-color: #fff;
 }
 @media (prefers-color-scheme: dark) {
-    .richtexteditor:not(.rte-light) rte-content,
-    .richtexteditor:not(.rte-light) rte-editarea,
-    .richtexteditor:not(.rte-light) iframe {
+    .richtexteditor.rte-auto-dark:not(.rte-light) rte-content,
+    .richtexteditor.rte-auto-dark:not(.rte-light) rte-editarea,
+    .richtexteditor.rte-auto-dark:not(.rte-light) iframe {
         background-color: #fff;
     }
 }
 
 /* ============================================================ */
-/* Dark mode — dialog & dropdown panel interiors.              */
+/* Dark mode �� dialog & dropdown panel interiors.              */
 /* The dialog surface itself is token-driven (var(--rte-       */
 /* surface-raised)); these rules cover the text/inputs/borders */
 /* that don't inherit, so dialogs aren't black-text-on-dark.   */
@@ -4492,44 +4565,44 @@ rte-dropdown-panel .rte-dialog-button:active {
 .rte-dark .rte-list-item:hover {
     background-color: var(--rte-hover-bg, #334155);
 }
-/* Auto dark (prefers-color-scheme) — the .rte-dark rule above previously
+/* Opt-in auto dark (rte-auto-dark + prefers-color-scheme) - the .rte-dark rule above previously
    targeted a non-existent element name (rte-dropdown-item), so dropdown / overflow
    menu items had no dark hover at all and flashed light. */
 @media (prefers-color-scheme: dark) {
-    .richtexteditor:not(.rte-light) rte-dropdown-menuitem:hover,
-    .richtexteditor:not(.rte-light) rte-dropdown-menuitem:focus-visible {
+    .richtexteditor.rte-auto-dark:not(.rte-light) rte-dropdown-menuitem:hover,
+    .richtexteditor.rte-auto-dark:not(.rte-light) rte-dropdown-menuitem:focus-visible {
         background-color: var(--rte-hover-bg, #334155);
     }
 }
 
 @media (prefers-color-scheme: dark) {
-    .richtexteditor:not(.rte-light) rte-dropdown-panel,
-    .richtexteditor:not(.rte-light) rte-dialog-inner,
-    .richtexteditor:not(.rte-light) rte-floatpanel {
+    .richtexteditor.rte-auto-dark:not(.rte-light) rte-dropdown-panel,
+    .richtexteditor.rte-auto-dark:not(.rte-light) rte-dialog-inner,
+    .richtexteditor.rte-auto-dark:not(.rte-light) rte-floatpanel {
         background-color: var(--rte-surface-raised, #1e293b);
         background-image: none;
         color: var(--rte-text, #cbd5e1);
     }
-    .richtexteditor:not(.rte-light) rte-dialog-header-text,
-    .richtexteditor:not(.rte-light) rte-dialog-input-label,
-    .richtexteditor:not(.rte-light) rte-dropdown-panel * {
+    .richtexteditor.rte-auto-dark:not(.rte-light) rte-dialog-header-text,
+    .richtexteditor.rte-auto-dark:not(.rte-light) rte-dialog-input-label,
+    .richtexteditor.rte-auto-dark:not(.rte-light) rte-dropdown-panel * {
         color: var(--rte-text, #cbd5e1);
     }
-    .richtexteditor:not(.rte-light) rte-dialog-inner input[type=text],
-    .richtexteditor:not(.rte-light) rte-dialog-inner textarea,
-    .richtexteditor:not(.rte-light) rte-dialog-inner select {
+    .richtexteditor.rte-auto-dark:not(.rte-light) rte-dialog-inner input[type=text],
+    .richtexteditor.rte-auto-dark:not(.rte-light) rte-dialog-inner textarea,
+    .richtexteditor.rte-auto-dark:not(.rte-light) rte-dialog-inner select {
         background-color: var(--rte-surface, #0f172a);
         color: var(--rte-text, #cbd5e1);
         border: 1px solid var(--rte-border, #334155);
     }
-    .richtexteditor:not(.rte-light) .rte-dialog-line-input rte-dialog-input-label {
+    .richtexteditor.rte-auto-dark:not(.rte-light) .rte-dialog-line-input rte-dialog-input-label {
         background-color: var(--rte-surface-raised, #1e293b);
         box-shadow: var(--rte-surface-raised, #1e293b) 5px 0 0, var(--rte-surface-raised, #1e293b) -5px 0 0;
         color: var(--rte-text, #cbd5e1);
     }
 }
 
-/* Dark mode — floating selection toolbar (rte-control-toolbar). Inside the
+/* Dark mode �� floating selection toolbar (rte-control-toolbar). Inside the
    editor container, so both the explicit class and the media query reach it. */
 .rte-dark rte-control-toolbar {
     background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
@@ -4550,19 +4623,19 @@ rte-dropdown-panel .rte-dialog-button:active {
 .rte-dark rte-link-url-preview, .rte-dark rte-link-url-preview a { color: #60a5fa; }
 
 @media (prefers-color-scheme: dark) {
-    .richtexteditor:not(.rte-light) rte-control-toolbar {
+    .richtexteditor.rte-auto-dark:not(.rte-light) rte-control-toolbar {
         background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
         border-color: #334155;
     }
-    .richtexteditor:not(.rte-light) rte-control-toolbar rte-toolbar-button,
-    .richtexteditor:not(.rte-light) rte-control-toolbar rte-toolbar-splitbutton,
-    .richtexteditor:not(.rte-light) rte-control-toolbar rte-toolbar-dropdown,
-    .richtexteditor:not(.rte-light) rte-control-toolbar rte-toolbar-arrowbutton {
+    .richtexteditor.rte-auto-dark:not(.rte-light) rte-control-toolbar rte-toolbar-button,
+    .richtexteditor.rte-auto-dark:not(.rte-light) rte-control-toolbar rte-toolbar-splitbutton,
+    .richtexteditor.rte-auto-dark:not(.rte-light) rte-control-toolbar rte-toolbar-dropdown,
+    .richtexteditor.rte-auto-dark:not(.rte-light) rte-control-toolbar rte-toolbar-arrowbutton {
         color: #cbd5e1;
     }
-    .richtexteditor:not(.rte-light) rte-control-toolbar rte-toolbar-button:hover,
-    .richtexteditor:not(.rte-light) rte-control-toolbar rte-toolbar-splitbutton:hover,
-    .richtexteditor:not(.rte-light) rte-control-toolbar rte-toolbar-dropdown:hover {
+    .richtexteditor.rte-auto-dark:not(.rte-light) rte-control-toolbar rte-toolbar-button:hover,
+    .richtexteditor.rte-auto-dark:not(.rte-light) rte-control-toolbar rte-toolbar-splitbutton:hover,
+    .richtexteditor.rte-auto-dark:not(.rte-light) rte-control-toolbar rte-toolbar-dropdown:hover {
         background: #334155;
     }
 }
@@ -4675,26 +4748,26 @@ rte-dropdown-panel .rte-dialog-button:active {
 }
 
 @media (prefers-color-scheme: dark) {
-    .richtexteditor.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-button,
-    .richtexteditor.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-arrowbutton,
-    .richtexteditor.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-splitbutton,
-    .richtexteditor.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-splitbutton-direct,
-    .richtexteditor.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-splitbutton-dropdown {
+    .richtexteditor.rte-auto-dark.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-button,
+    .richtexteditor.rte-auto-dark.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-arrowbutton,
+    .richtexteditor.rte-auto-dark.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-splitbutton,
+    .richtexteditor.rte-auto-dark.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-splitbutton-direct,
+    .richtexteditor.rte-auto-dark.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-splitbutton-dropdown {
         color: var(--rte-icon-color, #cbd5e1);
     }
 
-    .richtexteditor.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-button:hover,
-    .richtexteditor.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-arrowbutton:hover,
-    .richtexteditor.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-splitbutton:hover {
+    .richtexteditor.rte-auto-dark.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-button:hover,
+    .richtexteditor.rte-auto-dark.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-arrowbutton:hover,
+    .richtexteditor.rte-auto-dark.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-splitbutton:hover {
         color: #e2e8f0;
         background-color: #334155;
         border-color: #475569;
     }
 
-    .richtexteditor.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-button.rte-command-active,
-    .richtexteditor.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-arrowbutton.rte-command-active,
-    .richtexteditor.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-splitbutton.rte-command-active,
-    .richtexteditor.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-dropdown.rte-command-active {
+    .richtexteditor.rte-auto-dark.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-button.rte-command-active,
+    .richtexteditor.rte-auto-dark.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-arrowbutton.rte-command-active,
+    .richtexteditor.rte-auto-dark.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-splitbutton.rte-command-active,
+    .richtexteditor.rte-auto-dark.rte-modern.rte-desktop:not(.rte-light) rte-toolbar.rte-toolbar-desktop rte-toolbar-dropdown.rte-command-active {
         color: #bfdbfe;
         background-color: #1e3a5f;
         border-color: rgba(96,165,250,.46);
