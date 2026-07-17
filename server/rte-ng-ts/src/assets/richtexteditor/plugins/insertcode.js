@@ -1,6 +1,6 @@
-﻿
+
 if (!RTE_DefaultConfig.svgCode_insertcode) {
-	RTE_DefaultConfig.svgCode_insertcode = '<svg viewBox="-2 -2 20 20" fill="#5F6368"><path fill-rule="evenodd" d="M4 1h8a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V3a2 2 0 012-2zm0 1a1 1 0 00-1 1v10a1 1 0 001 1h8a1 1 0 001-1V3a1 1 0 00-1-1H4z" clip-rule="evenodd"/><path fill-rule="evenodd" d="M8.646 5.646a.5.5 0 01.708 0l2 2a.5.5 0 010 .708l-2 2a.5.5 0 01-.708-.708L10.293 8 8.646 6.354a.5.5 0 010-.708zm-1.292 0a.5.5 0 00-.708 0l-2 2a.5.5 0 000 .708l2 2a.5.5 0 00.708-.708L5.707 8l1.647-1.646a.5.5 0 000-.708z" clip-rule="evenodd"/></svg>';
+	RTE_DefaultConfig.svgCode_insertcode = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="8 7 3 12 8 17"/><polyline points="16 7 21 12 16 17"/><line x1="14" y1="5" x2="10" y2="19"/></svg>';
 }
 
 RTE_DefaultConfig.plugin_insertcode = RTE_Plugin_InsertCode;
@@ -224,7 +224,6 @@ function RTE_Plugin_InsertCode() {
 		editor = argeditor;
 
 		editor.attachEvent("exec_command_insertcode", function (state, cmd, value) {
-			console.log(state, cmd, value);
 			obj.DoShowDialog();
 			state.returnValue = true;
 		});
@@ -292,7 +291,11 @@ function RTE_Plugin_InsertCode() {
 
 				textarea.language = b.Aliases[0] + ":nocontrols";
 				textarea.name = "rteinsertcode" + new Date().getTime();
-				textarea.innerHTML = textarea.value;
+				// 2026-05-28 Use textContent rather than innerHTML so user code
+				// containing `<` is never re-parsed as HTML before the syntax
+				// highlighter sees it. The highlighter expects the raw code as
+				// text and re-emits properly-escaped span markup itself.
+				textarea.textContent = textarea.value;
 				dp.sh.HighlightAll(textarea);
 
 				var tag = textarea.previousSibling

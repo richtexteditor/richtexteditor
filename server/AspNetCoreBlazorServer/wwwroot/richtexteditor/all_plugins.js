@@ -170,7 +170,8 @@ function RTE_Plugin_AccessibilityChecker() {
         style.innerHTML = [
             ".rte-a11y-shell{display:flex;align-items:stretch;gap:10px;}",
             ".rte-a11y-shell>.rte-a11y-host{flex:1 1 auto;min-width:0;}",
-            ".rte-a11y-panel{display:none;flex:0 0 310px;min-width:270px;max-width:min(360px,32vw);border:1px solid rgba(148,163,184,.22);border-radius:16px;background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(248,251,255,.96));box-shadow:0 18px 42px rgba(29,78,216,.12),0 2px 8px rgba(15,23,42,.06);overflow:hidden;color:#172033;font-family:Aptos,'Segoe UI',sans-serif;}",
+            "/* 2026-07-12 accessibility panel precision */",
+            ".rte-a11y-panel{display:none;flex:0 0 310px;min-width:270px;max-width:min(360px,32vw);border:1px solid rgba(148,163,184,.22);border-radius:8px;background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(248,251,255,.96));box-shadow:0 14px 32px rgba(29,78,216,.1),0 2px 8px rgba(15,23,42,.06);overflow:hidden;color:#172033;font-family:Aptos,'Segoe UI',sans-serif;}",
             ".rte-a11y-shell.is-open>.rte-a11y-panel{display:flex;flex-direction:column;}",
             ".rte-a11y-header{padding:12px 12px 9px 14px;border-bottom:1px solid rgba(148,163,184,.16);background:rgba(255,255,255,.72);}",
             ".rte-a11y-kicker{font-size:10px;line-height:1.3;letter-spacing:.08em;text-transform:uppercase;color:#52657e;font-weight:850;}",
@@ -179,11 +180,11 @@ function RTE_Plugin_AccessibilityChecker() {
             ".rte-a11y-toolbar{display:flex;align-items:center;justify-content:space-between;padding:8px 10px 8px 14px;border-bottom:1px solid rgba(148,163,184,.16);gap:10px;background:rgba(255,255,255,.52);}",
             ".rte-a11y-count{min-width:0;font-size:12px;font-weight:750;color:#52657e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
             ".rte-a11y-actions{display:flex;align-items:center;gap:6px;}",
-            ".rte-a11y-link{appearance:none;border:1px solid rgba(100,116,139,.18);background:#fff;color:#315277;cursor:pointer;font-size:12px;font-weight:750;padding:6px 9px;border-radius:999px;line-height:1;}",
+            ".rte-a11y-link{appearance:none;border:1px solid rgba(100,116,139,.18);background:#fff;color:#315277;cursor:pointer;font-size:12px;font-weight:750;padding:6px 9px;border-radius:7px;line-height:1;}",
             ".rte-a11y-link:hover,.rte-a11y-link:focus-visible{background:#eef4ff;color:#0f3f9f;border-color:rgba(37,99,235,.28);}",
             ".rte-a11y-body{padding:6px;overflow:auto;min-height:160px;max-height:560px;display:flex;flex-direction:column;gap:8px;scrollbar-width:thin;}",
             ".rte-a11y-list{display:flex;flex-direction:column;gap:6px;}",
-            ".rte-a11y-item{appearance:none;width:100%;text-align:left;border:1px solid rgba(148,163,184,.16);background:rgba(255,255,255,.84);cursor:pointer;border-radius:14px;padding:10px;box-shadow:0 8px 18px rgba(15,23,42,.04);transition:background 160ms ease,box-shadow 160ms ease,transform 160ms ease;}",
+            ".rte-a11y-item{appearance:none;width:100%;text-align:left;border:1px solid rgba(148,163,184,.16);background:rgba(255,255,255,.84);cursor:pointer;border-radius:8px;padding:10px;box-shadow:0 6px 14px rgba(15,23,42,.04);transition:background 160ms ease,box-shadow 160ms ease,transform 160ms ease;}",
             ".rte-a11y-item:hover,.rte-a11y-item:focus-visible{background:#f8fbff;border-color:rgba(37,99,235,.24);}",
             ".rte-a11y-item.is-active{border-color:rgba(37,99,235,.36);background:#eef4ff;box-shadow:0 12px 28px rgba(37,99,235,.14);transform:translateY(-1px);}",
             ".rte-a11y-item-top{display:flex;align-items:center;justify-content:space-between;gap:10px;}",
@@ -192,18 +193,18 @@ function RTE_Plugin_AccessibilityChecker() {
             ".rte-a11y-badge-error{background:#fff1f2;color:#9f1239;border:1px solid rgba(159,18,57,.18);}",
             ".rte-a11y-code{font-size:11px;color:#64748b;font-family:Consolas,'Cascadia Mono',monospace;}",
             ".rte-a11y-message{margin-top:7px;font-size:13px;line-height:1.42;color:#172033;}",
-            ".rte-a11y-detail{border:1px solid rgba(148,163,184,.16);background:rgba(255,255,255,.86);border-radius:14px;padding:11px;display:flex;flex-direction:column;gap:9px;box-shadow:0 8px 18px rgba(15,23,42,.04);}",
+            ".rte-a11y-detail{border:1px solid rgba(148,163,184,.16);background:rgba(255,255,255,.86);border-radius:8px;padding:11px;display:flex;flex-direction:column;gap:9px;box-shadow:0 6px 14px rgba(15,23,42,.04);}",
             ".rte-a11y-detail-title{font-size:13px;font-weight:850;color:#172033;}",
             ".rte-a11y-detail-copy{font-size:12px;line-height:1.45;color:#52657e;}",
             ".rte-a11y-field{display:flex;flex-direction:column;gap:6px;}",
             ".rte-a11y-label{font-size:10px;line-height:1.3;letter-spacing:.08em;text-transform:uppercase;color:#52657e;font-weight:850;}",
-            ".rte-a11y-input{width:100%;border:1px solid rgba(148,163,184,.24);border-radius:12px;padding:9px 10px;font-size:13px;line-height:1.4;box-sizing:border-box;background:#fff;}",
+            ".rte-a11y-input{width:100%;border:1px solid rgba(148,163,184,.24);border-radius:7px;padding:9px 10px;font-size:13px;line-height:1.4;box-sizing:border-box;background:#fff;}",
             ".rte-a11y-input:focus{outline:2px solid rgba(37,99,235,.18);border-color:rgba(37,99,235,.38);}",
             ".rte-a11y-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}",
-            ".rte-a11y-button{appearance:none;border:1px solid #1d67ba;border-radius:999px;background:#1d67ba;color:#fff;padding:8px 12px;font-size:12px;font-weight:750;cursor:pointer;box-shadow:0 8px 16px rgba(29,103,186,.18);}",
+            ".rte-a11y-button{appearance:none;border:1px solid #1d67ba;border-radius:7px;background:#1d67ba;color:#fff;padding:8px 12px;font-size:12px;font-weight:750;cursor:pointer;box-shadow:0 6px 14px rgba(29,103,186,.16);}",
             ".rte-a11y-button-secondary{background:#fff;color:#315277;border-color:rgba(100,116,139,.18);box-shadow:none;}",
             ".rte-a11y-button:hover,.rte-a11y-button:focus-visible{transform:translateY(-1px);}",
-            ".rte-a11y-empty{padding:14px;border-radius:14px;background:#fff;color:#52657e;font-size:13px;font-weight:700;line-height:1.55;border:1px dashed rgba(148,163,184,.34);}",
+            ".rte-a11y-empty{padding:14px;border-radius:8px;background:#fff;color:#52657e;font-size:13px;font-weight:700;line-height:1.55;border:1px dashed rgba(148,163,184,.34);}",
             "@media (max-width: 1420px){.rte-a11y-shell{display:block;}.rte-a11y-panel{margin-top:12px;max-width:none;width:100%;}.rte-a11y-body{max-height:360px;}}"
         ].join("");
         hostDoc.head.appendChild(style);
@@ -21181,60 +21182,47 @@ function RTE_Plugin_Comments() {
             style.setAttribute("data-rte-comments", "1");
             style.textContent = [
                 ".rte-comment-sidebar-host{display:flex!important;align-items:stretch}",
-                ".rte-comment-sidebar{width:310px;min-width:270px;max-width:min(360px,32vw);margin-left:12px;padding:0;background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(248,251,255,.96));border:1px solid rgba(148,163,184,.22);border-radius:16px;font-family:Aptos,'Segoe UI',sans-serif;font-size:13px;color:#172033;display:flex;flex-direction:column;max-height:calc(100vh - 120px);overflow:hidden;box-shadow:0 18px 42px rgba(29,78,216,.12),0 2px 8px rgba(15,23,42,.06)}",
+                "/* 2026-07-12 comments panel precision */",
+                ".rte-comment-sidebar{width:310px;min-width:270px;max-width:min(360px,32vw);margin-left:12px;padding:0;background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(248,251,255,.96));border:1px solid rgba(148,163,184,.22);border-radius:8px;font-family:Aptos,'Segoe UI',sans-serif;font-size:13px;color:#172033;display:flex;flex-direction:column;max-height:calc(100vh - 120px);overflow:hidden;box-shadow:0 14px 32px rgba(29,78,216,.1),0 2px 8px rgba(15,23,42,.06)}",
                 ".rte-comment-sidebar-header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 10px 9px 14px;border-bottom:1px solid rgba(148,163,184,.16);font-weight:750;background:rgba(255,255,255,.72)}",
                 ".rte-comment-sidebar-title{font-size:13px;font-weight:850;letter-spacing:.02em}",
-                ".rte-comment-sidebar-close{width:28px;height:28px;border:1px solid rgba(100,116,139,.18);background:#fff;cursor:pointer;color:#64748b;padding:0;border-radius:999px;display:inline-flex;align-items:center;justify-content:center}",
+                ".rte-comment-sidebar-close{width:28px;height:28px;border:1px solid rgba(100,116,139,.18);background:#fff;cursor:pointer;color:#64748b;padding:0;border-radius:7px;display:inline-flex;align-items:center;justify-content:center}",
                 ".rte-comment-sidebar-close:hover,.rte-comment-sidebar-close:focus-visible{background:#eef4ff;color:#0f3f9f;border-color:rgba(37,99,235,.28)}",
                 ".rte-comment-list{flex:1;min-height:0;overflow-y:auto;padding:6px;scrollbar-width:thin}",
-                ".rte-comment-empty{margin:6px;padding:14px;color:#52657e;font-size:12px;font-weight:700;line-height:1.45;text-align:center;background:#fff;border:1px dashed rgba(148,163,184,.28);border-radius:13px}",
-                ".rte-comment-item{padding:10px;border:1px solid rgba(148,163,184,.14);border-radius:14px;background:rgba(255,255,255,.82);box-shadow:0 8px 18px rgba(15,23,42,.04);transition:background 200ms ease,box-shadow 200ms ease,transform 200ms ease}",
+                ".rte-comment-empty{margin:6px;padding:14px;color:#52657e;font-size:12px;font-weight:700;line-height:1.45;text-align:center;background:#fff;border:1px dashed rgba(148,163,184,.28);border-radius:8px}",
+                ".rte-comment-item{padding:10px;border:1px solid rgba(148,163,184,.14);border-radius:8px;background:rgba(255,255,255,.82);box-shadow:0 6px 14px rgba(15,23,42,.04);transition:background 200ms ease,box-shadow 200ms ease,transform 200ms ease}",
                 ".rte-comment-item+.rte-comment-item{margin-top:7px}",
                 ".rte-comment-item-active{background:#eef4ff;box-shadow:0 12px 28px rgba(37,99,235,.14);transform:translateY(-1px)}",
                 ".rte-comment-item-top{display:grid;grid-template-columns:30px minmax(0,1fr) auto;align-items:center;gap:8px}",
-                ".rte-comment-avatar{width:30px;height:30px;border-radius:11px;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:800;flex:0 0 30px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.28)}",
+                ".rte-comment-avatar{width:30px;height:30px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:800;flex:0 0 30px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.28)}",
                 ".rte-comment-namewrap{flex:1;min-width:0}",
                 ".rte-comment-name{font-weight:800;font-size:12px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
                 ".rte-comment-when{font-size:11px;color:#64748b}",
                 ".rte-comment-actions{display:flex;gap:4px;align-items:center}",
-                ".rte-comment-action{font-size:11px;font-weight:750;padding:4px 8px;border-radius:999px;border:1px solid rgba(100,116,139,.16);background:#fff;cursor:pointer}",
+                ".rte-comment-action{font-size:11px;font-weight:750;padding:4px 8px;border-radius:6px;border:1px solid rgba(100,116,139,.16);background:#fff;cursor:pointer}",
                 ".rte-comment-action:hover,.rte-comment-action:focus-visible{transform:translateY(-1px)}",
                 ".rte-comment-resolve{color:#0f3f9f;border-color:rgba(37,99,235,.2);background:#eef4ff}",
                 ".rte-comment-delete{color:#9f1239;border-color:rgba(159,18,57,.18);background:#fff1f2}",
-                ".rte-comment-quote{margin:8px 0 0;padding:7px 9px;background:#fff8e8;border:1px solid rgba(245,158,11,.18);border-left:3px solid #f59e0b;border-radius:11px;font-size:11px;color:#67430a;cursor:pointer;line-height:1.35}",
+                ".rte-comment-quote{margin:8px 0 0;padding:7px 9px;background:#fff8e8;border:1px solid rgba(245,158,11,.18);border-left:3px solid #f59e0b;border-radius:7px;font-size:11px;color:#67430a;cursor:pointer;line-height:1.35}",
                 ".rte-comment-quote:hover{background:#fff3cf}",
                 ".rte-comment-body{margin-top:8px;font-size:13px;line-height:1.45;color:#172033;white-space:pre-wrap}",
                 ".rte-comment-reply{display:flex;gap:8px;margin-top:10px;padding-top:9px;border-top:1px dashed rgba(148,163,184,.22)}",
-                ".rte-comment-reply-avatar{width:24px;height:24px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:800;flex:0 0 24px}",
+                ".rte-comment-reply-avatar{width:24px;height:24px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:800;flex:0 0 24px}",
                 ".rte-comment-reply-body{flex:1;min-width:0}",
                 ".rte-comment-reply-name{font-size:11px;color:#64748b}",
                 ".rte-comment-reply-text{font-size:12px;color:#172033;line-height:1.45;white-space:pre-wrap;margin-top:2px}",
                 ".rte-comment-reply-composer{margin-top:8px;display:flex}",
-                ".rte-comment-reply-input{flex:1;min-width:0;padding:7px 10px;border-radius:999px;border:1px solid rgba(148,163,184,.24);font:inherit;font-size:12px;background:#fff}",
+                ".rte-comment-reply-input{flex:1;min-width:0;padding:7px 10px;border-radius:7px;border:1px solid rgba(148,163,184,.24);font:inherit;font-size:12px;background:#fff}",
                 ".rte-comment-reply-input:focus,.rte-comment-composer-textarea:focus{outline:2px solid rgba(37,99,235,.18);border-color:rgba(37,99,235,.38)}",
-                ".rte-comment-composer{position:absolute;z-index:2147483000;width:min(320px,calc(100vw - 24px));background:linear-gradient(180deg,#fff,#f8fbff);border:1px solid rgba(148,163,184,.22);box-shadow:0 18px 42px rgba(29,78,216,.16),0 2px 8px rgba(15,23,42,.08);border-radius:16px;padding:12px;font-family:Aptos,'Segoe UI',sans-serif;color:#172033}",
+                ".rte-comment-composer{position:absolute;z-index:2147483000;width:min(320px,calc(100vw - 24px));background:linear-gradient(180deg,#fff,#f8fbff);border:1px solid rgba(148,163,184,.22);box-shadow:0 14px 32px rgba(29,78,216,.12),0 2px 8px rgba(15,23,42,.08);border-radius:8px;padding:12px;font-family:Aptos,'Segoe UI',sans-serif;color:#172033}",
                 ".rte-comment-composer-header{font-weight:850;font-size:13px;margin-bottom:8px;color:#172033}",
-                ".rte-comment-composer-textarea{width:100%;box-sizing:border-box;padding:9px 10px;border-radius:12px;border:1px solid rgba(148,163,184,.24);font:inherit;font-size:13px;resize:vertical;min-height:70px;background:#fff}",
+                ".rte-comment-composer-textarea{width:100%;box-sizing:border-box;padding:9px 10px;border-radius:7px;border:1px solid rgba(148,163,184,.24);font:inherit;font-size:13px;resize:vertical;min-height:70px;background:#fff}",
                 ".rte-comment-composer-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:9px}",
-                ".rte-comment-btn{min-height:30px;padding:0 13px;border-radius:999px;border:1px solid rgba(100,116,139,.18);font:750 12px/1 Aptos,'Segoe UI',sans-serif;cursor:pointer}",
+                ".rte-comment-btn{min-height:30px;padding:0 13px;border-radius:7px;border:1px solid rgba(100,116,139,.18);font:750 12px/1 Aptos,'Segoe UI',sans-serif;cursor:pointer}",
                 ".rte-comment-btn-ghost{background:#fff;color:#52657e}",
                 ".rte-comment-btn-primary{background:#1d67ba;color:#fff;border-color:#1d67ba;box-shadow:0 8px 16px rgba(29,103,186,.18)}",
-                // Dark mode — the sidebar/composer are body-appended (outside the
-                // editor container) so the .rte-dark class can't reach them. Apply
-                // automatically via prefers-color-scheme, and via an explicit
-                // .rte-comment-dark class set when the editor is forced dark.
-                "@media (prefers-color-scheme:dark){",
-                "  .rte-comment-sidebar,.rte-comment-composer{background:linear-gradient(180deg,#1e293b,#0f172a);border-color:#334155;color:#e2e8f0}",
-                "  .rte-comment-sidebar-header{background:rgba(30,41,59,.72);border-color:#334155}",
-                "  .rte-comment-item{background:rgba(30,41,59,.85);border-color:#334155}",
-                "  .rte-comment-item-active{background:#1e3a8a}",
-                "  .rte-comment-empty{background:#0f172a;color:#94a3b8;border-color:#334155}",
-                "  .rte-comment-when,.rte-comment-reply-name{color:#94a3b8}",
-                "  .rte-comment-body,.rte-comment-reply-text,.rte-comment-composer-header{color:#e2e8f0}",
-                "  .rte-comment-reply-input,.rte-comment-composer-textarea{background:#0f172a;color:#e2e8f0;border-color:#334155}",
-                "  .rte-comment-action,.rte-comment-btn-ghost,.rte-comment-sidebar-close{background:#0f172a;color:#cbd5e1;border-color:#334155}",
-                "  .rte-comment-quote{background:rgba(245,158,11,.12);color:#fcd34d}",
-                "}",
+                // Body-appended overlays remain light unless the host editor
+                // explicitly opts into its rte-dark treatment below.
                 ".rte-comment-dark.rte-comment-sidebar,.rte-comment-dark.rte-comment-composer{background:linear-gradient(180deg,#1e293b,#0f172a);border-color:#334155;color:#e2e8f0}",
                 ".rte-comment-dark .rte-comment-sidebar-header{background:rgba(30,41,59,.72);border-color:#334155}",
                 ".rte-comment-dark .rte-comment-item{background:rgba(30,41,59,.85);border-color:#334155}",
@@ -21371,7 +21359,8 @@ function RTE_Plugin_ContentMinimap() {
         style.innerHTML = [
             ".rte-content-minimap-shell{display:flex;align-items:stretch;gap:10px;}",
             ".rte-content-minimap-shell>.rte-content-minimap-host{flex:1 1 auto;min-width:0;}",
-            ".rte-content-minimap-panel{display:none;flex:0 0 var(--rte-content-minimap-width,168px);min-width:148px;max-width:220px;border:1px solid rgba(148,163,184,.22);border-radius:16px;background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(248,251,255,.96));box-shadow:0 18px 42px rgba(29,78,216,.12),0 2px 8px rgba(15,23,42,.06);overflow:hidden;color:#172033;font-family:Aptos,'Segoe UI',sans-serif;}",
+            "/* 2026-07-12 navigation panel precision */",
+            ".rte-content-minimap-panel{display:none;flex:0 0 var(--rte-content-minimap-width,168px);min-width:148px;max-width:220px;border:1px solid rgba(148,163,184,.22);border-radius:8px;background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(248,251,255,.96));box-shadow:0 14px 32px rgba(29,78,216,.1),0 2px 8px rgba(15,23,42,.06);overflow:hidden;color:#172033;font-family:Aptos,'Segoe UI',sans-serif;}",
             ".rte-content-minimap-shell.is-open>.rte-content-minimap-panel{display:flex;flex-direction:column;}",
             ".rte-content-minimap-header{padding:12px 12px 9px 14px;border-bottom:1px solid rgba(148,163,184,.16);background:rgba(255,255,255,.72);}",
             ".rte-content-minimap-kicker{font-size:10px;line-height:1.3;letter-spacing:.08em;text-transform:uppercase;color:#52657e;font-weight:850;}",
@@ -21379,17 +21368,17 @@ function RTE_Plugin_ContentMinimap() {
             ".rte-content-minimap-copy{margin-top:5px;font-size:12px;line-height:1.42;color:#52657e;}",
             ".rte-content-minimap-toolbar{display:flex;align-items:center;justify-content:space-between;padding:8px 10px 8px 14px;border-bottom:1px solid rgba(148,163,184,.16);gap:8px;background:rgba(255,255,255,.52);}",
             ".rte-content-minimap-meta{min-width:0;font-size:12px;font-weight:750;color:#52657e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
-            ".rte-content-minimap-close{appearance:none;border:1px solid rgba(100,116,139,.18);background:#fff;color:#315277;cursor:pointer;font-size:12px;font-weight:750;padding:6px 9px;border-radius:999px;line-height:1;}",
+            ".rte-content-minimap-close{appearance:none;border:1px solid rgba(100,116,139,.18);background:#fff;color:#315277;cursor:pointer;font-size:12px;font-weight:750;padding:6px 9px;border-radius:7px;line-height:1;}",
             ".rte-content-minimap-close:hover,.rte-content-minimap-close:focus-visible{background:#eef4ff;color:#0f3f9f;border-color:rgba(37,99,235,.28);}",
             ".rte-content-minimap-body{padding:6px;overflow:auto;min-height:140px;max-height:520px;scrollbar-width:thin;}",
-            ".rte-content-minimap-canvas{position:relative;border-radius:14px;background:#fff;border:1px solid rgba(148,163,184,.18);overflow:hidden;min-height:120px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.7);}",
+            ".rte-content-minimap-canvas{position:relative;border-radius:8px;background:#fff;border:1px solid rgba(148,163,184,.18);overflow:hidden;min-height:120px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.7);}",
             ".rte-content-minimap-preview{position:relative;transform-origin:top left;pointer-events:none;color:#172033;background:#fff;}",
             ".rte-content-minimap-preview>*{max-width:100%;}",
             ".rte-content-minimap-preview img,.rte-content-minimap-preview table,.rte-content-minimap-preview iframe,.rte-content-minimap-preview video{max-width:100% !important;}",
             ".rte-content-minimap-preview [contenteditable]{pointer-events:none;}",
-            ".rte-content-minimap-viewport{position:absolute;left:0;right:0;border:1px solid rgba(37,99,235,.62);background:linear-gradient(180deg,rgba(37,99,235,.18) 0%,rgba(14,165,233,.12) 100%);box-shadow:inset 0 0 0 1px rgba(255,255,255,.48),0 8px 18px rgba(37,99,235,.16);border-radius:10px;cursor:grab;}",
+            ".rte-content-minimap-viewport{position:absolute;left:0;right:0;border:1px solid rgba(37,99,235,.62);background:linear-gradient(180deg,rgba(37,99,235,.18) 0%,rgba(14,165,233,.12) 100%);box-shadow:inset 0 0 0 1px rgba(255,255,255,.48),0 6px 14px rgba(37,99,235,.14);border-radius:7px;cursor:grab;}",
             ".rte-content-minimap-viewport.is-dragging{cursor:grabbing;}",
-            ".rte-content-minimap-empty{position:absolute;inset:auto 8px 8px 8px;padding:10px;border-radius:12px;background:rgba(255,255,255,.94);color:#52657e;font-size:12px;font-weight:700;line-height:1.45;border:1px dashed rgba(148,163,184,.32);}",
+            ".rte-content-minimap-empty{position:absolute;inset:auto 8px 8px 8px;padding:10px;border-radius:7px;background:rgba(255,255,255,.94);color:#52657e;font-size:12px;font-weight:700;line-height:1.45;border:1px dashed rgba(148,163,184,.32);}",
             "@media (max-width: 1100px){.rte-content-minimap-shell{display:block;}.rte-content-minimap-panel{margin-top:12px;max-width:none;width:100%;}.rte-content-minimap-body{max-height:280px;}}"
         ].join("");
         hostDoc.head.appendChild(style);
@@ -22554,7 +22543,8 @@ function RTE_Plugin_DocumentOutline() {
         style.innerHTML = [
             ".rte-document-outline-shell{display:flex;align-items:stretch;gap:10px;}",
             ".rte-document-outline-shell>.rte-document-outline-host{flex:1 1 auto;min-width:0;}",
-            ".rte-document-outline-panel{display:none;flex:0 0 286px;min-width:248px;max-width:min(330px,30vw);border:1px solid rgba(148,163,184,.22);border-radius:16px;background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(248,251,255,.96));box-shadow:0 18px 42px rgba(29,78,216,.12),0 2px 8px rgba(15,23,42,.06);overflow:hidden;color:#172033;font-family:Aptos,'Segoe UI',sans-serif;}",
+            "/* 2026-07-12 navigation panel precision */",
+            ".rte-document-outline-panel{display:none;flex:0 0 286px;min-width:248px;max-width:min(330px,30vw);border:1px solid rgba(148,163,184,.22);border-radius:8px;background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(248,251,255,.96));box-shadow:0 14px 32px rgba(29,78,216,.1),0 2px 8px rgba(15,23,42,.06);overflow:hidden;color:#172033;font-family:Aptos,'Segoe UI',sans-serif;}",
             ".rte-document-outline-shell.is-open>.rte-document-outline-panel{display:flex;flex-direction:column;}",
             ".rte-document-outline-header{padding:12px 12px 9px 14px;border-bottom:1px solid rgba(148,163,184,.16);background:rgba(255,255,255,.72);}",
             ".rte-document-outline-kicker{font-size:10px;line-height:1.3;letter-spacing:.08em;text-transform:uppercase;color:#52657e;font-weight:850;}",
@@ -22562,15 +22552,15 @@ function RTE_Plugin_DocumentOutline() {
             ".rte-document-outline-copy{margin-top:5px;font-size:12px;line-height:1.42;color:#52657e;}",
             ".rte-document-outline-toolbar{display:flex;align-items:center;justify-content:space-between;padding:8px 10px 8px 14px;border-bottom:1px solid rgba(148,163,184,.16);gap:10px;background:rgba(255,255,255,.52);}",
             ".rte-document-outline-count{min-width:0;font-size:12px;font-weight:750;color:#52657e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
-            ".rte-document-outline-close{appearance:none;border:1px solid rgba(100,116,139,.18);background:#fff;color:#315277;cursor:pointer;font-size:12px;font-weight:750;padding:6px 9px;border-radius:999px;line-height:1;}",
+            ".rte-document-outline-close{appearance:none;border:1px solid rgba(100,116,139,.18);background:#fff;color:#315277;cursor:pointer;font-size:12px;font-weight:750;padding:6px 9px;border-radius:7px;line-height:1;}",
             ".rte-document-outline-close:hover,.rte-document-outline-close:focus-visible{background:#eef4ff;color:#0f3f9f;border-color:rgba(37,99,235,.28);}",
             ".rte-document-outline-body{padding:6px;overflow:auto;min-height:140px;max-height:520px;scrollbar-width:thin;}",
             ".rte-document-outline-list{display:flex;flex-direction:column;gap:5px;}",
-            ".rte-document-outline-item{appearance:none;width:100%;text-align:left;border:1px solid transparent;background:transparent;color:#172033;cursor:pointer;border-radius:12px;padding:8px 10px 8px calc(10px + (var(--rte-outline-level,1) - 1) * 12px);font-size:13px;line-height:1.35;font-weight:650;}",
+            ".rte-document-outline-item{appearance:none;width:100%;text-align:left;border:1px solid transparent;background:transparent;color:#172033;cursor:pointer;border-radius:7px;padding:8px 10px 8px calc(10px + (var(--rte-outline-level,1) - 1) * 12px);font-size:13px;line-height:1.35;font-weight:650;}",
             ".rte-document-outline-item:hover,.rte-document-outline-item:focus-visible{background:#f8fbff;border-color:rgba(37,99,235,.18);}",
             ".rte-document-outline-item.is-active{background:#eef4ff;border-color:rgba(37,99,235,.26);color:#0f3f9f;box-shadow:0 8px 18px rgba(37,99,235,.1);}",
             ".rte-document-outline-item-level{display:inline-flex;margin:0 0 3px;padding:2px 6px;border-radius:999px;background:#fff;color:#64748b;font-size:10px;line-height:1.1;letter-spacing:.08em;text-transform:uppercase;font-weight:850;box-shadow:inset 0 0 0 1px rgba(148,163,184,.18);}",
-            ".rte-document-outline-empty{margin:6px;padding:14px;color:#52657e;font-size:13px;font-weight:700;line-height:1.55;background:#fff;border:1px dashed rgba(148,163,184,.34);border-radius:14px;}",
+            ".rte-document-outline-empty{margin:6px;padding:14px;color:#52657e;font-size:13px;font-weight:700;line-height:1.55;background:#fff;border:1px dashed rgba(148,163,184,.34);border-radius:8px;}",
             "@media (max-width: 1100px){.rte-document-outline-shell{display:block;}.rte-document-outline-panel{margin-top:12px;max-width:none;width:100%;}.rte-document-outline-body{max-height:320px;}}"
         ].join("");
         hostDoc.head.appendChild(style);
@@ -23968,7 +23958,13 @@ function RTE_Plugin_ImageEditor() {
 			btns.innerHTML = '';
 			var savebtn = __Append(btns, "button", "");
 			savebtn.innerText = "Save";
+			var status = __Append(btns, "div", "margin-left:10px;font-size:12px;color:#b42318;", "rte-imageeditor-upload-status");
+			status.setAttribute("role", "status");
+			status.setAttribute("aria-live", "polite");
 			savebtn.onclick = function () {
+				status.innerText = "";
+				savebtn.disabled = true;
+				savebtn.innerText = "Saving...";
 
 				var dataurl = imgeditor.toDataURL();
 				if (!config.file_upload_handler) {
@@ -23987,13 +23983,11 @@ function RTE_Plugin_ImageEditor() {
 						dialoginner.close();
 						return;
 					}
-					if (error) {
-						//TODO:retry dialog or cancel
-						alert("upload failed , TODO:show retry dialog or cancel");
-					}
-					else {
-						alert("Developer warning : ");
-					}
+					savebtn.disabled = false;
+					savebtn.innerText = "Save";
+					status.innerText = error
+						? "Upload failed. Check your connection and try again."
+						: "The upload did not return a file URL. Please try again.";
 				});
 
 
@@ -26176,10 +26170,11 @@ function RTE_Plugin_Mention() {
         var style = host.createElement("style");
         style.setAttribute("data-rte-mention", "1");
         style.textContent = [
-            ".rte-mention-popup{position:absolute;z-index:2147483000;min-width:240px;max-width:min(340px,calc(100vw - 24px));max-height:min(320px,60vh);overflow-y:auto;padding:5px;background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(248,251,255,.96));border:1px solid rgba(148,163,184,.22);box-shadow:0 18px 42px rgba(29,78,216,.16),0 2px 8px rgba(15,23,42,.08);border-radius:14px;font-family:Aptos,'Segoe UI',sans-serif;font-size:13px;color:#172033;scrollbar-width:thin}",
-            ".rte-mention-item{display:flex;align-items:center;gap:9px;width:100%;min-height:40px;padding:6px 8px;border:0;background:transparent;text-align:left;cursor:pointer;color:inherit;font:inherit;border-radius:11px}",
+            "/* 2026-07-12 mention picker precision */",
+            ".rte-mention-popup{position:absolute;z-index:2147483000;min-width:240px;max-width:min(340px,calc(100vw - 24px));max-height:min(320px,60vh);overflow-y:auto;padding:5px;background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(248,251,255,.96));border:1px solid rgba(148,163,184,.22);box-shadow:0 14px 32px rgba(29,78,216,.12),0 2px 8px rgba(15,23,42,.08);border-radius:8px;font-family:Aptos,'Segoe UI',sans-serif;font-size:13px;color:#172033;scrollbar-width:thin}",
+            ".rte-mention-item{display:flex;align-items:center;gap:9px;width:100%;min-height:40px;padding:6px 8px;border:0;background:transparent;text-align:left;cursor:pointer;color:inherit;font:inherit;border-radius:7px}",
             ".rte-mention-item:hover,.rte-mention-item-active{background:#eef4ff;color:#0f3f9f}",
-            ".rte-mention-avatar{flex:0 0 30px;width:30px;height:30px;border-radius:11px;overflow:hidden;display:inline-flex;align-items:center;justify-content:center;background:#e7eefb;color:#315277;font-size:11px;font-weight:800;letter-spacing:.02em;box-shadow:inset 0 0 0 1px rgba(148,163,184,.18)}",
+            ".rte-mention-avatar{flex:0 0 30px;width:30px;height:30px;border-radius:8px;overflow:hidden;display:inline-flex;align-items:center;justify-content:center;background:#e7eefb;color:#315277;font-size:11px;font-weight:800;letter-spacing:.02em;box-shadow:inset 0 0 0 1px rgba(148,163,184,.18)}",
             ".rte-mention-avatar img{width:100%;height:100%;object-fit:cover}",
             ".rte-mention-item-active .rte-mention-avatar{background:#ffffff;color:#0f3f9f}",
             ".rte-mention-body{display:flex;flex-direction:column;min-width:0;flex:1}",
@@ -27128,6 +27123,8 @@ function RTE_Plugin_RevisionHistory() {
         config.revisionHistoryMaxEntries = config.revisionHistoryMaxEntries || 50;
         config.revisionHistoryAutoSnapshotMs = config.revisionHistoryAutoSnapshotMs || 0;
         config.revisionHistoryUrl = config.revisionHistoryUrl || "";
+        config.revisionHistoryRequestHeaders = config.revisionHistoryRequestHeaders || null;
+        config.onRevisionHistorySyncError = config.onRevisionHistorySyncError || null;
         config.text_revisionhistory = config.text_revisionhistory || "Revision history";
 
         appendToolbarCommand("toolbar_default", "#{revisionhistory}");
@@ -27248,14 +27245,46 @@ function RTE_Plugin_RevisionHistory() {
             var xhr = new XMLHttpRequest();
             xhr.open("POST", config.revisionHistoryUrl, true);
             xhr.setRequestHeader("Content-Type", "application/json");
+            var headers = resolveRequestHeaders();
+            for (var name in headers) {
+                if (!Object.prototype.hasOwnProperty.call(headers, name)) continue;
+                if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name)) continue;
+                var value = String(headers[name]);
+                if (/\r|\n/.test(value)) continue;
+                try { xhr.setRequestHeader(name, value); } catch (ignore) { }
+            }
+            xhr.onerror = function () { reportRemoteFailure({ reason: "network", status: xhr.status || 0 }); };
+            xhr.onload = function () {
+                if (xhr.status < 200 || xhr.status >= 300) {
+                    reportRemoteFailure({ reason: "http", status: xhr.status, responseText: (xhr.responseText || "").slice(0, 512) });
+                }
+            };
             xhr.send(JSON.stringify({
                 documentKey: config.aiToolkitPersistenceKey || "",
                 savedAt: Date.now(),
                 revisions: store
             }));
         } catch (err) {
-            console.warn("revisionhistory: remote POST failed:", err);
+            reportRemoteFailure({ reason: "exception", error: err });
         }
+    }
+
+    function resolveRequestHeaders() {
+        var source = config.revisionHistoryRequestHeaders;
+        if (typeof source === "function") {
+            try { source = source(editor); }
+            catch (err) {
+                reportRemoteFailure({ reason: "header-provider", error: err });
+                return {};
+            }
+        }
+        return source && typeof source === "object" ? source : {};
+    }
+
+    function reportRemoteFailure(detail) {
+        console.warn("revisionhistory: remote persistence failed:", detail && detail.reason, detail && detail.status);
+        try { typeof config.onRevisionHistorySyncError === "function" && config.onRevisionHistorySyncError(detail); } catch (ignore) { }
+        try { typeof editor.fireEvent === "function" && editor.fireEvent("revision_history_sync_error", detail); } catch (ignore2) { }
     }
 
     function restoreStore() {
@@ -27451,8 +27480,7 @@ function RTE_Plugin_RevisionHistory() {
         var host = editor.iframe.ownerDocument;
         if (!host || !host.body) return;
         dialog = host.createElement("div");
-        // Body-appended modal — mirror the editor's forced dark mode (automatic
-        // dark is handled by a prefers-color-scheme media query in the styles).
+        // Body-appended modal mirrors only an editor explicitly forced dark.
         var __revDark = false;
         try {
             var __h = editor.container || (editor.getEditable && editor.getEditable().closest && editor.getEditable().closest(".richtexteditor"));
@@ -27690,11 +27718,12 @@ function RTE_Plugin_RevisionHistory() {
         style.textContent = [
             ".rte-rev-dialog{position:fixed;inset:0;z-index:2147483600;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:13px;color:#172033}",
             ".rte-rev-backdrop{position:absolute;inset:0;background:linear-gradient(135deg,rgba(12,18,32,.44),rgba(40,54,77,.26));display:flex;align-items:center;justify-content:center;padding:18px}",
-            ".rte-rev-panel{background:linear-gradient(180deg,#ffffff 0%,#f8fbff 100%);border:1px solid rgba(117,137,163,.28);border-radius:20px;width:min(960px,calc(100vw - 28px));max-height:min(82vh,740px);display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(35,48,72,.26);overflow:hidden}",
+            "/* 2026-07-12 revision dialog precision */",
+            ".rte-rev-panel{background:linear-gradient(180deg,#ffffff 0%,#f8fbff 100%);border:1px solid rgba(117,137,163,.28);border-radius:8px;width:min(960px,calc(100vw - 28px));max-height:min(82vh,740px);display:flex;flex-direction:column;box-shadow:0 16px 40px rgba(35,48,72,.18);overflow:hidden}",
             ".rte-rev-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-bottom:1px solid rgba(117,137,163,.18);background:rgba(255,255,255,.72)}",
             ".rte-rev-title{font-size:16px;font-weight:760;letter-spacing:-.01em;color:#172033}",
             ".rte-rev-header-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}",
-            ".rte-rev-btn{padding:8px 12px;border-radius:999px;border:1px solid rgba(116,135,162,.25);font:inherit;font-size:12px;font-weight:680;line-height:1;cursor:pointer;background:#fff;color:#223652;box-shadow:0 1px 2px rgba(32,45,66,.06);transition:background .14s ease,border-color .14s ease,box-shadow .14s ease,transform .14s ease}",
+            ".rte-rev-btn{padding:8px 12px;border-radius:7px;border:1px solid rgba(116,135,162,.25);font:inherit;font-size:12px;font-weight:680;line-height:1;cursor:pointer;background:#fff;color:#223652;box-shadow:0 1px 2px rgba(32,45,66,.06);transition:background .14s ease,border-color .14s ease,box-shadow .14s ease,transform .14s ease}",
             ".rte-rev-btn:hover{background:#f5f8fc;border-color:rgba(81,111,151,.42);box-shadow:0 5px 14px rgba(32,45,66,.09);transform:translateY(-1px)}",
             ".rte-rev-btn:focus-visible{outline:2px solid rgba(56,122,255,.34);outline-offset:2px}",
             ".rte-rev-btn-ghost{background:#fff;color:#34506f}",
@@ -27703,8 +27732,8 @@ function RTE_Plugin_RevisionHistory() {
             ".rte-rev-btn-danger{background:#fff5f5;color:#9f1d1d;border-color:rgba(190,45,45,.22)}",
             ".rte-rev-body{display:flex;flex:1;min-height:0;background:linear-gradient(90deg,#f8fbff 0%,#fff 42%)}",
             ".rte-rev-list{width:258px;flex:0 0 258px;border-right:1px solid rgba(117,137,163,.18);overflow-y:auto;background:rgba(244,248,253,.78);padding:10px}",
-            ".rte-rev-empty{padding:16px;border:1px dashed rgba(99,118,145,.28);border-radius:14px;background:#fff;color:#5b6c81;font-size:12px;line-height:1.5}",
-            ".rte-rev-row{display:flex;align-items:center;gap:10px;width:100%;padding:10px;border:1px solid transparent;border-radius:14px;background:transparent;text-align:left;cursor:pointer;font:inherit;color:inherit}",
+            ".rte-rev-empty{padding:16px;border:1px dashed rgba(99,118,145,.28);border-radius:8px;background:#fff;color:#5b6c81;font-size:12px;line-height:1.5}",
+            ".rte-rev-row{display:flex;align-items:center;gap:10px;width:100%;padding:10px;border:1px solid transparent;border-radius:8px;background:transparent;text-align:left;cursor:pointer;font:inherit;color:inherit}",
             ".rte-rev-row:hover{background:#fff;border-color:rgba(93,122,161,.24);box-shadow:0 8px 18px rgba(33,48,70,.08)}",
             ".rte-rev-row-active{background:#eef6ff;border-color:rgba(37,99,235,.28);box-shadow:0 8px 22px rgba(37,99,235,.12)}",
             ".rte-rev-dot{width:9px;height:9px;border-radius:50%;flex:0 0 9px;box-shadow:0 0 0 3px rgba(255,255,255,.95),0 0 0 4px rgba(96,116,140,.18)}",
@@ -27712,12 +27741,12 @@ function RTE_Plugin_RevisionHistory() {
             ".rte-rev-row-who{font-weight:720;font-size:12px;line-height:1.25;color:#172033}",
             ".rte-rev-row-when{margin-top:2px;font-size:11px;color:#637487;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
             ".rte-rev-pane{flex:1;display:flex;flex-direction:column;min-width:0;padding:10px}",
-            ".rte-rev-tabs{display:flex;align-self:flex-start;gap:3px;padding:3px;margin:0 0 10px;border:1px solid rgba(117,137,163,.2);border-radius:999px;background:#eef3f8}",
-            ".rte-rev-tab{padding:7px 12px;border:0;border-radius:999px;background:transparent;font:inherit;font-size:12px;font-weight:680;color:#637487;cursor:pointer}",
+            ".rte-rev-tabs{display:flex;align-self:flex-start;gap:3px;padding:3px;margin:0 0 10px;border:1px solid rgba(117,137,163,.2);border-radius:7px;background:#eef3f8}",
+            ".rte-rev-tab{padding:7px 12px;border:0;border-radius:6px;background:transparent;font:inherit;font-size:12px;font-weight:680;color:#637487;cursor:pointer}",
             ".rte-rev-tab:hover{color:#1d3557;background:rgba(255,255,255,.58)}",
             ".rte-rev-tab:focus-visible{outline:2px solid rgba(56,122,255,.34);outline-offset:2px}",
             ".rte-rev-tab-active{color:#163966;background:#fff;box-shadow:0 2px 7px rgba(35,48,72,.08)}",
-            ".rte-rev-content{flex:1;overflow:auto;padding:0;border:1px solid rgba(117,137,163,.18);border-radius:16px;background:#fff;min-height:300px}",
+            ".rte-rev-content{flex:1;overflow:auto;padding:0;border:1px solid rgba(117,137,163,.18);border-radius:8px;background:#fff;min-height:300px}",
             ".rte-rev-preview-frame{width:100%;height:100%;min-height:330px;border:0;display:block;background:#fff}",
             ".rte-rev-diff{margin:0;padding:14px 16px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.55;white-space:pre-wrap;color:#172033;background:#fbfdff;min-height:100%}",
             ".rte-rev-diff-line{display:block}",
@@ -27727,30 +27756,9 @@ function RTE_Plugin_RevisionHistory() {
             ".rte-rev-footer{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0 0;background:transparent}",
             ".rte-rev-footer-info{font-size:12px;color:#637487;min-height:18px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
             ".rte-rev-footer-btns{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}",
-            "@media(max-width:720px){.rte-rev-backdrop{padding:10px;align-items:flex-start}.rte-rev-panel{width:calc(100vw - 20px);max-height:calc(100vh - 20px);border-radius:16px}.rte-rev-header{align-items:flex-start;flex-direction:column}.rte-rev-body{flex-direction:column}.rte-rev-list{width:auto;flex:0 0 auto;max-height:178px;border-right:0;border-bottom:1px solid rgba(117,137,163,.18)}.rte-rev-pane{min-height:360px}.rte-rev-footer{align-items:stretch;flex-direction:column}.rte-rev-footer-info{white-space:normal}.rte-rev-footer-btns{justify-content:stretch}.rte-rev-footer-btns .rte-rev-btn{flex:1}}",
-            // Dark mode — modal is body-appended; auto via prefers-color-scheme +
-            // explicit .rte-rev-dark class when the editor is forced dark. The
-            // preview iframe stays white (it renders the actual document).
-            "@media (prefers-color-scheme:dark){",
-            "  .rte-rev-dialog{color:#e2e8f0}",
-            "  .rte-rev-panel{background:linear-gradient(180deg,#1e293b,#0f172a);border-color:#334155}",
-            "  .rte-rev-header{background:rgba(30,41,59,.72);border-color:#334155}",
-            "  .rte-rev-title,.rte-rev-row-who{color:#e2e8f0}",
-            "  .rte-rev-btn,.rte-rev-btn-ghost{background:#0f172a;color:#cbd5e1;border-color:#334155}",
-            "  .rte-rev-btn:hover{background:#334155}",
-            "  .rte-rev-btn-primary,.rte-rev-btn-primary:hover{background:linear-gradient(135deg,#2563eb,#1d4ed8);color:#fff;border-color:#3b82f6}",
-            "  .rte-rev-body{background:#0f172a}",
-            "  .rte-rev-list{background:rgba(15,23,42,.6);border-color:#334155}",
-            "  .rte-rev-empty{background:#1e293b;color:#94a3b8;border-color:#334155}",
-            "  .rte-rev-row:hover{background:#1e293b;border-color:#334155}",
-            "  .rte-rev-row-active{background:#1e3a8a;border-color:#3b82f6}",
-            "  .rte-rev-row-when,.rte-rev-footer-info{color:#94a3b8}",
-            "  .rte-rev-tabs{background:#1e293b;border-color:#334155}",
-            "  .rte-rev-tab{color:#94a3b8}.rte-rev-tab-active{color:#fff;background:#1d4ed8}",
-            "  .rte-rev-diff{background:#0f172a;color:#cbd5e1}.rte-rev-diff-eq{color:#94a3b8}",
-            "  .rte-rev-diff-add{background:rgba(16,185,129,.16);color:#6ee7b7}",
-            "  .rte-rev-diff-del{background:rgba(244,63,94,.16);color:#fda4af}",
-            "}",
+            "@media(max-width:720px){.rte-rev-backdrop{padding:10px;align-items:flex-start}.rte-rev-panel{width:calc(100vw - 20px);max-height:calc(100vh - 20px);border-radius:8px}.rte-rev-header{align-items:flex-start;flex-direction:column}.rte-rev-body{flex-direction:column}.rte-rev-list{width:auto;flex:0 0 auto;max-height:178px;border-right:0;border-bottom:1px solid rgba(117,137,163,.18)}.rte-rev-pane{min-height:360px}.rte-rev-footer{align-items:stretch;flex-direction:column}.rte-rev-footer-info{white-space:normal}.rte-rev-footer-btns{justify-content:stretch}.rte-rev-footer-btns .rte-rev-btn{flex:1}}",
+            // Revision history stays light unless the editor explicitly adds
+            // rte-rev-dark. The preview frame still renders document content.
             ".rte-rev-dark{color:#e2e8f0}",
             ".rte-rev-dark .rte-rev-panel{background:linear-gradient(180deg,#1e293b,#0f172a);border-color:#334155}",
             ".rte-rev-dark .rte-rev-header{background:rgba(30,41,59,.72);border-color:#334155}",
@@ -28212,9 +28220,8 @@ function RTE_Plugin_SlashCommand() {
         popupEl = popupHost.createElement("div");
         popupEl.className = "rte-slash-popup";
         // The popup is body-appended (outside the editor container), so the
-        // container's rte-dark class can't reach it via CSS. Mirror forced
-        // dark mode here; automatic (prefers-color-scheme) dark is handled by
-        // the media query in the injected stylesheet.
+        // container's rte-dark class can't reach it via CSS. Mirror only an
+        // explicit forced-dark editor; system color preference stays light.
         try {
             var host = editor.container || (editor.getEditable && editor.getEditable().closest && editor.getEditable().closest(".richtexteditor"));
             if (host && host.classList && host.classList.contains("rte-dark")) popupEl.className += " rte-slash-popup-dark";
@@ -28417,20 +28424,8 @@ function RTE_Plugin_SlashCommand() {
             ".rte-slash-item-desc{font-size:11px;color:#64748b;line-height:1.24;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
             ".rte-slash-item-active .rte-slash-item-desc{color:#315277}",
             ".rte-slash-empty{padding:16px;color:#52657e;font-size:12px;font-weight:700;text-align:center}",
-            // Dark mode — applied automatically via prefers-color-scheme, and via
-            // an explicit .rte-slash-popup-dark class set when the editor is in
-            // forced dark mode (the popup is body-appended, outside the editor
-            // container, so the container's .rte-dark class can't reach it).
-            "@media (prefers-color-scheme:dark){",
-            "  .rte-slash-popup{background:linear-gradient(180deg,#1e293b,#0f172a);border-color:#334155;color:#e2e8f0;box-shadow:0 20px 46px rgba(0,0,0,.5),0 2px 8px rgba(0,0,0,.4)}",
-            "  .rte-slash-section{background:linear-gradient(180deg,rgba(30,41,59,.98),rgba(30,41,59,.86));color:#94a3b8}",
-            "  .rte-slash-item:hover,.rte-slash-item-active{background:#1d4ed8;color:#fff}",
-            "  .rte-slash-item-icon{color:#cbd5e1;background:#0f172a;box-shadow:inset 0 0 0 1px rgba(148,163,184,.25)}",
-            "  .rte-slash-item-active .rte-slash-item-icon{color:#fff;background:#1e3a8a}",
-            "  .rte-slash-item-desc{color:#94a3b8}",
-            "  .rte-slash-item-active .rte-slash-item-desc{color:#dbeafe}",
-            "  .rte-slash-empty{color:#94a3b8}",
-            "}",
+            // The command menu remains light by default. Its explicit
+            // rte-slash-popup-dark rules below follow a forced-dark editor.
             ".rte-slash-popup-dark{background:linear-gradient(180deg,#1e293b,#0f172a);border-color:#334155;color:#e2e8f0;box-shadow:0 20px 46px rgba(0,0,0,.5),0 2px 8px rgba(0,0,0,.4)}",
             ".rte-slash-popup-dark .rte-slash-section{background:linear-gradient(180deg,rgba(30,41,59,.98),rgba(30,41,59,.86));color:#94a3b8}",
             ".rte-slash-popup-dark .rte-slash-item:hover,.rte-slash-popup-dark .rte-slash-item-active{background:#1d4ed8;color:#fff}",
@@ -28795,6 +28790,8 @@ function RTE_Plugin_SpellCheck() {
             var host = editable.ownerDocument;
             var t = host.createElement("div");
             t.className = "rte-spell-toast";
+            t.setAttribute("role", "status");
+            t.setAttribute("aria-live", "polite");
             t.textContent = msg;
             host.body.appendChild(t);
             setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 2600);
@@ -28844,7 +28841,7 @@ function RTE_Plugin_SpellCheck() {
             "rte-dialog-spell"
         );
         var close = typeof dlg.close === "function" ? function () { dlg.close(); } : function () { editor.closeCurrentPopup(); };
-        var wrap = append(dlg, "div", "padding:14px;min-width:420px;max-height:60vh;overflow:auto;font:13px -apple-system,Segoe UI,sans-serif");
+        var wrap = append(dlg, "div", "box-sizing:border-box;width:min(420px,calc(100vw - 32px));max-height:60vh;overflow:auto;padding:14px;font:13px -apple-system,Segoe UI,sans-serif");
         var status = append(wrap, "div", "color:#64748b;margin-bottom:8px");
         status.innerText = "Checking…";
         var list = append(wrap, "div", "");
@@ -28867,7 +28864,7 @@ function RTE_Plugin_SpellCheck() {
                     append(sug, "span", "font-size:12px;color:#94a3b8").textContent = "(no suggestions)";
                 }
                 suggestions.forEach(function (s) {
-                    var chip = append(sug, "button", "font-size:12px;padding:3px 10px;border:1px solid #cbd5e1;border-radius:14px;background:#f8fafc;cursor:pointer");
+                    var chip = append(sug, "button", "font-size:12px;padding:4px 9px;border:1px solid #cbd5e1;border-radius:6px;background:#f8fbff;color:#315277;cursor:pointer");
                     chip.type = "button";
                     chip.textContent = s;
                     chip.onclick = function () {
@@ -28898,7 +28895,8 @@ function RTE_Plugin_SpellCheck() {
 
     function injectStyles() {
         var css = [
-            ".rte-spell-toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#0f172a;color:#fff;padding:8px 16px;border-radius:8px;font:13px -apple-system,Segoe UI,sans-serif;z-index:2147483600;box-shadow:0 8px 24px rgba(15,23,42,.28)}",
+            "/* 2026-07-12 spell-check feedback precision */",
+            ".rte-spell-toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);max-width:calc(100vw - 32px);padding:9px 12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#172033;font:600 13px/1.35 -apple-system,Segoe UI,sans-serif;z-index:2147483600;box-shadow:0 10px 24px rgba(15,23,42,.14)}",
             ".rte-spell-row:last-child{border-bottom:0}"
         ].join("\n");
         try {
@@ -29074,6 +29072,10 @@ function RTE_Plugin_TrackedChanges() {
         config.currentUser = config.currentUser || null;
         config.trackChangesInsertClass = config.trackChangesInsertClass || "rte-tc rte-tc-insert";
         config.trackChangesDeleteClass = config.trackChangesDeleteClass || "rte-tc rte-tc-delete";
+        // Optional application policy for accept/reject. Return false to keep a
+        // suggestion pending. The default remains permissive for compatibility.
+        config.reviewCanDecide = config.reviewCanDecide || null;
+        config.onReviewDecisionDenied = config.onReviewDecisionDenied || null;
 
         // Toolbar command — only surfaces if the editor page adds it to a toolbar slot.
         config.text_trackchanges = config.text_trackchanges || "Suggesting mode";
@@ -29098,6 +29100,10 @@ function RTE_Plugin_TrackedChanges() {
             rejectAll: function (filter) { return rejectAll(filter); },
             accept: function (id) { return acceptEntry(id); },
             reject: function (id) { return rejectEntry(id); },
+            canDecide: function (id, action) {
+                var entry = editor.reviewLedger && editor.reviewLedger.get(id);
+                return !!entry && canDecide(entry, action || "accept");
+            },
             list: function (opts) {
                 if (!editor.reviewLedger) return [];
                 // Default to the PENDING review queue (matches the internal
@@ -29615,29 +29621,50 @@ function RTE_Plugin_TrackedChanges() {
 
     // --- accept / reject ---
 
+    function decisionUser() {
+        return config.currentUser || { id: "user", name: "User", color: "#2563eb" };
+    }
+
+    function canDecide(entry, action) {
+        if (typeof config.reviewCanDecide !== "function") return true;
+        var allowed = false;
+        var user = decisionUser();
+        try { allowed = config.reviewCanDecide(entry, action, user, editor) !== false; }
+        catch (err) {
+            console.warn("trackedchanges: reviewCanDecide threw; denying decision.", err);
+        }
+        if (allowed) return true;
+        var detail = { entry: entry, action: action, user: user };
+        try { typeof config.onReviewDecisionDenied === "function" && config.onReviewDecisionDenied(detail); } catch (ignore) { }
+        try { typeof editor.fireEvent === "function" && editor.fireEvent("review_decision_denied", detail); } catch (ignore2) { }
+        return false;
+    }
+
     function acceptEntry(id) {
         var entry = editor.reviewLedger.get(id);
         if (!entry) return false;
+        if (!canDecide(entry, "accept")) return false;
         var span = editor.getEditable().querySelector('[data-tc-id="' + cssEscape(id) + '"]');
         if (entry.changeType === "insert") {
             if (span) unwrapKeepChildren(span);
         } else if (entry.changeType === "delete") {
             if (span) span.remove();
         }
-        editor.reviewLedger.update(id, { status: "accepted", decidedAt: Date.now() });
+        editor.reviewLedger.update(id, { status: "accepted", decidedAt: Date.now(), decidedBy: decisionUser() });
         return true;
     }
 
     function rejectEntry(id) {
         var entry = editor.reviewLedger.get(id);
         if (!entry) return false;
+        if (!canDecide(entry, "reject")) return false;
         var span = editor.getEditable().querySelector('[data-tc-id="' + cssEscape(id) + '"]');
         if (entry.changeType === "insert") {
             if (span) span.remove();
         } else if (entry.changeType === "delete") {
             if (span) unwrapKeepChildren(span);
         }
-        editor.reviewLedger.update(id, { status: "rejected", decidedAt: Date.now() });
+        editor.reviewLedger.update(id, { status: "rejected", decidedAt: Date.now(), decidedBy: decisionUser() });
         return true;
     }
 
@@ -29645,16 +29672,18 @@ function RTE_Plugin_TrackedChanges() {
         var entries = editor.reviewLedger.list(filter).filter(function (e) {
             return (e.changeType === "insert" || e.changeType === "delete") && e.status === "pending";
         });
-        for (var i = 0; i < entries.length; i++) acceptEntry(entries[i].id);
-        return entries.length;
+        var accepted = 0;
+        for (var i = 0; i < entries.length; i++) if (acceptEntry(entries[i].id)) accepted++;
+        return accepted;
     }
 
     function rejectAll(filter) {
         var entries = editor.reviewLedger.list(filter).filter(function (e) {
             return (e.changeType === "insert" || e.changeType === "delete") && e.status === "pending";
         });
-        for (var i = 0; i < entries.length; i++) rejectEntry(entries[i].id);
-        return entries.length;
+        var rejected = 0;
+        for (var i = 0; i < entries.length; i++) if (rejectEntry(entries[i].id)) rejected++;
+        return rejected;
     }
 
     function unwrapKeepChildren(el) {
@@ -30091,12 +30120,10 @@ if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
 
 RTE_DefaultConfig.plugin_yjscollab = RTE_Plugin_YjsCollab;
 
-// Yjs collaboration — Option B scope:
+// Yjs collaboration:
 //   • Awareness (live cursors + presence)
 //   • Shared reviewLedger (AI suggestions, tracked changes, comments all sync)
-//
-// NOT in scope:
-//   • Concurrent text editing (no content-level CRDT binding — see v1.1 / Option C)
+//   • Opt-in per-node content CRDT via textSync: "crdt" and crdt-engine.js
 //
 // Yjs is a PEER DEPENDENCY. Customers load Y.Doc + a provider themselves; this plugin
 // binds to whatever they pass in.
@@ -30130,6 +30157,7 @@ function RTE_Plugin_YjsCollab() {
             detach: function () { return detach(); },
             isAttached: function () { return !!session; },
             getSession: function () { return session; },
+            getStatus: function () { return getStatus(); },
             peers: function () { return session ? getRemotePeers() : []; },
             setUser: function (user) { if (session) updateLocalUser(user); }
         };
@@ -30169,6 +30197,7 @@ function RTE_Plugin_YjsCollab() {
                 : (config.collabTextSync === true);
         }
         var textSyncMode;       // "off" | "legacy" | "crdt"
+        var fallbackReason = null;
         var textMap = null;
         var crdtBinding = null;
         if (requestedTextSync === "crdt") {
@@ -30176,9 +30205,11 @@ function RTE_Plugin_YjsCollab() {
             if (Crdt && typeof Crdt.attachCrdtBinding === "function") {
                 textSyncMode = "crdt";
             } else {
-                console.warn("yjscollab: textSync \"crdt\" requested but richtexteditor/plugins/crdt-engine.js is not loaded — falling back to legacy snapshot mode.");
-                textSyncMode = "legacy";
-                textMap = doc.getText(config.collabTextName || "richtextbox.body");
+                fallbackReason = "crdt-engine-unavailable";
+                textSyncMode = options.requireCrdt || config.collabRequireCrdt ? "off" : "legacy";
+                if (textSyncMode === "legacy") {
+                    textMap = doc.getText(config.collabTextName || "richtextbox.body");
+                }
             }
         } else if (requestedTextSync === true) {
             textSyncMode = "legacy";
@@ -30195,6 +30226,8 @@ function RTE_Plugin_YjsCollab() {
             textMap: textMap,
             textSyncEnabled: textSyncMode !== "off",
             textSyncMode: textSyncMode,
+            requestedTextSync: requestedTextSync || false,
+            fallbackReason: fallbackReason,
             crdtBinding: crdtBinding,
             user: user,
             cleanup: []
@@ -30241,10 +30274,15 @@ function RTE_Plugin_YjsCollab() {
                     catch (ignore) { }
                 });
             } catch (err) {
-                console.warn("yjscollab: CRDT engine attach failed; falling back to legacy mode.", err);
-                session.textSyncMode = "legacy";
-                session.textMap = doc.getText(config.collabTextName || "richtextbox.body");
-                wireTextSync();
+                session.fallbackReason = "crdt-attach-failed";
+                session.crdtError = err;
+                if (options.requireCrdt || config.collabRequireCrdt) {
+                    session.textSyncMode = "off";
+                } else {
+                    session.textSyncMode = "legacy";
+                    session.textMap = doc.getText(config.collabTextName || "richtextbox.body");
+                    wireTextSync();
+                }
             }
         } else if (session.textSyncMode === "legacy" && session.textMap) {
             wireTextSync();
@@ -30256,7 +30294,36 @@ function RTE_Plugin_YjsCollab() {
         renderPresence();
         renderRemoteCursors();
 
+        notifyStatus();
+
         return session;
+    }
+
+    function getStatus() {
+        if (!session) {
+            return { attached: false, textSyncMode: "off", requestedTextSync: false, fallbackReason: null };
+        }
+        return {
+            attached: true,
+            textSyncMode: session.textSyncMode,
+            requestedTextSync: session.requestedTextSync,
+            fallbackReason: session.fallbackReason || null,
+            peerCount: getRemotePeers().length
+        };
+    }
+
+    function notifyStatus() {
+        var status = getStatus();
+        if (status.fallbackReason) {
+            var modeNote = status.textSyncMode === "legacy"
+                ? " Falling back to legacy snapshot synchronization."
+                : " Content synchronization is disabled; presence and the review ledger remain active.";
+            console.warn("yjscollab: " + status.fallbackReason + "." + modeNote);
+        }
+        var callback = config.onCollabStatus;
+        if (typeof callback === "function") {
+            try { callback(status); } catch (ignore) { }
+        }
     }
 
     function detach() {

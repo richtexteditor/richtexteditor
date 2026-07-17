@@ -42,6 +42,8 @@ RTE_DefaultConfig.enableDragDrop = true; // Enables or disables drag-and-drop su
 RTE_DefaultConfig.enableObjectResizing = true; //Specifies whether or not to allow the users resize an object winthin the RichTextEditor.
 RTE_DefaultConfig.toggleBorder = true; //Specifies the ToggleBorder state. ToggleBorder is a handy function which allows you to see the borders without setting things to border = 1 or something like that in code.
 RTE_DefaultConfig.readOnly = false; //Gets or sets a value which indicates whether the RichTextEditor should be an active HTML editor, or a read-only document viewer.
+RTE_DefaultConfig.reviewCanDecide = null;
+RTE_DefaultConfig.onReviewDecisionDenied = null;
 RTE_DefaultConfig.commentsOnly = false; //Comments-only review mode: when true, the editor blocks document edits but still allows inline comments. Toggle at runtime via editor.setCommentsOnly(true).
 RTE_DefaultConfig.autoLinkOnType = true; // When true, typing a URL/email followed by space auto-wraps it in an <a> tag.
 RTE_DefaultConfig.showFloatLinkUrlPreview = true; // Show clickable URL preview in the float toolbar when caret is in an <a>.
@@ -69,17 +71,17 @@ RTE_DefaultConfig.spellcheck = true; // When true, the browser's spellcheck wavy
 RTE_DefaultConfig.wordCountGoal = 0; // When > 0, the status bar shows progress toward the target word count.
 RTE_DefaultConfig.restrictedEditingMode = false; // When true, the editor is locked except for spans tagged data-rte-editable="true".
 RTE_DefaultConfig.text_restrictedediting = "Restricted editing";
-RTE_DefaultConfig.svgCode_restrictedediting = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>';
+RTE_DefaultConfig.svgCode_restrictedediting = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>';
 
 // 2026-05-19 New toolbar entries (icons + labels) for the editor-experience push.
 RTE_DefaultConfig.text_printpreview = "Print preview";
-RTE_DefaultConfig.svgCode_printpreview = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="3" width="10" height="6" rx="1"/><path d="M7 14h10v6H7z"/><path d="M6 9h12a1 1 0 0 1 1 1v5H5v-5a1 1 0 0 1 1-1z"/><circle cx="16" cy="12" r="0.6" fill="currentColor"/></svg>';
+RTE_DefaultConfig.svgCode_printpreview = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="3" width="10" height="6" rx="1"/><path d="M7 14h10v6H7z"/><path d="M6 9h12a1 1 0 0 1 1 1v5H5v-5a1 1 0 0 1 1-1z"/><circle cx="16" cy="12" r="0.6" fill="currentColor"/></svg>';
 RTE_DefaultConfig.text_readingmode = "Reading mode";
-RTE_DefaultConfig.svgCode_readingmode = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h7a3 3 0 0 1 3 3v12"/><path d="M21 5h-7a3 3 0 0 0-3 3v12"/></svg>';
+RTE_DefaultConfig.svgCode_readingmode = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h7a3 3 0 0 1 3 3v12"/><path d="M21 5h-7a3 3 0 0 0-3 3v12"/></svg>';
 RTE_DefaultConfig.text_highlight = "Highlight";
-RTE_DefaultConfig.svgCode_highlight = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4l6 6-9 9H5v-6z"/><path d="M14 4l-9 9"/></svg>';
+RTE_DefaultConfig.svgCode_highlight = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4l6 6-9 9H5v-6z"/><path d="M14 4l-9 9"/></svg>';
 RTE_DefaultConfig.text_sortlines = "Sort lines";
-RTE_DefaultConfig.svgCode_sortlines = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7l3-3 3 3"/><path d="M10 4v16"/><path d="M17 17l-3 3-3-3"/><path d="M14 20V4"/></svg>';
+RTE_DefaultConfig.svgCode_sortlines = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7l3-3 3 3"/><path d="M10 4v16"/><path d="M17 17l-3 3-3-3"/><path d="M14 20V4"/></svg>';
 
 // Smart typography: auto-convert common typing patterns to typographic glyphs.
 // Master switch + per-feature toggles. Skipped inside <code>/<pre>/<kbd>.
@@ -264,16 +266,21 @@ RTE_DefaultConfig.revisionHistoryEnabled = true;
 RTE_DefaultConfig.revisionHistoryMaxEntries = 50;
 RTE_DefaultConfig.revisionHistoryAutoSnapshotMs = 0;
 RTE_DefaultConfig.revisionHistoryUrl = "";
+RTE_DefaultConfig.revisionHistoryRequestHeaders = null;
+RTE_DefaultConfig.onRevisionHistorySyncError = null;
 
-// Yjs collaboration (Option B: presence + shared review ledger; NO content CRDT in v1).
+// Yjs collaboration: presence and shared review ledger, with optional per-node CRDT text synchronization.
 // Yjs + a provider (y-websocket / y-webrtc / y-indexeddb) are PEER DEPENDENCIES — customers
 // load them separately and call editor.collab.attach({ doc, provider, user }).
-// The plugin handles: awareness (live cursors + presence), and bridging editor.reviewLedger
+// The plugin handles awareness, optional CRDT text sync, and bridges editor.reviewLedger
 // into a shared Y.Map so AI suggestions, tracked changes, and comments replicate across peers.
 RTE_DefaultConfig.collabEnabled = true;
 RTE_DefaultConfig.collabLedgerMapName = "reviewLedger";
 RTE_DefaultConfig.collabShowPresence = true;
 RTE_DefaultConfig.collabShowRemoteCursors = true;
+RTE_DefaultConfig.collabTextSync = false;
+RTE_DefaultConfig.collabRequireCrdt = false;
+RTE_DefaultConfig.onCollabStatus = null;
 
 
 RTE_DefaultConfig.inlineStyles = [["Red", "color:red", "color:red"], ["Bold", "font-weight:bold", "font-weight:bold"], ["Mark", "my-cls-mark"], ["Warning", "my-cls-warning"]]; // Default CSS styles for inline styles dropdown. 
@@ -324,11 +331,11 @@ RTE_DefaultConfig.text_tableproperties = "Table Properties";
 RTE_DefaultConfig.text_tablecelltype = "Toggle Header Cell";
 RTE_DefaultConfig.text_tabledistributecolumns = "Distribute Columns";
 RTE_DefaultConfig.text_tabledistributerows = "Distribute Rows";
-RTE_DefaultConfig.svgCode_tablecellproperties = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h14"/><path d="M5 12h14"/><path d="M5 17h14"/><circle cx="9" cy="7" r="1.7"/><circle cx="15" cy="12" r="1.7"/><circle cx="8" cy="17" r="1.7"/></svg>';
-RTE_DefaultConfig.svgCode_tableproperties = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 13.5a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-2.82 1.17V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-2.82-1.17l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 13.5H4.5a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.17-2.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 2.82-1.17V2.5a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 2.82 1.17l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-1.17 2.82h.09a2 2 0 0 1 0 4h-.09z"/></svg>';
-RTE_DefaultConfig.svgCode_tablecelltype = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="1.5"/><rect x="3" y="4" width="18" height="5" rx="1.5" fill="currentColor" stroke="none"/><path d="M3 9h18"/><path d="M12 9v11"/></svg>';
-RTE_DefaultConfig.svgCode_tabledistributecolumns = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="M9 5v14"/><path d="M15 5v14"/></svg>';
-RTE_DefaultConfig.svgCode_tabledistributerows = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="M3 9.67h18"/><path d="M3 14.33h18"/></svg>';
+RTE_DefaultConfig.svgCode_tablecellproperties = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h14"/><path d="M5 12h14"/><path d="M5 17h14"/><circle cx="9" cy="7" r="1.7"/><circle cx="15" cy="12" r="1.7"/><circle cx="8" cy="17" r="1.7"/></svg>';
+RTE_DefaultConfig.svgCode_tableproperties = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 13.5a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-2.82 1.17V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-2.82-1.17l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 13.5H4.5a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.17-2.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 2.82-1.17V2.5a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 2.82 1.17l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-1.17 2.82h.09a2 2 0 0 1 0 4h-.09z"/></svg>';
+RTE_DefaultConfig.svgCode_tablecelltype = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="1.5"/><rect x="3" y="4" width="18" height="5" rx="1.5" fill="currentColor" stroke="none"/><path d="M3 9h18"/><path d="M12 9v11"/></svg>';
+RTE_DefaultConfig.svgCode_tabledistributecolumns = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="M9 5v14"/><path d="M15 5v14"/></svg>';
+RTE_DefaultConfig.svgCode_tabledistributerows = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="M3 9.67h18"/><path d="M3 14.33h18"/></svg>';
 RTE_DefaultConfig.subtoolbar_tablecolumn = "tablecolumninsertleft,tablecolumninsertright,tablecolumndelete"; // A set of buttons that appears in the tablecolumn subtoolbar.
 RTE_DefaultConfig.subtoolbar_tableinsert = "tablerowinsertabove,tablerowinsertbelow,tablecolumninsertleft,tablecolumninsertright"; // A set of buttons that appears in the tableinsert subtoolbar.
 RTE_DefaultConfig.subtoolbar_tabledelete = "tablecolumndelete,tablerowdelete,tabledelete"; // A set of buttons that appears in the tabledelete subtoolbar.
@@ -358,7 +365,7 @@ RTE_DefaultConfig.pngCode_all = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAA
 	+ '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';
 
 RTE_DefaultConfig.svgCode_default = '<svg viewBox="2 1 20 20"><path d="M17 3H7c-1.1 0-1.99.9-1.99 2L5 21l7-3 7 3V5c0-1.1-.9-2-2-2zm0 15l-5-2.18L7 18V5h10v13z"/></svg>';
-RTE_DefaultConfig.svgCode_insertcode = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="8 7 3 12 8 17"/><polyline points="16 7 21 12 16 17"/><line x1="14" y1="5" x2="10" y2="19"/></svg>';
+RTE_DefaultConfig.svgCode_insertcode = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="8 7 3 12 8 17"/><polyline points="16 7 21 12 16 17"/><line x1="14" y1="5" x2="10" y2="19"/></svg>';
 RTE_DefaultConfig.svgCode_aiassist = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true"><defs><linearGradient id="rte-ai-robot-face" x1="5.2" y1="6.2" x2="18.8" y2="17.2" gradientUnits="userSpaceOnUse"><stop stop-color="#38bdf8"/><stop offset=".55" stop-color="#2563eb"/><stop offset="1" stop-color="#7c3aed"/></linearGradient></defs><path d="M12 4.2V2.5" stroke="#f59e0b" stroke-width="1.7" stroke-linecap="round"/><rect x="5.2" y="6.2" width="13.6" height="11" rx="3.1" fill="url(#rte-ai-robot-face)" stroke="#1d4ed8" stroke-width="1.35"/><circle cx="9.4" cy="11.4" r="1.2" fill="#fef3c7"/><circle cx="14.6" cy="11.4" r="1.2" fill="#fef3c7"/><path d="M9.7 14.5c.7.55 1.45.82 2.3.82s1.6-.27 2.3-.82" stroke="#ffffff" stroke-width="1.55" stroke-linecap="round"/><path d="M7.2 19.4l1.1-2.2M16.8 19.4l-1.1-2.2" stroke="#2563eb" stroke-width="1.55" stroke-linecap="round"/></svg>';
 RTE_DefaultConfig.svgCode_aiassist = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true"><defs><linearGradient id="rte-ai-bot-v4-shell" x1="4.2" y1="5.8" x2="19.8" y2="18.4" gradientUnits="userSpaceOnUse"><stop stop-color="#22d3ee"/><stop offset=".52" stop-color="#2563eb"/><stop offset="1" stop-color="#4338ca"/></linearGradient><linearGradient id="rte-ai-bot-v4-visor" x1="7.8" y1="9" x2="16.2" y2="13.8" gradientUnits="userSpaceOnUse"><stop stop-color="#f8fafc"/><stop offset="1" stop-color="#bfdbfe"/></linearGradient></defs><path d="M12 2.6v2.3" stroke="#f59e0b" stroke-width="1.7" stroke-linecap="round"/><circle cx="12" cy="2.6" r=".9" fill="#fbbf24"/><path d="M4.9 12.2h-1a1.4 1.4 0 010-2.8h1M19.1 9.4h1a1.4 1.4 0 010 2.8h-1" stroke="#2563eb" stroke-width="1.25" stroke-linecap="round"/><rect x="5.2" y="5.9" width="13.6" height="12.2" rx="4" fill="url(#rte-ai-bot-v4-shell)" stroke="#1e40af" stroke-width="1.15"/><rect x="7.6" y="8.8" width="8.8" height="5.2" rx="2.6" fill="url(#rte-ai-bot-v4-visor)" opacity=".98"/><circle cx="10.2" cy="11.4" r=".9" fill="#0f172a"/><circle cx="13.8" cy="11.4" r=".9" fill="#0f172a"/><path d="M9.5 15.3c.78.52 1.6.78 2.5.78s1.72-.26 2.5-.78" stroke="#eff6ff" stroke-width="1.35" stroke-linecap="round"/><path d="M7.7 20.2l1.15-2.15M16.3 20.2l-1.15-2.15" stroke="#2563eb" stroke-width="1.45" stroke-linecap="round"/><path d="M18.6 5.1l.45-.95.45.95.95.45-.95.45-.45.95-.45-.95-.95-.45z" fill="#fde68a"/></svg>';
 RTE_DefaultConfig.svgCode_empty = '<svg viewBox="0 0 20 20"></svg>';
@@ -565,15 +572,15 @@ RTE_DefaultConfig.text_titlecase = "Title Case";
 // content-minimap, and accessibility-checker panels. Each plugin reads
 // these defaults at toolbar-build time so customers can re-skin or
 // translate without forking the plugin source.
-RTE_DefaultConfig.svgCode_documentoutline = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="6" x2="20" y2="6"/><line x1="9" y1="11" x2="20" y2="11"/><line x1="12" y1="16" x2="20" y2="16"/><line x1="3" y1="6" x2="3.5" y2="6"/><line x1="6" y1="11" x2="6.5" y2="11"/><line x1="9" y1="16" x2="9.5" y2="16"/></svg>';
+RTE_DefaultConfig.svgCode_documentoutline = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="6" x2="20" y2="6"/><line x1="9" y1="11" x2="20" y2="11"/><line x1="12" y1="16" x2="20" y2="16"/><line x1="3" y1="6" x2="3.5" y2="6"/><line x1="6" y1="11" x2="6.5" y2="11"/><line x1="9" y1="16" x2="9.5" y2="16"/></svg>';
 RTE_DefaultConfig.text_documentoutline = "Document outline";
 RTE_DefaultConfig.text_documentoutlinehint = "Live table of contents — click any heading to jump to it.";
 
-RTE_DefaultConfig.svgCode_contentminimap = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="6" y1="7" x2="14" y2="7"/><line x1="6" y1="11" x2="18" y2="11"/><line x1="6" y1="15" x2="12" y2="15"/><line x1="6" y1="19" x2="16" y2="19"/></svg>';
+RTE_DefaultConfig.svgCode_contentminimap = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="6" y1="7" x2="14" y2="7"/><line x1="6" y1="11" x2="18" y2="11"/><line x1="6" y1="15" x2="12" y2="15"/><line x1="6" y1="19" x2="16" y2="19"/></svg>';
 RTE_DefaultConfig.text_contentminimap = "Content minimap";
 RTE_DefaultConfig.text_contentminimaphint = "Bird's-eye view of the document — drag the highlight box to scroll.";
 
-RTE_DefaultConfig.svgCode_accessibilitychecker = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="7" r="1.4" fill="currentColor"/><path d="M9 11.5h6"/><path d="M12 11.5v8"/><path d="M9 19.5l3-4 3 4"/></svg>';
+RTE_DefaultConfig.svgCode_accessibilitychecker = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="7" r="1.4" fill="currentColor"/><path d="M9 11.5h6"/><path d="M12 11.5v8"/><path d="M9 19.5l3-4 3 4"/></svg>';
 RTE_DefaultConfig.text_accessibilitychecker = "Accessibility checker";
 RTE_DefaultConfig.text_accessibilitycheckerhint = "Scan the document for missing alt text, empty headings, low contrast, and other a11y issues.";
 
@@ -846,27 +853,29 @@ RTE_DefaultConfig.plugin_insertcomment = function () {
             var selectedText = sel && !sel.isCollapsed ? sel.toString() : "";
 
             var dialoginner = editor.createDialog("Add Comment", "rte-dialog-insertcomment");
-            dialoginner.style.padding = "16px";
+            dialoginner.style.padding = "14px";
             if (selectedText) {
                 var preview = document.createElement("div");
-                preview.style.cssText = "background:#f5f5f5;border-left:3px solid #0f8b8d;padding:8px 12px;margin-bottom:12px;font-size:12px;color:#555;border-radius:0 4px 4px 0;max-height:60px;overflow:hidden;";
+                preview.className = "rte-comment-selection-preview";
                 preview.innerText = selectedText.substring(0, 120) + (selectedText.length > 120 ? "..." : "");
                 dialoginner.appendChild(preview);
             }
             var label = document.createElement("label");
             label.innerText = "Comment:";
-            label.style.cssText = "display:block;margin-bottom:6px;font-size:13px;font-weight:600;";
+            label.className = "rte-comment-dialog-label";
             dialoginner.appendChild(label);
             var textarea = document.createElement("textarea");
+            textarea.id = "rte-comment-input-" + new Date().getTime();
+            label.htmlFor = textarea.id;
             textarea.placeholder = "Type your comment...";
-            textarea.style.cssText = "width:100%;height:80px;padding:8px;border:1px solid #ccc;border-radius:4px;font-size:13px;box-sizing:border-box;resize:vertical;";
+            textarea.className = "rte-comment-dialog-input";
             dialoginner.appendChild(textarea);
             var btnRow = document.createElement("div");
-            btnRow.style.cssText = "margin-top:12px;text-align:right;";
+            btnRow.className = "rte-comment-dialog-actions";
             var insertBtn = document.createElement("button");
             insertBtn.innerText = "Add Comment";
             insertBtn.type = "button";
-            insertBtn.style.cssText = "padding:6px 18px;background:#0f8b8d;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px;";
+            insertBtn.className = "rte-comment-dialog-submit";
             insertBtn.onclick = function () {
                 var comment = textarea.value.replace(/^\s+|\s+$/g, "");
                 if (comment && selectedText) {
@@ -877,11 +886,30 @@ RTE_DefaultConfig.plugin_insertcomment = function () {
                     mark.setAttribute("data-comment", comment);
                     try { range.surroundContents(mark); } catch (e) {}
                 } else if (comment) {
-                    editor.insertHTML('<span class="rte-comment-marker" contenteditable="false" style="background:#fff9c4;border:1px solid #f9a825;border-radius:3px;padding:1px 6px;font-size:11px;color:#f57f17;cursor:pointer;" title="' + comment.replace(/"/g, "&quot;") + '">&#128172; Comment</span>');
+                    var safeComment = comment.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+                    editor.insertHTML('<span class="rte-comment-marker" contenteditable="false" style="background:#fff9c4;border:1px solid #f9a825;border-radius:3px;padding:1px 6px;font-size:11px;color:#f57f17;cursor:pointer;" title="' + safeComment + '">&#128172; Comment</span>');
                 }
                 dialoginner.close();
                 editor.focus();
             };
+            var cancelBtn = document.createElement("button");
+            cancelBtn.innerText = "Cancel";
+            cancelBtn.type = "button";
+            cancelBtn.className = "rte-comment-dialog-cancel";
+            cancelBtn.onclick = function () {
+                dialoginner.close();
+                editor.focus();
+            };
+            textarea.onkeydown = function (event) {
+                if (event.key === "Escape") {
+                    event.preventDefault();
+                    cancelBtn.click();
+                } else if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                    event.preventDefault();
+                    insertBtn.click();
+                }
+            };
+            btnRow.appendChild(cancelBtn);
             btnRow.appendChild(insertBtn);
             dialoginner.appendChild(btnRow);
             setTimeout(function () { textarea.focus(); }, 100);
