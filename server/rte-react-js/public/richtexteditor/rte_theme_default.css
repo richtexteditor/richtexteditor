@@ -1570,6 +1570,15 @@ rte-dropdown-panel.rte-panel-backcolor rte-dialog-item-color[rte-tooltip]:hover 
     border-color: rgba(0,0,0,.08) !important;
 }
 
+rte-dropdown-panel.rte-panel-forecolor rte-dialog-item-color[role="menuitem"]:focus-visible,
+rte-dropdown-panel.rte-panel-backcolor rte-dialog-item-color[role="menuitem"]:focus-visible {
+    outline: 2px solid #1a73e8 !important;
+    outline-offset: 2px !important;
+    transform: scale(1.15) !important;
+    position: relative !important;
+    z-index: 2 !important;
+}
+
 rte-dropdown-panel.rte-panel-forecolor rte-dialog-line-auto,
 rte-dropdown-panel.rte-panel-backcolor rte-dialog-line-auto,
 rte-dropdown-panel.rte-panel-forecolor rte-dialog-line-more,
@@ -1589,6 +1598,15 @@ rte-dropdown-panel.rte-panel-forecolor rte-dialog-line-more:hover,
 rte-dropdown-panel.rte-panel-backcolor rte-dialog-line-more:hover {
     background: #f1f5f9 !important;
     border: 0 !important;
+}
+
+rte-dropdown-panel.rte-panel-forecolor rte-dialog-line-auto:focus-visible,
+rte-dropdown-panel.rte-panel-backcolor rte-dialog-line-auto:focus-visible,
+rte-dropdown-panel.rte-panel-forecolor rte-dialog-line-more:focus-visible,
+rte-dropdown-panel.rte-panel-backcolor rte-dialog-line-more:focus-visible {
+    outline: 2px solid #1a73e8 !important;
+    outline-offset: 1px !important;
+    background: #f1f5f9 !important;
 }
 
 rte-dropdown-panel.rte-panel-forecolor rte-dialog-line-auto rte-dialog-item-label,
@@ -4662,8 +4680,8 @@ rte-dropdown-panel .rte-dialog-button:active {
 .richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-splitbutton svg {
     display: block !important;
     flex: 0 0 auto;
-    width: 18px !important;
-    height: 18px !important;
+    width: 20px !important;
+    height: 20px !important;
     margin: 0 !important;
     align-self: center !important;
     color: currentColor;
@@ -4682,8 +4700,8 @@ rte-dropdown-panel .rte-dialog-button:active {
 }
 
 .rte-modern rte-dropdown-panel rte-toolbar-button svg {
-    width: 18px !important;
-    height: 18px !important;
+    width: 20px !important;
+    height: 20px !important;
 }
 
 .richtexteditor.rte-modern.rte-desktop rte-toolbar.rte-toolbar-desktop rte-toolbar-button:hover,

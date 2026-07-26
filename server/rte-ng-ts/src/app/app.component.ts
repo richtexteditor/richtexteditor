@@ -97,6 +97,7 @@ This Angular starter can restore **Markdown** into the shared JSON model.
 
 @Component({
   selector: 'app-root',
+  standalone: false,
   templateUrl: './app.component.html',
   styleUrls: ['./app.component.css']
 })

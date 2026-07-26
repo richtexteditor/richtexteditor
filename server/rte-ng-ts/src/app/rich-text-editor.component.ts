@@ -27,6 +27,7 @@ export interface RichTextEditorChangeEvent {
 
 @Component({
   selector: 'app-rich-text-editor',
+  standalone: false,
   template: '<div #host class="editor-host"></div>',
   styles: [
     `
