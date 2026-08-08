@@ -2561,6 +2561,25 @@ rte-content::-webkit-scrollbar-thumb:hover {
     flex-wrap: wrap;
 }
 
+/* The toolbar is a flex row whose children are these two groups. Without a
+   display on the groups themselves the buttons stack vertically and the row
+   collapses to the width of its widest label -- which is exactly what shipped
+   when these rules went missing. */
+.rte-gallery-browser-toolbar-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+}
+
+.rte-gallery-browser-toolbar-group-right {
+    flex: 0 1 auto;
+    justify-content: flex-end;
+    margin-left: auto;
+}
+
 .rte-gallery-browser-button {
     border: 1px solid rgba(116, 135, 162, 0.28);
     border-radius: 999px;
@@ -2693,6 +2712,44 @@ rte-content::-webkit-scrollbar-thumb:hover {
     border-radius: 12px;
     background: linear-gradient(180deg, #ffffff 0%, #f3f7fc 100%);
     overflow: hidden;
+}
+
+/* Folders sit in their own container above the image listbox, so the two are
+   separated by a rule rather than running together in one grid. */
+.rte-gallery-browser-grid-folders {
+    margin-bottom: 14px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid rgba(116, 135, 162, 0.16);
+}
+
+/* Folder tiles have no image to show, so the icon is drawn in CSS. The plugin
+   emits an empty div for it -- with no rule here the tile renders blank. */
+.rte-gallery-browser-thumbnail-folder {
+    background: linear-gradient(180deg, #fffaea 0%, #fdeec4 100%);
+    border-color: rgba(197, 158, 61, 0.32);
+}
+
+.rte-gallery-browser-folder-icon {
+    position: relative;
+    width: 60px;
+    height: 42px;
+    border: 1px solid rgba(178, 138, 45, 0.7);
+    border-radius: 7px;
+    background: linear-gradient(180deg, #ffe6a1 0%, #f3c957 100%);
+    box-shadow: 0 8px 16px rgba(140, 100, 20, 0.18);
+}
+
+.rte-gallery-browser-folder-icon:before {
+    content: "";
+    position: absolute;
+    left: 7px;
+    top: -9px;
+    width: 25px;
+    height: 13px;
+    border: 1px solid rgba(178, 138, 45, 0.7);
+    border-bottom: 0;
+    border-radius: 6px 6px 0 0;
+    background: linear-gradient(180deg, #fff1c4 0%, #f8d97c 100%);
 }
 
 .rte-gallery-browser-thumbnail-image {

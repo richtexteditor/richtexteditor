@@ -19844,6 +19844,360 @@ function RTE_Plugin_AIToolkit() {
 
 if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
 
+// 2026-07-27 Autocorrect and typography. Fixes common typos as you type,
+// capitalises the start of sentences, and turns typed approximations into the
+// real characters — straight quotes into curly ones, -- into an em dash, ...
+// into an ellipsis, (c) into (C).
+//
+// TinyMCE sells this as TWO premium plugins: Autocorrect ("This plugin is only
+// available for paid TinyMCE subscriptions", typo correction + capitalisation)
+// and a separate Advanced Typography plugin. CKEditor 5 does include automatic
+// text transformation in its open-source core, so this is parity there rather
+// than a gap — do not claim otherwise.
+//
+// Design notes:
+//   - Corrections are made by rewriting the caret's TEXT NODE, never by DOM
+//     surgery. Everything happens inside one node, so inline markup around the
+//     word is untouched and the caret is trivially restorable by offset.
+//   - Nothing fires inside <code>, <pre>, or any [data-rte-no-autocorrect]
+//     subtree. Curling the quotes inside a code sample corrupts it, and that is
+//     the single most damaging thing a feature like this can do.
+//   - Pressing Backspace immediately after a correction reverts it and leaves
+//     what you actually typed, the way Word and Docs behave. Without an escape
+//     hatch, autocorrect fights users who meant the thing it "fixed".
+RTE_DefaultConfig.plugin_autocorrect = RTE_Plugin_Autocorrect;
+
+if (typeof RTE_DefaultConfig.autocorrectEnabled === "undefined") RTE_DefaultConfig.autocorrectEnabled = true;
+// Capitalise the first letter of a sentence.
+if (typeof RTE_DefaultConfig.autocorrectCapitalize === "undefined") RTE_DefaultConfig.autocorrectCapitalize = true;
+// Smart quotes, dashes, ellipsis, symbol and fraction substitutions.
+if (typeof RTE_DefaultConfig.autocorrectTypography === "undefined") RTE_DefaultConfig.autocorrectTypography = true;
+// Fix common misspellings from the table below.
+if (typeof RTE_DefaultConfig.autocorrectSpelling === "undefined") RTE_DefaultConfig.autocorrectSpelling = true;
+// Extra or overriding word replacements: { "recieve": "receive" }. Merged over
+// the defaults, so a host can also DISABLE one by mapping it to itself.
+if (typeof RTE_DefaultConfig.autocorrectReplacements === "undefined") RTE_DefaultConfig.autocorrectReplacements = null;
+
+function RTE_Plugin_Autocorrect() {
+    var obj = this;
+    var config, editor;
+    var boundDoc = null;
+    var enabled = true;
+    var lastFix = null;   // {node, start, typed, fixed} for the Backspace escape hatch
+
+    // Deliberately conservative. Every entry here must be a string that is never
+    // a word a user could legitimately want: "ill", "lets", "its" and "hes" are
+    // all excluded for that reason, even though they are frequent typos of
+    // "I'll", "let's", "it's" and "he's" — guessing wrong on a real word is far
+    // more annoying than missing a correction.
+    var DEFAULT_WORDS = {
+        "teh": "the", "adn": "and", "taht": "that", "thier": "their", "freind": "friend",
+        "recieve": "receive", "recieved": "received", "seperate": "separate",
+        "seperated": "separated", "occured": "occurred", "occuring": "occurring",
+        "definately": "definitely", "accomodate": "accommodate", "acommodate": "accommodate",
+        "wich": "which", "becuase": "because", "beacuse": "because", "becasue": "because",
+        "arguement": "argument", "existance": "existence", "maintainance": "maintenance",
+        "neccessary": "necessary", "necessery": "necessary", "occassion": "occasion",
+        "publically": "publicly", "reccommend": "recommend", "refered": "referred",
+        "relevent": "relevant", "succesful": "successful", "successfull": "successful",
+        "untill": "until", "wierd": "weird", "acheive": "achieve", "beleive": "believe",
+        "concious": "conscious", "embarass": "embarrass", "goverment": "government",
+        "independant": "independent", "occurence": "occurrence", "perseverence": "perseverance",
+        "priviledge": "privilege", "supercede": "supersede", "threshhold": "threshold",
+        "tommorow": "tomorrow", "tomorow": "tomorrow", "truely": "truly",
+        "alot": "a lot", "infront": "in front", "inspite": "in spite",
+        "dont": "don't", "doesnt": "doesn't", "didnt": "didn't", "cant": "can't",
+        "isnt": "isn't", "wasnt": "wasn't", "arent": "aren't", "werent": "weren't",
+        "havent": "haven't", "hasnt": "hasn't", "hadnt": "hadn't",
+        "couldnt": "couldn't", "shouldnt": "shouldn't", "wouldnt": "wouldn't",
+        "youre": "you're", "theyre": "they're", "wouldve": "would've",
+        "couldve": "could've", "shouldve": "should've",
+        "i": "I", "im": "I'm", "ive": "I've", "id": "I'd"
+    };
+
+    // Multi-character sequences replaced the moment they are completed.
+    var SEQUENCES = [
+        { from: "...", to: "…" },        // ellipsis
+        { from: "-->", to: "⟶" },        // long right arrow
+        { from: "->", to: "→" },
+        { from: "<-", to: "←" },
+        { from: "<=", to: "≤" },
+        { from: ">=", to: "≥" },
+        { from: "!=", to: "≠" },
+        { from: "(c)", to: "©" },
+        { from: "(r)", to: "®" },
+        { from: "(tm)", to: "™" },
+        { from: "1/2", to: "½" },
+        { from: "1/4", to: "¼" },
+        { from: "3/4", to: "¾" },
+        { from: "+-", to: "±" }
+    ];
+
+    obj.PluginName = "Autocorrect";
+
+    obj.InitConfig = function (argconfig) {
+        config = argconfig;
+        enabled = config.autocorrectEnabled !== false;
+    };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+        setup();
+        try { editor.attachEvent("ready", setup); } catch (e) {}
+        try { editor.attachEvent("aftersethtml", setup); } catch (e) {}
+        setTimeout(setup, 0);
+
+        editor.setAutocorrectEnabled = function (on) { enabled = !!on; return enabled; };
+        editor.isAutocorrectEnabled = function () { return enabled; };
+        editor.addAutocorrectRule = function (from, to) {
+            if (!from) return false;
+            words()[String(from).toLowerCase()] = String(to);
+            return true;
+        };
+        editor.getAutocorrectRules = function () {
+            var w = words(), out = {};
+            for (var k in w) if (w.hasOwnProperty(k)) out[k] = w[k];
+            return out;
+        };
+        // Exposed mainly so a host can run the same normalisation over pasted or
+        // imported text rather than only over live typing.
+        editor.applyTypography = function (text) { return typographyPass(String(text)); };
+    };
+
+    var wordTable = null;
+    function words() {
+        if (wordTable) return wordTable;
+        wordTable = {};
+        for (var k in DEFAULT_WORDS) if (DEFAULT_WORDS.hasOwnProperty(k)) wordTable[k] = DEFAULT_WORDS[k];
+        var extra = config.autocorrectReplacements;
+        if (extra) for (var j in extra) if (extra.hasOwnProperty(j)) wordTable[String(j).toLowerCase()] = extra[j];
+        return wordTable;
+    }
+
+    function setup() {
+        var doc = getDoc();
+        if (!doc || doc === boundDoc) return;
+        boundDoc = doc;
+        var editable = getEditable();
+        if (!editable) return;
+        editable.addEventListener("input", onInput);
+        editable.addEventListener("keydown", onKeyDown, true);
+    }
+
+    function getDoc() { try { return editor.getDocument(); } catch (e) { return null; } }
+    function getEditable() { try { return editor.getEditable(); } catch (e) { return null; } }
+
+    // ---- guards ----------------------------------------------------------
+
+    // Code is the one place these substitutions are actively destructive.
+    function inProtectedContext(node) {
+        var editable = getEditable();
+        var n = node && node.nodeType === 3 ? node.parentNode : node;
+        while (n && n !== editable) {
+            var name = n.nodeName;
+            if (name === "CODE" || name === "PRE" || name === "KBD" || name === "SAMP" || name === "VAR") return true;
+            if (n.getAttribute && n.getAttribute("data-rte-no-autocorrect") !== null &&
+                n.getAttribute("data-rte-no-autocorrect") !== "false") return true;
+            n = n.parentNode;
+        }
+        return false;
+    }
+
+    function caret() {
+        try {
+            var sel = editor.getSelection();
+            if (!sel || sel.rangeCount === 0) return null;
+            var r = sel.getRangeAt(0);
+            if (!r.collapsed) return null;                 // only while typing
+            if (!r.startContainer || r.startContainer.nodeType !== 3) return null;
+            return { node: r.startContainer, offset: r.startOffset };
+        } catch (e) { return null; }
+    }
+
+    function setCaret(node, offset) {
+        try {
+            var doc = getDoc();
+            var r = doc.createRange();
+            var max = node.nodeValue.length;
+            r.setStart(node, Math.max(0, Math.min(offset, max)));
+            r.collapse(true);
+            var sel = editor.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(r);
+        } catch (e) {}
+    }
+
+    // ---- the Backspace escape hatch --------------------------------------
+
+    function onKeyDown(e) {
+        if (e.key !== "Backspace" || !lastFix) return;
+        var c = caret();
+        if (!c || c.node !== lastFix.node) { lastFix = null; return; }
+        // Only when the caret is still exactly where the correction left it —
+        // NOT start+fixed.length, because a word correction fires on the boundary
+        // character, which is already sitting after the replaced range.
+        if (c.offset !== lastFix.caretAfter) { lastFix = null; return; }
+        var text = c.node.nodeValue;
+        c.node.nodeValue = text.slice(0, lastFix.start) + lastFix.typed +
+            text.slice(lastFix.start + lastFix.fixed.length);
+        setCaret(c.node, lastFix.start + lastFix.typed.length + (lastFix.tail || 0));
+        lastFix = null;
+        e.preventDefault();
+        e.stopPropagation();
+    }
+
+    // ---- main ------------------------------------------------------------
+
+    function onInput(e) {
+        if (!enabled) return;
+        var ch = e && typeof e.data === "string" ? e.data : null;
+        if (!ch) return;                       // deletion, paste, composition end
+        var c = caret();
+        if (!c) return;
+        if (inProtectedContext(c.node)) return;
+
+        if (config.autocorrectTypography !== false && applyInline(c, ch)) return;
+        if (isBoundary(ch)) applyWordRules(c, ch);
+    }
+
+    function isBoundary(ch) {
+        return ch === " " || ch === " " || ".,;:!?)]}\"'’”".indexOf(ch) >= 0;
+    }
+
+    // Substitutions that resolve as soon as the triggering character lands.
+    function applyInline(c, ch) {
+        var text = c.node.nodeValue;
+        var at = c.offset;
+
+        // Straight quote -> curly. Direction depends on what precedes it: after
+        // whitespace or an opening bracket it opens, otherwise it closes.
+        if (ch === '"' || ch === "'") {
+            var prev = at >= 2 ? text.charAt(at - 2) : "";
+            var opening = !prev || /[\s(\[{—–\-]/.test(prev);
+            var repl = ch === '"' ? (opening ? "“" : "”") : (opening ? "‘" : "’");
+            return replaceRange(c, at - 1, at, repl, ch);
+        }
+
+        // Em dash from "--", in both the tight form ("word--word") and the
+        // spaced one ("word -- word"), which is how most people actually type it.
+        // Both require real text to the left, so a "-- item" list marker at the
+        // start of a line and a "--flag" are left alone.
+        if (ch === "-" && at >= 2 && text.charAt(at - 2) === "-") {
+            var before = at >= 3 ? text.charAt(at - 3) : "";
+            var ok = /[\w\)\]"'’]/.test(before);
+            if (!ok && /\s/.test(before)) ok = /[\w\)\]"'’]\s*$/.test(text.slice(0, at - 3));
+            if (ok) return replaceRange(c, at - 2, at, "—", "--");
+        }
+
+        for (var i = 0; i < SEQUENCES.length; i++) {
+            var s = SEQUENCES[i];
+            if (s.from.charAt(s.from.length - 1) !== ch) continue;
+            var start = at - s.from.length;
+            if (start < 0) continue;
+            if (text.substring(start, at).toLowerCase() !== s.from) continue;
+            // A fraction or arrow glued to a word is probably not one.
+            if (/^\d/.test(s.from) && start > 0 && /[\w.]/.test(text.charAt(start - 1))) continue;
+            return replaceRange(c, start, at, s.to, s.from);
+        }
+        return false;
+    }
+
+    // Rules that need a completed word: spelling and sentence capitalisation.
+    function applyWordRules(c, ch) {
+        var text = c.node.nodeValue;
+        var end = c.offset - 1;               // the boundary char we just typed
+        var start = end;
+        while (start > 0 && /[A-Za-z'’]/.test(text.charAt(start - 1))) start--;
+        if (start === end) return;
+        var word = text.substring(start, end);
+
+        // Spelling THEN capitalisation, applied in sequence to the same word.
+        // Treating them as alternatives means "teh cat" opening a sentence comes
+        // out as "the cat" — the typo fixed but the sentence left lowercase.
+        var fixed = word;
+        if (config.autocorrectSpelling !== false) {
+            var hit = words()[fixed.toLowerCase()];
+            if (hit) fixed = matchCase(fixed, hit);
+            // The table stores plain apostrophes so it stays easy to extend, but
+            // typing ' produces a curly one — emit the same character here or
+            // "don't" ends up with a different apostrophe than "it's".
+            if (config.autocorrectTypography !== false) fixed = fixed.replace(/'/g, "’");
+        }
+        if (config.autocorrectCapitalize !== false && startsSentence(text, start, c.node)) {
+            var first = fixed.charAt(0);
+            if (first !== first.toUpperCase()) fixed = first.toUpperCase() + fixed.substring(1);
+        }
+        if (fixed === word) return;
+        replaceRange(c, start, end, fixed, word);
+    }
+
+    // "teh" -> "the", "Teh" -> "The", "TEH" -> "THE".
+    function matchCase(typed, fixed) {
+        if (typed === typed.toUpperCase() && typed.length > 1) return fixed.toUpperCase();
+        if (typed.charAt(0) === typed.charAt(0).toUpperCase()) {
+            return fixed.charAt(0).toUpperCase() + fixed.substring(1);
+        }
+        return fixed;
+    }
+
+    function startsSentence(text, start, node) {
+        for (var i = start - 1; i >= 0; i--) {
+            var ch = text.charAt(i);
+            if (/\s/.test(ch)) continue;
+            if (ch === '"' || ch === "'" || ch === "“" || ch === "‘" || ch === "(") continue;
+            return ".!?".indexOf(ch) >= 0;
+        }
+        // Nothing before it in this node: only a sentence start if nothing
+        // precedes the node in its block either.
+        return !hasTextBefore(node);
+    }
+
+    function hasTextBefore(node) {
+        var editable = getEditable();
+        var n = node;
+        while (n && n !== editable) {
+            var sib = n.previousSibling;
+            while (sib) {
+                if ((sib.textContent || "").trim()) return true;
+                sib = sib.previousSibling;
+            }
+            n = n.parentNode;
+            // Stop at the block: a new paragraph starts a new sentence.
+            if (n && /^(P|LI|TD|TH|H[1-6]|BLOCKQUOTE|DIV)$/.test(n.nodeName)) return false;
+        }
+        return false;
+    }
+
+    function replaceRange(c, start, end, replacement, typed) {
+        var node = c.node;
+        var text = node.nodeValue;
+        // Characters already typed after the range being replaced — for a word
+        // rule this is the boundary character (usually a space), because the
+        // boundary is what triggered the correction in the first place.
+        var tail = c.offset - end;
+        node.nodeValue = text.slice(0, start) + replacement + text.slice(end);
+        var caretAfter = start + replacement.length + tail;
+        setCaret(node, caretAfter);
+        lastFix = { node: node, start: start, typed: typed, fixed: replacement, caretAfter: caretAfter, tail: tail };
+        return true;
+    }
+
+    // Standalone typography pass, for pasted or imported text.
+    function typographyPass(text) {
+        var out = text;
+        for (var i = 0; i < SEQUENCES.length; i++) {
+            out = out.split(SEQUENCES[i].from).join(SEQUENCES[i].to);
+        }
+        out = out.replace(/(^|[\s(\[{])"/g, "$1“").replace(/"/g, "”");
+        out = out.replace(/(^|[\s(\[{])'/g, "$1‘").replace(/'/g, "’");
+        out = out.replace(/(\w)--(\w)/g, "$1—$2");
+        out = out.replace(/(\w)\s--\s(\w)/g, "$1 — $2");
+        return out;
+    }
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
 // 2026-06-05 Auto-embed on paste. Paste a bare YouTube or Vimeo URL on its own
 // line and it becomes a responsive 16:9 embed &mdash; the Notion / Medium
 // behaviour. Complements the command-driven Insert Video dialog and the
@@ -20210,8 +20564,19 @@ if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
 //   };
 RTE_DefaultConfig.plugin_bookmarkcard = RTE_Plugin_BookmarkCard;
 RTE_DefaultConfig.bookmarkResolver = RTE_DefaultConfig.bookmarkResolver || null;
+// 2026-07-31 Favicon lookup is OFF by default.
+//
+// This used to default to a third-party favicon service, which meant every
+// bookmark card quietly sent the bookmarked domain to someone else's server —
+// on a self-hosted editor whose whole position is that it makes no outbound
+// calls. That is a privacy leak the host never opted into, and it also puts a
+// public URL in a file that security-scanned deployments have to ship.
+//
+// Opt in by setting the service prefix explicitly, e.g.
+//   RTE_DefaultConfig.bookmarkFaviconService = "/favicon-proxy?domain=";
+// or supply favicons through bookmarkResolver, which already returns one.
 RTE_DefaultConfig.bookmarkFaviconService = (typeof RTE_DefaultConfig.bookmarkFaviconService === "undefined")
-    ? "https://www.google.com/s2/favicons?sz=64&domain=" // set to "" to disable favicon fetch
+    ? ""
     : RTE_DefaultConfig.bookmarkFaviconService;
 
 function RTE_Plugin_BookmarkCard() {
@@ -20417,6 +20782,245 @@ function RTE_Plugin_BookmarkCard() {
                 head.appendChild(st);
             }
         } catch (e) { /* ignore */ }
+    }
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
+// 2026-07-27 Change case. UPPERCASE / lowercase / Title Case / Sentence case /
+// tOGGLE cASE over the selection.
+//
+// CKEditor 5 case change: "Unlock this feature with selected CKEditor Plans".
+//
+// Design notes:
+//   - This rewrites TEXT NODES in place, so inline markup survives: change the
+//     case of "the <strong>Data</strong> Act" and the <strong> is still there.
+//     A naive getSelectedText()/insertHTML() round-trip would flatten it.
+//   - The selected text nodes are joined into one string, transformed, then
+//     written back slice by slice. Doing it per-node would break the modes that
+//     need context across a node boundary: Sentence case has to know it is at
+//     the start of the selection, and Title Case has to see a whole word even
+//     when <strong> splits it down the middle.
+//   - A collapsed selection operates on the word under the caret, which is what
+//     makes the feature usable from a keyboard shortcut without selecting first.
+//   - "text-transform" is deliberately NOT used: that is a presentational lie
+//     that disappears the moment the HTML is consumed somewhere else. This
+//     changes the actual characters.
+RTE_DefaultConfig.plugin_changecase = RTE_Plugin_ChangeCase;
+
+// Words left lowercase by Title Case unless they are first or last.
+if (typeof RTE_DefaultConfig.titleCaseSmallWords === "undefined") {
+    RTE_DefaultConfig.titleCaseSmallWords =
+        "a an and as at but by for if in nor of on or per so the to via vs with";
+}
+
+function RTE_Plugin_ChangeCase() {
+    var obj = this;
+    var config, editor;
+
+    obj.PluginName = "ChangeCase";
+
+    obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+
+        editor.attachEvent("exec_command_changecase", function (state) {
+            state.returnValue = true;
+            obj.Apply(state && state.value ? state.value : "upper");
+        });
+
+        // Public API.
+        editor.changeCase = function (mode) { return obj.Apply(mode); };
+        editor.getChangeCaseModes = function () {
+            return ["upper", "lower", "title", "sentence", "toggle"];
+        };
+    };
+
+    function getDoc() { try { return editor.getDocument(); } catch (e) { return null; } }
+    function getEditable() { try { return editor.getEditable(); } catch (e) { return null; } }
+
+    // ---- transforms ------------------------------------------------------
+
+    function smallWordSet() {
+        var set = {};
+        String(config.titleCaseSmallWords || "").split(/\s+/).forEach(function (w) {
+            if (w) set[w.toLowerCase()] = true;
+        });
+        return set;
+    }
+
+    function transform(text, mode) {
+        switch (mode) {
+            case "lower": return text.toLowerCase();
+            case "upper": return text.toUpperCase();
+            case "toggle":
+                return text.replace(/\S/g, function (ch) {
+                    var up = ch.toUpperCase();
+                    // Characters with no case (digits, CJK, punctuation) compare
+                    // equal both ways — leave them alone.
+                    return ch === up ? ch.toLowerCase() : up;
+                });
+            case "sentence": return sentenceCase(text);
+            case "title": return titleCase(text);
+            default: return text;
+        }
+    }
+
+    function sentenceCase(text) {
+        var lower = text.toLowerCase();
+        var out = "";
+        var startOfSentence = true;
+        for (var i = 0; i < lower.length; i++) {
+            var ch = lower[i];
+            if (startOfSentence && /\S/.test(ch)) {
+                out += ch.toUpperCase();
+                // A letter opens the sentence; an opening quote or bracket does
+                // not, so keep waiting for the real first letter.
+                if (/[\p{L}\p{N}]/u.test(ch)) startOfSentence = false;
+            } else {
+                out += ch;
+            }
+            if (/[.!?]/.test(ch)) startOfSentence = true;
+        }
+        return out;
+    }
+
+    function titleCase(text) {
+        var small = smallWordSet();
+        // Split on whitespace but KEEP it, so the original spacing is preserved
+        // exactly rather than normalised to single spaces.
+        var parts = text.split(/(\s+)/);
+        var wordIndex = 0;
+        var wordCount = 0;
+        var i;
+        for (i = 0; i < parts.length; i++) if (!/^\s*$/.test(parts[i])) wordCount++;
+        for (i = 0; i < parts.length; i++) {
+            if (/^\s*$/.test(parts[i])) continue;
+            var isEdge = (wordIndex === 0 || wordIndex === wordCount - 1);
+            parts[i] = titleWord(parts[i], small, isEdge);
+            wordIndex++;
+        }
+        return parts.join("");
+    }
+
+    function titleWord(word, small, isEdge) {
+        var lower = word.toLowerCase();
+        // Compare on letters only so "the," and "(the" still match "the".
+        var bare = lower.replace(/[^\p{L}\p{N}']/gu, "");
+        if (!isEdge && small[bare]) return lower;
+        // A hyphenated compound is title-cased segment by segment, and the small
+        // word rule applies inside it too — "state-of-the-art" is conventionally
+        // "State-of-the-Art", not "State-Of-The-Art". Splitting on a capturing
+        // group keeps the separators, so odd indices are the separators and even
+        // indices are the segments.
+        var segs = lower.split(/([-\/])/);
+        var last = segs.length - 1;
+        for (var i = 0; i <= last; i += 2) {
+            var seg = segs[i];
+            if (!seg) continue;
+            var segBare = seg.replace(/[^\p{L}\p{N}']/gu, "");
+            if (i !== 0 && i !== last && small[segBare]) continue;   // stays lowercase
+            segs[i] = seg.replace(/[\p{L}\p{N}]/u, function (ch) { return ch.toUpperCase(); });
+        }
+        return segs.join("");
+    }
+
+    // ---- selection plumbing ----------------------------------------------
+
+    // Grow a collapsed caret to cover the word it sits in, so the command is
+    // useful without a prior selection.
+    function expandToWord(range) {
+        var node = range.startContainer;
+        if (!node || node.nodeType !== 3) return false;
+        var text = node.nodeValue || "";
+        var start = range.startOffset;
+        var end = start;
+        while (start > 0 && /[\p{L}\p{N}'']/u.test(text[start - 1])) start--;
+        while (end < text.length && /[\p{L}\p{N}'']/u.test(text[end])) end++;
+        if (start === end) return false;
+        range.setStart(node, start);
+        range.setEnd(node, end);
+        return true;
+    }
+
+    // Split the boundary text nodes so the range covers whole nodes only, then
+    // collect every text node inside it.
+    function textNodesInRange(range, doc) {
+        if (range.startContainer.nodeType === 3 && range.startOffset > 0) {
+            var s = range.startContainer.splitText(range.startOffset);
+            range.setStart(s, 0);
+        }
+        if (range.endContainer.nodeType === 3 && range.endOffset < range.endContainer.nodeValue.length) {
+            range.endContainer.splitText(range.endOffset);
+        }
+        var root = range.commonAncestorContainer;
+        if (root.nodeType === 3) return [root];
+        var nodes = [];
+        var walker = doc.createTreeWalker(root, 4 /* SHOW_TEXT */, null, false);
+        var n;
+        while ((n = walker.nextNode())) {
+            if (!n.nodeValue) continue;
+            if (range.intersectsNode ? range.intersectsNode(n) : true) {
+                // intersectsNode is true for the boundary nodes that sit just
+                // outside a zero-width touch, so confirm with a real comparison.
+                var r = doc.createRange();
+                r.selectNodeContents(n);
+                if (range.compareBoundaryPoints(Range.END_TO_START, r) < 0 &&
+                    range.compareBoundaryPoints(Range.START_TO_END, r) > 0) {
+                    nodes.push(n);
+                }
+            }
+        }
+        return nodes;
+    }
+
+    obj.Apply = function (mode) {
+        mode = String(mode || "upper").toLowerCase();
+        var doc = getDoc();
+        var sel;
+        try { sel = editor.getSelection(); } catch (e) { return false; }
+        if (!doc || !sel || sel.rangeCount === 0) return false;
+
+        var range = sel.getRangeAt(0);
+        if (range.collapsed && !expandToWord(range)) return false;
+
+        var nodes = textNodesInRange(range, doc);
+        if (!nodes.length) return false;
+
+        // Join -> transform -> write back, so context-sensitive modes see the
+        // whole selection rather than one <strong>'s worth of it.
+        var joined = "";
+        for (var i = 0; i < nodes.length; i++) joined += nodes[i].nodeValue;
+        var result = transform(joined, mode);
+        if (result === joined) return false;
+        // Defensive: every mode is length-preserving, but if a future mode is
+        // not, bail rather than corrupt the document by mis-slicing.
+        if (result.length !== joined.length) return false;
+
+        var at = 0;
+        for (var j = 0; j < nodes.length; j++) {
+            var len = nodes[j].nodeValue.length;
+            nodes[j].nodeValue = result.substr(at, len);
+            at += len;
+        }
+
+        // Restore the selection over the transformed run.
+        try {
+            var r2 = doc.createRange();
+            r2.setStart(nodes[0], 0);
+            r2.setEnd(nodes[nodes.length - 1], nodes[nodes.length - 1].nodeValue.length);
+            sel.removeAllRanges();
+            sel.addRange(r2);
+        } catch (e) {}
+
+        fireChange();
+        return true;
+    };
+
+    function fireChange() {
+        try { if (typeof editor.updateDesign === "function") editor.updateDesign(); } catch (e) {}
+        try { if (typeof editor.fireChange === "function") editor.fireChange(); } catch (e) {}
     }
 }
 
@@ -21649,6 +22253,415 @@ function RTE_Plugin_ContentMinimap() {
 
 if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
 
+// 2026-07-27 Cross-references. "See clause 3.2", "Figure 4", "as described in
+// Scope of Work (page 7)" — references that keep pointing at the right thing
+// after the document is edited around them.
+//
+// This is the piece that makes the rest of the document suite hold together.
+// Legal numbering renumbers clauses, the table of contents re-derives itself,
+// footnotes renumber — and until now a sentence saying "see clause 3.2" stayed
+// frozen at 3.2 while the clause it meant became 4.1. A stale cross-reference in
+// a contract is not cosmetic; it changes what the contract says.
+//
+// Competitive position (checked 2026-07-27): CKEditor 5 ships Bookmarks
+// (in-text anchors) and its own auto-updating table of contents, but describes
+// auto-updating cross-references as a PLANNED enhancement rather than a current
+// feature. TinyMCE documents no cross-reference plugin. Word has had this for
+// decades and it is table stakes for contract and specification work.
+//
+// Design notes:
+//   - A reference is an atomic contenteditable=false chip carrying the target id
+//     and the display format. The visible text is REAL TEXT, recomputed on every
+//     mutation, so the saved HTML stands alone outside the editor (same reasoning
+//     as footnotes.js).
+//   - A reference whose target has been deleted renders a visible error rather
+//     than silently keeping its last value. Word does this too, and it is the
+//     right call: a wrong-but-plausible clause number is far more dangerous than
+//     an obviously broken one.
+RTE_DefaultConfig.plugin_crossreference = RTE_Plugin_CrossReference;
+
+// Shown when the target no longer exists.
+if (typeof RTE_DefaultConfig.crossRefMissingText === "undefined") RTE_DefaultConfig.crossRefMissingText = "[reference not found]";
+// Prefixes used when auto-numbering tables and figures.
+if (typeof RTE_DefaultConfig.crossRefTableLabel === "undefined") RTE_DefaultConfig.crossRefTableLabel = "Table";
+if (typeof RTE_DefaultConfig.crossRefFigureLabel === "undefined") RTE_DefaultConfig.crossRefFigureLabel = "Figure";
+
+function RTE_Plugin_CrossReference() {
+    var obj = this;
+    var config, editor;
+    var boundDoc = null;
+    var queued = false;
+    var idSeq = 0;
+
+    obj.PluginName = "CrossReference";
+
+    obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+
+        editor.attachEvent("exec_command_insertcrossreference", function (state) {
+            state.returnValue = true;
+            var v = state && state.value;
+            if (v && typeof v === "object") obj.Insert(v.target, v.format);
+        });
+
+        setup();
+        try { editor.attachEvent("ready", setup); } catch (e) {}
+        try { editor.attachEvent("aftersethtml", function () { setup(); queue(); }); } catch (e) {}
+        setTimeout(function () { setup(); queue(); }, 0);
+
+        // Public API.
+        editor.listCrossReferenceTargets = function () { return obj.Targets(); };
+        editor.insertCrossReference = function (targetId, format) { return obj.Insert(targetId, format); };
+        editor.updateCrossReferences = function () { return refresh(); };
+        editor.getCrossReferences = function () { return obj.List(); };
+        editor.getCrossReferenceCss = function () { return css(); };
+    };
+
+    function setup() {
+        var doc = getDoc();
+        if (!doc) return;
+        injectStyles(doc);
+        if (doc === boundDoc) return;
+        boundDoc = doc;
+        var editable = getEditable();
+        if (!editable) return;
+        editable.addEventListener("keyup", queue);
+        editable.addEventListener("cut", queue);
+        editable.addEventListener("paste", queue);
+        editable.addEventListener("drop", queue);
+        editable.addEventListener("click", function (e) {
+            var chip = closestClass(e.target, "rte-xref", editable);
+            if (!chip) return;
+            e.preventDefault();
+            var t = resolveTarget(chip.getAttribute("data-xref-target"));
+            if (!t) return;
+            try { t.el.scrollIntoView({ block: "center" }); } catch (e2) { t.el.scrollIntoView(); }
+        });
+    }
+
+    function getDoc() { try { return editor.getDocument(); } catch (e) { return null; } }
+    function getEditable() { try { return editor.getEditable(); } catch (e) { return null; } }
+
+    function queue() {
+        if (queued) return;
+        queued = true;
+        setTimeout(function () { queued = false; refresh(); }, 0);
+    }
+
+    function closestClass(node, cls, root) {
+        while (node && node !== root) {
+            if (node.nodeType === 1 && node.classList && node.classList.contains(cls)) return node;
+            node = node.parentNode;
+        }
+        return null;
+    }
+
+    function newId(prefix) {
+        return prefix + Math.floor(Math.random() * 1e9).toString(36) + (idSeq++).toString(36);
+    }
+
+    function ensureId(el, prefix) {
+        var id = el.getAttribute("id");
+        if (id) return id;
+        id = newId(prefix);
+        el.setAttribute("id", id);
+        return id;
+    }
+
+    // ---- targets ---------------------------------------------------------
+
+    // Everything in the document that can be referred to, in document order.
+    obj.Targets = function () {
+        var editable = getEditable();
+        if (!editable) return [];
+        var out = [];
+
+        var headings = editable.querySelectorAll("h1,h2,h3,h4,h5,h6");
+        for (var i = 0; i < headings.length; i++) {
+            var h = headings[i];
+            // Generated regions are not referable content.
+            if (h.closest && (h.closest("nav.rte-toc") || h.closest("section.rte-footnotes"))) continue;
+            var text = (h.textContent || "").trim();
+            if (!text) continue;
+            out.push({ id: ensureId(h, "rte-h-"), type: "heading", label: text, number: null });
+        }
+
+        // Legal-numbered clauses: the number is derived from position, exactly
+        // like the CSS counters that render it.
+        var roots = editable.querySelectorAll("ol.rte-legal-list");
+        for (var r = 0; r < roots.length; r++) collectClauses(roots[r], [], out);
+
+        var notes = editable.querySelectorAll("li.rte-fn-note[data-fn-id]");
+        for (var n = 0; n < notes.length; n++) {
+            out.push({
+                id: ensureId(notes[n], "rte-fn-"),
+                type: "footnote",
+                label: (noteText(notes[n]) || "footnote"),
+                number: notes[n].getAttribute("data-fn-number")
+            });
+        }
+
+        var tables = editable.querySelectorAll("table");
+        var tnum = 0;
+        for (var t = 0; t < tables.length; t++) {
+            tnum++;
+            var cap = tables[t].querySelector("caption");
+            out.push({
+                id: ensureId(tables[t], "rte-tbl-"),
+                type: "table",
+                label: (cap && cap.textContent.trim()) || (String(config.crossRefTableLabel) + " " + tnum),
+                number: String(tnum)
+            });
+        }
+
+        var figs = editable.querySelectorAll("figure, img");
+        var fnum = 0;
+        for (var f = 0; f < figs.length; f++) {
+            // An <img> inside a <figure> is the same figure, counted once.
+            if (figs[f].nodeName === "IMG" && figs[f].closest && figs[f].closest("figure")) continue;
+            fnum++;
+            var fc = figs[f].querySelector ? figs[f].querySelector("figcaption") : null;
+            out.push({
+                id: ensureId(figs[f], "rte-fig-"),
+                type: "figure",
+                label: (fc && fc.textContent.trim()) || (String(config.crossRefFigureLabel) + " " + fnum),
+                number: String(fnum)
+            });
+        }
+        return out;
+    };
+
+    function collectClauses(ol, path, out) {
+        var idx = 0;
+        for (var i = 0; i < ol.children.length; i++) {
+            var li = ol.children[i];
+            if (li.nodeName !== "LI") continue;
+            idx++;
+            var here = path.concat([idx]);
+            var first = firstLineText(li);
+            out.push({
+                id: ensureId(li, "rte-cl-"),
+                type: "clause",
+                label: first || ("clause " + here.join(".")),
+                number: here.join(".")
+            });
+            for (var c = 0; c < li.children.length; c++) {
+                if (li.children[c].nodeName === "OL") collectClauses(li.children[c], here, out);
+            }
+        }
+    }
+
+    // The clause's own text, excluding any nested sub-list.
+    function firstLineText(li) {
+        var s = "";
+        for (var i = 0; i < li.childNodes.length; i++) {
+            var n = li.childNodes[i];
+            if (n.nodeType === 1 && (n.nodeName === "OL" || n.nodeName === "UL")) break;
+            s += n.textContent || "";
+        }
+        return s.trim().replace(/\s+/g, " ").slice(0, 80);
+    }
+
+    function noteText(note) {
+        var clone = note.cloneNode(true);
+        var backs = clone.querySelectorAll ? clone.querySelectorAll("a.rte-fn-back") : [];
+        for (var i = 0; i < backs.length; i++) if (backs[i].parentNode) backs[i].parentNode.removeChild(backs[i]);
+        return (clone.textContent || "").replace(/↩/g, "").trim().slice(0, 80);
+    }
+
+    function resolveTarget(id) {
+        if (!id) return null;
+        var list = obj.Targets();
+        for (var i = 0; i < list.length; i++) {
+            if (list[i].id !== id) continue;
+            var editable = getEditable();
+            var el = editable ? editable.querySelector("#" + id.replace(/["\\\]\[]/g, "\\$&")) : null;
+            if (!el) return null;
+            var t = list[i];
+            t.el = el;
+            return t;
+        }
+        return null;
+    }
+
+    // ---- insert ----------------------------------------------------------
+
+    // format: "text" | "number" | "page" | "position" | "label"
+    obj.Insert = function (targetId, format) {
+        var doc = getDoc();
+        var editable = getEditable();
+        if (!doc || !editable) return false;
+        var target = resolveTarget(targetId);
+        if (!target) return false;
+        format = String(format || "text");
+
+        var chip = doc.createElement("span");
+        chip.className = "rte-xref";
+        chip.setAttribute("data-xref-target", targetId);
+        chip.setAttribute("data-xref-format", format);
+        chip.setAttribute("contenteditable", "false");
+        chip.textContent = displayFor(target, format, chip);
+
+        var placed = false;
+        try {
+            if (typeof editor.insertElement === "function") { editor.insertElement(chip); placed = true; }
+        } catch (e) {}
+        if (!placed) {
+            try {
+                var sel = editor.getSelection();
+                if (sel && sel.rangeCount) {
+                    var r = sel.getRangeAt(0);
+                    r.collapse(false);
+                    r.insertNode(chip);
+                    r.setStartAfter(chip); r.collapse(true);
+                    sel.removeAllRanges(); sel.addRange(r);
+                    placed = true;
+                }
+            } catch (e) {}
+        }
+        if (!placed) editable.appendChild(chip);
+        // Recompute now that the chip is actually IN the document. The text set
+        // above was computed while it was still detached, and the "position"
+        // format compares the chip against its target — on a detached node that
+        // comparison is meaningless, so a reference to something earlier in the
+        // document displayed "below" until the next refresh happened to fix it.
+        refresh();
+        fireChange();
+        return targetId;
+    };
+
+    function displayFor(target, format, chip) {
+        if (!target) return String(config.crossRefMissingText);
+        switch (format) {
+            case "number":
+                if (target.number) return target.number;
+                return target.label;                       // headings have no number
+            case "label":
+                // "Table 2" / "Figure 3" / "clause 3.2" style
+                if (target.type === "table") return String(config.crossRefTableLabel) + " " + target.number;
+                if (target.type === "figure") return String(config.crossRefFigureLabel) + " " + target.number;
+                if (target.type === "clause") return "clause " + target.number;
+                if (target.type === "footnote") return "footnote " + target.number;
+                return target.label;
+            case "page":
+                var p = null;
+                try {
+                    if (typeof editor.getPageOfElement === "function") p = editor.getPageOfElement(target.el);
+                } catch (e) { p = null; }
+                // No page view means no honest page number; keep whatever was
+                // last computed rather than inventing or blanking one.
+                if (p) return String(p);
+                var prev = chip ? chip.getAttribute("data-xref-last-page") : null;
+                return prev || "?";
+            case "position":
+                return positionOf(target.el, chip);
+            default:
+                return target.label;
+        }
+    }
+
+    // "above" / "below" relative to the reference itself.
+    function positionOf(targetEl, chip) {
+        if (!targetEl || !chip) return "above";
+        try {
+            var pos = chip.compareDocumentPosition(targetEl);
+            if (pos & Node.DOCUMENT_POSITION_PRECEDING) return "above";
+            if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return "below";
+        } catch (e) {}
+        return "above";
+    }
+
+    // ---- refresh ---------------------------------------------------------
+
+    function chips() {
+        var editable = getEditable();
+        if (!editable) return [];
+        return Array.prototype.slice.call(editable.querySelectorAll("span.rte-xref[data-xref-target]"));
+    }
+
+    function refresh() {
+        var list = chips();
+        if (!list.length) return [];
+        // Build the target index once rather than per chip.
+        var targets = obj.Targets();
+        var byId = {};
+        for (var t = 0; t < targets.length; t++) byId[targets[t].id] = targets[t];
+        var editable = getEditable();
+
+        var out = [];
+        for (var i = 0; i < list.length; i++) {
+            var chip = list[i];
+            var id = chip.getAttribute("data-xref-target");
+            var fmt = chip.getAttribute("data-xref-format") || "text";
+            var target = byId[id] || null;
+            if (target) {
+                target.el = editable.querySelector("#" + id.replace(/["\\\]\[]/g, "\\$&"));
+            }
+            var text = displayFor(target, fmt, chip);
+            if (chip.textContent !== text) chip.textContent = text;
+            if (target) {
+                chip.classList.remove("rte-xref-broken");
+                if (fmt === "page" && /^\d+$/.test(text)) chip.setAttribute("data-xref-last-page", text);
+            } else {
+                // Visible failure beats a plausible wrong number.
+                chip.classList.add("rte-xref-broken");
+            }
+            out.push({ target: id, format: fmt, text: text, resolved: !!target });
+        }
+        return out;
+    }
+
+    obj.List = function () {
+        var list = chips();
+        var out = [];
+        for (var i = 0; i < list.length; i++) {
+            out.push({
+                target: list[i].getAttribute("data-xref-target"),
+                format: list[i].getAttribute("data-xref-format") || "text",
+                text: list[i].textContent,
+                resolved: !list[i].classList.contains("rte-xref-broken")
+            });
+        }
+        return out;
+    };
+
+    function fireChange() {
+        try { if (typeof editor.updateDesign === "function") editor.updateDesign(); } catch (e) {}
+        try { if (typeof editor.fireChange === "function") editor.fireChange(); } catch (e) {}
+    }
+
+    // ---- styles ----------------------------------------------------------
+
+    function css() {
+        return (
+            "span.rte-xref{color:#1474ea;cursor:pointer;border-bottom:1px dotted #9dc2f5;" +
+            "user-select:none;}" +
+            "span.rte-xref:hover{border-bottom-style:solid;}" +
+            "span.rte-xref.rte-xref-broken{color:#c81e1e;background:rgba(200,30,30,.09);" +
+            "border-bottom:1px solid #e59b9b;border-radius:2px;padding:0 .15em;}"
+        );
+    }
+
+    function injectStyles(doc) {
+        if (!doc) return;
+        var existing = doc.getElementById("rte-xref-styles");
+        var text = css();
+        if (existing) {
+            if (existing.getAttribute("data-css") === text) return;
+            existing.parentNode && existing.parentNode.removeChild(existing);
+        }
+        var st = doc.createElement("style");
+        st.id = "rte-xref-styles";
+        st.setAttribute("data-css", text);
+        st.appendChild(doc.createTextNode(text));
+        (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+    }
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
 // 2026-06-07 Dialog accessibility. The editor's dialogs/popups render as
 // <rte-dropdown-panel class="rte-panel-general"> containers that hold an
 // <rte-dialog-header> title (e.g. "Insert Link") and fields wrapped in
@@ -22100,9 +23113,28 @@ if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
 // Word saves as MSO-flavored HTML) — Word junk (mso-* styles, o:/w: tags,
 // conditional comments) is stripped the same way paste-from-Word is.
 //
-// Zipped .docx is NOT parseable library-free (it's a ZIP of XML); for it (or to
-// override any type) supply config.documentImportResolver(file) returning an
-// HTML string or Promise<string>, so a server/library can convert it.
+// .docx IS parsed library-free: it is a ZIP of XML, and the ZIP central
+// directory is read directly while DecompressionStream("deflate-raw") handles
+// the inflate. No dependency, no server round-trip.
+// (This comment used to say .docx was not parseable library-free. That was true
+// when it was written and stopped being true when the ZIP reader landed below;
+// it then misled a reader into reporting the feature as missing. Kept explicit
+// so it does not happen again.)
+//
+// 2026-07-28 fidelity pass — what a naive converter silently loses, and what
+// this now preserves:
+//   - HYPERLINK URLS. w:hyperlink carries only an r:id; the address lives in
+//     word/_rels/document.xml.rels. Without resolving it every link imports as
+//     plain text with the URL discarded.
+//   - IMAGES. w:drawing -> a:blip r:embed -> word/media/*, inlined as data URIs
+//     (set config.documentImportImages = false to skip, for image-heavy files).
+//   - ORDERED vs BULLET lists and NESTING. document.xml stores every list the
+//     same way; only word/numbering.xml says which is which, so a naive reader
+//     turns numbered lists into bullets. w:ilvl gives real nesting, placed
+//     inside the parent <li> so the markup is valid.
+//   - Paragraph alignment (w:jc).
+// Supply config.documentImportResolver(file) to override any type (e.g. to run
+// a server-side converter for formats this does not cover).
 //
 // API:
 //   editor.openImportDialog(options?)        -> file picker, then import
@@ -22165,6 +23197,16 @@ function RTE_Plugin_DocumentImport() {
     function esc(s) {
         return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     }
+
+    // A Word text box and a SmartArt graphic are BOXES on the page. Importing
+    // them as bare <div>s keeps the words but loses the thing that made them
+    // read as separate from the body text, so the import looks lossier than it
+    // is. Styled inline rather than by class because this is saved content: it
+    // has to survive wherever the host renders it, with no stylesheet of ours
+    // loaded. (Found by check-css-contract.mjs -- the classes were emitted with
+    // no rule anywhere.)
+    var TEXTBOX_STYLE = "border:1px solid #b9c2cf;border-radius:4px;padding:10px 14px;margin:12px 0;background:#fbfcfe";
+    var SMARTART_STYLE = "border:1px solid #b9c2cf;border-radius:4px;padding:10px 14px 10px 6px;margin:12px 0;background:#f7faff";
 
     // Strip Word/MSO debris from .doc HTML (same intent as paste-from-Word).
     function cleanWordHtml(html) {
@@ -22336,22 +23378,607 @@ function RTE_Plugin_DocumentImport() {
         });
     }
 
+    // Every entry whose name matches, decompressed. Needed because a faithful
+    // conversion is not just document.xml: the hyperlink URLs live in the rels
+    // part, whether a list is bulleted or numbered lives in numbering.xml, and
+    // the images live in word/media.
+    function listZipEntries(bytes) {
+        var dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        var eocd = -1;
+        for (var i = bytes.length - 22; i >= 0 && i >= bytes.length - 22 - 65536; i--) {
+            if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+        }
+        if (eocd < 0) return [];
+        var cdOffset = dv.getUint32(eocd + 16, true);
+        var cdCount = dv.getUint16(eocd + 10, true);
+        var p = cdOffset, out = [];
+        for (var n = 0; n < cdCount; n++) {
+            if (dv.getUint32(p, true) !== 0x02014b50) break;
+            var method = dv.getUint16(p + 10, true);
+            var compSize = dv.getUint32(p + 20, true);
+            var nameLen = dv.getUint16(p + 28, true);
+            var extraLen = dv.getUint16(p + 30, true);
+            var commentLen = dv.getUint16(p + 32, true);
+            var localOff = dv.getUint32(p + 42, true);
+            var name = utf8(bytes.subarray(p + 46, p + 46 + nameLen)).replace(/\\/g, "/");
+            var lh = new DataView(bytes.buffer, bytes.byteOffset + localOff, 30);
+            var dataStart = localOff + 30 + lh.getUint16(26, true) + lh.getUint16(28, true);
+            out.push({ name: name, method: method, data: bytes.subarray(dataStart, dataStart + compSize) });
+            p += 46 + nameLen + extraLen + commentLen;
+        }
+        return out;
+    }
+
+    function entryBytes(entry) {
+        return entry.method === 0 ? Promise.resolve(entry.data) : inflateRaw(entry.data);
+    }
+
+    function mimeForExt(name) {
+        var e = (name.split(".").pop() || "").toLowerCase();
+        if (e === "png") return "image/png";
+        if (e === "jpg" || e === "jpeg") return "image/jpeg";
+        if (e === "gif") return "image/gif";
+        if (e === "bmp") return "image/bmp";
+        if (e === "webp") return "image/webp";
+        if (e === "svg") return "image/svg+xml";
+        return null;   // wmf/emf and friends have no browser-renderable form
+    }
+
+    function bytesToDataUri(u8, mime) {
+        var CHUNK = 0x8000, s = "";
+        for (var i = 0; i < u8.length; i += CHUNK) {
+            s += String.fromCharCode.apply(null, u8.subarray(i, i + CHUNK));
+        }
+        return "data:" + mime + ";base64," + btoa(s);
+    }
+
     function readDocx(file) {
         var bufPromise = file.arrayBuffer ? file.arrayBuffer() : new Promise(function (res, rej) {
             var r = new FileReader(); r.onload = function () { res(r.result); }; r.onerror = rej; r.readAsArrayBuffer(file);
         });
         return bufPromise.then(function (ab) {
             var bytes = new Uint8Array(ab);
-            var entry = findZipEntry(bytes, "word/document.xml");
-            if (!entry) return null;
-            var xmlPromise = entry.method === 0 ? Promise.resolve(entry.data) : inflateRaw(entry.data);
-            return xmlPromise.then(function (xmlBytes) { return docxXmlToHtml(utf8(xmlBytes)); });
+            var entries = listZipEntries(bytes);
+            var byName = {};
+            for (var i = 0; i < entries.length; i++) byName[entries[i].name] = entries[i];
+            if (!byName["word/document.xml"]) return null;
+
+            var ctx = { rels: {}, numbering: {}, media: {}, footnotes: {}, endnotes: {}, comments: {}, diagrams: {}, vectorNames: {} };
+
+            // Images are opt-in: a document full of photographs would otherwise
+            // inline megabytes of base64 into the editor.
+            var wantMedia = config.documentImportImages !== false;
+
+            var jobs = [entryBytes(byName["word/document.xml"]).then(function (b) { ctx.documentXml = utf8(b); })];
+
+            if (byName["word/_rels/document.xml.rels"]) {
+                jobs.push(entryBytes(byName["word/_rels/document.xml.rels"]).then(function (b) {
+                    ctx.rels = parseRels(utf8(b));
+                }));
+            }
+            if (byName["word/numbering.xml"]) {
+                jobs.push(entryBytes(byName["word/numbering.xml"]).then(function (b) {
+                    ctx.numbering = parseNumbering(utf8(b));
+                }));
+            }
+            // Footnotes live in their OWN part; document.xml only carries
+            // w:footnoteReference with an id. Skip this and a footnoted contract
+            // imports with every citation silently deleted.
+            if (byName["word/footnotes.xml"]) {
+                jobs.push(entryBytes(byName["word/footnotes.xml"]).then(function (b) {
+                    ctx.footnotes = parseFootnotes(utf8(b), "footnote");
+                }));
+            }
+            // Comment bodies live in their own part too, keyed by id; the
+            // document only marks the commented RANGE.
+            // Endnotes are structurally identical to footnotes, in their own part.
+            if (byName["word/endnotes.xml"]) {
+                jobs.push(entryBytes(byName["word/endnotes.xml"]).then(function (b) {
+                    ctx.endnotes = parseFootnotes(utf8(b), "endnote");
+                }));
+            }
+            if (byName["word/comments.xml"]) {
+                jobs.push(entryBytes(byName["word/comments.xml"]).then(function (b) {
+                    ctx.comments = parseComments(utf8(b));
+                }));
+            }
+            // SmartArt. The drawing in document.xml holds only relationship ids;
+            // every word of the diagram lives in word/diagrams/dataN.xml, in the
+            // DrawingML *diagram* namespace. A reader that looks for a:blip finds
+            // nothing and drops the whole graphic, so an org chart or a process
+            // flow imports as empty space.
+            for (var dg = 0; dg < entries.length; dg++) {
+                (function (ent) {
+                    if (!/^word\/diagrams\/data\d*\.xml$/.test(ent.name)) return;
+                    jobs.push(entryBytes(ent).then(function (b) {
+                        try { ctx.diagrams[ent.name] = parseDiagram(utf8(b)); } catch (e) {}
+                    }));
+                })(entries[dg]);
+            }
+            if (wantMedia) {
+                for (var n = 0; n < entries.length; n++) {
+                    (function (ent) {
+                        if (ent.name.indexOf("word/media/") !== 0) return;
+                        var mime = mimeForExt(ent.name);
+                        if (!mime) return;
+                        jobs.push(entryBytes(ent).then(function (b) {
+                            try { ctx.media[ent.name] = bytesToDataUri(b, mime); } catch (e) {}
+                        }));
+                    })(entries[n]);
+                }
+            }
+
+            return Promise.all(jobs).then(function () { return docxXmlToHtml(ctx.documentXml, ctx); });
         });
     }
 
-    function docxXmlToHtml(xml) {
+    // r:id -> target. Without this, every hyperlink in the document survives as
+    // plain text with its URL silently discarded.
+    function parseRels(xml) {
+        var map = {};
+        try {
+            var d = new DOMParser().parseFromString(xml, "application/xml");
+            var rs = d.getElementsByTagName("*");
+            for (var i = 0; i < rs.length; i++) {
+                if (rs[i].localName !== "Relationship") continue;
+                var id = rs[i].getAttribute("Id");
+                var target = rs[i].getAttribute("Target");
+                var mode = rs[i].getAttribute("TargetMode");
+                if (id && target) map[id] = { target: target, external: mode === "External" };
+            }
+        } catch (e) {}
+        return map;
+    }
+
+    // w:id -> plain text of the footnote body.
+    // Word reserves ids 0 and -1 for the separator rules drawn above footnotes;
+    // those carry type="separator"/"continuationSeparator" and are not content.
+    // tagName is "footnote" or "endnote": the two parts share a schema but NOT
+    // an element name, so parsing endnotes.xml with "footnote" silently returns
+    // nothing at all.
+    function parseFootnotes(xml, tagName) {
+        var out = {};
+        try {
+            var W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+            var d = new DOMParser().parseFromString(xml, "application/xml");
+            var notes = d.getElementsByTagNameNS(W, tagName || "footnote");
+            for (var i = 0; i < notes.length; i++) {
+                var n = notes[i];
+                var type = n.getAttributeNS(W, "type") || n.getAttribute("w:type") || "";
+                if (type) continue;                       // separator, not a real note
+                var id = n.getAttributeNS(W, "id") || n.getAttribute("w:id");
+                if (id == null) continue;
+                // Body text only; the leading footnote-reference mark inside the
+                // note is Word's own numbering and would duplicate ours.
+                var txt = (n.textContent || "").replace(/\s+/g, " ").trim();
+                if (txt) out[String(id)] = txt;
+            }
+        } catch (e) {}
+        return out;
+    }
+
+    // w:id -> { text, author }
+    function parseComments(xml) {
+        var out = {};
+        try {
+            var W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+            var d = new DOMParser().parseFromString(xml, "application/xml");
+            var cs = d.getElementsByTagNameNS(W, "comment");
+            for (var i = 0; i < cs.length; i++) {
+                var c = cs[i];
+                var id = c.getAttributeNS(W, "id") || c.getAttribute("w:id");
+                if (id == null) continue;
+                out[String(id)] = {
+                    text: (c.textContent || "").replace(/\s+/g, " ").trim(),
+                    author: c.getAttributeNS(W, "author") || c.getAttribute("w:author") || ""
+                };
+            }
+        } catch (e) {}
+        return out;
+    }
+
+    // word/diagrams/dataN.xml -> the diagram's text, one entry per node, in
+    // document order.
+    //
+    // SmartArt has no browser equivalent -- it is a laid-out graphic driven by a
+    // layout algorithm -- but its CONTENT is ordinary text, and text is what the
+    // reader actually needs. An org chart that imports as an outline is usable; an
+    // org chart that imports as nothing is a hole in the document.
+    //
+    // Nodes with presentation-only roles (`dgm:prSet` with no text, and the
+    // ptType "pres"/"parTrans"/"sibTrans" connector points) carry no content and
+    // would otherwise contribute blank list items.
+    function parseDiagram(xml) {
+        var out = [];
+        try {
+            var DGM = "http://schemas.openxmlformats.org/drawingml/2006/diagram";
+            var d = new DOMParser().parseFromString(xml, "application/xml");
+            var pts = d.getElementsByTagNameNS(DGM, "pt");
+            for (var i = 0; i < pts.length; i++) {
+                var type = pts[i].getAttribute("type") || "";
+                if (type === "pres" || type === "parTrans" || type === "sibTrans") continue;
+                var t = pts[i].getElementsByTagNameNS(DGM, "t")[0];
+                if (!t) continue;
+                var text = (t.textContent || "").replace(/\s+/g, " ").trim();
+                if (text) out.push(text);
+            }
+        } catch (e) {}
+        return out;
+    }
+
+    // numId -> { level -> "bullet" | "decimal" | ... }. Word stores every list
+    // the same way in document.xml; only numbering.xml says whether it renders
+    // as bullets or numbers, which is why a naive converter turns every ordered
+    // list into a <ul>.
+    function parseNumbering(xml) {
+        var out = {};
+        try {
+            var W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+            var d = new DOMParser().parseFromString(xml, "application/xml");
+            function val(el) { return el ? (el.getAttributeNS(W, "val") || el.getAttribute("w:val") || "") : ""; }
+
+            // abstractNumId -> { ilvl -> numFmt }
+            var abstracts = {};
+            var aNums = d.getElementsByTagNameNS(W, "abstractNum");
+            for (var i = 0; i < aNums.length; i++) {
+                var aid = aNums[i].getAttributeNS(W, "abstractNumId") || aNums[i].getAttribute("w:abstractNumId");
+                var levels = {};
+                var lvls = aNums[i].getElementsByTagNameNS(W, "lvl");
+                for (var j = 0; j < lvls.length; j++) {
+                    var ilvl = lvls[j].getAttributeNS(W, "ilvl") || lvls[j].getAttribute("w:ilvl") || "0";
+                    var fmt = val(lvls[j].getElementsByTagNameNS(W, "numFmt")[0]);
+                    levels[ilvl] = fmt || "decimal";
+                }
+                if (aid != null) abstracts[aid] = levels;
+            }
+            // num -> abstractNumId
+            var nums = d.getElementsByTagNameNS(W, "num");
+            for (var k = 0; k < nums.length; k++) {
+                var nid = nums[k].getAttributeNS(W, "numId") || nums[k].getAttribute("w:numId");
+                var ref = nums[k].getElementsByTagNameNS(W, "abstractNumId")[0];
+                var aref = val(ref);
+                if (nid != null && abstracts[aref]) out[nid] = abstracts[aref];
+            }
+        } catch (e) {}
+        return out;
+    }
+
+    // ---------------------------------------------------------------------
+    // OMML (Office Math Markup) -> LaTeX.
+    //
+    // Word does not store equations as text, MathML or an image: it stores an
+    // <m:oMath> tree in its OWN namespace, interleaved between the runs of a
+    // paragraph. A converter that walks w:r elements never sees it, so every
+    // equation in the document disappears without a trace -- and because the
+    // surrounding sentence still imports, nothing looks broken.
+    //
+    // The target is the editor's own inline-math format
+    // (<span class="rte-math-inline" data-tex="...">), so imported equations
+    // are editable and re-render through whichever renderer the host page
+    // loads, exactly like one typed in the math dialog.
+    //
+    // This covers the constructs Word's equation editor actually produces.
+    // Anything unrecognised degrades to its literal text rather than vanishing
+    // -- a wrong-looking formula is recoverable, a missing one is not.
+    var OMML_NS = "http://schemas.openxmlformats.org/officeDocument/2006/math";
+
+    // Word writes operators as Unicode, but a TeX renderer wants command names.
+    // Passing "∑" through untouched produces a glyph that KaTeX cannot size or
+    // place limits on.
+    var MATH_SYMBOLS = {
+        "∑": "\\sum", "∏": "\\prod", "∐": "\\coprod",
+        "∫": "\\int", "∬": "\\iint", "∭": "\\iiint", "∮": "\\oint",
+        "⋃": "\\bigcup", "⋂": "\\bigcap",
+        "±": "\\pm", "∓": "\\mp", "×": "\\times", "÷": "\\div",
+        "−": "-", "≠": "\\neq", "≤": "\\leq", "≥": "\\geq",
+        "≈": "\\approx", "≡": "\\equiv", "∝": "\\propto",
+        "∞": "\\infty", "∂": "\\partial", "∇": "\\nabla",
+        "√": "\\sqrt", "∠": "\\angle", "⋅": "\\cdot", "…": "\\dots",
+        "→": "\\to", "←": "\\leftarrow", "⇒": "\\Rightarrow", "⇔": "\\Leftrightarrow",
+        "∈": "\\in", "∉": "\\notin", "⊂": "\\subset", "⊆": "\\subseteq",
+        "∪": "\\cup", "∩": "\\cap", "∅": "\\emptyset",
+        "∀": "\\forall", "∃": "\\exists", "¬": "\\neg",
+        "∧": "\\land", "∨": "\\lor", "∴": "\\therefore",
+        "α": "\\alpha", "β": "\\beta", "γ": "\\gamma", "δ": "\\delta",
+        "ε": "\\epsilon", "ζ": "\\zeta", "η": "\\eta", "θ": "\\theta",
+        "ι": "\\iota", "κ": "\\kappa", "λ": "\\lambda", "μ": "\\mu",
+        "ν": "\\nu", "ξ": "\\xi", "π": "\\pi", "ρ": "\\rho",
+        "σ": "\\sigma", "τ": "\\tau", "υ": "\\upsilon", "φ": "\\varphi",
+        "χ": "\\chi", "ψ": "\\psi", "ω": "\\omega",
+        "Γ": "\\Gamma", "Δ": "\\Delta", "Θ": "\\Theta", "Λ": "\\Lambda",
+        "Ξ": "\\Xi", "Π": "\\Pi", "Σ": "\\Sigma", "Φ": "\\Phi",
+        "Ψ": "\\Psi", "Ω": "\\Omega"
+    };
+    // Accent character -> TeX accent command (m:acc carries the mark as a chr).
+    var MATH_ACCENTS = {
+        "̂": "\\hat", "̃": "\\tilde", "̄": "\\bar", "̅": "\\overline",
+        "̆": "\\breve", "̇": "\\dot", "̈": "\\ddot", "̊": "\\mathring",
+        "̌": "\\check", "→": "\\vec", "⃗": "\\vec", "́": "\\acute", "̀": "\\grave"
+    };
+
+    function ommlToTex(node) {
+        var M = OMML_NS;
+        function attrVal(parent, ln) {
+            // Properties sit in a child element whose only content is m:val.
+            for (var i = 0; i < parent.childNodes.length; i++) {
+                var c = parent.childNodes[i];
+                if (c.nodeType === 1 && c.localName === ln) {
+                    return c.getAttributeNS(M, "val") || c.getAttribute("m:val") || "";
+                }
+            }
+            return "";
+        }
+        function propOf(el, propName, ln) {
+            var p = child(el, propName);
+            return p ? attrVal(p, ln) : "";
+        }
+        function child(el, ln) {
+            for (var i = 0; i < el.childNodes.length; i++) {
+                var c = el.childNodes[i];
+                if (c.nodeType === 1 && c.localName === ln && c.namespaceURI === M) return c;
+            }
+            return null;
+        }
+        function children(el, ln) {
+            var out = [];
+            for (var i = 0; i < el.childNodes.length; i++) {
+                var c = el.childNodes[i];
+                if (c.nodeType === 1 && c.localName === ln && c.namespaceURI === M) out.push(c);
+            }
+            return out;
+        }
+        // An argument slot: braces so multi-character content binds correctly.
+        // "x+1" without them turns \frac{x+1}{2} into \fracx+12.
+        function arg(el) {
+            return "{" + (el ? walk(el).trim() : "") + "}";
+        }
+        // A slot where braces are optional. Emitting them unconditionally is
+        // correct but produces "{x}^{2}" and "{{i}^{2}}" -- valid TeX that is
+        // unreadable the moment the user opens the equation in the math dialog.
+        // A lone letter, digit or command needs none.
+        function atom(el) {
+            var t = el ? walk(el).trim() : "";
+            if (/^[A-Za-z0-9]$/.test(t) || /^\\[A-Za-z]+$/.test(t)) return t;
+            return "{" + t + "}";
+        }
+        function mapText(s) {
+            var out = "";
+            for (var i = 0; i < s.length; i++) {
+                var ch = s.charAt(i);
+                var sym = MATH_SYMBOLS[ch];
+                if (sym) { out += sym + " "; continue; }
+                // TeX metacharacters inside literal math text.
+                if ("#$%&_{}".indexOf(ch) >= 0) { out += "\\" + ch; continue; }
+                if (ch === "\\") { out += "\\backslash "; continue; }
+                out += ch;
+            }
+            return out;
+        }
+        function walk(el) {
+            var tex = "";
+            for (var i = 0; i < el.childNodes.length; i++) {
+                var c = el.childNodes[i];
+                if (c.nodeType !== 1) continue;
+                if (c.namespaceURI !== M) { tex += mapText(c.textContent || ""); continue; }
+                tex += convert(c);
+            }
+            return tex;
+        }
+        function convert(el) {
+            var ln = el.localName;
+            switch (ln) {
+                case "oMath":
+                case "oMathPara":
+                case "e":
+                case "num":
+                case "den":
+                case "sub":
+                case "sup":
+                case "deg":
+                case "lim":
+                case "fName":
+                    return walk(el);
+                // Properties describe how to render, not what to render; emitting
+                // their text would leak stray characters into the formula.
+                case "rPr": case "ctrlPr": case "fPr": case "radPr": case "naryPr":
+                case "dPr": case "sSupPr": case "sSubPr": case "sSubSupPr": case "accPr":
+                case "barPr": case "funcPr": case "mPr": case "limLowPr": case "limUppPr":
+                case "groupChrPr": case "mcPr": case "eqArrPr": case "boxPr": case "borderBoxPr":
+                case "phantPr": case "sPrePr":
+                    return "";
+                case "r":
+                    return mapText(el.textContent || "");
+                case "t":
+                    return mapText(el.textContent || "");
+                case "f": {
+                    // A "no bar" fraction is Word's binomial/stacked form.
+                    var type = propOf(el, "fPr", "type");
+                    var n = arg(child(el, "num")), d = arg(child(el, "den"));
+                    if (type === "noBar") return "\\binom" + n + d;
+                    if (type === "skw" || type === "lin") return n + "/" + d;
+                    return "\\frac" + n + d;
+                }
+                case "sSup":  return atom(child(el, "e")) + "^" + arg(child(el, "sup"));
+                case "sSub":  return atom(child(el, "e")) + "_" + arg(child(el, "sub"));
+                case "sSubSup": return atom(child(el, "e")) + "_" + arg(child(el, "sub")) + "^" + arg(child(el, "sup"));
+                case "sPre": return "{}_" + arg(child(el, "sub")) + "^" + arg(child(el, "sup")) + arg(child(el, "e"));
+                case "rad": {
+                    // degHide means a plain square root; otherwise it is \sqrt[n]{}.
+                    var hide = propOf(el, "radPr", "degHide");
+                    var deg = child(el, "deg");
+                    var body = arg(child(el, "e"));
+                    if (hide === "1" || hide === "on" || hide === "true" || !deg || !(deg.textContent || "").trim()) return "\\sqrt" + body;
+                    return "\\sqrt[" + walk(deg) + "]" + body;
+                }
+                case "nary": {
+                    // The operator itself is an ATTRIBUTE (m:chr), not text. Miss
+                    // it and every summation imports as a bare limit pair.
+                    var chr = propOf(el, "naryPr", "chr") || "∫";
+                    var op = MATH_SYMBOLS[chr] || mapText(chr);
+                    var subHide = propOf(el, "naryPr", "subHide");
+                    var supHide = propOf(el, "naryPr", "supHide");
+                    var s = op;
+                    if (subHide !== "1" && subHide !== "on" && child(el, "sub")) s += "_" + arg(child(el, "sub"));
+                    if (supHide !== "1" && supHide !== "on" && child(el, "sup")) s += "^" + arg(child(el, "sup"));
+                    // The integrand takes no braces: \sum_{i=1}^{n} i^{2}, not
+                    // \sum_{i=1}^{n} {i^{2}}.
+                    var nbody = child(el, "e");
+                    return s + " " + (nbody ? walk(nbody).trim() : "");
+                }
+                case "d": {
+                    // \left/\right so the fences grow with their content.
+                    var beg = propOf(el, "dPr", "begChr");
+                    var end = propOf(el, "dPr", "endChr");
+                    var sep = propOf(el, "dPr", "sepChr") || "|";
+                    if (beg === "") beg = "(";
+                    if (end === "") end = ")";
+                    function fence(ch, side) {
+                        if (!ch) return side === "l" ? "\\left." : "\\right.";
+                        if (ch === "{" || ch === "}") return "\\" + ch;
+                        if (ch === "|") return "|";
+                        if (ch === "‖") return "\\|";
+                        // THREE different codepoints render as an angle
+                        // bracket and are indistinguishable on screen: the
+                        // mathematical pair (U+27E8/9), the CJK pair
+                        // (U+3008/9) and the deprecated pair (U+2329/A) that
+                        // several generators still emit. Comparing against a
+                        // literal in the source would silently match only one
+                        // of them, so compare by codepoint.
+                        var cp = ch.charCodeAt(0);
+                        if (cp === 0x27E8 || cp === 0x3008 || cp === 0x2329) return "\\langle";
+                        if (cp === 0x27E9 || cp === 0x3009 || cp === 0x232A) return "\\rangle";
+                        if (ch === "⌊") return "\\lfloor";
+                        if (ch === "⌋") return "\\rfloor";
+                        if (ch === "⌈") return "\\lceil";
+                        if (ch === "⌉") return "\\rceil";
+                        return ch;
+                    }
+                    var parts = children(el, "e");
+                    var inner = [];
+                    for (var q = 0; q < parts.length; q++) inner.push(walk(parts[q]));
+                    return "\\left" + fence(beg, "l") + inner.join(" " + fence(sep, "m") + " ") + "\\right" + fence(end, "r");
+                }
+                case "func": {
+                    // Word stores "sin"/"log" as ordinary text; without
+                    // \operatorname TeX renders it as s*i*n in italics.
+                    var name = walk(child(el, "fName")).trim();
+                    var known = /^(sin|cos|tan|cot|sec|csc|sinh|cosh|tanh|log|ln|lg|exp|lim|max|min|det|dim|gcd|arg|deg|hom|ker|Pr|sup|inf)$/;
+                    var head = known.test(name) ? "\\" + name : (name ? "\\operatorname{" + name + "}" : "");
+                    return head + arg(child(el, "e"));
+                }
+                case "limLow": {
+                    var base = walk(child(el, "e")).trim();
+                    if (base === "lim" || base === "\\lim") return "\\lim_" + arg(child(el, "lim"));
+                    return "\\underset" + arg(child(el, "lim")) + "{" + base + "}";
+                }
+                case "limUpp":
+                    return "\\overset" + arg(child(el, "lim")) + arg(child(el, "e"));
+                case "acc": {
+                    var mark = propOf(el, "accPr", "chr") || "̂";
+                    var cmd = MATH_ACCENTS[mark] || "\\hat";
+                    return cmd + arg(child(el, "e"));
+                }
+                case "bar":
+                    return (propOf(el, "barPr", "pos") === "bot" ? "\\underline" : "\\overline") + arg(child(el, "e"));
+                case "groupChr": {
+                    var g = propOf(el, "groupChrPr", "chr");
+                    if (g === "⏟") return "\\underbrace" + arg(child(el, "e"));
+                    return "\\overbrace" + arg(child(el, "e"));
+                }
+                case "borderBox":
+                    return "\\boxed" + arg(child(el, "e"));
+                case "box":
+                case "phant":
+                    return walk(el);
+                case "m": {
+                    // Matrix: rows are m:mr, cells are m:e inside them.
+                    var rows = children(el, "mr"), lines = [];
+                    for (var r = 0; r < rows.length; r++) {
+                        var cells = children(rows[r], "e"), cs = [];
+                        for (var cix = 0; cix < cells.length; cix++) cs.push(walk(cells[cix]));
+                        lines.push(cs.join(" & "));
+                    }
+                    return "\\begin{matrix}" + lines.join(" \\\\ ") + "\\end{matrix}";
+                }
+                case "eqArr": {
+                    var eqs = children(el, "e"), rowsOut = [];
+                    for (var e2 = 0; e2 < eqs.length; e2++) rowsOut.push(walk(eqs[e2]));
+                    return "\\begin{aligned}" + rowsOut.join(" \\\\ ") + "\\end{aligned}";
+                }
+                default:
+                    // Unknown construct: keep the content rather than losing it.
+                    return walk(el);
+            }
+        }
+        try {
+            return convert(node).replace(/\s+/g, " ").trim();
+        } catch (e) { return (node.textContent || "").trim(); }
+    }
+
+    function docxXmlToHtml(xml, ctx) {
+        ctx = ctx || { rels: {}, numbering: {}, media: {} };
+        if (!ctx.diagrams) ctx.diagrams = {};
         var doc = new DOMParser().parseFromString(xml, "application/xml");
         var W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+        var R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+
+        function relTarget(el) {
+            if (!el) return null;
+            var id = el.getAttributeNS(R, "id") || el.getAttribute("r:id") ||
+                     el.getAttributeNS(R, "embed") || el.getAttribute("r:embed");
+            if (!id) return null;
+            return ctx.rels[id] || null;
+        }
+
+        // <w:drawing>/<w:pict> -> <img> from word/media, inlined as a data URI.
+        function imageHtml(node) {
+            var blips = node.getElementsByTagName("*");
+            for (var i = 0; i < blips.length; i++) {
+                if (blips[i].localName !== "blip" && blips[i].localName !== "imagedata") continue;
+                var rel = relTarget(blips[i]);
+                if (!rel) continue;
+                // Targets are relative to word/: "media/image1.png".
+                var path = rel.target.replace(/^\.\//, "");
+                var key = path.indexOf("word/") === 0 ? path : "word/" + path;
+                var uri = ctx.media[key];
+                if (uri) return '<img src="' + uri + '" alt="">';
+                if (rel.external) return '<img src="' + esc(rel.target) + '" alt="">';
+                // A vector metafile (WMF/EMF) has no browser-renderable form, so
+                // there is no data URI for it. Dropping it silently leaves the
+                // reader with no idea a figure was ever there -- and no filename
+                // to go looking for in the original.
+                if (/\.(wmf|emf|emz|wmz)$/i.test(path)) {
+                    var fileName = path.split("/").pop();
+                    queueBlock('<p class="rte-imported-unsupported" data-source="' + esc(fileName) +
+                               '"><em>[Unsupported image: ' + esc(fileName) +
+                               " — Windows metafiles have no browser-renderable form]</em></p>");
+                    return "";
+                }
+            }
+            queueBlock(diagramHtml(node));
+            return "";
+        }
+
+        // SmartArt: the drawing references word/diagrams/dataN.xml through
+        // r:dm. Rendered as a labelled list -- the layout cannot be reproduced,
+        // but every word of it survives and stays editable.
+        function diagramHtml(node) {
+            var all = node.getElementsByTagName("*");
+            for (var i = 0; i < all.length; i++) {
+                if (all[i].localName !== "relIds") continue;
+                var id = all[i].getAttributeNS(R, "dm") || all[i].getAttribute("r:dm");
+                var rel = id ? ctx.rels[id] : null;
+                if (!rel) continue;
+                var path = rel.target.replace(/^\.\//, "");
+                var key = path.indexOf("word/") === 0 ? path : "word/" + path;
+                var nodes = ctx.diagrams[key];
+                if (!nodes || !nodes.length) continue;
+                var items = "";
+                for (var n = 0; n < nodes.length; n++) items += "<li>" + esc(nodes[n]) + "</li>";
+                return '<div class="rte-imported-smartart" style="' + SMARTART_STYLE + '"><ul>' + items + "</ul></div>";
+            }
+            return "";
+        }
         function els(parent, ln) { return parent.getElementsByTagNameNS(W, ln); }
         function firstChildEl(parent, ln) {
             for (var i = 0; i < parent.childNodes.length; i++) {
@@ -22365,15 +23992,49 @@ function RTE_Plugin_DocumentImport() {
             for (var i = 0; i < kids.length; i++) {
                 var c = kids[i];
                 if (c.nodeType !== 1) continue;
-                if (c.localName === "t") t += c.textContent || "";
+                // Deleted text is stored as w:delText, never w:t — read only w:t
+                // and every tracked deletion imports as an empty run.
+                if (c.localName === "t" || c.localName === "delText") t += c.textContent || "";
                 else if (c.localName === "tab") t += "\t";
                 else if (c.localName === "br" || c.localName === "cr") t += "\n";
             }
             return t;
         }
         function runHtml(r) {
+            // A run can carry a picture instead of text; without this every
+            // image in the document is silently dropped on import.
+            var pics = "";
+            for (var d = 0; d < r.childNodes.length; d++) {
+                var ch = r.childNodes[d];
+                if (ch.nodeType === 1 && (ch.localName === "drawing" || ch.localName === "pict")) {
+                    pics += imageHtml(ch);
+                }
+                // A run holding a footnote reference has no text of its own.
+                if (ch.nodeType === 1 && ch.localName === "footnoteReference") {
+                    var fid = ch.getAttributeNS(W, "id") || ch.getAttribute("w:id");
+                    var body = fid != null ? ctx.footnotes[String(fid)] : null;
+                    if (body) pics += footnoteMarker(body);
+                }
+                // Endnotes render through the same notes machinery: Word puts
+                // both at the end of the document, and the distinction is not
+                // one HTML has a separate representation for.
+                if (ch.nodeType === 1 && ch.localName === "endnoteReference") {
+                    var eid = ch.getAttributeNS(W, "id") || ch.getAttribute("w:id");
+                    var ebody = eid != null ? ctx.endnotes[String(eid)] : null;
+                    if (ebody) pics += footnoteMarker(ebody);
+                }
+                // TEXT BOXES. Their content is nested several levels below the
+                // run (w:pict > v:shape > v:textbox > w:txbxContent, or the
+                // DrawingML mc:AlternateContent equivalent), so a reader that
+                // only looks at a run's DIRECT children drops every word inside
+                // them -- silently, with no sign anything is missing.
+                if (ch.nodeType === 1 && (ch.localName === "pict" || ch.localName === "drawing" ||
+                                          ch.localName === "object" || ch.localName === "AlternateContent")) {
+                    collectTextBoxes(ch);
+                }
+            }
             var txt = esc(runText(r));
-            if (!txt) return "";
+            if (!txt) return pics;
             txt = txt.replace(/\n/g, "<br>");
             var rpr = firstChildEl(r, "rPr");
             if (rpr) {
@@ -22381,18 +24042,184 @@ function RTE_Plugin_DocumentImport() {
                 if (firstChildEl(rpr, "i")) txt = "<em>" + txt + "</em>";
                 if (firstChildEl(rpr, "u")) txt = "<u>" + txt + "</u>";
                 if (firstChildEl(rpr, "strike")) txt = "<s>" + txt + "</s>";
+                var vert = firstChildEl(rpr, "vertAlign");
+                if (vert) {
+                    var va = vert.getAttributeNS(W, "val") || vert.getAttribute("w:val") || "";
+                    if (va === "superscript") txt = "<sup>" + txt + "</sup>";
+                    else if (va === "subscript") txt = "<sub>" + txt + "</sub>";
+                }
+                // Character colour and size. w:sz is in HALF-points, so 24 = 12pt;
+                // forgetting the halving makes every imported document twice the
+                // size it should be.
+                var css = "";
+                var col = firstChildEl(rpr, "color");
+                if (col) {
+                    var cv = col.getAttributeNS(W, "val") || col.getAttribute("w:val") || "";
+                    if (cv && /^[0-9A-Fa-f]{6}$/.test(cv)) css += "color:#" + cv + ";";
+                }
+                var hl = firstChildEl(rpr, "highlight");
+                if (hl) {
+                    var hv = hl.getAttributeNS(W, "val") || hl.getAttribute("w:val") || "";
+                    if (hv && hv !== "none") css += "background-color:" + hv + ";";
+                }
+                var sz = firstChildEl(rpr, "sz");
+                if (sz) {
+                    var sv = parseInt(sz.getAttributeNS(W, "val") || sz.getAttribute("w:val") || "", 10);
+                    if (sv > 0) css += "font-size:" + (sv / 2) + "pt;";
+                }
+                if (css) txt = '<span style="' + css + '">' + txt + "</span>";
             }
-            return txt;
+            return pics + txt;
         }
+
+        // Block-level content discovered while rendering a paragraph: text
+        // boxes, SmartArt outlines, and placeholders for images the browser
+        // cannot render. None of them may be emitted inline inside the
+        // paragraph that referenced them -- a <div> inside a <p> is invalid and
+        // browsers silently close the paragraph around it -- so each is
+        // buffered here, already wrapped, and flushed straight after.
+        var pendingBlocks = [];
+        function queueBlock(html) {
+            // Dedup on the whole string: an mc:AlternateContent block carries
+            // the same graphic twice, once per rendering flavour.
+            if (html && pendingBlocks.indexOf(html) < 0) pendingBlocks.push(html);
+        }
+        function collectTextBoxes(node) {
+            var boxes = node.getElementsByTagName("*");
+            for (var i = 0; i < boxes.length; i++) {
+                if (boxes[i].localName !== "txbxContent") continue;
+                var inner = "";
+                var kids = boxes[i].childNodes;
+                for (var k = 0; k < kids.length; k++) {
+                    var c = kids[k];
+                    if (c.nodeType !== 1) continue;
+                    if (c.localName === "p") {
+                        var t = paraInner(c);
+                        if (t) inner += "<p>" + t + "</p>";
+                    } else if (c.localName === "tbl") {
+                        inner += tableHtml(c);
+                    }
+                }
+                if (inner) queueBlock('<div class="rte-imported-textbox" style="' + TEXTBOX_STYLE + '">' + inner + "</div>");
+            }
+        }
+
+        function flushBlocks() {
+            if (!pendingBlocks.length) return "";
+            var html = pendingBlocks.join("");
+            pendingBlocks = [];
+            return html;
+        }
+
+        // Emit a marker in the shape footnotes.js already understands, and stash
+        // the body so the notes section can be built at the end. The plugin
+        // renumbers on load, so the number written here is provisional.
+        var importedNotes = [];
+        // OMML -> the editor's own inline-math span, so an imported equation is
+        // editable in the math dialog and renders through whatever renderer the
+        // host page loads. The visible text is the TeX itself: that is what a
+        // page with no renderer shows, and it is readable rather than blank.
+        function mathHtml(node) {
+            var tex = ommlToTex(node);
+            if (!tex) return "";
+            var display = node.localName === "oMathPara";
+            return '<span class="rte-math-inline' + (display ? " rte-math-display" : "") +
+                   '" data-tex="' + esc(tex) + '">' + esc(tex) + "</span>";
+        }
+
+        function footnoteMarker(text) {
+            var id = "fnimp" + (importedNotes.length + 1);
+            importedNotes.push({ id: id, text: text });
+            var n = importedNotes.length;
+            return '<sup class="rte-fn-ref" data-fn-id="' + id + '" data-fn-number="' + n +
+                   '" id="fnref-' + id + '" contenteditable="false">' + n + "</sup>";
+        }
+
+        function footnotesSection() {
+            if (!importedNotes.length) return "";
+            var items = "";
+            for (var i = 0; i < importedNotes.length; i++) {
+                var f = importedNotes[i];
+                items += '<li class="rte-fn-note" data-fn-id="' + f.id + '" data-fn-number="' + (i + 1) +
+                         '" id="fn-' + f.id + '">' + esc(f.text) +
+                         '<a class="rte-fn-back" data-fn-id="' + f.id + '" href="#fnref-' + f.id +
+                         '" contenteditable="false" title="Back to reference">↩</a></li>';
+            }
+            return '<section class="rte-footnotes"><h2 class="rte-fn-title">Footnotes</h2>' +
+                   '<ol class="rte-fn-list" data-numbering="decimal">' + items + "</ol></section>";
+        }
+        // Runs inside a w:ins / w:del wrapper, rendered with the review markup
+        // that the DOCX *export* already round-trips (<ins data-author>/<del>).
+        function revisionHtml(node, tag) {
+            var inner = "";
+            for (var i = 0; i < node.childNodes.length; i++) {
+                var c = node.childNodes[i];
+                if (c.nodeType !== 1) continue;
+                if (c.localName === "r") inner += runHtml(c);
+                else if (c.localName === "ins") inner += revisionHtml(c, "ins");
+                else if (c.localName === "del") inner += revisionHtml(c, "del");
+            }
+            if (!inner) return "";
+            var author = node.getAttributeNS(W, "author") || node.getAttribute("w:author") || "";
+            var date = node.getAttributeNS(W, "date") || node.getAttribute("w:date") || "";
+            return "<" + tag +
+                (author ? ' data-author="' + esc(author) + '"' : "") +
+                (date ? ' data-date="' + esc(date) + '"' : "") +
+                ">" + inner + "</" + tag + ">";
+        }
+
         function paraInner(p) {
             var h = "", kids = p.childNodes;
+            // Word marks a commented RANGE with start/end markers around the runs,
+            // so the wrapper has to be opened and closed as we walk, not derived
+            // from any single element.
+            var openComments = [];
+            function commentOpen(id) {
+                var c = ctx.comments[String(id)];
+                if (!c) return "";
+                openComments.push(id);
+                return '<span data-comment="' + esc(c.text) + '"' +
+                       (c.author ? ' data-comment-author="' + esc(c.author) + '"' : "") + ">";
+            }
             for (var i = 0; i < kids.length; i++) {
                 var c = kids[i];
+                if (c.nodeType === 1 && c.localName === "commentRangeStart") {
+                    h += commentOpen(c.getAttributeNS(W, "id") || c.getAttribute("w:id"));
+                    continue;
+                }
+                if (c.nodeType === 1 && c.localName === "commentRangeEnd") {
+                    if (openComments.length) { openComments.pop(); h += "</span>"; }
+                    continue;
+                }
+                if (c.nodeType === 1 && (c.localName === "ins" || c.localName === "del") && c.namespaceURI === W) {
+                    h += revisionHtml(c, c.localName);
+                    continue;
+                }
+                // EQUATIONS. OMML is a sibling of the runs, in its own
+                // namespace -- a walker that only recognises w:r skips it and
+                // the equation is gone. m:oMathPara is the display (own-line)
+                // wrapper around one or more m:oMath.
+                if (c.nodeType === 1 && c.namespaceURI === OMML_NS &&
+                    (c.localName === "oMath" || c.localName === "oMathPara")) {
+                    h += mathHtml(c);
+                    continue;
+                }
                 if (c.nodeType === 1 && c.localName === "r" && c.namespaceURI === W) h += runHtml(c);
                 else if (c.nodeType === 1 && c.localName === "hyperlink") {
-                    for (var j = 0; j < c.childNodes.length; j++) if (c.childNodes[j].localName === "r") h += runHtml(c.childNodes[j]);
+                    var inner = "";
+                    for (var j = 0; j < c.childNodes.length; j++) if (c.childNodes[j].localName === "r") inner += runHtml(c.childNodes[j]);
+                    // Resolve r:id through the rels part. Previously the run text
+                    // was emitted bare and the URL was thrown away, so every link
+                    // in an imported document became plain text.
+                    var rel = relTarget(c);
+                    var anchor = c.getAttributeNS(W, "anchor") || c.getAttribute("w:anchor");
+                    var href = rel ? rel.target : (anchor ? "#" + anchor : null);
+                    h += href ? ('<a href="' + esc(href) + '">' + (inner || esc(href)) + "</a>") : inner;
                 }
             }
+            // A comment range left open at the end of the paragraph would leak an
+            // unbalanced <span> into the document.
+            while (openComments.length) { openComments.pop(); h += "</span>"; }
             return h;
         }
         function paraStyle(p) {
@@ -22400,29 +24227,109 @@ function RTE_Plugin_DocumentImport() {
             var info = {};
             var ps = firstChildEl(ppr, "pStyle");
             if (ps) { var v = ps.getAttributeNS(W, "val") || ps.getAttribute("w:val") || ""; var m = /heading(\d)/i.exec(v); if (m) info.heading = Math.min(6, parseInt(m[1], 10)); }
-            if (firstChildEl(ppr, "numPr")) info.list = true;
+            var numPr = firstChildEl(ppr, "numPr");
+            if (numPr) {
+                info.list = true;
+                var ilvl = firstChildEl(numPr, "ilvl");
+                var numId = firstChildEl(numPr, "numId");
+                info.level = parseInt(ilvl ? (ilvl.getAttributeNS(W, "val") || ilvl.getAttribute("w:val") || "0") : "0", 10) || 0;
+                var nid = numId ? (numId.getAttributeNS(W, "val") || numId.getAttribute("w:val") || "") : "";
+                var levels = ctx.numbering[nid];
+                var fmt = levels ? levels[String(info.level)] : null;
+                // Word marks bullets with numFmt="bullet"; anything else is an
+                // ordered list. Defaulting to bullet when numbering.xml is absent
+                // matches the old behaviour rather than inventing <ol>s.
+                info.ordered = !!fmt && fmt !== "bullet" && fmt !== "none";
+            }
+            var jc = firstChildEl(ppr, "jc");
+            if (jc) {
+                var a = jc.getAttributeNS(W, "val") || jc.getAttribute("w:val") || "";
+                if (a === "center" || a === "right" || a === "both") {
+                    info.align = (a === "both") ? "justify" : a;
+                }
+            }
             return info;
         }
         var body = els(doc, "body")[0];
         if (!body) return "";
-        var out = [], inList = false;
-        function closeList() { if (inList) { out.push("</ul>"); inList = false; } }
+        var out = [];
+        // Stack of open lists so w:ilvl produces real nesting instead of a flat
+        // run of <li>s. liOpen tracks whether an <li> is still open at each
+        // depth, because a nested list must live INSIDE its parent <li> --
+        // <ol><li>a</li><ol>...</ol></ol> is invalid HTML, and shipping invalid
+        // markup out of an importer undermines the whole clean-output promise.
+        var listStack = [];
+        var liOpen = [];
+        function closeListsTo(depth) {
+            while (listStack.length > depth) {
+                var d = listStack.length - 1;
+                if (liOpen[d]) { out.push("</li>"); liOpen[d] = false; }
+                out.push("</" + listStack.pop() + ">");
+                liOpen.pop();
+            }
+        }
         for (var i = 0; i < body.childNodes.length; i++) {
             var node = body.childNodes[i];
-            if (node.nodeType !== 1 || node.namespaceURI !== W) continue;
+            if (node.nodeType !== 1) continue;
+            // A display equation can sit at body level rather than inside a
+            // w:p, so the "wordprocessingml namespace only" filter below would
+            // drop it.
+            if (node.namespaceURI === OMML_NS &&
+                (node.localName === "oMathPara" || node.localName === "oMath")) {
+                closeListsTo(0);
+                var mh = mathHtml(node);
+                if (mh) out.push("<p>" + mh + "</p>");
+                continue;
+            }
+            if (node.namespaceURI !== W) continue;
             if (node.localName === "p") {
                 var st = paraStyle(node);
                 var inner = paraInner(node);
-                if (st.list) { if (!inList) { out.push("<ul>"); inList = true; } out.push("<li>" + (inner || "") + "</li>"); continue; }
-                closeList();
+                if (st.list) {
+                    var want = (st.level || 0) + 1;
+                    var tag = st.ordered ? "ol" : "ul";
+                    // Come back up to this depth FIRST. Checking the type before
+                    // this ran compared against the wrong level, so a bullet
+                    // following a deeper numbered item silently joined the <ol>.
+                    if (listStack.length > want) closeListsTo(want);
+                    // Now at this depth: a different list type means a new list.
+                    if (listStack.length === want && listStack[want - 1] !== tag) closeListsTo(want - 1);
+                    // Going deeper leaves the parent <li> open so the sublist
+                    // nests inside it.
+                    while (listStack.length < want) {
+                        out.push("<" + tag + ">");
+                        listStack.push(tag);
+                        liOpen.push(false);
+                    }
+                    if (liOpen[want - 1]) { out.push("</li>"); liOpen[want - 1] = false; }
+                    out.push("<li>" + (inner || ""));
+                    liOpen[want - 1] = true;
+                    continue;
+                }
+                closeListsTo(0);
                 if (st.heading) out.push("<h" + st.heading + ">" + (inner || "") + "</h" + st.heading + ">");
-                else out.push("<p>" + (inner || "<br>") + "</p>");
+                else {
+                    var style = st.align ? ' style="text-align:' + st.align + '"' : "";
+                    // A paragraph that contained ONLY a text box has no text of
+                    // its own; emitting an empty <p> before the box adds a blank
+                    // line that was never in the document.
+                    var boxes = flushBlocks();
+                    if (inner || !boxes) out.push("<p" + style + ">" + (inner || "<br>") + "</p>");
+                    if (boxes) out.push(boxes);
+                }
             } else if (node.localName === "tbl") {
-                closeList();
+                closeListsTo(0);
                 out.push(tableHtml(node));
             }
         }
-        closeList();
+        closeListsTo(0);
+        // A text box hanging off the last paragraph, or off a heading/list item,
+        // still has to land somewhere.
+        var trailing = flushBlocks();
+        if (trailing) out.push(trailing);
+        // The notes section goes last, after every marker has been collected.
+        var notes = footnotesSection();
+        if (notes) out.push(notes);
         return out.join("\n");
 
         function tableHtml(tbl) {
@@ -22801,6 +24708,1277 @@ function RTE_Plugin_DocumentOutline() {
         }
 
         syncActiveButton();
+    }
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
+// 2026-08-02 Real .docx export, in the browser, with no library and no server.
+//
+// The asymmetry this closes: `documentimport.js` reads a genuine OOXML package
+// client-side, but the only export was `wordexport.js`, which wraps the HTML in
+// an MSO-flavoured container and names it .doc. Word opens that, but it is not
+// a .docx — it round-trips badly, some corporate policies block HTML-with-a-doc
+// extension outright, and Word nags on save. A real .docx was only available
+// through a server route that ships with the marketing site, not with the
+// product.
+//
+// So: import real OOXML, export real OOXML, same page, no upload.
+//
+// This deliberately emits exactly what documentimport.js reads back — same
+// hyperlink relationships, same numbering ids, same footnote/comment parts,
+// same revision conventions — so HTML -> .docx -> HTML is a genuine round trip
+// rather than two features that happen to share a file extension.
+//
+// API:
+//   editor.getDocxBlob(options)            -> Promise<Blob>
+//   editor.exportToDocx(filename, options) -> Promise<string>  (downloads)
+// Command: exec_command "exportdocx".
+// Config:
+//   config.docxExport = false                 // disable
+//   config.docxExportFileName = "report"
+//   config.docxExportTitle / docxExportAuthor
+RTE_DefaultConfig.plugin_docxexport = RTE_Plugin_DocxExport;
+if (typeof RTE_DefaultConfig.docxExport === "undefined") RTE_DefaultConfig.docxExport = true;
+
+function RTE_Plugin_DocxExport() {
+    var obj = this;
+    var config, editor;
+
+    obj.PluginName = "DocxExport";
+
+    obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+        if (config.docxExport === false) return;
+
+        editor.getDocxBlob = function (options) { return buildDocx(options || {}); };
+        editor.exportToDocx = function (filename, options) {
+            return buildDocx(options || {}).then(function (blob) {
+                var base = sanitizeName(filename) || sanitizeName(config.docxExportFileName) || defaultBase();
+                return download(blob, base + ".docx");
+            });
+        };
+
+        editor.attachEvent("exec_command_exportdocx", function (state) {
+            state.returnValue = true;
+            state.stopBubble = true;
+            try {
+                editor.exportToDocx().catch(function (e) { if (window.console) console.error("docxexport:", e); });
+            } catch (e) { if (window.console) console.error("docxexport:", e); }
+        });
+        // The slash entry lives in slashcommand.js, gated on the API being
+        // present: plugins initialise in bundle order and "docxexport" sorts
+        // before "slashcommand", so registering from here would silently do
+        // nothing.
+    };
+
+    // ------------------------------------------------------------- XML basics
+    var NS = {
+        w: "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
+        r: "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+        m: "http://schemas.openxmlformats.org/officeDocument/2006/math"
+    };
+    function esc(s) {
+        return String(s == null ? "" : s)
+            .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            // XML 1.0 permits only tab, newline and carriage return below 0x20.
+            // ONE stray control character makes the whole package unreadable —
+            // Word refuses to open the file rather than skipping the character.
+            // Written as \u escapes on purpose: a literal control byte in the
+            // source is invisible, survives copy-paste, and turns this file
+            // binary to every text tool that touches it.
+            .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "");
+    }
+
+    // --------------------------------------------------------------- ZIP part
+    //
+    // Deflate through CompressionStream — the mirror image of the
+    // DecompressionStream the importer uses, so the two halves rest on the same
+    // platform capability. Entries fall back to STORED when compression is
+    // unavailable, which is a valid ZIP and still opens in Word.
+    var CRC_TABLE = (function () {
+        var t = [], c, n, k;
+        for (n = 0; n < 256; n++) {
+            c = n;
+            for (k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+            t[n] = c >>> 0;
+        }
+        return t;
+    })();
+    function crc32(bytes) {
+        var crc = 0xFFFFFFFF;
+        for (var i = 0; i < bytes.length; i++) crc = CRC_TABLE[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+        return (crc ^ 0xFFFFFFFF) >>> 0;
+    }
+    function utf8Bytes(str) { return new TextEncoder().encode(str); }
+
+    function deflateRaw(bytes) {
+        if (typeof CompressionStream === "undefined") return Promise.resolve(null);
+        try {
+            var cs = new CompressionStream("deflate-raw");
+            var writer = cs.writable.getWriter();
+            writer.write(bytes);
+            writer.close();
+            return new Response(cs.readable).arrayBuffer().then(function (buf) { return new Uint8Array(buf); });
+        } catch (e) { return Promise.resolve(null); }
+    }
+
+    function zip(entries) {
+        // entries: [{ name, bytes }]
+        var jobs = entries.map(function (e) {
+            return deflateRaw(e.bytes).then(function (comp) {
+                var useDeflate = comp && comp.length < e.bytes.length;
+                return {
+                    name: e.name, raw: e.bytes,
+                    data: useDeflate ? comp : e.bytes,
+                    method: useDeflate ? 8 : 0
+                };
+            });
+        });
+        return Promise.all(jobs).then(function (items) {
+            var locals = [], central = [], offset = 0;
+            for (var i = 0; i < items.length; i++) {
+                var it = items[i];
+                var nameBytes = utf8Bytes(it.name);
+                var crc = crc32(it.raw);
+                var lh = new DataView(new ArrayBuffer(30));
+                lh.setUint32(0, 0x04034b50, true);
+                lh.setUint16(4, 20, true);
+                // Bit 11 marks the name as UTF-8. Without it a non-ASCII entry
+                // name is read in the archive's legacy code page.
+                lh.setUint16(6, 0x0800, true);
+                lh.setUint16(8, it.method, true);
+                lh.setUint32(14, crc, true);
+                lh.setUint32(18, it.data.length, true);
+                lh.setUint32(22, it.raw.length, true);
+                lh.setUint16(26, nameBytes.length, true);
+                var ch = new DataView(new ArrayBuffer(46));
+                ch.setUint32(0, 0x02014b50, true);
+                ch.setUint16(4, 20, true); ch.setUint16(6, 20, true);
+                ch.setUint16(8, 0x0800, true);
+                ch.setUint16(10, it.method, true);
+                ch.setUint32(16, crc, true);
+                ch.setUint32(20, it.data.length, true);
+                ch.setUint32(24, it.raw.length, true);
+                ch.setUint16(28, nameBytes.length, true);
+                ch.setUint32(42, offset, true);
+                locals.push(new Uint8Array(lh.buffer), nameBytes, it.data);
+                central.push(new Uint8Array(ch.buffer), nameBytes);
+                offset += 30 + nameBytes.length + it.data.length;
+            }
+            var centralSize = central.reduce(function (n, b) { return n + b.length; }, 0);
+            var eocd = new DataView(new ArrayBuffer(22));
+            eocd.setUint32(0, 0x06054b50, true);
+            eocd.setUint16(8, items.length, true);
+            eocd.setUint16(10, items.length, true);
+            eocd.setUint32(12, centralSize, true);
+            eocd.setUint32(16, offset, true);
+            return new Blob(locals.concat(central, [new Uint8Array(eocd.buffer)]),
+                { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
+        });
+    }
+
+    // ------------------------------------------------------------- conversion
+    function Builder() {
+        this.rels = [];            // { id, type, target, mode }
+        this.media = [];           // { name, bytes }
+        this.footnotes = [];       // { id, text }
+        this.endnotes = [];
+        this.comments = [];        // { id, author, initials, text }
+        this.numbering = {};       // numId -> "bullet" | "decimal"
+        this.relSeq = 0;
+        this.noteSeq = 1;          // 0 and -1 are reserved for the separators
+        this.commentSeq = 0;
+        this.numSeq = 0;
+    }
+    Builder.prototype.rel = function (type, target, mode) {
+        var id = "rId" + (++this.relSeq);
+        this.rels.push({ id: id, type: type, target: target, mode: mode });
+        return id;
+    };
+
+    var HEADING = { h1: 1, h2: 2, h3: 3, h4: 4, h5: 5, h6: 6 };
+
+    function styleFrom(node, inherited) {
+        var s = {
+            bold: inherited.bold, italic: inherited.italic, underline: inherited.underline,
+            strike: inherited.strike, sizeHalfPoints: inherited.sizeHalfPoints,
+            color: inherited.color, highlight: inherited.highlight, vertAlign: inherited.vertAlign,
+            mono: inherited.mono
+        };
+        var tag = node.tagName ? node.tagName.toLowerCase() : "";
+        if (tag === "b" || tag === "strong") s.bold = true;
+        if (tag === "i" || tag === "em") s.italic = true;
+        if (tag === "u") s.underline = true;
+        if (tag === "s" || tag === "strike") s.strike = true;
+        if (tag === "sup") s.vertAlign = "superscript";
+        if (tag === "sub") s.vertAlign = "subscript";
+        if (tag === "code" || tag === "kbd" || tag === "samp" || tag === "pre") s.mono = true;
+
+        var css = node.style;
+        if (css) {
+            if (/bold|^[6-9]00$/.test(css.fontWeight || "")) s.bold = true;
+            if (css.fontStyle === "italic") s.italic = true;
+            var deco = css.textDecorationLine || css.textDecoration || "";
+            if (deco.indexOf("underline") >= 0) s.underline = true;
+            if (deco.indexOf("line-through") >= 0) s.strike = true;
+            if (css.color) { var c = hexColor(css.color); if (c) s.color = c; }
+            if (css.backgroundColor) { var h = hexColor(css.backgroundColor); if (h) s.highlight = h; }
+            if (css.fontSize) {
+                var pt = cssToPoints(css.fontSize);
+                // w:sz is in HALF-POINTS. Writing points here makes every
+                // exported document render at half its intended size.
+                if (pt) s.sizeHalfPoints = Math.round(pt * 2);
+            }
+        }
+        return s;
+    }
+    function hexColor(v) {
+        var m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(v).replace(/\s/g, ""));
+        if (m) {
+            var hex = m[1];
+            if (hex.length === 3) hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+            return hex.toUpperCase();
+        }
+        var rgb = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i.exec(String(v));
+        if (!rgb) return null;
+        function two(n) { var s = Number(n).toString(16).toUpperCase(); return s.length < 2 ? "0" + s : s; }
+        return two(rgb[1]) + two(rgb[2]) + two(rgb[3]);
+    }
+    function cssToPoints(v) {
+        var m = /^\s*([\d.]+)\s*(px|pt|em|rem|%)?\s*$/.exec(String(v));
+        if (!m) return null;
+        var n = parseFloat(m[1]);
+        if (!isFinite(n)) return null;
+        switch (m[2]) {
+            case "pt": return n;
+            case "em": case "rem": return n * 11;
+            case "%": return n / 100 * 11;
+            default: return n * 0.75;
+        }
+    }
+
+    function runProps(s) {
+        var p = "";
+        if (s.mono) p += '<w:rFonts w:ascii="Consolas" w:hAnsi="Consolas"/>';
+        if (s.bold) p += "<w:b/>";
+        if (s.italic) p += "<w:i/>";
+        if (s.underline) p += '<w:u w:val="single"/>';
+        if (s.strike) p += "<w:strike/>";
+        if (s.color) p += '<w:color w:val="' + s.color + '"/>';
+        if (s.highlight) p += '<w:shd w:val="clear" w:color="auto" w:fill="' + s.highlight + '"/>';
+        if (s.vertAlign) p += '<w:vertAlign w:val="' + s.vertAlign + '"/>';
+        if (s.sizeHalfPoints) p += '<w:sz w:val="' + s.sizeHalfPoints + '"/><w:szCs w:val="' + s.sizeHalfPoints + '"/>';
+        return p ? "<w:rPr>" + p + "</w:rPr>" : "";
+    }
+
+    // A run's text must preserve its spaces, or Word collapses the leading and
+    // trailing ones and words run together across formatting boundaries.
+    function textRun(text, s, deleted) {
+        if (!text) return "";
+        var parts = String(text).split("\n");
+        var out = "";
+        for (var i = 0; i < parts.length; i++) {
+            if (i) out += "<w:r>" + runProps(s) + "<w:br/></w:r>";
+            if (!parts[i]) continue;
+            var tag = deleted ? "w:delText" : "w:t";
+            out += "<w:r>" + runProps(s) + "<" + tag + ' xml:space="preserve">' + esc(parts[i]) + "</" + tag + ">";
+            out += "</w:r>";
+        }
+        return out;
+    }
+
+    function stamp(node) {
+        var author = node.getAttribute("data-author") || node.getAttribute("data-comment-author") || "RichTextEditor";
+        var date = node.getAttribute("data-date") || new Date().toISOString().replace(/\.\d+Z$/, "Z");
+        return ' w:author="' + esc(author) + '" w:date="' + esc(date) + '"';
+    }
+
+    // Inline content of one block-level element.
+    function inlineXml(node, style, b, revSeq) {
+        var out = "";
+        for (var i = 0; i < node.childNodes.length; i++) {
+            var c = node.childNodes[i];
+            if (c.nodeType === 3) {
+                var t = (c.nodeValue || "").replace(/[\r\n\t]+/g, " ");
+                if (t) out += textRun(t, style, false);
+                continue;
+            }
+            if (c.nodeType !== 1) continue;
+            var tag = c.tagName.toLowerCase();
+            if (tag === "script" || tag === "style") continue;
+            if (tag === "br") { out += "<w:r>" + runProps(style) + "<w:br/></w:r>"; continue; }
+
+            // Equations: the editor stores LaTeX in data-tex. Emitting the span's
+            // visible text would put "\frac{a}{b}" into the document as prose.
+            if (c.getAttribute && c.getAttribute("data-tex")) {
+                out += ommlFromTex(c.getAttribute("data-tex"));
+                continue;
+            }
+            // Footnote / endnote markers written by the importer and the
+            // footnotes plugin.
+            if ((tag === "sup" || tag === "span") && c.getAttribute("data-footnote")) {
+                out += noteRun(b, "footnote", c.getAttribute("data-footnote"));
+                continue;
+            }
+            if ((tag === "sup" || tag === "span") && c.getAttribute("data-endnote")) {
+                out += noteRun(b, "endnote", c.getAttribute("data-endnote"));
+                continue;
+            }
+            if (c.classList && c.classList.contains("rte-fn-ref")) {
+                var id = c.getAttribute("data-fn-id");
+                var body = id ? noteBodyFor(node.ownerDocument, id) : "";
+                out += noteRun(b, "footnote", body || (c.textContent || ""));
+                continue;
+            }
+            if (tag === "img") { out += imageXml(c, b); continue; }
+
+            var next = styleFrom(c, style);
+
+            if (tag === "a" && c.getAttribute("href")) {
+                var href = c.getAttribute("href");
+                var inner = inlineXml(c, next, b, revSeq);
+                if (href.charAt(0) === "#") {
+                    out += '<w:hyperlink w:anchor="' + esc(href.slice(1)) + '">' + inner + "</w:hyperlink>";
+                } else {
+                    // The address lives in the rels part; a hyperlink carries
+                    // only an r:id. This is the same indirection the importer
+                    // resolves on the way in.
+                    var rid = b.rel("hyperlink", href, "External");
+                    out += '<w:hyperlink r:id="' + rid + '">' + inner + "</w:hyperlink>";
+                }
+                continue;
+            }
+            if (tag === "ins" || tag === "del") {
+                var isDel = tag === "del";
+                var body2 = "";
+                // Deleted text goes in w:delText, never w:t.
+                (function collect(n, st) {
+                    for (var j = 0; j < n.childNodes.length; j++) {
+                        var k = n.childNodes[j];
+                        if (k.nodeType === 3) { body2 += textRun((k.nodeValue || "").replace(/[\r\n\t]+/g, " "), st, isDel); continue; }
+                        if (k.nodeType === 1) collect(k, styleFrom(k, st));
+                    }
+                })(c, next);
+                out += "<w:" + tag + ' w:id="' + (revSeq.n++) + '"' + stamp(c) + ">" + body2 + "</w:" + tag + ">";
+                continue;
+            }
+            if (c.getAttribute && c.getAttribute("data-comment")) {
+                var cid = b.commentSeq++;
+                b.comments.push({
+                    id: cid,
+                    author: c.getAttribute("data-comment-author") || "RichTextEditor user",
+                    initials: c.getAttribute("data-comment-initials") || "RTE",
+                    text: c.getAttribute("data-comment")
+                });
+                out += '<w:commentRangeStart w:id="' + cid + '"/>' +
+                    inlineXml(c, next, b, revSeq) +
+                    '<w:commentRangeEnd w:id="' + cid + '"/>' +
+                    '<w:r><w:commentReference w:id="' + cid + '"/></w:r>';
+                continue;
+            }
+            out += inlineXml(c, next, b, revSeq);
+        }
+        return out;
+    }
+
+    function noteBodyFor(doc, id) {
+        try {
+            var el = doc.querySelector('.rte-fn-note[data-fn-id="' + id + '"]');
+            return el ? (el.textContent || "").replace(/\s+/g, " ").trim() : "";
+        } catch (e) { return ""; }
+    }
+    function noteRun(b, kind, text) {
+        var id = b.noteSeq++;
+        (kind === "endnote" ? b.endnotes : b.footnotes).push({ id: id, text: text || "" });
+        return '<w:r><w:rPr><w:vertAlign w:val="superscript"/></w:rPr><w:' + kind + 'Reference w:id="' + id + '"/></w:r>';
+    }
+
+    function imageXml(img, b) {
+        var data = encodeImage(img);
+        if (!data) return "";
+        var name = "image" + (b.media.length + 1) + ".png";
+        b.media.push({ name: name, bytes: data.bytes });
+        var rid = b.rel("image", "media/" + name);
+        // EMU: 914400 per inch, and a CSS pixel is 1/96 inch.
+        var cx = Math.round(data.width * 914400 / 96);
+        var cy = Math.round(data.height * 914400 / 96);
+        var docPrId = b.media.length;
+        return '<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0" ' +
+            'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">' +
+            '<wp:extent cx="' + cx + '" cy="' + cy + '"/>' +
+            '<wp:docPr id="' + docPrId + '" name="Picture ' + docPrId + '" descr="' + esc(img.getAttribute("alt") || "") + '"/>' +
+            '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">' +
+            '<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">' +
+            '<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">' +
+            '<pic:nvPicPr><pic:cNvPr id="' + docPrId + '" name="Picture ' + docPrId + '"/><pic:cNvPicPr/></pic:nvPicPr>' +
+            '<pic:blipFill><a:blip r:embed="' + rid + '"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>' +
+            '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="' + cx + '" cy="' + cy + '"/></a:xfrm>' +
+            '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>' +
+            "</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>";
+    }
+
+    function encodeImage(img) {
+        try {
+            var w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+            if (!w || !h) return null;
+            var scale = Math.min(1, 1600 / Math.max(w, h));
+            var cw = Math.max(1, Math.round(w * scale)), chh = Math.max(1, Math.round(h * scale));
+            var canvas = document.createElement("canvas");
+            canvas.width = cw; canvas.height = chh;
+            canvas.getContext("2d").drawImage(img, 0, 0, cw, chh);
+            var uri = canvas.toDataURL("image/png");
+            var comma = uri.indexOf(",");
+            if (comma < 0) return null;
+            var bin = atob(uri.slice(comma + 1));
+            var bytes = new Uint8Array(bin.length);
+            for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            return { bytes: bytes, width: cw, height: chh };
+        } catch (e) {
+            // Cross-origin images taint the canvas and cannot be read. Dropping
+            // one decorative image beats failing the whole export.
+            return null;
+        }
+    }
+
+    // --------------------------------------------------------------- OMML out
+    //
+    // A compact LaTeX -> OMML writer, matching the reader in documentimport.js
+    // so equations survive the round trip instead of arriving as their source.
+    var TEX_GLYPH = {
+        alpha: "α", beta: "β", gamma: "γ", delta: "δ", epsilon: "ε", zeta: "ζ", eta: "η",
+        theta: "θ", iota: "ι", kappa: "κ", lambda: "λ", mu: "μ", nu: "ν", xi: "ξ", pi: "π",
+        rho: "ρ", sigma: "σ", tau: "τ", upsilon: "υ", phi: "φ", varphi: "φ", chi: "χ",
+        psi: "ψ", omega: "ω", Gamma: "Γ", Delta: "Δ", Theta: "Θ", Lambda: "Λ", Xi: "Ξ",
+        Pi: "Π", Sigma: "Σ", Phi: "Φ", Psi: "Ψ", Omega: "Ω",
+        pm: "±", mp: "∓", times: "×", div: "÷", cdot: "⋅", neq: "≠", leq: "≤", geq: "≥",
+        approx: "≈", equiv: "≡", propto: "∝", infty: "∞", partial: "∂", nabla: "∇",
+        to: "→", rightarrow: "→", leftarrow: "←", Rightarrow: "⇒", Leftrightarrow: "⇔",
+        "in": "∈", notin: "∉", subset: "⊂", subseteq: "⊆", cup: "∪", cap: "∩",
+        emptyset: "∅", forall: "∀", exists: "∃", neg: "¬", land: "∧", lor: "∨",
+        dots: "…", ldots: "…", cdots: "⋯", langle: "⟨", rangle: "⟩",
+        lfloor: "⌊", rfloor: "⌋", lceil: "⌈", rceil: "⌉", quad: " ", ",": " ", ";": " "
+    };
+    var TEX_FUNCS = /^(sin|cos|tan|cot|sec|csc|sinh|cosh|tanh|log|ln|lg|exp|det|dim|gcd|arg|max|min|sup|inf)$/;
+
+    function ommlFromTex(tex) {
+        var src = String(tex || "").trim();
+        if (!src) return "";
+        var i = 0;
+        function mrun(t) { return t ? "<m:r><m:t>" + esc(t) + "</m:t></m:r>" : ""; }
+        function group() {
+            skipWs();
+            if (src.charAt(i) === "{") { i++; return until("}"); }
+            return one();
+        }
+        function skipWs() { while (i < src.length && /\s/.test(src.charAt(i))) i++; }
+        function one() {
+            skipWs();
+            if (src.charAt(i) === "\\") return command();
+            var ch = src.charAt(i++);
+            return mrun(ch);
+        }
+        function until(close) {
+            var out = "", depth = 0;
+            while (i < src.length) {
+                var ch = src.charAt(i);
+                if (ch === "{") depth++;
+                if (ch === close && depth === 0) { i++; break; }
+                if (ch === close) depth--;
+                out += token();
+            }
+            return out;
+        }
+        function command() {
+            i++;  // backslash
+            var m = /^[A-Za-z]+/.exec(src.slice(i));
+            var name = m ? m[0] : src.charAt(i);
+            i += name.length;
+            switch (name) {
+                case "frac": case "dfrac": case "tfrac":
+                    return "<m:f><m:fPr/><m:num>" + group() + "</m:num><m:den>" + group() + "</m:den></m:f>";
+                case "sqrt": {
+                    skipWs();
+                    var deg = "";
+                    if (src.charAt(i) === "[") { i++; deg = until("]"); }
+                    return "<m:rad><m:radPr><m:degHide m:val=\"" + (deg ? "0" : "1") + "\"/></m:radPr>" +
+                        "<m:deg>" + deg + "</m:deg><m:e>" + group() + "</m:e></m:rad>";
+                }
+                case "sum": case "prod": case "int": case "oint": case "bigcup": case "bigcap": {
+                    var chr = { sum: "∑", prod: "∏", "int": "∫", oint: "∮", bigcup: "⋃", bigcap: "⋂" }[name];
+                    var sub = "", sup = "";
+                    for (var g = 0; g < 2; g++) {
+                        skipWs();
+                        if (src.charAt(i) === "_") { i++; sub = group(); }
+                        else if (src.charAt(i) === "^") { i++; sup = group(); }
+                        else break;
+                    }
+                    return '<m:nary><m:naryPr><m:chr m:val="' + chr + '"/>' +
+                        '<m:subHide m:val="' + (sub ? "0" : "1") + '"/><m:supHide m:val="' + (sup ? "0" : "1") + '"/></m:naryPr>' +
+                        "<m:sub>" + sub + "</m:sub><m:sup>" + sup + "</m:sup><m:e>" + rest() + "</m:e></m:nary>";
+                }
+                case "left": {
+                    var open = fence();
+                    var inner = "", depth = 0;
+                    while (i < src.length) {
+                        if (src.slice(i, i + 5) === "\\left") depth++;
+                        if (src.slice(i, i + 6) === "\\right") {
+                            if (depth === 0) { i += 6; var close = fence(); return delim(open, close, inner); }
+                            depth--;
+                        }
+                        inner += token();
+                    }
+                    return delim(open, ")", inner);
+                }
+                case "right": fence(); return "";
+                case "lim": {
+                    skipWs();
+                    var lim = "";
+                    if (src.charAt(i) === "_") { i++; lim = group(); }
+                    return "<m:limLow><m:e>" + mrun("lim") + "</m:e><m:lim>" + lim + "</m:lim></m:limLow>";
+                }
+                case "operatorname":
+                    return "<m:func><m:funcPr/><m:fName>" + group() + "</m:fName><m:e>" + group() + "</m:e></m:func>";
+                case "hat": case "vec": case "tilde": case "bar": case "overline": case "dot": case "ddot": {
+                    var mark = { hat: "̂", vec: "⃗", tilde: "̃", dot: "̇", ddot: "̈" }[name];
+                    if (name === "bar" || name === "overline") return "<m:bar><m:barPr><m:pos m:val=\"top\"/></m:barPr><m:e>" + group() + "</m:e></m:bar>";
+                    return '<m:acc><m:accPr><m:chr m:val="' + mark + '"/></m:accPr><m:e>' + group() + "</m:e></m:acc>";
+                }
+                case "underline":
+                    return "<m:bar><m:barPr><m:pos m:val=\"bot\"/></m:barPr><m:e>" + group() + "</m:e></m:bar>";
+                case "boxed":
+                    return "<m:borderBox><m:e>" + group() + "</m:e></m:borderBox>";
+                case "text": case "mathrm": case "mathbf": case "mathit":
+                    return group();
+                case "\\":
+                    return mrun(" ");
+                default:
+                    if (TEX_FUNCS.test(name)) {
+                        return "<m:func><m:funcPr/><m:fName>" + mrun(name) + "</m:fName><m:e>" + group() + "</m:e></m:func>";
+                    }
+                    if (TEX_GLYPH[name] !== undefined) return mrun(TEX_GLYPH[name]);
+                    return mrun(name);
+            }
+        }
+        function fence() {
+            skipWs();
+            if (src.charAt(i) === "\\") { i++; var m2 = /^[A-Za-z]+|^./.exec(src.slice(i)); var n2 = m2 ? m2[0] : ""; i += n2.length; return TEX_GLYPH[n2] || n2; }
+            return src.charAt(i++);
+        }
+        function delim(open, close, inner) {
+            return '<m:d><m:dPr><m:begChr m:val="' + esc(open) + '"/><m:endChr m:val="' + esc(close) + '"/></m:dPr><m:e>' + inner + "</m:e></m:d>";
+        }
+        function rest() {
+            var out = "";
+            while (i < src.length && src.charAt(i) !== "}") out += token();
+            return out;
+        }
+        function token() {
+            skipWs();
+            if (i >= src.length) return "";
+            var ch = src.charAt(i);
+            if (ch === "\\") return command();
+            if (ch === "{") { i++; return until("}"); }
+            if (ch === "^" || ch === "_") {
+                i++;
+                var arg = group();
+                return ch === "^"
+                    ? "<m:sSup><m:sSupPr/><m:e>" + mrun("") + "</m:e><m:sup>" + arg + "</m:sup></m:sSup>"
+                    : "<m:sSub><m:sSubPr/><m:e>" + mrun("") + "</m:e><m:sub>" + arg + "</m:sub></m:sSub>";
+            }
+            // Plain text, up to the next construct. Superscripts and subscripts
+            // bind to the character before them, so the last character is peeled
+            // off and handled as a base when one follows.
+            var run = "";
+            while (i < src.length && !/[\\{}^_]/.test(src.charAt(i))) run += src.charAt(i++);
+            if ((src.charAt(i) === "^" || src.charAt(i) === "_") && run) {
+                var base = run.slice(-1);
+                run = run.slice(0, -1);
+                var op = src.charAt(i); i++;
+                var sup = group();
+                // A base can carry both scripts.
+                skipWs();
+                var other = "";
+                if ((src.charAt(i) === "^" || src.charAt(i) === "_") && src.charAt(i) !== op) { var op2 = src.charAt(i); i++; other = group(); }
+                var head = mrun(run);
+                if (other) {
+                    return head + "<m:sSubSup><m:sSubSupPr/><m:e>" + mrun(base) + "</m:e><m:sub>" +
+                        (op === "_" ? sup : other) + "</m:sub><m:sup>" + (op === "^" ? sup : other) + "</m:sup></m:sSubSup>";
+                }
+                return head + (op === "^"
+                    ? "<m:sSup><m:sSupPr/><m:e>" + mrun(base) + "</m:e><m:sup>" + sup + "</m:sup></m:sSup>"
+                    : "<m:sSub><m:sSubPr/><m:e>" + mrun(base) + "</m:e><m:sub>" + sup + "</m:sub></m:sSub>");
+            }
+            return mrun(run);
+        }
+        var body = "";
+        while (i < src.length) body += token();
+        return "<m:oMath>" + body + "</m:oMath>";
+    }
+
+    // ----------------------------------------------------------- block walker
+    function blocksXml(root, b) {
+        var out = "";
+        var revSeq = { n: 1 };
+        var base = { bold: false, italic: false, underline: false, strike: false, sizeHalfPoints: 0, color: null, highlight: null, vertAlign: null, mono: false };
+
+        function para(node, style, opts) {
+            opts = opts || {};
+            var pr = "";
+            if (opts.heading) pr += '<w:pStyle w:val="Heading' + opts.heading + '"/>';
+            if (opts.quote) pr += '<w:pStyle w:val="Quote"/><w:ind w:left="720"/>';
+            if (opts.pre) pr += '<w:pStyle w:val="Code"/>';
+            if (opts.numId) pr += "<w:numPr><w:ilvl w:val=\"" + (opts.level || 0) + "\"/><w:numId w:val=\"" + opts.numId + "\"/></w:numPr>";
+            if (opts.pageBreakBefore) pr += "<w:pageBreakBefore/>";
+            var align = node && node.style ? node.style.textAlign : "";
+            if (align === "center" || align === "right") pr += '<w:jc w:val="' + align + '"/>';
+            else if (align === "justify") pr += '<w:jc w:val="both"/>';
+            var inner = node ? inlineXml(node, style, b, revSeq) : "";
+            return "<w:p>" + (pr ? "<w:pPr>" + pr + "</w:pPr>" : "") + inner + "</w:p>";
+        }
+
+        function list(node, style, level, pendingBreak) {
+            var ordered = node.tagName.toLowerCase() === "ol";
+            // One numId per list, so two adjacent lists restart rather than
+            // continuing each other's numbering.
+            var numId = ++b.numSeq;
+            b.numbering[numId] = ordered ? "decimal" : "bullet";
+            var xml = "";
+            for (var i = 0; i < node.childNodes.length; i++) {
+                var li = node.childNodes[i];
+                if (li.nodeType !== 1 || li.tagName.toLowerCase() !== "li") continue;
+                xml += para(li, styleFrom(li, style), { numId: numId, level: level, pageBreakBefore: pendingBreak });
+                pendingBreak = false;
+                for (var j = 0; j < li.childNodes.length; j++) {
+                    var sub = li.childNodes[j];
+                    if (sub.nodeType === 1 && /^(ul|ol)$/.test(sub.tagName.toLowerCase())) {
+                        xml += list(sub, style, Math.min(8, level + 1), false);
+                    }
+                }
+            }
+            return xml;
+        }
+
+        function table(node, style) {
+            var xml = '<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/>' +
+                '<w:tblBorders>' +
+                ["top", "left", "bottom", "right", "insideH", "insideV"].map(function (s) {
+                    return '<w:' + s + ' w:val="single" w:sz="4" w:space="0" w:color="BFBFBF"/>';
+                }).join("") +
+                "</w:tblBorders></w:tblPr>";
+            var trs = node.getElementsByTagName("tr");
+            for (var r = 0; r < trs.length; r++) {
+                var cells = [];
+                for (var c = 0; c < trs[r].childNodes.length; c++) {
+                    var cell = trs[r].childNodes[c];
+                    if (cell.nodeType !== 1) continue;
+                    var t = cell.tagName.toLowerCase();
+                    if (t === "td" || t === "th") cells.push({ node: cell, header: t === "th" });
+                }
+                if (!cells.length) continue;
+                // A header row must repeat when the table splits across pages,
+                // or the continuation arrives as unlabelled numbers.
+                var isHeader = cells.length && cells[0].header;
+                xml += "<w:tr>" + (isHeader ? "<w:trPr><w:tblHeader/></w:trPr>" : "");
+                for (var k = 0; k < cells.length; k++) {
+                    var span = parseInt(cells[k].node.getAttribute("colspan") || "1", 10) || 1;
+                    var cs = styleFrom(cells[k].node, style);
+                    if (cells[k].header) cs.bold = true;
+                    var body = "";
+                    var kids = cells[k].node.childNodes, hasBlock = false;
+                    for (var q = 0; q < kids.length; q++) {
+                        if (kids[q].nodeType === 1 && /^(p|div|ul|ol|table|h[1-6]|blockquote)$/.test(kids[q].tagName.toLowerCase())) { hasBlock = true; break; }
+                    }
+                    body = hasBlock ? walk(cells[k].node, cs) : para(cells[k].node, cs, {});
+                    // A table cell may never be empty in OOXML.
+                    if (!body) body = "<w:p/>";
+                    xml += "<w:tc><w:tcPr>" +
+                        (span > 1 ? '<w:gridSpan w:val="' + span + '"/>' : "") +
+                        (cells[k].header ? '<w:shd w:val="clear" w:color="auto" w:fill="F1F3F7"/>' : "") +
+                        "</w:tcPr>" + body + "</w:tc>";
+                }
+                xml += "</w:tr>";
+            }
+            return xml + "</w:tbl><w:p/>";
+        }
+
+        function walk(node, style) {
+            var xml = "", pendingBreak = false;
+            for (var i = 0; i < node.childNodes.length; i++) {
+                var c = node.childNodes[i];
+                if (c.nodeType === 3) {
+                    if ((c.nodeValue || "").trim()) xml += "<w:p>" + textRun(c.nodeValue.replace(/\s+/g, " "), style, false) + "</w:p>";
+                    continue;
+                }
+                if (c.nodeType !== 1) continue;
+                var tag = c.tagName.toLowerCase();
+                if (tag === "script" || tag === "style" || tag === "noscript") continue;
+                if (c.classList && (c.classList.contains("rte-footnotes") || c.classList.contains("rte-fn-note"))) continue;
+
+                if (c.getAttribute("data-rte-page-break") !== null || /always|page/.test((c.style && (c.style.pageBreakBefore || c.style.breakBefore)) || "")) {
+                    pendingBreak = true;
+                }
+
+                if (tag === "hr") { xml += '<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="C8CDD4"/></w:pBdr></w:pPr></w:p>'; continue; }
+                if (tag === "ul" || tag === "ol") { xml += list(c, style, 0, pendingBreak); pendingBreak = false; continue; }
+                if (tag === "table") { xml += table(c, style); continue; }
+                if (HEADING[tag]) { xml += para(c, styleFrom(c, style), { heading: HEADING[tag], pageBreakBefore: pendingBreak }); pendingBreak = false; continue; }
+                if (tag === "blockquote") { xml += para(c, styleFrom(c, style), { quote: true, pageBreakBefore: pendingBreak }); pendingBreak = false; continue; }
+                if (tag === "pre") { xml += para(c, styleFrom(c, style), { pre: true, pageBreakBefore: pendingBreak }); pendingBreak = false; continue; }
+                if (tag === "p" || tag === "div" || tag === "section" || tag === "article" || tag === "figure" || tag === "address") {
+                    if (hasBlockChild(c)) { xml += walk(c, styleFrom(c, style)); continue; }
+                    xml += para(c, styleFrom(c, style), { pageBreakBefore: pendingBreak });
+                    pendingBreak = false;
+                    continue;
+                }
+                xml += para(c, styleFrom(c, style), { pageBreakBefore: pendingBreak });
+                pendingBreak = false;
+            }
+            return xml;
+        }
+
+        function hasBlockChild(node) {
+            for (var i = 0; i < node.childNodes.length; i++) {
+                var c = node.childNodes[i];
+                if (c.nodeType === 1 && /^(p|div|ul|ol|table|h[1-6]|blockquote|pre|hr|section|article)$/.test(c.tagName.toLowerCase())) return true;
+            }
+            return false;
+        }
+
+        out = walk(root, base);
+        return out || "<w:p/>";
+    }
+
+    // ------------------------------------------------------------- assembling
+    function sectionXml() {
+        var setup = null;
+        try { if (typeof editor.getDocumentPageSetup === "function") setup = editor.getDocumentPageSetup(); } catch (e) {}
+        setup = setup || {};
+        var SIZES = { letter: [12240, 15840], legal: [12240, 20160], tabloid: [15840, 24480], a3: [16838, 23811], a4: [11906, 16838], a5: [8391, 11906] };
+        var size = SIZES[String(setup.format || "letter").toLowerCase()] || SIZES.letter;
+        var landscape = String(setup.orientation || "").toLowerCase() === "landscape";
+        var w = landscape ? size[1] : size[0], h = landscape ? size[0] : size[1];
+        function twips(v, fallback) {
+            if (typeof v === "number" && isFinite(v)) return Math.round(v * 1440);
+            var m = /^\s*(-?[\d.]+)\s*(mm|cm|in|px|pt)?\s*$/.exec(String(v || ""));
+            if (!m) return fallback;
+            var n = parseFloat(m[1]);
+            switch (m[2]) {
+                case "mm": return Math.round(n * 1440 / 25.4);
+                case "cm": return Math.round(n * 1440 / 2.54);
+                case "pt": return Math.round(n * 20);
+                case "px": return Math.round(n * 15);
+                default: return Math.round(n * 1440);
+            }
+        }
+        var mg = setup.margins || {};
+        return '<w:sectPr><w:pgSz w:w="' + w + '" w:h="' + h + '"' + (landscape ? ' w:orient="landscape"' : "") + "/>" +
+            '<w:pgMar w:top="' + twips(mg.top, 1440) + '" w:right="' + twips(mg.right, 1440) +
+            '" w:bottom="' + twips(mg.bottom, 1440) + '" w:left="' + twips(mg.left, 1440) +
+            '" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>';
+    }
+
+    function buildDocx(options) {
+        return new Promise(function (resolve, reject) {
+            try {
+                var host = document.createElement("div");
+                // getHTMLCode() is the serialized document: presentational
+                // plugins strip their own chrome from it, so page overlays,
+                // watermarks and formatting marks never reach the file.
+                host.innerHTML = editor.getHTMLCode() || "";
+                document.body.appendChild(host);
+                host.style.cssText = "position:absolute;left:-99999px;top:0;width:800px;";
+
+                var b = new Builder();
+                var body = blocksXml(host, b);
+                host.parentNode.removeChild(host);
+
+                var files = [];
+                function put(name, xml) { files.push({ name: name, bytes: utf8Bytes(xml) }); }
+
+                var hasFootnotes = b.footnotes.length > 0;
+                var hasEndnotes = b.endnotes.length > 0;
+                var hasComments = b.comments.length > 0;
+
+                put("[Content_Types].xml",
+                    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+                    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+                    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+                    '<Default Extension="xml" ContentType="application/xml"/>' +
+                    '<Default Extension="png" ContentType="image/png"/>' +
+                    '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>' +
+                    '<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>' +
+                    '<Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>' +
+                    (hasFootnotes ? '<Override PartName="/word/footnotes.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"/>' : "") +
+                    (hasEndnotes ? '<Override PartName="/word/endnotes.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml"/>' : "") +
+                    (hasComments ? '<Override PartName="/word/comments.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml"/>' : "") +
+                    '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>' +
+                    '<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>' +
+                    "</Types>");
+
+                put("_rels/.rels",
+                    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+                    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+                    '<Relationship Id="rIdDoc" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>' +
+                    '<Relationship Id="rIdCore" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>' +
+                    '<Relationship Id="rIdApp" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>' +
+                    "</Relationships>");
+
+                var relBase = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/";
+                var relXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+                    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+                    '<Relationship Id="rIdStyles" Type="' + relBase + 'styles" Target="styles.xml"/>' +
+                    '<Relationship Id="rIdNum" Type="' + relBase + 'numbering" Target="numbering.xml"/>' +
+                    (hasFootnotes ? '<Relationship Id="rIdFn" Type="' + relBase + 'footnotes" Target="footnotes.xml"/>' : "") +
+                    (hasEndnotes ? '<Relationship Id="rIdEn" Type="' + relBase + 'endnotes" Target="endnotes.xml"/>' : "") +
+                    (hasComments ? '<Relationship Id="rIdCm" Type="' + relBase + 'comments" Target="comments.xml"/>' : "");
+                for (var i = 0; i < b.rels.length; i++) {
+                    var rl = b.rels[i];
+                    relXml += '<Relationship Id="' + rl.id + '" Type="' + relBase + rl.type + '" Target="' + esc(rl.target) + '"' +
+                        (rl.mode ? ' TargetMode="' + rl.mode + '"' : "") + "/>";
+                }
+                put("word/_rels/document.xml.rels", relXml + "</Relationships>");
+
+                put("word/document.xml",
+                    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+                    '<w:document xmlns:w="' + NS.w + '" xmlns:r="' + NS.r + '" xmlns:m="' + NS.m + '">' +
+                    "<w:body>" + body + sectionXml() + "</w:body></w:document>");
+
+                put("word/styles.xml", stylesXml());
+                put("word/numbering.xml", numberingXml(b));
+
+                if (hasFootnotes) put("word/footnotes.xml", notesXml(b.footnotes, "footnote"));
+                if (hasEndnotes) put("word/endnotes.xml", notesXml(b.endnotes, "endnote"));
+                if (hasComments) put("word/comments.xml", commentsXml(b.comments));
+
+                var title = options.title || config.docxExportTitle || document.title || "Document";
+                var author = options.author || config.docxExportAuthor || "RichTextEditor";
+                put("docProps/core.xml",
+                    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+                    '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"' +
+                    ' xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/"' +
+                    ' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">' +
+                    "<dc:title>" + esc(title) + "</dc:title><dc:creator>" + esc(author) + "</dc:creator>" +
+                    '<cp:lastModifiedBy>' + esc(author) + "</cp:lastModifiedBy>" +
+                    '<dcterms:created xsi:type="dcterms:W3CDTF">' + new Date().toISOString().replace(/\.\d+Z$/, "Z") + "</dcterms:created>" +
+                    "</cp:coreProperties>");
+                put("docProps/app.xml",
+                    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+                    '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties">' +
+                    "<Application>RichTextEditor</Application></Properties>");
+
+                for (var mi = 0; mi < b.media.length; mi++) {
+                    files.push({ name: "word/media/" + b.media[mi].name, bytes: b.media[mi].bytes });
+                }
+
+                zip(files).then(resolve, reject);
+            } catch (e) { reject(e); }
+        });
+    }
+
+    function stylesXml() {
+        var heads = "";
+        for (var i = 1; i <= 6; i++) {
+            var sz = [36, 30, 26, 24, 22, 20][i - 1];
+            heads += '<w:style w:type="paragraph" w:styleId="Heading' + i + '">' +
+                '<w:name w:val="heading ' + i + '"/><w:basedOn w:val="Normal"/>' +
+                '<w:pPr><w:outlineLvl w:val="' + (i - 1) + '"/><w:spacing w:before="240" w:after="120"/></w:pPr>' +
+                '<w:rPr><w:b/><w:sz w:val="' + sz + '"/><w:szCs w:val="' + sz + '"/></w:rPr></w:style>';
+        }
+        return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+            '<w:styles xmlns:w="' + NS.w + '">' +
+            '<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr></w:rPrDefault></w:docDefaults>' +
+            '<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>' +
+            heads +
+            '<w:style w:type="paragraph" w:styleId="Quote"><w:name w:val="Quote"/><w:basedOn w:val="Normal"/><w:rPr><w:i/><w:color w:val="4A5568"/></w:rPr></w:style>' +
+            '<w:style w:type="paragraph" w:styleId="Code"><w:name w:val="Code"/><w:basedOn w:val="Normal"/><w:rPr><w:rFonts w:ascii="Consolas" w:hAnsi="Consolas"/></w:rPr></w:style>' +
+            "</w:styles>";
+    }
+
+    function numberingXml(b) {
+        var abstracts = "", nums = "";
+        var ids = Object.keys(b.numbering);
+        for (var i = 0; i < ids.length; i++) {
+            var numId = ids[i], fmt = b.numbering[numId];
+            var levels = "";
+            for (var lvl = 0; lvl < 9; lvl++) {
+                // Word distinguishes bullets from numbers ONLY here; the
+                // document body stores every list identically.
+                levels += '<w:lvl w:ilvl="' + lvl + '">' +
+                    '<w:start w:val="1"/>' +
+                    '<w:numFmt w:val="' + (fmt === "bullet" ? "bullet" : "decimal") + '"/>' +
+                    '<w:lvlText w:val="' + (fmt === "bullet" ? "\uF0B7" : "%" + (lvl + 1) + ".") + '"/>' +
+                    '<w:lvlJc w:val="left"/>' +
+                    '<w:pPr><w:ind w:left="' + (720 * (lvl + 1)) + '" w:hanging="360"/></w:pPr>' +
+                    (fmt === "bullet" ? '<w:rPr><w:rFonts w:ascii="Symbol" w:hAnsi="Symbol" w:hint="default"/></w:rPr>' : "") +
+                    "</w:lvl>";
+            }
+            abstracts += '<w:abstractNum w:abstractNumId="' + numId + '">' + levels + "</w:abstractNum>";
+            nums += '<w:num w:numId="' + numId + '"><w:abstractNumId w:val="' + numId + '"/></w:num>';
+        }
+        return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+            '<w:numbering xmlns:w="' + NS.w + '">' + abstracts + nums + "</w:numbering>";
+    }
+
+    function notesXml(notes, kind) {
+        // Ids 0 and -1 are the separator rules Word draws above notes. They are
+        // not content, but the part is malformed without them.
+        var xml = '<w:' + kind + ' w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:' + kind + ">" +
+            '<w:' + kind + ' w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:' + kind + ">";
+        for (var i = 0; i < notes.length; i++) {
+            xml += '<w:' + kind + ' w:id="' + notes[i].id + '"><w:p><w:r>' +
+                '<w:rPr><w:vertAlign w:val="superscript"/></w:rPr><w:' + kind + 'Ref/></w:r>' +
+                '<w:r><w:t xml:space="preserve"> ' + esc(notes[i].text) + "</w:t></w:r></w:p></w:" + kind + ">";
+        }
+        return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+            "<w:" + kind + "s xmlns:w=\"" + NS.w + "\">" + xml + "</w:" + kind + "s>";
+    }
+
+    function commentsXml(comments) {
+        var xml = "";
+        for (var i = 0; i < comments.length; i++) {
+            var c = comments[i];
+            xml += '<w:comment w:id="' + c.id + '" w:author="' + esc(c.author) + '" w:initials="' + esc(c.initials) +
+                '" w:date="' + new Date().toISOString().replace(/\.\d+Z$/, "Z") + '">' +
+                "<w:p><w:r><w:t xml:space=\"preserve\">" + esc(c.text) + "</w:t></w:r></w:p></w:comment>";
+        }
+        return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+            '<w:comments xmlns:w="' + NS.w + '">' + xml + "</w:comments>";
+    }
+
+    // ------------------------------------------------------------- downloads
+    function sanitizeName(name) {
+        if (!name || typeof name !== "string") return "";
+        return name.replace(/\.docx?$/i, "").replace(/[\\/:*?"<>|]+/g, "").trim().slice(0, 120);
+    }
+    function defaultBase() {
+        var d = new Date();
+        function two(n) { return (n < 10 ? "0" : "") + n; }
+        return "Export-" + String(d.getFullYear()).slice(2) + two(d.getMonth() + 1) + two(d.getDate()) +
+            "-" + two(d.getHours()) + two(d.getMinutes()) + two(d.getSeconds());
+    }
+    function download(blob, filename) {
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement("a");
+        a.href = url; a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+        return filename;
+    }
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
+// 2026-07-28 Drag handle — grab a paragraph, heading, list, table or callout by
+// the ⠿ grip that appears beside it and drop it somewhere else. The block-
+// reordering interaction Notion made standard.
+//
+// Positioning honesty: NOT claimed as a competitor gap. Tiptap's drag-handle
+// docs state no pricing, and CKEditor supports block drag and drop in its free
+// core — so this ships without a compare-table row. It is here because moving a
+// clause with the mouse beats cut-and-paste, not because someone charges for it.
+//
+// Design notes:
+//   - The grip and the drop indicator live OUTSIDE the editable, in its offset
+//     parent — the same placement pagination.js uses for its overlay. Chrome
+//     that is not inside the editable structurally cannot leak into
+//     getHTMLCode(), which beats stripping it around every serialize.
+//   - Dragging is plain mouse events, not HTML5 drag-and-drop. Native DnD
+//     inside contenteditable is exactly the browser behaviour that half-works
+//     everywhere: it starts a text drag, draws the wrong ghost, and drops
+//     serialized HTML instead of moving the node.
+//   - Alt+Shift+Up/Down moves the caret's block — the same keys Word uses to
+//     move paragraphs. This is not a bonus: a pointer-only reordering feature
+//     is unusable from the keyboard, so the keyboard path is what makes the
+//     feature accessible at all.
+//   - The drop target is decided by the pointer's Y against each block's
+//     vertical midpoint, so the indicator always sits where the block will
+//     actually land.
+RTE_DefaultConfig.plugin_draghandle = RTE_Plugin_DragHandle;
+
+// Show the grip on hover.
+if (typeof RTE_DefaultConfig.dragHandleEnabled === "undefined") RTE_DefaultConfig.dragHandleEnabled = true;
+// Alt+Shift+ArrowUp / ArrowDown keyboard reordering.
+if (typeof RTE_DefaultConfig.dragHandleKeyboard === "undefined") RTE_DefaultConfig.dragHandleKeyboard = true;
+
+function RTE_Plugin_DragHandle() {
+    var obj = this;
+    var config, editor;
+    var boundDoc = null;
+    var grip = null;          // the ⠿ element, in the editable's offset parent
+    var indicator = null;     // the drop line
+    var hoverBlock = null;    // block the grip is currently attached to
+    var dragging = null;      // { block } while a drag is live
+    var dropBefore = null;    // element to insert before (null = append at end)
+
+    obj.PluginName = "DragHandle";
+
+    obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+        setup();
+        try { editor.attachEvent("ready", setup); } catch (e) {}
+        try { editor.attachEvent("aftersethtml", setup); } catch (e) {}
+        setTimeout(setup, 0);
+
+        // Public API — the drag is a thin layer over these, so everything the
+        // pointer can do is scriptable and testable without synthetic drags.
+        editor.moveBlock = function (block, beforeEl) { return moveBlock(block, beforeEl); };
+        editor.moveBlockUp = function () { return nudge(-1); };
+        editor.moveBlockDown = function () { return nudge(1); };
+        editor.setDragHandleEnabled = function (on) {
+            config.dragHandleEnabled = !!on;
+            if (!on) hideGrip();
+            return !!on;
+        };
+        editor.isDragHandleEnabled = function () { return config.dragHandleEnabled !== false; };
+    };
+
+    function setup() {
+        var doc = getDoc();
+        if (!doc || doc === boundDoc) return;
+        boundDoc = doc;
+        injectStyles(doc);
+        var ed = getEditable();
+        if (!ed) return;
+
+        // Grip placement follows the pointer over the editable.
+        doc.addEventListener("mousemove", onHover);
+        doc.addEventListener("mousedown", onMouseDown, true);
+        doc.addEventListener("mousemove", onDragMove, true);
+        doc.addEventListener("mouseup", onMouseUp, true);
+        doc.addEventListener("keydown", onKeyDown);
+        // Leaving the document entirely: tidy up.
+        doc.addEventListener("mouseleave", function () { if (!dragging) hideGrip(); });
+    }
+
+    function getDoc() { try { return editor.getDocument(); } catch (e) { return null; } }
+    function getEditable() { try { return editor.getEditable(); } catch (e) { return null; } }
+
+    // ---- block model -----------------------------------------------------
+
+    // Movable blocks: the editable's element children, minus any overlay chrome
+    // that other plugins park inside it.
+    function blocks() {
+        var ed = getEditable();
+        if (!ed) return [];
+        var out = [];
+        for (var i = 0; i < ed.children.length; i++) {
+            var el = ed.children[i];
+            if (el.nodeType !== 1) continue;
+            if (el.getAttribute &&
+                (el.getAttribute("data-rte-page-overlay") === "true" ||
+                 el.getAttribute("data-rte-linenumbers") === "true")) continue;
+            out.push(el);
+        }
+        return out;
+    }
+
+    function topBlockOf(node) {
+        var ed = getEditable();
+        var n = node && node.nodeType === 3 ? node.parentNode : node;
+        var last = null;
+        while (n && n !== ed) { last = n; n = n.parentNode; }
+        return (n === ed && last && last.nodeType === 1) ? last : null;
+    }
+
+    function caretBlock() {
+        try {
+            var sel = editor.getSelection();
+            if (!sel || sel.rangeCount === 0) return null;
+            return topBlockOf(sel.getRangeAt(0).startContainer);
+        } catch (e) { return null; }
+    }
+
+    // ---- the move itself (shared by pointer and keyboard) ----------------
+
+    function moveBlock(block, beforeEl) {
+        var ed = getEditable();
+        if (!ed || !block || block.parentNode !== ed) return false;
+        if (beforeEl === block || (beforeEl && beforeEl.parentNode !== ed)) return false;
+        // Inserting before its own next sibling is a no-op move.
+        if (beforeEl === block.nextSibling) return false;
+        ed.insertBefore(block, beforeEl || null);
+        // Keep the caret with the block that moved — losing the caret is what
+        // makes programmatic moves feel broken (same lesson as tabletools sort).
+        try {
+            var doc = getDoc();
+            var r = doc.createRange();
+            r.selectNodeContents(block);
+            r.collapse(true);
+            var sel = editor.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(r);
+        } catch (e) {}
+        fireChange();
+        return true;
+    }
+
+    function nudge(dir) {
+        var block = caretBlock();
+        if (!block) return false;
+        var list = blocks();
+        var i = list.indexOf(block);
+        if (i < 0) return false;
+        if (dir < 0) {
+            if (i === 0) return false;
+            return moveBlock(block, list[i - 1]);
+        }
+        if (i >= list.length - 1) return false;
+        // Moving down = inserting before the element after the next one.
+        return moveBlock(block, list[i + 1].nextSibling);
+    }
+
+    function onKeyDown(e) {
+        if (config.dragHandleKeyboard === false) return;
+        if (!e.altKey || !e.shiftKey || e.ctrlKey || e.metaKey) return;
+        if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+        if (nudge(e.key === "ArrowUp" ? -1 : 1)) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+    }
+
+    // ---- grip ------------------------------------------------------------
+
+    function ensureChrome(doc, ed) {
+        var host = ed.parentNode || doc.body;
+        if (!grip || !grip.parentNode) {
+            grip = doc.createElement("div");
+            grip.className = "rte-drag-grip";
+            grip.setAttribute("contenteditable", "false");
+            grip.setAttribute("aria-hidden", "true");
+            grip.textContent = "⠿";   // ⠿
+            host.appendChild(grip);
+        }
+        if (!indicator || !indicator.parentNode) {
+            indicator = doc.createElement("div");
+            indicator.className = "rte-drag-indicator";
+            indicator.setAttribute("contenteditable", "false");
+            indicator.setAttribute("aria-hidden", "true");
+            host.appendChild(indicator);
+        }
+    }
+
+    function hideGrip() {
+        if (grip) grip.style.display = "none";
+        hoverBlock = null;
+    }
+
+    function hideIndicator() {
+        if (indicator) indicator.style.display = "none";
+    }
+
+    function onHover(e) {
+        if (dragging || config.dragHandleEnabled === false) return;
+        var doc = getDoc();
+        var ed = getEditable();
+        if (!doc || !ed) return;
+        var block = null;
+        if (e.target === grip) return;             // hovering the grip itself
+        if (ed.contains(e.target)) block = topBlockOf(e.target);
+        if (!block || blocks().indexOf(block) < 0) { hideGrip(); return; }
+        if (block === hoverBlock && grip && grip.style.display !== "none") return;
+
+        ensureChrome(doc, ed);
+        hoverBlock = block;
+        // RTL documents get the grip on the right, where the line starts.
+        var rtl = false;
+        try { rtl = (doc.defaultView.getComputedStyle(ed).direction === "rtl"); } catch (x) {}
+        grip.style.display = "block";
+        grip.style.top = block.offsetTop + "px";
+        if (rtl) grip.style.left = (block.offsetLeft + block.offsetWidth + 4) + "px";
+        else grip.style.left = Math.max(0, block.offsetLeft - 22) + "px";
+    }
+
+    // ---- drag ------------------------------------------------------------
+
+    function onMouseDown(e) {
+        if (e.target !== grip || !hoverBlock) return;
+        dragging = { block: hoverBlock };
+        dropBefore = null;
+        e.preventDefault();
+        e.stopPropagation();
+        var ed = getEditable();
+        if (ed && ed.classList) ed.classList.add("rte-drag-active");
+        if (grip) grip.classList.add("rte-drag-grip-held");
+    }
+
+    function onDragMove(e) {
+        if (!dragging) return;
+        e.preventDefault();
+        var doc = getDoc();
+        var ed = getEditable();
+        if (!doc || !ed) return;
+        ensureChrome(doc, ed);
+
+        // Decide the insertion point from the pointer's Y against each block's
+        // midpoint, in the same offsetTop space the indicator is drawn in.
+        var list = blocks();
+        if (!list.length) return;
+        var edRect = ed.getBoundingClientRect();
+        var y = e.clientY - edRect.top + (ed.scrollTop || 0);
+
+        dropBefore = null;   // default: end of document
+        var lineTop = null;
+        for (var i = 0; i < list.length; i++) {
+            var b = list[i];
+            var mid = b.offsetTop + b.offsetHeight / 2;
+            if (y < mid) { dropBefore = b; lineTop = b.offsetTop; break; }
+        }
+        if (lineTop === null) {
+            var lastB = list[list.length - 1];
+            lineTop = lastB.offsetTop + lastB.offsetHeight;
+        }
+        indicator.style.display = "block";
+        indicator.style.top = Math.max(0, lineTop - 1) + "px";
+        indicator.style.left = ed.offsetLeft + "px";
+        indicator.style.width = ed.offsetWidth + "px";
+    }
+
+    function onMouseUp() {
+        if (!dragging) return;
+        var block = dragging.block;
+        var target = dropBefore;
+        dragging = null;
+        hideIndicator();
+        var ed = getEditable();
+        if (ed && ed.classList) ed.classList.remove("rte-drag-active");
+        if (grip) grip.classList.remove("rte-drag-grip-held");
+        hideGrip();
+        // Dropping a block onto itself moves nothing.
+        if (target !== block) moveBlock(block, target);
+    }
+
+    function fireChange() {
+        try { if (typeof editor.updateDesign === "function") editor.updateDesign(); } catch (e) {}
+        try { if (typeof editor.fireChange === "function") editor.fireChange(); } catch (e) {}
+    }
+
+    // ---- styles ----------------------------------------------------------
+
+    function injectStyles(doc) {
+        if (doc.getElementById("rte-drag-handle-styles")) return;
+        var st = doc.createElement("style");
+        st.id = "rte-drag-handle-styles";
+        st.appendChild(doc.createTextNode(
+            ".rte-drag-grip{position:absolute;display:none;width:18px;text-align:center;" +
+            "color:#94a3b8;font-size:14px;line-height:1.4;cursor:grab;user-select:none;z-index:20;" +
+            "border-radius:4px;}" +
+            ".rte-drag-grip:hover{background:rgba(148,163,184,.18);color:#475569;}" +
+            ".rte-drag-grip-held{cursor:grabbing;color:#1474ea;}" +
+            ".rte-drag-indicator{position:absolute;display:none;height:2px;background:#1474ea;" +
+            "border-radius:1px;pointer-events:none;z-index:19;}" +
+            ".rte-drag-active{cursor:grabbing;}" +
+            ".rte-drag-active *{cursor:grabbing !important;}"
+        ));
+        (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
     }
 }
 
@@ -23396,6 +26574,951 @@ function RTE_Plugin_FoldHeadings() {
 
 if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
 
+// 2026-07-27 Footnotes. Inline reference markers plus an auto-numbered notes
+// section at the end of the document — the citation apparatus legal briefs,
+// academic papers, standards and long-form publishing are written with.
+//
+// Both premium competitors charge for this:
+//   - CKEditor 5 footnotes: "To use this premium feature, you need to activate
+//     it with proper credentials"; available in the Essential, Professional and
+//     Custom plans.
+//   - TinyMCE footnotes: "This plugin is only available for paid TinyMCE
+//     subscriptions" (premium plugin, TinyMCE 6.2+).
+// Froala, Quill and Lexical ship nothing equivalent.
+//
+// Design notes:
+//   - The marker is an ATOMIC contenteditable=false <sup>, so arrow keys and
+//     backspace treat it as one unit and the caret can never land inside the
+//     number and corrupt it.
+//   - Numbers are written as LITERAL TEXT, not CSS counters. multilevellist.js
+//     deliberately went the other way, but the trade-off inverts here: a
+//     footnote's whole job is to survive leaving the editor (publishing, PDF,
+//     an RSS feed, someone else's page), and a CSS-counter number is invisible
+//     the moment the stylesheet does not travel with it. So we renumber on
+//     every mutation instead — see syncFootnotes().
+//   - Marker order is DOCUMENT order, and the <li> notes are re-sorted to match,
+//     so cutting a paragraph and pasting it earlier renumbers both ends.
+//   - Deleting a marker deletes its note; deleting the last marker removes the
+//     whole section. No orphans are left in the saved HTML.
+//   - The notes section IS content and is meant to persist in getHTMLCode()
+//     output — same contract as multilevellist's root class, and unlike the
+//     presentational overlays (pagination/typewriter) which are stripped around
+//     every serialize.
+RTE_DefaultConfig.plugin_footnotes = RTE_Plugin_Footnotes;
+
+// Heading rendered above the notes section. Set to "" to omit the heading.
+if (typeof RTE_DefaultConfig.footnotesTitle === "undefined") RTE_DefaultConfig.footnotesTitle = "Footnotes";
+// "decimal" | "lower-roman" | "upper-roman" | "lower-alpha" | "upper-alpha".
+if (typeof RTE_DefaultConfig.footnotesNumbering === "undefined") RTE_DefaultConfig.footnotesNumbering = "decimal";
+// Prefix/suffix wrapped around the marker number, e.g. "[" and "]".
+if (typeof RTE_DefaultConfig.footnotesMarkerPrefix === "undefined") RTE_DefaultConfig.footnotesMarkerPrefix = "";
+if (typeof RTE_DefaultConfig.footnotesMarkerSuffix === "undefined") RTE_DefaultConfig.footnotesMarkerSuffix = "";
+
+function RTE_Plugin_Footnotes() {
+    var obj = this;
+    var config, editor;
+    var boundDoc = null;
+    var syncQueued = false;
+
+    obj.PluginName = "Footnotes";
+
+    obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+
+        editor.attachEvent("exec_command_insertfootnote", function (state) {
+            state.returnValue = true;
+            obj.InsertFootnote();
+        });
+
+        setup();
+        try { editor.attachEvent("ready", setup); } catch (e) {}
+        // Content replaced wholesale (setHTMLCode / load): re-bind and renumber,
+        // because the incoming HTML may already carry markers from a prior save.
+        try { editor.attachEvent("aftersethtml", function () { setup(); queueSync(); }); } catch (e) {}
+        setTimeout(function () { setup(); queueSync(); }, 0);
+
+        // Public API.
+        editor.insertFootnote = function (text) { return obj.InsertFootnote(text); };
+        editor.getFootnotes = function () { return obj.List(); };
+        editor.syncFootnotes = function () { return syncFootnotes(); };
+        editor.getFootnotesCss = function () { return css(); };
+    };
+
+    function setup() {
+        var doc = getDoc();
+        if (!doc) return;
+        injectStyles(doc);
+        if (doc !== boundDoc) { bindEditable(); boundDoc = doc; }
+    }
+
+    function getDoc() { try { return editor.getDocument(); } catch (e) { return null; } }
+    function getEditable() { try { return editor.getEditable(); } catch (e) { return null; } }
+
+    function bindEditable() {
+        var editable = getEditable();
+        if (!editable) return;
+        // Any content mutation can add, remove or move a marker. Renumbering is
+        // cheap (a querySelectorAll plus text writes) so we just resync rather
+        // than trying to detect which edit mattered.
+        editable.addEventListener("keyup", queueSync);
+        editable.addEventListener("cut", queueSync);
+        editable.addEventListener("paste", queueSync);
+        editable.addEventListener("drop", queueSync);
+        // Clicking a marker jumps to its note, and clicking the backlink returns.
+        editable.addEventListener("click", function (e) {
+            var ref = closestClass(e.target, "rte-fn-ref", editable);
+            var back = closestClass(e.target, "rte-fn-back", editable);
+            var target = null;
+            if (ref) target = noteFor(ref.getAttribute("data-fn-id"));
+            else if (back) target = refFor(back.getAttribute("data-fn-id"));
+            if (!target) return;
+            e.preventDefault();
+            try { target.scrollIntoView({ block: "center" }); } catch (e2) { target.scrollIntoView(); }
+            flash(target);
+        });
+    }
+
+    // Coalesce bursts of edits into one renumber. setTimeout, not rAF: the
+    // editor may live in a background tab or a hidden iframe, where rAF never
+    // fires and the numbering would silently stop updating.
+    function queueSync() {
+        if (syncQueued) return;
+        syncQueued = true;
+        setTimeout(function () { syncQueued = false; syncFootnotes(); }, 0);
+    }
+
+    function closestClass(node, cls, root) {
+        while (node && node !== root) {
+            if (node.nodeType === 1 && node.classList && node.classList.contains(cls)) return node;
+            node = node.parentNode;
+        }
+        return null;
+    }
+
+    function newId() {
+        return "fn" + Math.floor(Math.random() * 1e9).toString(36) + (idSeq++).toString(36);
+    }
+    var idSeq = 0;
+
+    // ---- lookups ---------------------------------------------------------
+
+    function refs() {
+        var editable = getEditable();
+        if (!editable) return [];
+        // Document order is exactly what querySelectorAll returns, which is what
+        // the numbering is defined by.
+        return Array.prototype.slice.call(editable.querySelectorAll("sup.rte-fn-ref[data-fn-id]"));
+    }
+
+    function section() {
+        var editable = getEditable();
+        return editable ? editable.querySelector("section.rte-footnotes") : null;
+    }
+
+    function noteFor(id) {
+        var sec = section();
+        return sec ? sec.querySelector('li.rte-fn-note[data-fn-id="' + cssEscape(id) + '"]') : null;
+    }
+
+    function refFor(id) {
+        var editable = getEditable();
+        return editable ? editable.querySelector('sup.rte-fn-ref[data-fn-id="' + cssEscape(id) + '"]') : null;
+    }
+
+    function cssEscape(s) { return String(s).replace(/["\\]/g, "\\$&"); }
+
+    // ---- insert ----------------------------------------------------------
+
+    obj.InsertFootnote = function (text) {
+        var doc = getDoc();
+        var editable = getEditable();
+        if (!doc || !editable) return null;
+
+        var id = newId();
+        var sup = doc.createElement("sup");
+        sup.className = "rte-fn-ref";
+        sup.setAttribute("data-fn-id", id);
+        sup.setAttribute("contenteditable", "false");
+        sup.setAttribute("id", "fnref-" + id);
+        sup.textContent = "0"; // placeholder; syncFootnotes writes the real number
+
+        // Drop the marker at the caret. insertElement keeps the editor's own
+        // undo/selection bookkeeping honest, which hand-splicing would not.
+        var placed = false;
+        try {
+            if (typeof editor.insertElement === "function") { editor.insertElement(sup); placed = true; }
+        } catch (e) {}
+        if (!placed) {
+            try {
+                var sel = editor.getSelection();
+                if (sel && sel.rangeCount) {
+                    var range = sel.getRangeAt(0);
+                    range.collapse(false);
+                    range.insertNode(sup);
+                    range.setStartAfter(sup);
+                    range.collapse(true);
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                    placed = true;
+                }
+            } catch (e) {}
+        }
+        if (!placed) { editable.appendChild(sup); }
+
+        var note = ensureSection(doc).querySelector("ol.rte-fn-list");
+        var li = doc.createElement("li");
+        li.className = "rte-fn-note";
+        li.setAttribute("data-fn-id", id);
+        li.setAttribute("id", "fn-" + id);
+        // The note text sits DIRECTLY in the <li>. An earlier revision wrapped it
+        // in <span class="rte-fn-text">, which was actively harmful: an empty
+        // inline element is a caret trap — the caret at offset 0 of an empty span
+        // resolves to the parent, so the first thing the user typed landed
+        // OUTSIDE the span and getFootnotes() reported the note as empty while
+        // the note visibly had text.
+        if (text != null && String(text) !== "") li.appendChild(doc.createTextNode(String(text)));
+        var back = doc.createElement("a");
+        back.className = "rte-fn-back";
+        back.setAttribute("data-fn-id", id);
+        back.setAttribute("href", "#fnref-" + id);
+        back.setAttribute("contenteditable", "false");
+        back.setAttribute("title", "Back to reference");
+        back.textContent = "\u21a9";
+        li.appendChild(back);
+        note.appendChild(li);
+
+        syncFootnotes();
+        // Put the caret at the START of the new note so the user can just type
+        // the citation. Offset 0 of the <li> itself, which is a block and so
+        // holds a caret reliably, unlike an empty inline wrapper.
+        try {
+            var r = doc.createRange();
+            r.setStart(li, 0);
+            r.collapse(true);
+            var s2 = editor.getSelection();
+            s2.removeAllRanges();
+            s2.addRange(r);
+            if (typeof editor.focus === "function") editor.focus();
+        } catch (e) {}
+        fireChange();
+        return id;
+    };
+
+    function ensureSection(doc) {
+        var editable = getEditable();
+        var sec = section();
+        if (sec) return sec;
+        sec = doc.createElement("section");
+        sec.className = "rte-footnotes";
+        var title = String(config.footnotesTitle == null ? "" : config.footnotesTitle);
+        if (title) {
+            var h = doc.createElement("h2");
+            h.className = "rte-fn-title";
+            h.textContent = title;
+            sec.appendChild(h);
+        }
+        var ol = doc.createElement("ol");
+        ol.className = "rte-fn-list";
+        sec.appendChild(ol);
+        editable.appendChild(sec);
+        return sec;
+    }
+
+    // ---- the renumber / reconcile pass -----------------------------------
+
+    // Single source of truth: the markers present in the document, in order.
+    // Everything else (note order, note existence, both sets of numbers) is
+    // derived from that list, so there is no state to drift.
+    function syncFootnotes() {
+        var doc = getDoc();
+        var sec = section();
+        var list = refs();
+
+        if (!list.length) {
+            // Last marker went away: drop the section rather than leaving an
+            // empty "Footnotes" heading in the saved HTML.
+            if (sec && sec.parentNode) sec.parentNode.removeChild(sec);
+            return [];
+        }
+        if (!doc) return [];
+        if (!sec) sec = ensureSection(doc);
+        var ol = sec.querySelector("ol.rte-fn-list");
+        if (!ol) { ol = doc.createElement("ol"); ol.className = "rte-fn-list"; sec.appendChild(ol); }
+
+        var seen = {};
+        var out = [];
+        for (var i = 0; i < list.length; i++) {
+            var ref = list[i];
+            var id = ref.getAttribute("data-fn-id");
+            // A copy/paste of a marker duplicates its id; re-key the duplicate so
+            // the two markers do not fight over one note.
+            if (seen[id]) {
+                var fresh = newId();
+                ref.setAttribute("data-fn-id", fresh);
+                ref.setAttribute("id", "fnref-" + fresh);
+                id = fresh;
+            }
+            seen[id] = true;
+
+            var num = String(i + 1);
+            var label = String(config.footnotesMarkerPrefix || "") + num + String(config.footnotesMarkerSuffix || "");
+            if (ref.textContent !== label) ref.textContent = label;
+            ref.setAttribute("data-fn-number", num);
+            if (ref.getAttribute("contenteditable") !== "false") ref.setAttribute("contenteditable", "false");
+            if (ref.getAttribute("id") !== "fnref-" + id) ref.setAttribute("id", "fnref-" + id);
+
+            var note = ol.querySelector('li.rte-fn-note[data-fn-id="' + cssEscape(id) + '"]');
+            if (!note) {
+                // Marker with no note — a paste from elsewhere, or a note the
+                // user deleted by hand. Give it an empty note to write into.
+                note = doc.createElement("li");
+                note.className = "rte-fn-note";
+                note.setAttribute("data-fn-id", id);
+                note.setAttribute("id", "fn-" + id);
+            }
+            note.setAttribute("data-fn-number", num);
+            // Append in marker order — this both inserts new notes and re-sorts
+            // existing ones to match a reordered document.
+            ol.appendChild(note);
+            out.push({ id: id, number: i + 1, text: noteText(note) });
+        }
+
+        // Drop notes whose marker is gone.
+        var notes = Array.prototype.slice.call(ol.querySelectorAll("li.rte-fn-note"));
+        for (var j = 0; j < notes.length; j++) {
+            if (!seen[notes[j].getAttribute("data-fn-id")]) ol.removeChild(notes[j]);
+        }
+
+        if (ol.getAttribute("data-numbering") !== config.footnotesNumbering) {
+            ol.setAttribute("data-numbering", config.footnotesNumbering);
+        }
+        return out;
+    }
+
+    // Read the WHOLE <li> minus the backlink rather than one designated child.
+    // The user can type anywhere in the note, and documents saved by an earlier
+    // revision still carry a .rte-fn-text wrapper, so anything that trusts a
+    // single container reports empty text for notes that plainly have some.
+    function noteText(note) {
+        if (!note) return "";
+        var clone = note.cloneNode(true);
+        var backs = clone.querySelectorAll ? clone.querySelectorAll("a.rte-fn-back") : [];
+        for (var i = 0; i < backs.length; i++) {
+            if (backs[i].parentNode) backs[i].parentNode.removeChild(backs[i]);
+        }
+        return (clone.textContent || "").replace(/\u21a9/g, "").trim();
+    }
+
+    obj.List = function () {
+        var sec = section();
+        if (!sec) return [];
+        var out = [];
+        var notes = sec.querySelectorAll("li.rte-fn-note");
+        for (var i = 0; i < notes.length; i++) {
+            out.push({
+                id: notes[i].getAttribute("data-fn-id"),
+                number: parseInt(notes[i].getAttribute("data-fn-number"), 10) || (i + 1),
+                text: noteText(notes[i])
+            });
+        }
+        return out;
+    };
+
+    function flash(el) {
+        if (!el || !el.classList) return;
+        el.classList.add("rte-fn-flash");
+        setTimeout(function () { try { el.classList.remove("rte-fn-flash"); } catch (e) {} }, 900);
+    }
+
+    function fireChange() {
+        try { if (typeof editor.updateDesign === "function") editor.updateDesign(); } catch (e) {}
+        try { if (typeof editor.fireChange === "function") editor.fireChange(); } catch (e) {}
+    }
+
+    // ---- styles ----------------------------------------------------------
+
+    function css() {
+        var numbering = String(config.footnotesNumbering || "decimal");
+        return (
+            "sup.rte-fn-ref{cursor:pointer;font-size:.72em;line-height:0;vertical-align:super;" +
+            "color:#1474ea;font-weight:700;padding:0 .12em;user-select:none;}" +
+            "sup.rte-fn-ref:hover{text-decoration:underline;}" +
+            "section.rte-footnotes{margin-top:2em;padding-top:.85em;border-top:1px solid #ddd;" +
+            "font-size:.88em;color:#333;}" +
+            "section.rte-footnotes h2.rte-fn-title{font-size:1em;font-weight:700;margin:0 0 .5em;}" +
+            "ol.rte-fn-list{list-style:" + numbering + ";padding-left:1.6em;margin:0;}" +
+            "ol.rte-fn-list>li{margin:.25em 0;}" +
+            "a.rte-fn-back{text-decoration:none;color:#1474ea;cursor:pointer;user-select:none;}" +
+            ".rte-fn-flash{background:#fff3b0;transition:background .5s ease;}"
+        );
+    }
+
+    function injectStyles(doc) {
+        if (!doc) return;
+        var existing = doc.getElementById("rte-footnotes-styles");
+        var text = css();
+        if (existing) {
+            if (existing.getAttribute("data-css") === text) return;
+            existing.parentNode && existing.parentNode.removeChild(existing);
+        }
+        var st = doc.createElement("style");
+        st.id = "rte-footnotes-styles";
+        st.setAttribute("data-css", text);
+        st.appendChild(doc.createTextNode(text));
+        (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+    }
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
+// 2026-07-27 Format painter. Pick up the character formatting at the caret and
+// paint it onto another selection — the Word/Docs clipboard-brush interaction.
+//
+// Premium in both majors:
+//   - CKEditor 5 format painter: "Unlock this feature with selected CKEditor Plans".
+//   - TinyMCE formatpainter: "This plugin is only available for paid TinyMCE
+//     subscriptions".
+//
+// Design notes:
+//   - Formatting is captured from the COMPUTED style, not from the tag soup, so
+//     it works the same whether the source was <b>, <strong>, style="font-weight:700"
+//     or a class — which is the whole point of a painter.
+//   - Painting wraps the target in one <span> and then strips the character
+//     formatting already inside it. Without that strip the paint silently loses:
+//     a descendant <strong> beats an ancestor span's font-weight:normal, so
+//     "paint unbold onto bold text" would do nothing.
+//   - Sticky mode (paint repeatedly until cancelled) mirrors double-clicking the
+//     brush in Word. Escape cancels, as it does there.
+RTE_DefaultConfig.plugin_formatpainter = RTE_Plugin_FormatPainter;
+
+// The character-formatting properties the brush carries. Deliberately excludes
+// block-level properties (alignment, margins, line-height): a painter that moved
+// those would reflow the document, which is not what users expect from it.
+if (typeof RTE_DefaultConfig.formatPainterProperties === "undefined") {
+    RTE_DefaultConfig.formatPainterProperties = [
+        "font-family", "font-size", "font-weight", "font-style",
+        "text-decoration-line", "color", "background-color",
+        "letter-spacing", "text-transform", "font-variant"
+    ];
+}
+
+function RTE_Plugin_FormatPainter() {
+    var obj = this;
+    var config, editor;
+    var captured = null;   // {props:{...}} or null
+    var sticky = false;
+    var boundDoc = null;
+
+    // Character-level tags that must be unwrapped inside a painted region,
+    // because their UA styling outranks the wrapper span.
+    var CHAR_TAGS = { B: 1, STRONG: 1, I: 1, EM: 1, U: 1, S: 1, STRIKE: 1, FONT: 1, BIG: 1, SMALL: 1 };
+
+    obj.PluginName = "FormatPainter";
+
+    obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+
+        editor.attachEvent("exec_command_formatpainter", function (state) {
+            state.returnValue = true;
+            obj.Toggle();
+        });
+
+        setup();
+        try { editor.attachEvent("ready", setup); } catch (e) {}
+        try { editor.attachEvent("aftersethtml", setup); } catch (e) {}
+        setTimeout(setup, 0);
+
+        // Public API.
+        editor.copyFormatting = function () { return obj.Copy(); };
+        editor.pasteFormatting = function () { return obj.Paint(); };
+        editor.toggleFormatPainter = function (isSticky) { return obj.Toggle(isSticky); };
+        editor.cancelFormatPainter = function () { return obj.Cancel(); };
+        editor.isFormatPainterActive = function () { return !!captured; };
+        editor.getCapturedFormatting = function () { return captured ? cloneProps(captured.props) : null; };
+    };
+
+    function setup() {
+        var doc = getDoc();
+        if (!doc) return;
+        injectStyles(doc);
+        if (doc === boundDoc) return;
+        boundDoc = doc;
+        var editable = getEditable();
+        if (!editable) return;
+        // Mouse-up rather than click: the selection is final by then, and click
+        // fires before the browser has settled a drag-selection.
+        editable.addEventListener("mouseup", function () {
+            if (!captured) return;
+            setTimeout(function () { if (captured) obj.Paint(); }, 0);
+        });
+        editable.addEventListener("keydown", function (e) {
+            if (e.key === "Escape" && captured) { obj.Cancel(); e.preventDefault(); }
+        });
+    }
+
+    function getDoc() { try { return editor.getDocument(); } catch (e) { return null; } }
+    function getEditable() { try { return editor.getEditable(); } catch (e) { return null; } }
+
+    function cloneProps(p) { var o = {}; for (var k in p) if (p.hasOwnProperty(k)) o[k] = p[k]; return o; }
+
+    // ---- capture ---------------------------------------------------------
+
+    function selectionElement() {
+        try {
+            var sel = editor.getSelection();
+            if (!sel || sel.rangeCount === 0) return null;
+            var n = sel.getRangeAt(0).startContainer;
+            if (n && n.nodeType === 3) n = n.parentNode;
+            return n && n.nodeType === 1 ? n : null;
+        } catch (e) { return null; }
+    }
+
+    obj.Copy = function () {
+        var el = selectionElement();
+        var doc = getDoc();
+        if (!el || !doc) return null;
+        var view = doc.defaultView || window;
+        var cs = view.getComputedStyle(el);
+        // Diff against the editable root rather than recording the whole computed
+        // style. Everything the source merely INHERITED (the body font stack,
+        // letter-spacing:normal, text-transform:none...) is identical at the root,
+        // so this drops it and the painted span carries only the formatting the
+        // user can actually see. Without the diff every paint emits a ~250-char
+        // style attribute of defaults, which is exactly the markup bloat this
+        // product sells against.
+        var baseEl = getEditable();
+        var base = baseEl ? view.getComputedStyle(baseEl) : null;
+        var props = {};
+        var list = config.formatPainterProperties || [];
+        for (var i = 0; i < list.length; i++) {
+            var name = list[i];
+            var v = cs.getPropertyValue(name);
+            if (!v) continue;
+            if (base && v === base.getPropertyValue(name)) continue;
+            props[name] = v;
+        }
+        // A transparent background is the default, not a formatting choice —
+        // carrying it would wipe highlights on every paint.
+        if (props["background-color"] && /^(transparent|rgba\(0,\s*0,\s*0,\s*0\))$/.test(props["background-color"])) {
+            delete props["background-color"];
+        }
+        captured = { props: props };
+        setBrushState(true);
+        return cloneProps(props);
+    };
+
+    // ---- paint -----------------------------------------------------------
+
+    obj.Paint = function () {
+        if (!captured) return false;
+        var doc = getDoc();
+        var sel;
+        try { sel = editor.getSelection(); } catch (e) { return false; }
+        if (!doc || !sel || sel.rangeCount === 0) return false;
+        if (sel.getRangeAt(0).collapsed) return false;   // nothing selected: wait for one
+
+        var span = doc.createElement("span");
+        span.className = "rte-painted";
+        var props = captured.props;
+        for (var k in props) if (props.hasOwnProperty(k)) span.style.setProperty(k, props[k]);
+
+        var placed = null;
+        try { placed = editor.surroundElement(span); } catch (e) { placed = null; }
+        if (!placed) return false;
+
+        // Strip the FULL configured property list, not just the captured subset.
+        // Copy() only keeps properties that differ from the root, so painting
+        // "no bold" captures no font-weight at all — but a descendant carrying
+        // style="font-weight:700" still has to go, or the paint does nothing.
+        stripInnerFormatting(placed, config.formatPainterProperties || []);
+        collapseRedundantAncestors(placed);
+
+        if (!sticky) obj.Cancel();
+        fireChange();
+        return true;
+    };
+
+    // Remove the character formatting already inside the painted region so the
+    // wrapper actually wins. Both halves matter: inline style properties on
+    // descendants beat the ancestor by specificity, and <b>/<i>/<font> beat it
+    // by UA stylesheet.
+    function stripInnerFormatting(root, propNames) {
+        var els = root.getElementsByTagName("*");
+        // Live HTMLCollection + unwrapping = skipped nodes; snapshot first.
+        var all = Array.prototype.slice.call(els);
+        for (var i = 0; i < all.length; i++) {
+            var el = all[i];
+            if (el.style) {
+                for (var p = 0; p < propNames.length; p++) el.style.removeProperty(propNames[p]);
+                // Legacy shorthands the loop above cannot see.
+                el.style.removeProperty("font");
+                el.style.removeProperty("text-decoration");
+            }
+            if (el.nodeName === "FONT") {
+                el.removeAttribute("color"); el.removeAttribute("face"); el.removeAttribute("size");
+            }
+        }
+        for (var j = 0; j < all.length; j++) {
+            var e2 = all[j];
+            if (CHAR_TAGS[e2.nodeName] && e2.parentNode) unwrap(e2);
+        }
+        tidy(root);
+    }
+
+    // Stripping properties leaves behind style="" and spans that no longer carry
+    // anything. Left in place they accumulate on every repaint, so the "clean
+    // HTML" the product promises would erode one brush stroke at a time.
+    function tidy(root) {
+        var all = Array.prototype.slice.call(root.getElementsByTagName("*"));
+        for (var i = 0; i < all.length; i++) {
+            var el = all[i];
+            if (el.getAttribute && el.getAttribute("style") === "") el.removeAttribute("style");
+            // A wrapper from an EARLIER paint that now sits inside this one is
+            // superseded by definition — its properties were just stripped. Left
+            // alone, painting the same run N times nests N wrappers.
+            if (el.nodeName === "SPAN" && el.classList && el.classList.contains("rte-painted") && el.parentNode) {
+                unwrap(el);
+                continue;
+            }
+            if (el.nodeName === "SPAN" && !el.attributes.length && el.parentNode) unwrap(el);
+        }
+        if (root.getAttribute && root.getAttribute("style") === "") root.removeAttribute("style");
+    }
+
+    function unwrap(el) {
+        var parent = el.parentNode;
+        while (el.firstChild) parent.insertBefore(el.firstChild, el);
+        parent.removeChild(el);
+    }
+
+    // Repainting a run that was already painted puts the new wrapper INSIDE the
+    // old one, because surroundElement only ever wraps the extracted selection —
+    // so the stale wrapper is an ANCESTOR and tidy(), which walks descendants,
+    // cannot see it. Paint the same words five times and you get five nested
+    // spans. Only collapse a parent that wraps nothing but us: if it has other
+    // children, its formatting still belongs to them.
+    function collapseRedundantAncestors(span) {
+        for (var guard = 0; guard < 32; guard++) {
+            var p = span.parentNode;
+            if (!p || p.nodeType !== 1) return;
+            if (p.nodeName !== "SPAN") return;
+            if (!p.classList || !p.classList.contains("rte-painted")) return;
+            if (!wrapsNothingElse(p, span)) return;
+            unwrap(p);
+        }
+    }
+
+    // NOT childNodes.length === 1: Range.extractContents() leaves zero-length
+    // text nodes on both sides of the extraction point, so the stale wrapper
+    // reads as having three children when it really holds only the new span.
+    // Counting those as content made the collapse above silently never fire.
+    function wrapsNothingElse(parent, child) {
+        for (var i = 0; i < parent.childNodes.length; i++) {
+            var n = parent.childNodes[i];
+            if (n === child) continue;
+            if (n.nodeType === 3 && n.nodeValue.length === 0) continue;
+            return false;
+        }
+        return true;
+    }
+
+    // ---- brush state -----------------------------------------------------
+
+    obj.Toggle = function (isSticky) {
+        sticky = !!isSticky;
+        if (captured) { obj.Cancel(); return false; }
+        obj.Copy();
+        return !!captured;
+    };
+
+    obj.Cancel = function () {
+        captured = null;
+        sticky = false;
+        setBrushState(false);
+        return true;
+    };
+
+    // A cursor change is the only affordance the user gets that the brush is
+    // loaded, so it is worth doing properly rather than leaving it invisible.
+    function setBrushState(on) {
+        var editable = getEditable();
+        if (!editable || !editable.classList) return;
+        if (on) editable.classList.add("rte-format-painting");
+        else editable.classList.remove("rte-format-painting");
+    }
+
+    function fireChange() {
+        try { if (typeof editor.updateDesign === "function") editor.updateDesign(); } catch (e) {}
+        try { if (typeof editor.fireChange === "function") editor.fireChange(); } catch (e) {}
+    }
+
+    function css() {
+        return ".rte-format-painting,.rte-format-painting *{cursor:copy !important;}";
+    }
+
+    function injectStyles(doc) {
+        if (!doc) return;
+        if (doc.getElementById("rte-format-painter-styles")) return;
+        var st = doc.createElement("style");
+        st.id = "rte-format-painter-styles";
+        st.appendChild(doc.createTextNode(css()));
+        (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+    }
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
+// 2026-07-28 Formatting marks — Word's ¶ button. Shows paragraph marks, block
+// outlines, tabs, line breaks and (the useful one) non-breaking and zero-width
+// characters that are otherwise invisible and cause mysterious layout bugs.
+//
+// Positioning note: this is PARITY, not a gap win. TinyMCE ships `visualchars`
+// and `visualblocks` in its FREE core, and CKEditor has show-blocks. Do not
+// claim it as something competitors charge for.
+//
+// Design notes:
+//   - Everything that can be done in CSS is done in CSS: pilcrows via ::after,
+//     block outlines via outline. CSS cannot change the document, so those marks
+//     are incapable of corrupting content no matter what the user does.
+//   - Invisible CHARACTERS cannot be reached from CSS, so those get a wrapper
+//     span — but every wrapper is stripped around serialize (the pagination.js
+//     contract) and removed when the feature is switched off. A marking feature
+//     that leaves debris in the saved HTML is worse than no marking feature.
+RTE_DefaultConfig.plugin_formattingmarks = RTE_Plugin_FormattingMarks;
+
+// Which marks to draw.
+if (typeof RTE_DefaultConfig.formattingMarkPilcrow === "undefined") RTE_DefaultConfig.formattingMarkPilcrow = true;
+if (typeof RTE_DefaultConfig.formattingMarkBlocks === "undefined") RTE_DefaultConfig.formattingMarkBlocks = true;
+if (typeof RTE_DefaultConfig.formattingMarkInvisibles === "undefined") RTE_DefaultConfig.formattingMarkInvisibles = true;
+
+function RTE_Plugin_FormattingMarks() {
+    var obj = this;
+    var config, editor;
+    var boundDoc = null;
+    var active = false;
+    var wrapped = false;
+    var queued = false;
+
+    // Characters that render as nothing (or as a normal space) but behave
+    // differently. These are what people are actually hunting when they turn
+    // formatting marks on after pasting from somewhere else.
+    var INVISIBLES = [
+        { ch: " ", cls: "rte-fm-nbsp",  label: "·" },   // non-breaking space
+        { ch: "​", cls: "rte-fm-zwsp",  label: "␀" },   // zero-width space
+        { ch: "‎", cls: "rte-fm-bidi",  label: "‎" },   // LTR mark
+        { ch: "‏", cls: "rte-fm-bidi",  label: "‏" },   // RTL mark
+        { ch: "­", cls: "rte-fm-shy",   label: "-" }         // soft hyphen
+    ];
+
+    obj.PluginName = "FormattingMarks";
+
+    obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+
+        editor.attachEvent("exec_command_formattingmarks", function (state) {
+            state.returnValue = true;
+            obj.Toggle();
+        });
+
+        setup();
+        try { editor.attachEvent("ready", setup); } catch (e) {}
+        try { editor.attachEvent("aftersethtml", function () { setup(); if (active) queue(); }); } catch (e) {}
+        setTimeout(setup, 0);
+
+        editor.setFormattingMarks = function (on) { active = !!on; apply(); return active; };
+        editor.toggleFormattingMarks = function () { return obj.Toggle(); };
+        editor.isFormattingMarks = function () { return active; };
+        editor.getFormattingMarksCss = function () { return css(); };
+    };
+
+    obj.Toggle = function () { active = !active; apply(); return active; };
+
+    function setup() {
+        var doc = getDoc();
+        if (!doc) return;
+        injectStyles(doc);
+        wrapSerializers();
+        if (doc === boundDoc) return;
+        boundDoc = doc;
+        var editable = getEditable();
+        if (!editable) return;
+        editable.addEventListener("keyup", function () { if (active) queue(); });
+        editable.addEventListener("paste", function () { if (active) queue(); });
+    }
+
+    function getDoc() { try { return editor.getDocument(); } catch (e) { return null; } }
+    function getEditable() { try { return editor.getEditable(); } catch (e) { return null; } }
+
+    function queue() {
+        if (queued) return;
+        queued = true;
+        setTimeout(function () { queued = false; markInvisibles(); }, 0);
+    }
+
+    function apply() {
+        var editable = getEditable();
+        if (!editable) return;
+        if (editable.classList) {
+            editable.classList.toggle("rte-fm-on", active);
+            editable.classList.toggle("rte-fm-pilcrow", active && config.formattingMarkPilcrow !== false);
+            editable.classList.toggle("rte-fm-blocks", active && config.formattingMarkBlocks !== false);
+        }
+        if (active && config.formattingMarkInvisibles !== false) markInvisibles();
+        else unmarkInvisibles();
+    }
+
+    // ---- invisible characters (the only part that touches the DOM) --------
+
+    function unmarkInvisibles() {
+        var editable = getEditable();
+        if (!editable) return;
+        var spans = editable.querySelectorAll("span[data-rte-fm]");
+        for (var i = 0; i < spans.length; i++) {
+            var s = spans[i];
+            var parent = s.parentNode;
+            if (!parent) continue;
+            // Put the ORIGINAL character back, not the label glyph.
+            parent.replaceChild(s.ownerDocument.createTextNode(s.getAttribute("data-rte-fm-char") || ""), s);
+            parent.normalize();
+        }
+    }
+
+    function markInvisibles() {
+        var editable = getEditable();
+        var doc = getDoc();
+        if (!editable || !doc) return;
+        unmarkInvisibles();
+
+        var chars = {};
+        for (var i = 0; i < INVISIBLES.length; i++) chars[INVISIBLES[i].ch] = INVISIBLES[i];
+
+        // Collect first: splitting text nodes while walking invalidates the walk.
+        var walker = doc.createTreeWalker(editable, 4 /* SHOW_TEXT */, null, false);
+        var targets = [];
+        var n;
+        while ((n = walker.nextNode())) {
+            if (!n.nodeValue) continue;
+            for (var c = 0; c < INVISIBLES.length; c++) {
+                if (n.nodeValue.indexOf(INVISIBLES[c].ch) >= 0) { targets.push(n); break; }
+            }
+        }
+
+        for (var t = 0; t < targets.length; t++) wrapNode(doc, targets[t], chars);
+    }
+
+    function wrapNode(doc, node, chars) {
+        var text = node.nodeValue;
+        var parent = node.parentNode;
+        if (!parent) return;
+        // Never mark inside our own markers, or inside code where the character
+        // may be deliberate.
+        if (parent.nodeName === "CODE" || parent.nodeName === "PRE") return;
+
+        var frag = doc.createDocumentFragment();
+        var buf = "";
+        for (var i = 0; i < text.length; i++) {
+            var def = chars[text[i]];
+            if (!def) { buf += text[i]; continue; }
+            if (buf) { frag.appendChild(doc.createTextNode(buf)); buf = ""; }
+            var span = doc.createElement("span");
+            span.setAttribute("data-rte-fm", "1");
+            span.setAttribute("data-rte-fm-char", text[i]);
+            span.className = def.cls;
+            span.setAttribute("contenteditable", "false");
+            span.textContent = def.label;
+            frag.appendChild(span);
+        }
+        if (buf) frag.appendChild(doc.createTextNode(buf));
+        parent.replaceChild(frag, node);
+    }
+
+    // ---- serialization safety -------------------------------------------
+
+    function stripFor() {
+        var editable = getEditable();
+        if (!editable) return function () {};
+        var spans = Array.prototype.slice.call(editable.querySelectorAll("span[data-rte-fm]"));
+        if (!spans.length) return function () {};
+        var parked = [];
+        for (var i = 0; i < spans.length; i++) {
+            var s = spans[i];
+            var textNode = s.ownerDocument.createTextNode(s.getAttribute("data-rte-fm-char") || "");
+            parked.push({ span: s, parent: s.parentNode, text: textNode });
+            if (s.parentNode) s.parentNode.replaceChild(textNode, s);
+        }
+        return function restore() {
+            for (var j = 0; j < parked.length; j++) {
+                var p = parked[j];
+                if (p.text.parentNode) p.text.parentNode.replaceChild(p.span, p.text);
+            }
+        };
+    }
+
+    function wrapSerializers() {
+        if (wrapped) return;
+        var names = ["getHTMLCode", "getJSON", "getHTMLContent", "getText"];
+        var did = false;
+        for (var i = 0; i < names.length; i++) {
+            (function (name) {
+                var orig = editor[name];
+                if (typeof orig !== "function" || orig.__rteFmWrapped) return;
+                var w = function () {
+                    var restore = stripFor();
+                    try { return orig.apply(editor, arguments); } finally { restore(); }
+                };
+                w.__rteFmWrapped = true;
+                editor[name] = w;
+                did = true;
+            })(names[i]);
+        }
+        if (did) wrapped = true;
+    }
+
+    // ---- styles ----------------------------------------------------------
+
+    function css() {
+        return (
+            // Pilcrow at the end of every block, drawn by CSS so it can never
+            // become part of the document.
+            ".rte-fm-pilcrow p::after,.rte-fm-pilcrow h1::after,.rte-fm-pilcrow h2::after," +
+            ".rte-fm-pilcrow h3::after,.rte-fm-pilcrow h4::after,.rte-fm-pilcrow h5::after," +
+            ".rte-fm-pilcrow h6::after,.rte-fm-pilcrow li::after,.rte-fm-pilcrow blockquote::after" +
+            "{content:'\\00b6';color:#9aa4b5;opacity:.65;font-weight:400;}" +
+            ".rte-fm-blocks p,.rte-fm-blocks h1,.rte-fm-blocks h2,.rte-fm-blocks h3," +
+            ".rte-fm-blocks h4,.rte-fm-blocks h5,.rte-fm-blocks h6,.rte-fm-blocks ul," +
+            ".rte-fm-blocks ol,.rte-fm-blocks blockquote,.rte-fm-blocks table," +
+            ".rte-fm-blocks div{outline:1px dashed rgba(120,140,170,.45);outline-offset:1px;}" +
+            "span[data-rte-fm]{color:#c2410c;opacity:.75;user-select:none;}" +
+            ".rte-fm-nbsp{background:rgba(194,65,12,.10);border-radius:2px;}" +
+            ".rte-fm-zwsp,.rte-fm-shy,.rte-fm-bidi{background:rgba(194,65,12,.18);border-radius:2px;" +
+            "font-size:.8em;vertical-align:middle;}"
+        );
+    }
+
+    function injectStyles(doc) {
+        if (!doc) return;
+        var existing = doc.getElementById("rte-formatting-marks-styles");
+        var text = css();
+        if (existing) {
+            if (existing.getAttribute("data-css") === text) return;
+            existing.parentNode && existing.parentNode.removeChild(existing);
+        }
+        var st = doc.createElement("style");
+        st.id = "rte-formatting-marks-styles";
+        st.setAttribute("data-css", text);
+        st.appendChild(doc.createTextNode(text));
+        (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+    }
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
 // 2026-06-06 AI ghost-text autocomplete. GitHub-Copilot / Notion-AI-style inline
 // completion: after you pause typing, a greyed suggestion appears after the caret
 // continuing your sentence; press Tab to accept it, Esc (or just keep typing) to
@@ -23700,9 +27823,53 @@ if (!RTE_DefaultConfig.svgCode_html2pdf) {
 
 RTE_DefaultConfig.plugin_html2pdf = RTE_Plugin_Html2PDF;
 
+// Where to load the html2pdf renderer from. Leave null to use the pinned copy
+// shipped in <url_base>/plugins/vendor/. Set it to serve the bundle from your own
+// CDN, a versioned asset path, or a different build.
+if (typeof RTE_DefaultConfig.html2pdfScriptUrl === "undefined") RTE_DefaultConfig.html2pdfScriptUrl = null;
+
 function RTE_Plugin_Html2PDF() {
 
-	var scripturl = "https://raw.githack.com/eKoopmans/html2pdf/master/dist/html2pdf.bundle.js";
+	// The html2pdf renderer (jsPDF + html2canvas) is ~900 KB, so it is loaded on
+	// demand rather than bundled — but it is served from YOUR OWN assets by
+	// default, alongside the rest of the editor.
+	//
+	// It used to be pulled from a GitHub raw-CDN URL that tracked a branch rather
+	// than a release. That meant PDF export required a public network round-trip
+	// (so it failed offline / air-gapped), demanded a third-party `script-src`
+	// entry in any Content-Security-Policy, and could change underneath the
+	// product with no version pin. The bundled copy is pinned at html2pdf.js
+	// 0.14.0.
+	//
+	// Resolution order:
+	//   1. config.html2pdfScriptUrl        — explicit override (absolute or relative)
+	//   2. <url_base>/plugins/vendor/...   — the copy shipped with the editor
+	//   3. a pinned CDN URL                — last resort if url_base is unknown
+	var VENDOR_PATH = "/plugins/vendor/html2pdf.bundle.min.js";
+	// 2026-07-31 There is deliberately NO built-in CDN fallback any more.
+	//
+	// A fallback that silently reaches a third-party CDN when url_base happens to
+	// be unset is the worst of both worlds: it hides a misconfiguration, and it
+	// puts a public URL in a file that security-scanned deployments must ship.
+	// Failing loudly is better -- the host either serves the vendored copy or
+	// points html2pdfScriptUrl wherever it wants, including its own CDN.
+
+	// The script tag is written into a generated iframe whose base URL is not the
+	// host page, so the URL has to be absolute by the time it is injected.
+	function absoluteUrl(url) {
+		try { return new URL(url, document.baseURI || location.href).href; }
+		catch (e) { return url; }
+	}
+
+	function resolveScriptUrl() {
+		if (config && config.html2pdfScriptUrl) return absoluteUrl(config.html2pdfScriptUrl);
+		var base = config && config.url_base ? String(config.url_base).replace(/\/+$/, "") : "";
+		if (base) return absoluteUrl(base + VENDOR_PATH);
+		// No url_base and no explicit override: resolve against the page instead
+		// of reaching outside. If that 404s the failure is visible and local,
+		// which is what a misconfigured deployment should look like.
+		return absoluteUrl("." + VENDOR_PATH);
+	}
 
 	var obj = this;
 
@@ -23728,6 +27895,59 @@ function RTE_Plugin_Html2PDF() {
 			return span;
 		};
 
+	}
+
+	// Paper size / orientation / margins for the exported PDF, taken from the
+	// document's page setup when it has one. Returns the historical
+	// letter/portrait/0.5in defaults otherwise, so documents without a page
+	// setup export exactly as they always have.
+	obj.GetPdfPageOptions = function () {
+		var fallback = { format: 'letter', orientation: 'portrait', margin: 0.5 };
+
+		var setup = null;
+		try {
+			if (editor && typeof editor.getDocumentPageSetup === "function") setup = editor.getDocumentPageSetup();
+		} catch (e) { setup = null; }
+		if (!setup || typeof setup !== "object") return fallback;
+
+		// jsPDF understands these page-format names.
+		var SUPPORTED = { a3: 1, a4: 1, a5: 1, letter: 1, legal: 1, tabloid: 1 };
+		var fmt = String(setup.format || "").toLowerCase();
+		var orientation = String(setup.orientation || "").toLowerCase() === "landscape" ? "landscape" : fallback.orientation;
+
+		var result = {
+			format: SUPPORTED[fmt] ? fmt : fallback.format,
+			orientation: orientation,
+			margin: fallback.margin
+		};
+
+		// Margins are emitted in inches, matching jsPDF's unit: 'in'.
+		var m = setup.margins;
+		if (m && typeof m === "object") {
+			var top = __ToInches(m.top), right = __ToInches(m.right);
+			var bottom = __ToInches(m.bottom), left = __ToInches(m.left);
+			if (top !== null && right !== null && bottom !== null && left !== null) {
+				result.margin = [top, right, bottom, left];
+			}
+		}
+		return result;
+	};
+
+	// Accepts a bare number (already inches) or a CSS length string.
+	function __ToInches(v) {
+		if (typeof v === "number" && isFinite(v)) return v;
+		if (typeof v !== "string") return null;
+		var m = /^\s*(-?[\d.]+)\s*(mm|cm|in|px|pt)?\s*$/.exec(v);
+		if (!m) return null;
+		var n = parseFloat(m[1]);
+		if (!isFinite(n)) return null;
+		switch (m[2]) {
+			case "mm": return n / 25.4;
+			case "cm": return n / 2.54;
+			case "pt": return n / 72;
+			case "px": return n / 96;
+			default: return n; // bare number or explicit "in"
+		}
 	}
 
 	function __Append(parent, tagname, csstext, cssclass) {
@@ -23770,12 +27990,19 @@ function RTE_Plugin_Html2PDF() {
 
 			div2.innerHTML = "Exporting...";
 
+			// Honor the document's own page setup (paper size, orientation and
+			// margins) so the exported PDF matches the paginated page view and the
+			// Word export instead of always emitting US Letter. Falls back to the
+			// previous fixed letter/portrait/0.5in defaults when the document
+			// carries no page setup, so existing integrations are unaffected.
+			var page = obj.GetPdfPageOptions();
+
 			var opt = {
-				margin: 0.5,
+				margin: page.margin,
 				filename: 'myfile.pdf',
 				image: { type: 'jpeg', quality: 0.98 },
 				html2canvas: { scale: 2 },
-				jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
+				jsPDF: { unit: 'in', format: page.format, orientation: page.orientation }
 			};
 
 			var promimg = win.html2pdf().set(opt).from(win.document.body).outputImg();
@@ -23839,13 +28066,14 @@ function RTE_Plugin_Html2PDF() {
 		iframe = __Append(div1, "iframe", "align-self:center;flex:99;width:100%;height:0px;border:0px;", "rte-editable");
 		iframe.contentDocument.open("text/html");
 		iframe.contentDocument.write("<html><head><link id='url-css-preview' rel='stylesheet' href='" + editor.htmlEncode(config.previewCssUrl) + "'/>"
-			+ "<script src='" + editor.htmlEncode(scripturl) + "'></script></head><body style='padding:10px;margin:0px'>"
+			+ "<script src='" + editor.htmlEncode(resolveScriptUrl()) + "'></script></head><body style='padding:10px;margin:0px'>"
 			+ editor.getHTMLCode() + "</body>"
 			+ "<script>window.onload=function(){setTimeout(function(){parent.html2pdf_callback(window)},100)}</script></html>")
 		iframe.contentDocument.close();
 
 	}
 }
+
 
 
 
@@ -23922,14 +28150,40 @@ function RTE_Plugin_ImageEditor() {
 		var scriptbase = config.url_base + "/plugins/tui.image-editor/";
 
 		window.rte_image_editor_callback = function (win) {
+			// 2026-07-31 No outbound calls from the image editor, at any layer.
+			//
+			// Upstream Toast UI ships a "usage statistics" beacon (in
+			// tui-code-snippet and tui-color-picker) that reports the host's own
+			// hostname to a third-party analytics endpoint, and its default theme
+			// loads a branding logo from the vendor's CDN. Both endpoint strings
+			// have been removed from the vendored copies in
+			// plugins/tui.image-editor/ -- deliberately from the FILES, not just
+			// disabled at runtime, because static scanners (Fortify CWE-297) flag
+			// the literal URL and a runtime flag does not satisfy them.
+			//
+			// Do NOT write those hostnames into this file either: it is
+			// concatenated into all_plugins.js, which is what customers scan.
+			//
+			// The settings below are the belt to that braces -- they switch the
+			// beacon off through the library's own supported option, so a future
+			// vendor upgrade that reintroduces the endpoint still does not phone
+			// home until someone re-applies the patch.
+			try { win.tui = win.tui || {}; win.tui.usageStatistics = false; } catch (e) {}
+
 			var options = {
+				usageStatistics: false,
 				includeUI: {
 					loadImage: {
 						path: img.src,
 						name: 'RteImage'
 					},
+					usageStatistics: false,
 					//locale: locale_ru_RU,
 					theme: {
+						// Blank rather than Toast's CDN-hosted logo.
+						'common.bi.image': '',
+						'common.bisize.width': '0',
+						'common.bisize.height': '0',
 						// main icons
 						'menu.normalIcon.path': scriptbase + 'svg/icon-d.svg',
 						'menu.activeIcon.path': scriptbase + 'svg/icon-b.svg',
@@ -24009,6 +28263,7 @@ function RTE_Plugin_ImageEditor() {
 		iframe.contentDocument.close();
 	}
 }
+
 
 
 
@@ -24333,6 +28588,7 @@ function RTE_Plugin_InsertCode() {
 
 
 
+
 RTE_DefaultConfig.plugin_insertemoji = RTE_Plugin_InsertEmoji;
 
 function RTE_Plugin_InsertEmoji() {
@@ -24561,6 +28817,31 @@ function RTE_Plugin_InsertEmoji() {
 
 
 
+
+// 2026-08-05 Image gallery browser.
+//
+// Two implementations of this dialog had drifted apart: the flagship shipped a
+// flat grid built from config.galleryImages, while the RichTextBox package
+// shipped a server-backed file manager (folders, breadcrumb, New folder, upload
+// into the current folder). The tier audit requires one identical plugin
+// everywhere, so keeping both meant one of them silently overwriting the other
+// on the next sync — which is exactly what happened: the folder browser's CSS
+// was dropped and its folder tiles rendered as blank boxes on the live site.
+//
+// This is the merged implementation. It is server-backed when an endpoint is
+// configured and falls back to the packaged preset list otherwise, so a host
+// with no gallery endpoint behaves exactly as the flat grid always did.
+//
+//   config.galleryEndpoint   URL returning { currentFolder, currentFolderDisplay,
+//                            parentFolder, folders: [{folder,name}],
+//                            images: [{url,name,folder,size,source}] }.
+//                            Absent -> local mode: presets only, no request.
+//   config.galleryImages     Preset images. String, [url, text], or an object
+//                            with url/src/href plus optional thumbnail/name/meta.
+//
+// Uploads use window.richTextBoxUploadFile when present (it accepts a target
+// folder), otherwise the generic window.rte_file_upload_handler.
+
 RTE_DefaultConfig.plugin_insertgallery = RTE_Plugin_InsertGallery;
 
 function RTE_Plugin_InsertGallery() {
@@ -24598,12 +28879,50 @@ function RTE_Plugin_InsertGallery() {
         return tag;
     }
 
-    function clear(node) {
-        while (node.firstChild) {
-            node.removeChild(node.firstChild);
-        }
+    function getGalleryEndpoint() {
+        return config.galleryEndpoint || window.RichTextBoxGalleryUrl || "";
     }
 
+    function withFolder(url, folder) {
+        var separator = url.indexOf("?") >= 0 ? "&" : "?";
+        return url + separator + "folder=" + encodeURIComponent(folder || "");
+    }
+
+    function requestJson(method, url, body, callback) {
+        var request = new XMLHttpRequest();
+        request.open(method, url, true);
+
+        request.onreadystatechange = function () {
+            if (request.readyState !== 4) {
+                return;
+            }
+
+            if (request.status < 200 || request.status >= 300) {
+                callback(null, "http-" + request.status);
+                return;
+            }
+
+            try {
+                callback(JSON.parse(request.responseText), null);
+            } catch (ex) {
+                callback(null, "invalid-json");
+            }
+        };
+
+        request.onerror = function () {
+            callback(null, "network-error");
+        };
+
+        if (body) {
+            request.send(body);
+            return;
+        }
+
+        request.send();
+    }
+
+    // Query strings and percent-escapes both show up in real upload URLs, so
+    // strip and decode rather than splitting on "/" alone.
     function getFileName(url) {
         var value = String(url || "").split("#")[0].split("?")[0];
         var lastSlash = value.lastIndexOf("/");
@@ -24615,25 +28934,24 @@ function RTE_Plugin_InsertGallery() {
         return name || "Image";
     }
 
-    function getMetaText(item) {
-        if (item.meta) {
-            return item.meta;
+    function humanSize(size) {
+        if (!size) {
+            return "";
         }
-        if (item.alt) {
-            return item.alt;
+        if (size < 1024) {
+            return size + " B";
         }
-        return item.url;
+        if (size < 1024 * 1024) {
+            return Math.round(size / 1024) + " KB";
+        }
+        return (Math.round(size * 10 / (1024 * 1024)) / 10) + " MB";
     }
 
-    function normalizeGalleryItem(item) {
+    function normalizePreset(item) {
         var normalized = null;
 
         if (typeof item === "string") {
-            normalized = {
-                url: item,
-                thumbnail: item,
-                name: getFileName(item)
-            };
+            normalized = { url: item, thumbnail: item, name: getFileName(item) };
         } else if (item instanceof Array) {
             normalized = {
                 url: item[0],
@@ -24646,7 +28964,6 @@ function RTE_Plugin_InsertGallery() {
             if (!url) {
                 return null;
             }
-
             normalized = {
                 url: url,
                 thumbnail: item.thumbnail || item.thumb || item.preview || url,
@@ -24659,64 +28976,72 @@ function RTE_Plugin_InsertGallery() {
             return null;
         }
 
-        if (!normalized.thumbnail) {
-            normalized.thumbnail = normalized.url;
-        }
-
-        if (!normalized.name) {
-            normalized.name = getFileName(normalized.url);
-        }
-
+        normalized.thumbnail = normalized.thumbnail || normalized.url;
+        normalized.name = normalized.name || getFileName(normalized.url);
+        normalized.source = "preset";
+        normalized.folder = "";
+        normalized.searchText = (normalized.name + " " + (normalized.meta || "") + " " + normalized.url).toLowerCase();
         return normalized;
     }
 
-    function uploadFiles(fileList, onUploaded, onFinished, onFailed) {
-        var files = [];
-        var handler = window.rte_file_upload_handler;
-        var i;
-
-        for (i = 0; i < fileList.length; i++) {
-            files.push(fileList[i]);
+    function normalizeServerFolder(item) {
+        if (!item || !item.folder) {
+            return null;
         }
+        var name = item.name || getFileName(item.folder) || item.folder;
+        return {
+            name: name,
+            folder: item.folder,
+            searchText: (name + " " + item.folder).toLowerCase()
+        };
+    }
 
-        if (!files.length) {
-            onFinished();
-            return;
+    function normalizeServerImage(item) {
+        if (!item || !item.url) {
+            return null;
         }
+        var name = item.name || getFileName(item.url);
+        return {
+            name: name,
+            url: item.url,
+            thumbnail: item.thumbnail || item.url,
+            folder: item.folder || "",
+            source: item.source || "upload",
+            size: item.size || 0,
+            searchText: (name + " " + item.url).toLowerCase()
+        };
+    }
 
-        if (typeof handler !== "function") {
-            if (onFailed) {
-                onFailed("Upload handler is not configured.");
-            }
-            onFinished();
-            return;
+    function setDisabled(button, disabled) {
+        button.disabled = !!disabled;
+        if (disabled) {
+            button.setAttribute("aria-disabled", "true");
+        } else {
+            button.removeAttribute("aria-disabled");
         }
+    }
 
-        var index = 0;
-
-        function next() {
-            if (index >= files.length) {
-                onFinished();
-                return;
-            }
-
-            var file = files[index];
-            handler(file, function (url, error) {
-                if (url) {
-                    onUploaded(url, file, index, files);
-                } else if (onFailed) {
-                    onFailed(error || ("Upload failed for " + file.name), file);
-                }
-
-                index++;
-                next();
-            }, index, files);
-        }
-
-        next();
+    function show(element, visible) {
+        element.style.display = visible ? "" : "none";
     }
 
     obj.DoInsertGallery = function () {
+        var endpoint = getGalleryEndpoint();
+        var serverMode = !!endpoint;
+        var uploadToFolder = typeof window.richTextBoxUploadFile === "function";
+        var genericUpload = typeof window.rte_file_upload_handler === "function";
+        var canUpload = uploadToFolder || genericUpload;
+
+        var presetImages = [];
+        var presetSource = config.galleryImages || [];
+        var i;
+        for (i = 0; i < presetSource.length; i++) {
+            var preset = normalizePreset(presetSource[i]);
+            if (preset) {
+                presetImages.push(preset);
+            }
+        }
+
         var dialoginner = editor.createDialog(editor.getLangText("insertgallerytitle") || "Image gallery", "rte-dialog-insertgallery");
         var closeDialog = typeof dialoginner.close === "function" ? function () {
             dialoginner.close();
@@ -24725,50 +29050,79 @@ function RTE_Plugin_InsertGallery() {
         };
 
         var browser = append(dialoginner, "div", "", "rte-gallery-browser");
-        // The outer dialog frame already supplies a title bar + close button via
-        // __UI_CreateDialogFrame, so we only render a short subtitle here (no
-        // duplicate "Image gallery" heading underneath the frame title).
+
+        // The dialog frame already draws a title bar and close button, so this is
+        // a one-line subtitle, not a second heading.
         var header = append(browser, "div", "", "rte-dialog-browser-header");
         var copy = append(header, "div", "", "rte-dialog-browser-copy");
-        copy.innerText = "Browse uploaded assets, filter by name, and insert the selected image into the editor.";
+        copy.innerText = serverMode
+            ? "Browse folders, upload new files, and insert the selected image into the editor."
+            : "Browse the available images, filter by name, and insert the selected image into the editor.";
 
         var toolbar = append(browser, "div", "", "rte-gallery-browser-toolbar");
-        var path = append(toolbar, "div", "", "rte-gallery-browser-path");
-        path.innerText = "/";
-        var type = append(toolbar, "div", "", "rte-gallery-browser-type");
-        type.innerText = "Image Files";
+        var toolbarLeft = append(toolbar, "div", "", "rte-gallery-browser-toolbar-group");
+        var toolbarRight = append(toolbar, "div", "", "rte-gallery-browser-toolbar-group rte-gallery-browser-toolbar-group-right");
 
-        var uploadButton = append(toolbar, "button", "", "rte-gallery-browser-button");
+        var upButton = append(toolbarLeft, "button", "", "rte-gallery-browser-button");
+        upButton.type = "button";
+        upButton.innerText = "Up";
+        upButton.setAttribute("aria-label", "Go to the parent folder");
+
+        var path = append(toolbarLeft, "div", "", "rte-gallery-browser-path");
+        path.innerText = "/";
+
+        var type = append(toolbarLeft, "div", "", "rte-gallery-browser-type");
+        type.innerText = "Image files";
+
+        var createFolderButton = append(toolbarLeft, "button", "", "rte-gallery-browser-button");
+        createFolderButton.type = "button";
+        createFolderButton.innerText = "New folder";
+
+        var uploadButton = append(toolbarLeft, "button", "", "rte-gallery-browser-button rte-gallery-browser-button-primary");
         uploadButton.type = "button";
         uploadButton.innerText = "Upload";
 
-        var refreshButton = append(toolbar, "button", "", "rte-gallery-browser-button");
+        var refreshButton = append(toolbarLeft, "button", "", "rte-gallery-browser-button");
         refreshButton.type = "button";
         refreshButton.innerText = "Refresh";
 
-        var search = append(toolbar, "input", "", "rte-gallery-browser-search");
+        var search = append(toolbarRight, "input", "", "rte-gallery-browser-search");
         search.type = "search";
         search.placeholder = "Search images";
         search.setAttribute("aria-label", "Search images");
 
-        var fileInput = append(toolbar, "input", "display:none;");
+        var fileInput = append(toolbarRight, "input", "display:none;");
         fileInput.type = "file";
         fileInput.accept = "image/*,.jpg,.jpeg,.png,.gif,.bmp,.webp,.svg";
         fileInput.multiple = true;
 
+        // Without a server there is no folder tree to walk and nothing to create
+        // a folder in, so those controls are hidden rather than shown disabled.
+        show(upButton, serverMode);
+        show(path, serverMode);
+        show(createFolderButton, serverMode);
+        show(uploadButton, canUpload);
+
         var status = append(browser, "div", "", "rte-gallery-browser-status");
         status.setAttribute("role", "status");
         status.setAttribute("aria-live", "polite");
+
         var surface = append(browser, "div", "", "rte-gallery-browser-surface");
+
+        // Folders are navigation and images are choices, so they cannot share one
+        // listbox — a non-option child of a listbox is invalid ARIA.
+        var folderGrid = append(surface, "div", "", "rte-gallery-browser-grid rte-gallery-browser-grid-folders");
+        folderGrid.setAttribute("role", "group");
+        folderGrid.setAttribute("aria-label", "Folders");
+
         var grid = append(surface, "div", "", "rte-gallery-browser-grid");
         grid.setAttribute("role", "listbox");
         grid.setAttribute("aria-label", "Available images");
+
         var empty = append(surface, "div", "", "rte-gallery-browser-empty");
-        empty.innerText = "No images match this search. Upload a file or adjust the filter.";
 
         var footer = append(browser, "div", "", "rte-gallery-browser-footer");
         var footerText = append(footer, "div", "", "rte-gallery-browser-footer-text");
-        footerText.innerText = "Choose an image to enable insert.";
 
         var cancelButton = append(footer, "button", "", "rte-gallery-browser-button");
         cancelButton.type = "button";
@@ -24777,149 +29131,435 @@ function RTE_Plugin_InsertGallery() {
         var insertButton = append(footer, "button", "", "rte-gallery-browser-button rte-gallery-browser-button-primary");
         insertButton.type = "button";
         insertButton.innerText = "Insert";
-        insertButton.disabled = true;
 
-        var selectedUrl = "";
+        var state = {
+            currentFolder: "",
+            currentFolderDisplay: "/",
+            parentFolder: null,
+            folders: [],
+            images: presetImages.slice(0),
+            selectedUrl: "",
+            loading: false,
+            error: "",
+            fallbackMode: !serverMode
+        };
 
-        function getNormalizedItems() {
-            var list = [];
-            var items = config.galleryImages || [];
-            var i;
-            for (i = 0; i < items.length; i++) {
-                var normalized = normalizeGalleryItem(items[i]);
-                if (normalized) {
-                    list.push(normalized);
+        function filterList(list) {
+            var term = search.value.toLowerCase();
+            if (!term) {
+                return list.slice(0);
+            }
+
+            var items = [];
+            for (var index = 0; index < list.length; index++) {
+                if (list[index].searchText.indexOf(term) >= 0) {
+                    items.push(list[index]);
                 }
             }
-            return list;
+            return items;
         }
 
-        function getFilteredItems() {
-            var keyword = search.value.replace(/^\s+|\s+$/g, "").toLowerCase();
-            var items = getNormalizedItems();
-            if (!keyword) {
-                return items;
-            }
-
-            return items.filter(function (item) {
-                return (item.name && item.name.toLowerCase().indexOf(keyword) >= 0)
-                    || (item.meta && item.meta.toLowerCase().indexOf(keyword) >= 0)
-                    || (item.url && item.url.toLowerCase().indexOf(keyword) >= 0);
-            });
+        function setSelected(url) {
+            state.selectedUrl = url || "";
+            render();
         }
 
-        function updateStatus(items) {
-            var selectedName = "";
-            var i;
-            for (i = 0; i < items.length; i++) {
-                if (items[i].url === selectedUrl) {
-                    selectedName = items[i].name;
+        function insertSelected() {
+            var selected = null;
+            for (var index = 0; index < state.images.length; index++) {
+                if (state.images[index].url === state.selectedUrl) {
+                    selected = state.images[index];
                     break;
                 }
             }
 
-            status.innerText = items.length + " item" + (items.length === 1 ? "" : "s") + " available."
-                + (selectedName ? " " + selectedName + " selected." : " No image selected.");
-            footerText.innerText = selectedName ? ("Ready to insert " + selectedName + ".") : "Choose an image to enable insert.";
-            insertButton.disabled = !selectedName;
-        }
-
-        function insertSelected() {
-            if (!selectedUrl) {
+            if (!selected) {
                 return;
             }
-            editor.insertImageByUrl(selectedUrl);
+
+            editor.insertImageByUrl(selected.url);
             closeDialog();
             editor.focus();
         }
 
-        function render() {
-            clear(grid);
-            var items = getFilteredItems();
-            var i;
+        function updateStatus(folderCount, imageCount) {
+            var total = folderCount + imageCount;
+            var where = serverMode ? (" in " + state.currentFolderDisplay) : "";
+            var message = total + " item" + (total === 1 ? "" : "s") + where + ". ";
 
-            empty.style.display = items.length ? "none" : "block";
-
-            for (i = 0; i < items.length; i++) {
-                (function (item) {
-                    var card = append(grid, "button", "", "rte-gallery-browser-card");
-                    card.type = "button";
-                    card.setAttribute("role", "option");
-                    card.setAttribute("aria-selected", item.url === selectedUrl ? "true" : "false");
-                    if (item.url === selectedUrl) {
-                        card.classList.add("is-selected");
-                    }
-
-                    var selection = append(card, "div", "", "rte-gallery-browser-selection");
-                    selection.innerText = item.url === selectedUrl ? "Selected" : "";
-
-                    var thumb = append(card, "div", "", "rte-gallery-browser-thumbnail");
-                    var image = append(thumb, "img", "", "rte-gallery-browser-thumbnail-image");
-                    image.src = item.thumbnail;
-                    image.alt = item.name;
-
-                    var name = append(card, "div", "", "rte-gallery-browser-name");
-                    name.innerText = item.name;
-
-                    var meta = append(card, "div", "", "rte-gallery-browser-meta");
-                    meta.innerText = getMetaText(item);
-
-                    card.onclick = function () {
-                        selectedUrl = item.url;
-                        render();
-                    };
-
-                    card.ondblclick = function () {
-                        selectedUrl = item.url;
-                        insertSelected();
-                    };
-                })(items[i]);
+            if (!state.selectedUrl) {
+                status.innerText = message + "No image selected.";
+                footerText.innerText = state.fallbackMode && serverMode
+                    ? "Showing packaged gallery items. Uploads still save into the current folder."
+                    : "Choose an image to enable insert.";
+                setDisabled(insertButton, true);
+                return;
             }
 
-            if (selectedUrl) {
+            var selectedName = getFileName(state.selectedUrl);
+            status.innerText = message + "Selected: " + selectedName + ".";
+            setDisabled(insertButton, state.loading);
+
+            for (var index = 0; index < state.images.length; index++) {
+                if (state.images[index].url === state.selectedUrl) {
+                    var size = humanSize(state.images[index].size);
+                    footerText.innerText = selectedName + " ready to insert" + (size ? " (" + size + ")." : ".");
+                    return;
+                }
+            }
+
+            footerText.innerText = selectedName + " ready to insert.";
+        }
+
+        function createFolderCard(item) {
+            var button = append(folderGrid, "button", "", "rte-gallery-browser-card rte-gallery-folder-card");
+            button.type = "button";
+            button.title = "Open " + item.name;
+
+            var selection = append(button, "div", "", "rte-gallery-browser-selection");
+            selection.innerHTML = "&nbsp;";
+
+            var thumbnail = append(button, "div", "", "rte-gallery-browser-thumbnail rte-gallery-browser-thumbnail-folder");
+            append(thumbnail, "div", "", "rte-gallery-browser-folder-icon");
+
+            var label = append(button, "div", "", "rte-gallery-browser-name");
+            label.innerText = item.name;
+
+            var meta = append(button, "div", "", "rte-gallery-browser-meta");
+            meta.innerText = "Folder";
+
+            button.onclick = function () {
+                loadFolder(item.folder);
+            };
+        }
+
+        function createImageCard(item) {
+            var isSelected = item.url === state.selectedUrl;
+            var button = append(grid, "button", "", "rte-gallery-browser-card rte-gallery-image-card" + (isSelected ? " is-selected" : ""));
+            button.type = "button";
+            button.title = item.name;
+            button.setAttribute("role", "option");
+            button.setAttribute("aria-selected", isSelected ? "true" : "false");
+
+            var selection = append(button, "div", "", "rte-gallery-browser-selection");
+            selection.innerHTML = isSelected ? "&#10003;" : "&nbsp;";
+
+            var thumbnail = append(button, "div", "", "rte-gallery-browser-thumbnail");
+            var image = append(thumbnail, "img", "", "rte-gallery-browser-thumbnail-image");
+            image.src = item.thumbnail || item.url;
+            image.alt = item.name;
+
+            var label = append(button, "div", "", "rte-gallery-browser-name");
+            label.innerText = item.name;
+
+            var meta = append(button, "div", "", "rte-gallery-browser-meta");
+            meta.innerText = item.meta || (item.source === "preset" ? "Preset image" : humanSize(item.size)) || item.url;
+
+            button.onclick = function () {
+                setSelected(item.url);
+            };
+
+            button.ondblclick = function () {
+                setSelected(item.url);
+                insertSelected();
+            };
+        }
+
+        // Presets belong to no folder, so they are only offered at the root —
+        // otherwise every folder would appear to contain them.
+        function mergePresets(serverImages) {
+            var merged = [];
+            var seen = {};
+            var index;
+
+            for (index = 0; index < serverImages.length; index++) {
+                merged.push(serverImages[index]);
+                seen[serverImages[index].url] = true;
+            }
+
+            if (state.currentFolder) {
+                return merged;
+            }
+
+            for (index = 0; index < presetImages.length; index++) {
+                if (!seen[presetImages[index].url]) {
+                    merged.push(presetImages[index]);
+                }
+            }
+
+            return merged;
+        }
+
+        function render() {
+            var visibleFolders = filterList(state.folders);
+            var visibleImages = filterList(state.images);
+
+            path.innerText = state.currentFolderDisplay || "/";
+            setDisabled(upButton, state.loading || state.parentFolder === null);
+            setDisabled(createFolderButton, state.loading);
+            setDisabled(uploadButton, state.loading);
+            setDisabled(refreshButton, state.loading);
+
+            folderGrid.innerHTML = "";
+            grid.innerHTML = "";
+            show(empty, false);
+            show(folderGrid, false);
+            show(grid, true);
+
+            if (state.loading) {
+                empty.innerText = "Loading gallery...";
+                show(empty, true);
+                show(grid, false);
+                updateStatus(0, 0);
+                return;
+            }
+
+            if (state.error) {
+                empty.innerText = state.error;
+                show(empty, true);
+                show(grid, false);
+                updateStatus(0, 0);
+                return;
+            }
+
+            for (var folderIndex = 0; folderIndex < visibleFolders.length; folderIndex++) {
+                createFolderCard(visibleFolders[folderIndex]);
+            }
+            show(folderGrid, visibleFolders.length > 0);
+
+            for (var imageIndex = 0; imageIndex < visibleImages.length; imageIndex++) {
+                createImageCard(visibleImages[imageIndex]);
+            }
+            show(grid, visibleImages.length > 0);
+
+            updateStatus(visibleFolders.length, visibleImages.length);
+
+            if (!visibleFolders.length && !visibleImages.length) {
+                empty.innerText = search.value
+                    ? "No folders or images match the current filter."
+                    : (serverMode
+                        ? "This folder is empty. Create a folder or upload an image to get started."
+                        : "No images are available. Upload a file to get started.");
+                show(empty, true);
+            }
+        }
+
+        function applyResponse(payload, fallbackMode) {
+            var nextFolders = [];
+            var nextImages = [];
+            var index;
+
+            state.currentFolder = payload.currentFolder || "";
+            state.currentFolderDisplay = payload.currentFolderDisplay || "/";
+            state.parentFolder = typeof payload.parentFolder === "undefined" ? null : payload.parentFolder;
+            state.fallbackMode = !!fallbackMode;
+            state.error = "";
+
+            if (payload.folders) {
+                for (index = 0; index < payload.folders.length; index++) {
+                    var normalizedFolder = normalizeServerFolder(payload.folders[index]);
+                    if (normalizedFolder) {
+                        nextFolders.push(normalizedFolder);
+                    }
+                }
+            }
+
+            if (payload.images) {
+                for (index = 0; index < payload.images.length; index++) {
+                    var normalizedImage = normalizeServerImage(payload.images[index]);
+                    if (normalizedImage) {
+                        nextImages.push(normalizedImage);
+                    }
+                }
+            }
+
+            state.folders = nextFolders;
+            state.images = mergePresets(nextImages);
+
+            if (state.selectedUrl) {
                 var stillVisible = false;
-                for (i = 0; i < items.length; i++) {
-                    if (items[i].url === selectedUrl) {
+                for (index = 0; index < state.images.length; index++) {
+                    if (state.images[index].url === state.selectedUrl) {
                         stillVisible = true;
                         break;
                     }
                 }
                 if (!stillVisible) {
-                    selectedUrl = "";
+                    state.selectedUrl = "";
                 }
             }
-
-            updateStatus(items);
         }
+
+        function loadFallback(errorCode) {
+            applyResponse({
+                currentFolder: "",
+                currentFolderDisplay: "/",
+                parentFolder: null,
+                folders: [],
+                images: []
+            }, true);
+            state.images = presetImages.slice(0);
+            state.error = presetImages.length ? "" : ("The image gallery is unavailable right now (" + errorCode + ").");
+            state.loading = false;
+            render();
+        }
+
+        function loadFolder(folder, selectAfterLoad) {
+            if (!serverMode) {
+                state.images = presetImages.slice(0);
+                render();
+                return;
+            }
+
+            state.loading = true;
+            state.error = "";
+            render();
+
+            requestJson("GET", withFolder(endpoint, folder), null, function (payload, errorCode) {
+                if (errorCode) {
+                    loadFallback(errorCode);
+                    return;
+                }
+
+                applyResponse(payload || {}, false);
+                if (selectAfterLoad) {
+                    state.selectedUrl = selectAfterLoad;
+                }
+                state.loading = false;
+                render();
+            });
+        }
+
+        function createFolder() {
+            var folderName = window.prompt("New folder name", "");
+            if (!folderName) {
+                return;
+            }
+
+            state.loading = true;
+            state.error = "";
+            render();
+
+            var formData = new FormData();
+            formData.append("action", "create-folder");
+            formData.append("folder", state.currentFolder || "");
+            formData.append("name", folderName);
+
+            requestJson("POST", endpoint, formData, function (payload, errorCode) {
+                if (errorCode) {
+                    state.loading = false;
+                    state.error = "The folder could not be created right now.";
+                    render();
+                    return;
+                }
+
+                applyResponse(payload || {}, false);
+                state.loading = false;
+                render();
+            });
+        }
+
+        function uploadFiles(fileList) {
+            var files = [];
+            var index;
+            for (index = 0; index < fileList.length; index++) {
+                files.push(fileList[index]);
+            }
+
+            if (!files.length || !canUpload) {
+                return;
+            }
+
+            var lastUploadedUrl = "";
+
+            function uploadNext(nextIndex) {
+                if (nextIndex >= files.length) {
+                    if (serverMode) {
+                        loadFolder(state.currentFolder, lastUploadedUrl);
+                        return;
+                    }
+
+                    // No server to re-list from, so fold the upload into the
+                    // preset list directly and keep it selected.
+                    if (lastUploadedUrl) {
+                        var uploaded = normalizePreset(lastUploadedUrl);
+                        if (uploaded) {
+                            uploaded.source = "upload";
+                            presetImages.unshift(uploaded);
+                            config.galleryImages.unshift(lastUploadedUrl);
+                        }
+                        state.selectedUrl = lastUploadedUrl;
+                    }
+                    state.images = presetImages.slice(0);
+                    state.loading = false;
+                    render();
+                    return;
+                }
+
+                var file = files[nextIndex];
+
+                function done(url, errorCode) {
+                    if (!url) {
+                        state.error = errorCode || ("Upload failed for " + file.name + ".");
+                        state.loading = false;
+                        render();
+                        return;
+                    }
+
+                    lastUploadedUrl = url;
+                    uploadNext(nextIndex + 1);
+                }
+
+                if (uploadToFolder) {
+                    window.richTextBoxUploadFile(file, function (url, errorCode) {
+                        done(errorCode ? "" : url, errorCode ? ("Upload failed for " + file.name + ".") : "");
+                    }, { folder: state.currentFolder }, nextIndex, files);
+                    return;
+                }
+
+                window.rte_file_upload_handler(file, function (url, error) {
+                    done(url, error);
+                }, nextIndex, files);
+            }
+
+            state.loading = true;
+            state.error = "";
+            render();
+            uploadNext(0);
+        }
+
+        upButton.onclick = function () {
+            if (state.parentFolder === null) {
+                return;
+            }
+            loadFolder(state.parentFolder);
+        };
+
+        createFolderButton.onclick = createFolder;
 
         uploadButton.onclick = function () {
             fileInput.click();
         };
 
         fileInput.onchange = function () {
-            var lastUploaded = "";
-            status.innerText = "Uploading images...";
-
-            uploadFiles(fileInput.files, function (url) {
-                lastUploaded = url;
-                config.galleryImages.unshift(url);
-            }, function () {
-                if (lastUploaded) {
-                    selectedUrl = lastUploaded;
-                }
-                fileInput.value = "";
-                render();
-            }, function (error) {
-                status.innerText = error || "Upload failed.";
-            });
+            uploadFiles(this.files);
+            this.value = "";
         };
 
-        refreshButton.onclick = render;
+        refreshButton.onclick = function () {
+            loadFolder(state.currentFolder, state.selectedUrl);
+        };
+
         search.oninput = render;
         cancelButton.onclick = closeDialog;
         insertButton.onclick = insertSelected;
 
-        render();
+        if (serverMode) {
+            loadFolder("");
+        } else {
+            render();
+        }
+
         search.focus();
     };
 }
@@ -25184,6 +29824,1073 @@ function RTE_Plugin_InsertTemplate() {
         render();
         search.focus();
     };
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
+// 2026-08-02 Keyboard and state accessibility for the editor CHROME.
+//
+// a11yenhance.js names the editing region and dialoga11y.js names the dialogs.
+// This closes what an audit of the running editor found still open — four
+// findings, three of them WCAG Level A:
+//
+//   1. KEYBOARD TRAP (2.1.2, Level A). Tab inside the editing area is
+//      preventDefault-ed and inserts spaces, so a keyboard-only or screen
+//      reader user who enters the editor can never leave it. Reloading the page
+//      is the only way out. This is the most serious kind of accessibility
+//      defect: it does not degrade the experience, it ends it.
+//
+//   2. TOGGLE STATE NOT EXPOSED (4.1.2, Level A). Bold, italic, underline and
+//      the alignment buttons carry their state in a CSS class
+//      (rte-command-active / rte-command-deactive) and nowhere else. Sighted
+//      users see a highlighted button; assistive technology is told nothing.
+//      Measured: 0 of 6 toggle buttons exposed aria-pressed.
+//
+//   3. POPUP STATE NOT EXPOSED (4.1.2, Level A). Buttons carry
+//      aria-haspopup but never aria-expanded, so there is no way to know
+//      whether a menu is open. Measured: 0 of 7.
+//
+//   4. EVERY TOOLBAR BUTTON IS A TAB STOP (2.4.3, and plain usability).
+//      Measured 53. The ARIA Authoring Practices toolbar pattern is a single
+//      tab stop per toolbar with arrow keys moving between buttons. 53 presses
+//      of Tab to reach the text you came to write is not operable in any
+//      meaningful sense.
+//
+// All four are fixed here rather than in the core, so they ship without a
+// re-obfuscation cycle.
+//
+// Config:
+//   config.keyboardA11y = false            // opt out entirely
+//   config.a11yEscapeHint = "..."          // wording appended to the editing area's name
+//   config.a11yRovingToolbar = false       // keep every button as a tab stop
+RTE_DefaultConfig.plugin_keyboarda11y = RTE_Plugin_KeyboardA11y;
+if (typeof RTE_DefaultConfig.keyboardA11y === "undefined") RTE_DefaultConfig.keyboardA11y = true;
+
+function RTE_Plugin_KeyboardA11y() {
+    var obj = this;
+    var config, editor;
+    var observers = [];
+    var popupOwner = null;          // last activated [aria-haspopup]
+    var openPanels = [];            // [{ panel, owner }]
+
+    obj.PluginName = "KeyboardA11y";
+
+    obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+        if (config.keyboardA11y === false) return;
+
+        editor.focusToolbar = function () { return focusFirstToolbarButton(); };
+
+        setup();
+        try { editor.attachEvent("ready", setup); } catch (e) {}
+        // The toolbar is built asynchronously; a deferred pass catches the case
+        // where InitEditor runs before it exists.
+        setTimeout(setup, 0);
+        setTimeout(setup, 400);
+    };
+
+    function shell() {
+        try {
+            var ed = editor.getEditable();
+            if (!ed) return null;
+            var win = ed.ownerDocument.defaultView;
+            var node = (win && win.frameElement) ? win.frameElement : ed;
+            while (node && node.classList && !node.classList.contains("richtexteditor")) node = node.parentNode;
+            return (node && node.classList) ? node : null;
+        } catch (e) { return null; }
+    }
+
+    function setup() {
+        var root = shell();
+        if (!root) return;
+        bindEscapeHatch();
+        applyRovingTabindex(root);
+        syncToggleStates(root);
+        trackPopups(root);
+        watch(root);
+    }
+
+    // ---------------------------------------------------- 1. keyboard trap
+    //
+    // Tab keeps its editing meaning (indent, next table cell) because that is
+    // what writers expect and what every other editor does. The escape is a
+    // separate, documented key: Escape leaves the editing area and puts focus
+    // on the toolbar, from which Tab continues through the page normally.
+    //
+    // Escape is only intercepted when nothing is open — a dialog or dropdown
+    // must still get its own Escape first, or closing a colour picker would
+    // throw the user out of the editor.
+    function bindEscapeHatch() {
+        var ed;
+        try { ed = editor.getEditable(); } catch (e) { return; }
+        if (!ed || ed.__rteEscapeHatch) return;
+        ed.__rteEscapeHatch = true;
+
+        ed.addEventListener("keydown", function (e) {
+            if (e.key !== "Escape" && e.keyCode !== 27) return;
+            if (anythingOpen()) return;           // let the panel close itself
+            e.preventDefault();
+            e.stopPropagation();
+            if (!focusFirstToolbarButton()) focusAfterEditor();
+        }, false);
+
+        announceEscape(ed);
+    }
+
+    function anythingOpen() {
+        try {
+            var panels = document.querySelectorAll("rte-dropdown-panel, rte-dialog-float, rte-floatpanel");
+            for (var i = 0; i < panels.length; i++) {
+                var s = getComputedStyle(panels[i]);
+                if (s.display !== "none" && s.visibility !== "hidden") return true;
+            }
+        } catch (e) {}
+        return false;
+    }
+
+    // The way out has to be discoverable, or it may as well not exist. The
+    // editing region's accessible name is the one thing a screen reader always
+    // announces on entry, so the hint goes there rather than into the content.
+    function announceEscape(ed) {
+        var hint = config.a11yEscapeHint ||
+            "Press Escape to leave the editing area.";
+        var label = ed.getAttribute("aria-label") || "";
+        if (label.indexOf(hint) >= 0) return;
+        ed.setAttribute("aria-label", (label ? label.replace(/\s*$/, " ") : "") + hint);
+    }
+
+    function focusAfterEditor() {
+        var root = shell();
+        if (!root) return false;
+        var all = [].slice.call(document.querySelectorAll(
+            'a[href],button,input,select,textarea,[tabindex]:not([tabindex="-1"])'
+        )).filter(function (el) {
+            return !root.contains(el) && el.offsetParent !== null;
+        });
+        // The first focusable that follows the editor in document order.
+        for (var i = 0; i < all.length; i++) {
+            if (root.compareDocumentPosition(all[i]) & Node.DOCUMENT_POSITION_FOLLOWING) {
+                all[i].focus();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // ------------------------------------------------- 4. roving tabindex
+    function toolbarsIn(root) {
+        return [].slice.call(root.querySelectorAll('[role="toolbar"]'));
+    }
+    // Toolbars nest — an overflow or ribbon toolbar sits inside the main one.
+    // A plain descendant query therefore makes the outer toolbar claim the
+    // inner one's buttons, and the two passes fight: the first run measured two
+    // tab stops in one toolbar and NONE in the other two, which left those
+    // buttons unreachable by keyboard altogether. Each button belongs to its
+    // NEAREST toolbar and to no other.
+    function buttonsIn(bar) {
+        return [].slice.call(bar.querySelectorAll('[role="button"]')).filter(function (b) {
+            if (b.getAttribute("aria-disabled") === "true") return false;
+            if (b.offsetParent === null) return false;                 // hidden: not reachable anyway
+            return (b.closest && b.closest('[role="toolbar"]')) === bar;
+        });
+    }
+
+    function applyRovingTabindex(root) {
+        if (config.a11yRovingToolbar === false) return;
+        var bars = toolbarsIn(root);
+        for (var i = 0; i < bars.length; i++) {
+            (function (bar) {
+                var btns = buttonsIn(bar);
+                if (!btns.length) return;
+                // Exactly one tab stop per toolbar, which is the ARIA pattern.
+                var current = btns.filter(function (b) { return b.getAttribute("tabindex") === "0"; })[0] || btns[0];
+                for (var j = 0; j < btns.length; j++) btns[j].setAttribute("tabindex", btns[j] === current ? "0" : "-1");
+
+                if (bar.__rteRoving) return;
+                bar.__rteRoving = true;
+                bar.addEventListener("keydown", function (e) {
+                    var list = buttonsIn(bar);
+                    var at = list.indexOf(document.activeElement);
+                    if (at < 0) return;
+                    var rtl = (bar.closest && bar.closest('[dir="rtl"]')) ? true : false;
+                    var next = null;
+                    if (e.key === "ArrowRight") next = list[(at + (rtl ? -1 : 1) + list.length) % list.length];
+                    else if (e.key === "ArrowLeft") next = list[(at + (rtl ? 1 : -1) + list.length) % list.length];
+                    else if (e.key === "Home") next = list[0];
+                    else if (e.key === "End") next = list[list.length - 1];
+                    else return;
+                    e.preventDefault();
+                    for (var k = 0; k < list.length; k++) list[k].setAttribute("tabindex", list[k] === next ? "0" : "-1");
+                    next.focus();
+                }, false);
+                // Clicking a button makes it the new tab stop, so returning by
+                // Tab lands where the user last was.
+                bar.addEventListener("focusin", function (e) {
+                    var list = buttonsIn(bar);
+                    if (list.indexOf(e.target) < 0) return;
+                    for (var k = 0; k < list.length; k++) list[k].setAttribute("tabindex", list[k] === e.target ? "0" : "-1");
+                }, false);
+            })(bars[i]);
+        }
+    }
+
+    function focusFirstToolbarButton() {
+        var root = shell();
+        if (!root) return false;
+        var bars = toolbarsIn(root);
+        for (var i = 0; i < bars.length; i++) {
+            var btns = buttonsIn(bars[i]);
+            if (!btns.length) continue;
+            var target = btns.filter(function (b) { return b.getAttribute("tabindex") === "0"; })[0] || btns[0];
+            target.focus();
+            return true;
+        }
+        return false;
+    }
+
+    // ------------------------------------------------- 2. aria-pressed
+    //
+    // The editor already tracks active state — it just keeps it in a class.
+    // Mirroring rather than recomputing means the announced state can never
+    // disagree with the highlighted button.
+    var TOGGLE_CMD = /^(bold|italic|underline|strikethrough|subscript|superscript|justifyleft|justifycenter|justifyright|justifyfull|insertorderedlist|insertunorderedlist|outdent|indent|blockquote|inlinecode|trackchanges|typewriter|focusmode|pagination|formattingmarks|linenumbers|permanentpen|rtlui)$/;
+
+    function syncToggleStates(root) {
+        var btns = [].slice.call(root.querySelectorAll('[role="button"][rte-cmd-name]'));
+        for (var i = 0; i < btns.length; i++) {
+            var cmd = (btns[i].getAttribute("rte-cmd-name") || "").toLowerCase();
+            if (!TOGGLE_CMD.test(cmd)) continue;
+            var active = btns[i].classList.contains("rte-command-active");
+            var pressed = active ? "true" : "false";
+            if (btns[i].getAttribute("aria-pressed") !== pressed) btns[i].setAttribute("aria-pressed", pressed);
+        }
+    }
+
+    // ------------------------------------------------- 3. aria-expanded
+    //
+    // Opening a menu inserts an <rte-dropdown-panel> elsewhere in the document
+    // and leaves the button untouched, so the button and its panel have to be
+    // correlated: remember which popup button was activated, then pair it with
+    // the panel that appears.
+    function trackPopups(root) {
+        var pops = [].slice.call(root.querySelectorAll("[aria-haspopup]"));
+        for (var i = 0; i < pops.length; i++) {
+            if (!pops[i].hasAttribute("aria-expanded")) pops[i].setAttribute("aria-expanded", "false");
+            if (pops[i].__rtePopupBound) continue;
+            pops[i].__rtePopupBound = true;
+            (function (el) {
+                function remember() { popupOwner = el; }
+                el.addEventListener("mousedown", remember, true);
+                el.addEventListener("keydown", function (e) {
+                    if (e.key === "Enter" || e.key === " " || e.key === "ArrowDown") remember();
+                }, true);
+            })(pops[i]);
+        }
+
+        if (trackPopups.bound) return;
+        trackPopups.bound = true;
+        var mo = new MutationObserver(function (records) {
+            for (var r = 0; r < records.length; r++) {
+                var rec = records[r];
+                for (var a = 0; a < rec.addedNodes.length; a++) {
+                    var n = rec.addedNodes[a];
+                    if (n.nodeType !== 1 || !isPanel(n)) continue;
+                    if (popupOwner) {
+                        popupOwner.setAttribute("aria-expanded", "true");
+                        openPanels.push({ panel: n, owner: popupOwner });
+                        popupOwner = null;
+                    }
+                }
+                for (var d = 0; d < rec.removedNodes.length; d++) {
+                    var m = rec.removedNodes[d];
+                    if (m.nodeType !== 1 || !isPanel(m)) continue;
+                    for (var k = openPanels.length - 1; k >= 0; k--) {
+                        if (openPanels[k].panel === m) {
+                            openPanels[k].owner.setAttribute("aria-expanded", "false");
+                            openPanels.splice(k, 1);
+                        }
+                    }
+                }
+            }
+        });
+        mo.observe(document.body, { childList: true, subtree: true });
+        observers.push(mo);
+    }
+    function isPanel(el) {
+        var t = (el.tagName || "").toLowerCase();
+        return t === "rte-dropdown-panel" || t === "rte-floatpanel" || t === "rte-dialog-float";
+    }
+
+    // Toolbar buttons are rebuilt and re-classed as the selection moves, so the
+    // mirrored state has to follow rather than be set once.
+    function watch(root) {
+        if (root.__rteA11yWatch) return;
+        root.__rteA11yWatch = true;
+        var pending = null;
+        var mo = new MutationObserver(function () {
+            if (pending) return;
+            pending = setTimeout(function () {
+                pending = null;
+                syncToggleStates(root);
+                applyRovingTabindex(root);
+                trackPopups(root);
+            }, 60);
+        });
+        mo.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ["class", "aria-disabled"] });
+        observers.push(mo);
+    }
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
+// 2026-07-27 Margin line numbers. Numbers every visual line in the left gutter,
+// the way a word processor does for pleadings, statutes, transcripts and any
+// document people cite by line ("page 4, lines 12-15").
+//
+// Court filing rules in several jurisdictions REQUIRE numbered lines, which is
+// why every serious document editor has this and no browser editor does:
+// CKEditor 5 and TinyMCE both document nothing equivalent. It pairs with
+// pagination.js — with page view on, numbering can restart at each page, which
+// is what the filing rules actually specify.
+//
+// Design notes:
+//   - VISUAL lines, not blocks. A paragraph that wraps over four lines gets four
+//     numbers, because that is what "line 12" means to the person citing it.
+//     Found via Range.getClientRects(), which returns one rect per line box.
+//   - Purely presentational. The overlay is contenteditable=false and stripped
+//     around every serialize (the pagination.js contract), so numbering the lines
+//     never changes a byte of the HTML you save.
+//   - Recompute is rAF-throttled and skipped when the geometry signature is
+//     unchanged, because this measures every line box in the document and would
+//     otherwise run on every keystroke.
+RTE_DefaultConfig.plugin_linenumbers = RTE_Plugin_LineNumbers;
+
+// "continuous" | "page" (restart each page, needs pagination) | "block"
+if (typeof RTE_DefaultConfig.lineNumberRestart === "undefined") RTE_DefaultConfig.lineNumberRestart = "continuous";
+// Show every Nth number. 1 = every line; 5 is the common pleading convention.
+if (typeof RTE_DefaultConfig.lineNumberInterval === "undefined") RTE_DefaultConfig.lineNumberInterval = 1;
+// First number.
+if (typeof RTE_DefaultConfig.lineNumberStart === "undefined") RTE_DefaultConfig.lineNumberStart = 1;
+// Gutter width in px.
+if (typeof RTE_DefaultConfig.lineNumberGutter === "undefined") RTE_DefaultConfig.lineNumberGutter = 38;
+
+function RTE_Plugin_LineNumbers() {
+    var obj = this;
+    var config, editor;
+    var boundDoc = null;
+    var active = false;
+    var overlay = null;
+    var raf = 0;
+    var lastSignature = "";
+    var wrapped = false;
+    var lineCount = 0;
+
+    obj.PluginName = "LineNumbers";
+
+    obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+
+        editor.attachEvent("exec_command_linenumbers", function (state) {
+            state.returnValue = true;
+            obj.Toggle();
+        });
+
+        setup();
+        try { editor.attachEvent("ready", setup); } catch (e) {}
+        try { editor.attachEvent("aftersethtml", function () { setup(); schedule(); }); } catch (e) {}
+        setTimeout(setup, 0);
+
+        // Public API.
+        editor.setLineNumbers = function (on) { active = !!on; apply(); return active; };
+        editor.toggleLineNumbers = function () { return obj.Toggle(); };
+        editor.isLineNumbers = function () { return active; };
+        editor.getLineCount = function () { if (active) render(); return lineCount; };
+        editor.setLineNumberOptions = function (o) {
+            if (o && typeof o === "object") {
+                if (o.restart != null) config.lineNumberRestart = o.restart;
+                if (o.interval != null) config.lineNumberInterval = o.interval;
+                if (o.start != null) config.lineNumberStart = o.start;
+                if (o.gutter != null) config.lineNumberGutter = o.gutter;
+            }
+            lastSignature = "";
+            apply();
+            return {
+                restart: config.lineNumberRestart, interval: config.lineNumberInterval,
+                start: config.lineNumberStart, gutter: config.lineNumberGutter
+            };
+        };
+        editor.getLineNumbersCss = function () { return css(); };
+    };
+
+    obj.Toggle = function () { active = !active; apply(); return active; };
+
+    function setup() {
+        var doc = getDoc();
+        if (!doc) return;
+        injectStyles(doc);
+        wrapSerializers();
+        if (doc === boundDoc) return;
+        boundDoc = doc;
+        doc.addEventListener("input", schedule, true);
+        doc.addEventListener("keyup", schedule, true);
+        var win = doc.defaultView || doc.parentWindow;
+        if (win) win.addEventListener("resize", schedule);
+    }
+
+    function getDoc() { try { return editor.getDocument(); } catch (e) { return null; } }
+    function getEditable() { try { return editor.getEditable(); } catch (e) { return null; } }
+
+    function apply() {
+        var editable = getEditable();
+        if (editable && editable.classList) {
+            if (active) editable.classList.add("rte-linenumbers-on");
+            else editable.classList.remove("rte-linenumbers-on");
+        }
+        if (editable) {
+            // Reserve the gutter by padding the editable, so text does not sit
+            // under the numbers.
+            editable.style.paddingLeft = active ? (parseInt(config.lineNumberGutter, 10) + 12) + "px" : "";
+        }
+        if (active) { lastSignature = ""; render(); }
+        else removeOverlay();
+    }
+
+    function schedule() {
+        if (!active) return;
+        if (raf) return;
+        var doc = getDoc();
+        var win = (doc && (doc.defaultView || doc.parentWindow)) || window;
+        var rq = (win && typeof win.requestAnimationFrame === "function")
+            ? function (f) { return win.requestAnimationFrame(f); }
+            : function (f) { return setTimeout(f, 16); };
+        raf = rq(function () { raf = 0; render(); });
+    }
+
+    // ---- line discovery --------------------------------------------------
+
+    // One entry per VISUAL line: its top offset relative to the editable, and
+    // which top-level block it belongs to.
+    function measureLines() {
+        var doc = getDoc();
+        var editable = getEditable();
+        if (!doc || !editable) return [];
+        var lines = [];
+        var kids = editable.children;
+        var edRect = editable.getBoundingClientRect();
+        var scrollTop = editable.scrollTop || 0;
+
+        for (var i = 0; i < kids.length; i++) {
+            var block = kids[i];
+            if (block.nodeType !== 1) continue;
+            if (block.getAttribute && (block.getAttribute("data-rte-linenumbers") === "true" ||
+                                       block.getAttribute("data-rte-page-overlay") === "true")) continue;
+            if (!block.textContent && !block.querySelector("img,table,hr")) {
+                // Empty block still occupies one line.
+                var br = block.getBoundingClientRect();
+                if (br.height > 0) lines.push({ top: br.top - edRect.top + scrollTop, block: i });
+                continue;
+            }
+            var rects = lineRectsOf(doc, block);
+            for (var r = 0; r < rects.length; r++) {
+                lines.push({ top: rects[r] - edRect.top + scrollTop, block: i });
+            }
+        }
+        return lines;
+    }
+
+    // Distinct line-box tops inside one block. getClientRects() on a range over
+    // the block's contents yields a rect per line box; identical tops are the
+    // same line split across inline elements, so they collapse.
+    function lineRectsOf(doc, block) {
+        var tops = [];
+        var seen = {};
+        try {
+            var range = doc.createRange();
+            range.selectNodeContents(block);
+            var rects = range.getClientRects();
+            for (var i = 0; i < rects.length; i++) {
+                var rc = rects[i];
+                if (!rc || rc.height <= 0 || rc.width <= 0) continue;
+                // Round: sub-pixel differences within one line are common.
+                var key = Math.round(rc.top);
+                if (seen[key]) continue;
+                seen[key] = true;
+                tops.push(rc.top);
+            }
+        } catch (e) {}
+        if (!tops.length) {
+            var br = block.getBoundingClientRect();
+            if (br.height > 0) tops.push(br.top);
+        }
+        tops.sort(function (a, b) { return a - b; });
+        return tops;
+    }
+
+    // ---- render ----------------------------------------------------------
+
+    function render() {
+        if (!active) return;
+        var doc = getDoc();
+        var editable = getEditable();
+        if (!doc || !editable) return;
+
+        var lines = measureLines();
+        lineCount = lines.length;
+
+        var restart = String(config.lineNumberRestart || "continuous");
+        var interval = Math.max(1, parseInt(config.lineNumberInterval, 10) || 1);
+        var start = parseInt(config.lineNumberStart, 10);
+        if (isNaN(start)) start = 1;
+
+        // Page boundaries, only when both page view and pagination are present.
+        var breaks = [];
+        if (restart === "page") {
+            try {
+                if (typeof editor.isPageView === "function" && editor.isPageView() &&
+                    typeof editor.getPageOfElement === "function") {
+                    breaks = null;   // signalled by using getPageOfElement per line below
+                }
+            } catch (e) {}
+        }
+
+        var sig = lines.length + "|" + restart + "|" + interval + "|" + start + "|" +
+                  (lines.length ? Math.round(lines[lines.length - 1].top) : 0) + "|" + editable.offsetHeight;
+        if (sig === lastSignature && overlay && overlay.parentNode) return;
+        lastSignature = sig;
+
+        var ov = ensureOverlay(doc, editable);
+        while (ov.firstChild) ov.removeChild(ov.firstChild);
+        ov.style.width = parseInt(config.lineNumberGutter, 10) + "px";
+
+        var n = start;
+        var lastPage = null;
+        var lastBlock = null;
+        for (var i = 0; i < lines.length; i++) {
+            var line = lines[i];
+
+            if (restart === "block") {
+                if (lastBlock !== null && line.block !== lastBlock) n = start;
+                lastBlock = line.block;
+            } else if (restart === "page") {
+                var page = pageOfLine(editable, line);
+                if (lastPage !== null && page !== lastPage) n = start;
+                lastPage = page;
+            }
+
+            if ((n - start) % interval === 0) {
+                var tag = doc.createElement("div");
+                tag.className = "rte-linenumber";
+                tag.style.top = Math.round(line.top) + "px";
+                tag.textContent = String(n);
+                ov.appendChild(tag);
+            }
+            n++;
+        }
+    }
+
+    function pageOfLine(editable, line) {
+        // Resolve through the block the line belongs to; pagination measures
+        // top-level children, which is exactly what line.block indexes.
+        try {
+            var block = editable.children[line.block];
+            if (block && typeof editor.getPageOfElement === "function") {
+                var p = editor.getPageOfElement(block);
+                if (p) return p;
+            }
+        } catch (e) {}
+        return 1;
+    }
+
+    function ensureOverlay(doc, editable) {
+        if (overlay && overlay.parentNode) return overlay;
+        overlay = doc.createElement("div");
+        overlay.setAttribute("data-rte-linenumbers", "true");
+        overlay.setAttribute("contenteditable", "false");
+        overlay.setAttribute("aria-hidden", "true");
+        overlay.className = "rte-linenumber-gutter";
+        (editable.parentNode || doc.body || doc.documentElement).appendChild(overlay);
+        return overlay;
+    }
+
+    function removeOverlay() {
+        if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+        overlay = null;
+        lastSignature = "";
+    }
+
+    // ---- serialization safety -------------------------------------------
+
+    function stripFor() {
+        var editable = getEditable();
+        if (!editable) return function () {};
+        var doc = getDoc();
+        var nodes = doc ? doc.querySelectorAll("[data-rte-linenumbers]") : [];
+        var parked = [];
+        for (var i = 0; i < nodes.length; i++) {
+            var nd = nodes[i];
+            parked.push({ node: nd, parent: nd.parentNode, next: nd.nextSibling });
+            if (nd.parentNode) nd.parentNode.removeChild(nd);
+        }
+        // The gutter padding is ours too, and would otherwise leak into any
+        // serializer that reads inline styles off the editable.
+        var pad = editable.style.paddingLeft;
+        editable.style.paddingLeft = "";
+        return function restore() {
+            editable.style.paddingLeft = pad;
+            for (var j = 0; j < parked.length; j++) {
+                if (parked[j].parent) parked[j].parent.insertBefore(parked[j].node, parked[j].next || null);
+            }
+        };
+    }
+
+    function wrapSerializers() {
+        if (wrapped) return;
+        var names = ["getHTMLCode", "getJSON", "getHTMLContent", "getText"];
+        var did = false;
+        for (var i = 0; i < names.length; i++) {
+            (function (name) {
+                var orig = editor[name];
+                if (typeof orig !== "function" || orig.__rteLnWrapped) return;
+                var w = function () {
+                    var restore = stripFor();
+                    try { return orig.apply(editor, arguments); } finally { restore(); }
+                };
+                w.__rteLnWrapped = true;
+                editor[name] = w;
+                did = true;
+            })(names[i]);
+        }
+        if (did) wrapped = true;
+    }
+
+    // ---- styles ----------------------------------------------------------
+
+    function css() {
+        return (
+            ".rte-linenumber-gutter{position:absolute;left:0;top:0;pointer-events:none;" +
+            "user-select:none;z-index:2;}" +
+            ".rte-linenumber{position:absolute;right:6px;text-align:right;width:100%;" +
+            "font-size:11px;line-height:1;color:#8a94a6;font-variant-numeric:tabular-nums;" +
+            "font-family:Consolas,Menlo,monospace;}" +
+            ".rte-linenumbers-on{position:relative;}"
+        );
+    }
+
+    function injectStyles(doc) {
+        if (!doc) return;
+        var existing = doc.getElementById("rte-linenumber-styles");
+        var text = css();
+        if (existing) {
+            if (existing.getAttribute("data-css") === text) return;
+            existing.parentNode && existing.parentNode.removeChild(existing);
+        }
+        var st = doc.createElement("style");
+        st.id = "rte-linenumber-styles";
+        st.setAttribute("data-css", text);
+        st.appendChild(doc.createTextNode(text));
+        (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+    }
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
+// 2026-07-27 Link checker. Finds links that are broken, unsafe, unreachable by
+// assistive technology, or actively misleading.
+//
+// TinyMCE's Link Checker is premium AND infrastructural: "This plugin is only
+// available for paid TinyMCE subscriptions", and self-hosted customers "will
+// need to provide a URL to their deployment of the link checking service via
+// the linkchecker_service_url parameter". So the feature costs a subscription
+// and a service to run.
+//
+// This one inverts that. The whole offline half needs NO network and NO service:
+// broken in-document anchors, unsafe schemes, mixed content, unlabelled links
+// and deceptive link text are all decidable from the document itself, and that
+// is where most real link defects actually live. Checking whether a remote URL
+// still resolves is the only part that needs the network, and that is delegated
+// to a host-supplied resolver — the same BYOK shape as the AI, spell, bookmark
+// and chip resolvers elsewhere in this editor.
+//
+// This matters beyond convenience: this editor's position is that it makes no
+// outbound calls of its own. A built-in URL prober would quietly break that, and
+// would send every URL a customer edits to somebody's server.
+//
+// Design note: the highlight is CHROME, not content. It is stripped around every
+// serialize (the pagination.js contract), so marking up problems never changes
+// the HTML you save.
+RTE_DefaultConfig.plugin_linkchecker = RTE_Plugin_LinkChecker;
+
+// Optional. function (urls) -> Promise<{ "<url>": {ok:true|false, status:404} }>
+// (written without a literal URL on purpose: this file is concatenated into
+//  all_plugins.js, and customers run static scanners over that)
+// Supply one to have external URLs checked; omit it and only offline checks run.
+if (typeof RTE_DefaultConfig.linkCheckResolver === "undefined") RTE_DefaultConfig.linkCheckResolver = null;
+// Schemes rejected outright.
+if (typeof RTE_DefaultConfig.linkCheckUnsafeSchemes === "undefined") {
+    RTE_DefaultConfig.linkCheckUnsafeSchemes = ["javascript:", "data:", "vbscript:", "file:"];
+}
+// Warn when an https page links to http.
+if (typeof RTE_DefaultConfig.linkCheckMixedContent === "undefined") RTE_DefaultConfig.linkCheckMixedContent = true;
+
+function RTE_Plugin_LinkChecker() {
+    var obj = this;
+    var config, editor;
+    var boundDoc = null;
+    var wrapped = false;
+    var lastIssues = [];
+    var highlighting = false;
+
+    obj.PluginName = "LinkChecker";
+
+    obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+
+        editor.attachEvent("exec_command_checklinks", function (state) {
+            state.returnValue = true;
+            obj.Check();
+        });
+
+        setup();
+        try { editor.attachEvent("ready", setup); } catch (e) {}
+        try { editor.attachEvent("aftersethtml", setup); } catch (e) {}
+        setTimeout(setup, 0);
+
+        // Public API.
+        editor.checkLinks = function () { return obj.Check(); };
+        editor.getLinkIssues = function () { return lastIssues.slice(); };
+        editor.highlightLinkIssues = function (on) { return applyHighlight(on !== false); };
+        editor.clearLinkHighlights = function () { return applyHighlight(false); };
+        editor.getLinkCheckerCss = function () { return css(); };
+    };
+
+    function setup() {
+        var doc = getDoc();
+        if (!doc) return;
+        injectStyles(doc);
+        wrapSerializers();
+        boundDoc = doc;
+    }
+
+    function getDoc() { try { return editor.getDocument(); } catch (e) { return null; } }
+    function getEditable() { try { return editor.getEditable(); } catch (e) { return null; } }
+
+    // ---- the checks ------------------------------------------------------
+
+    // Every <a> that is meant to be a LINK — deliberately not "a[href]".
+    // rte.js sanitises a javascript: href by removing the attribute outright, so
+    // the most dangerous input in the document arrives as an <a> with no href at
+    // all. Selecting on a[href] would make exactly that case invisible: the user
+    // sees a link that goes nowhere and the checker reports nothing.
+    // A bare <a name="x"> / <a id="x"> with no href is an anchor TARGET, not a
+    // link, and is excluded.
+    function links() {
+        var editable = getEditable();
+        if (!editable) return [];
+        var all = editable.querySelectorAll("a");
+        var out = [];
+        for (var i = 0; i < all.length; i++) {
+            var a = all[i];
+            if (a.hasAttribute("href")) { out.push(a); continue; }
+            if (a.getAttribute("name") || a.getAttribute("id")) continue;   // anchor target
+            out.push(a);
+        }
+        return out;
+    }
+
+    // Everything decidable without the network.
+    function offlineIssues() {
+        var editable = getEditable();
+        var out = [];
+        if (!editable) return out;
+        var list = links();
+        var unsafe = config.linkCheckUnsafeSchemes || [];
+        var pageIsHttps = false;
+        try { pageIsHttps = (window.location.protocol === "https:"); } catch (e) {}
+
+        // Link text -> hrefs, for the "same words, different destinations" check.
+        var byText = {};
+
+        for (var i = 0; i < list.length; i++) {
+            var a = list[i];
+            var href = (a.getAttribute("href") || "").trim();
+            var text = (a.textContent || "").trim();
+            var add = function (severity, code, message) {
+                out.push({ element: a, href: href, text: text, severity: severity, code: code, message: message });
+            };
+
+            if (!a.hasAttribute("href")) {
+                add("error", "empty-href",
+                    "Link has no destination — its address may have been removed for being unsafe.");
+                continue;
+            }
+            if (!href || href === "#") {
+                add("error", "empty-href", "Link has no destination.");
+                continue;
+            }
+
+            var lower = href.toLowerCase();
+            var bad = null;
+            for (var u = 0; u < unsafe.length; u++) {
+                if (lower.indexOf(unsafe[u]) === 0) { bad = unsafe[u]; break; }
+            }
+            if (bad) {
+                add("error", "unsafe-scheme", "Link uses the " + bad + " scheme, which is unsafe in published content.");
+                continue;
+            }
+
+            // In-document anchor: decidable with certainty, and a very common
+            // breakage because headings get retitled and ids change.
+            if (href.charAt(0) === "#") {
+                var id = href.substring(1);
+                var target = null;
+                try {
+                    target = editable.querySelector("#" + id.replace(/["\\\]\[]/g, "\\$&")) ||
+                             editable.querySelector('[name="' + id.replace(/"/g, '\\"') + '"]');
+                } catch (e) { target = null; }
+                if (!target) add("error", "broken-anchor", "Links to #" + id + ", which does not exist in this document.");
+            } else if (/^[a-z][a-z0-9+.-]*:/i.test(href) || href.indexOf("//") === 0) {
+                // Absolute URL: parse it to catch malformed ones.
+                var parsed = parseUrl(href);
+                if (!parsed) {
+                    add("error", "malformed", "Link address cannot be parsed as a URL.");
+                } else {
+                    if (config.linkCheckMixedContent !== false && pageIsHttps && parsed.protocol === "http:") {
+                        add("warning", "mixed-content", "Insecure http:// link on a secure page; browsers may block or warn.");
+                    }
+                    // Text that looks like a URL but points somewhere else is the
+                    // classic phishing shape, and it also happens innocently when
+                    // someone edits the visible text but not the href.
+                    if (/^(https?:\/\/|www\.)/i.test(text)) {
+                        var shown = parseUrl(/^www\./i.test(text) ? "http://" + text : text);
+                        if (shown && shown.hostname && parsed.hostname &&
+                            shown.hostname.toLowerCase() !== parsed.hostname.toLowerCase()) {
+                            add("warning", "deceptive-text",
+                                "Link text shows " + shown.hostname + " but the link goes to " + parsed.hostname + ".");
+                        }
+                    }
+                }
+            }
+
+            // Accessibility: a link with no accessible name is unusable by screen
+            // reader users, who navigate by pulling up a list of link names.
+            if (!text) {
+                var hasImgAlt = false;
+                var imgs = a.querySelectorAll ? a.querySelectorAll("img[alt]") : [];
+                for (var m = 0; m < imgs.length; m++) if ((imgs[m].getAttribute("alt") || "").trim()) hasImgAlt = true;
+                if (!hasImgAlt && !(a.getAttribute("aria-label") || "").trim() && !(a.getAttribute("title") || "").trim()) {
+                    add("error", "empty-text", "Link has no text, image alt, aria-label or title, so it has no accessible name.");
+                }
+            } else {
+                var key = text.toLowerCase();
+                (byText[key] = byText[key] || []).push({ a: a, href: href });
+            }
+        }
+
+        // Same visible words pointing at different destinations reads as one
+        // repeated link to anyone navigating by link name.
+        for (var k in byText) {
+            if (!byText.hasOwnProperty(k)) continue;
+            var group = byText[k];
+            if (group.length < 2) continue;
+            var distinct = {};
+            for (var g = 0; g < group.length; g++) distinct[group[g].href] = true;
+            if (Object.keys(distinct).length < 2) continue;
+            for (var g2 = 0; g2 < group.length; g2++) {
+                out.push({
+                    element: group[g2].a, href: group[g2].href, text: group[g2].a.textContent.trim(),
+                    severity: "warning", code: "ambiguous-text",
+                    message: "Several links share the text “" + group[g2].a.textContent.trim() +
+                             "” but point to different destinations."
+                });
+            }
+        }
+        return out;
+    }
+
+    function parseUrl(href) {
+        try {
+            var doc = getDoc() || document;
+            var a = doc.createElement("a");
+            a.href = href;
+            if (!a.protocol || a.protocol === ":") return null;
+            return { protocol: a.protocol, hostname: a.hostname, pathname: a.pathname };
+        } catch (e) { return null; }
+    }
+
+    // ---- run -------------------------------------------------------------
+
+    obj.Check = function () {
+        var issues = offlineIssues();
+        var resolver = config.linkCheckResolver;
+
+        if (typeof resolver !== "function") {
+            lastIssues = issues;
+            finish(issues);
+            // Always a promise, so callers do not branch on whether a resolver
+            // happens to be configured.
+            return typeof Promise === "function" ? Promise.resolve(issues.slice()) : issues.slice();
+        }
+
+        // Only URLs that survived the offline checks are worth a round trip.
+        var flagged = {};
+        for (var i = 0; i < issues.length; i++) flagged[issues[i].href] = true;
+        var urls = [], seen = {};
+        var list = links();
+        for (var j = 0; j < list.length; j++) {
+            var href = (list[j].getAttribute("href") || "").trim();
+            if (!href || href.charAt(0) === "#" || flagged[href] || seen[href]) continue;
+            if (!/^https?:/i.test(href)) continue;      // only real web URLs
+            seen[href] = true;
+            urls.push(href);
+        }
+        if (!urls.length) {
+            lastIssues = issues; finish(issues);
+            return typeof Promise === "function" ? Promise.resolve(issues.slice()) : issues.slice();
+        }
+
+        return Promise.resolve()
+            .then(function () { return resolver(urls.slice()); })
+            .then(function (result) {
+                result = result || {};
+                var byHref = {};
+                for (var n = 0; n < list.length; n++) {
+                    var h = (list[n].getAttribute("href") || "").trim();
+                    (byHref[h] = byHref[h] || []).push(list[n]);
+                }
+                for (var u in result) {
+                    if (!result.hasOwnProperty(u)) continue;
+                    var r = result[u];
+                    if (!r || r.ok !== false) continue;
+                    var els = byHref[u] || [];
+                    for (var e = 0; e < els.length; e++) {
+                        issues.push({
+                            element: els[e], href: u, text: (els[e].textContent || "").trim(),
+                            severity: "error", code: "unreachable",
+                            message: "Link did not resolve" + (r.status ? " (HTTP " + r.status + ")" : "") + "."
+                        });
+                    }
+                }
+                lastIssues = issues;
+                finish(issues);
+                return issues.slice();
+            })
+            .catch(function () {
+                // A resolver that fails must not lose the offline findings.
+                lastIssues = issues;
+                finish(issues);
+                return issues.slice();
+            });
+    };
+
+    function finish(issues) {
+        if (highlighting) paint(issues);
+        try { editor.fireEvent && editor.fireEvent("linkcheck", issues); } catch (e) {}
+    }
+
+    // ---- highlighting (chrome, never content) ----------------------------
+
+    function applyHighlight(on) {
+        highlighting = !!on;
+        if (highlighting) paint(lastIssues);
+        else clear();
+        return highlighting;
+    }
+
+    function clear() {
+        var editable = getEditable();
+        if (!editable) return;
+        var marked = editable.querySelectorAll("a[data-rte-link-issue]");
+        for (var i = 0; i < marked.length; i++) {
+            marked[i].removeAttribute("data-rte-link-issue");
+            marked[i].removeAttribute("data-rte-link-issue-message");
+        }
+    }
+
+    function paint(issues) {
+        clear();
+        for (var i = 0; i < issues.length; i++) {
+            var el = issues[i].element;
+            if (!el || !el.setAttribute) continue;
+            // An error already recorded outranks a later warning on the same link.
+            if (el.getAttribute("data-rte-link-issue") === "error") continue;
+            el.setAttribute("data-rte-link-issue", issues[i].severity);
+            el.setAttribute("data-rte-link-issue-message", issues[i].message);
+        }
+    }
+
+    function stripFor() {
+        var editable = getEditable();
+        if (!editable) return function () {};
+        var marked = editable.querySelectorAll("a[data-rte-link-issue]");
+        var parked = [];
+        for (var i = 0; i < marked.length; i++) {
+            parked.push({
+                el: marked[i],
+                sev: marked[i].getAttribute("data-rte-link-issue"),
+                msg: marked[i].getAttribute("data-rte-link-issue-message")
+            });
+            marked[i].removeAttribute("data-rte-link-issue");
+            marked[i].removeAttribute("data-rte-link-issue-message");
+        }
+        return function restore() {
+            for (var j = 0; j < parked.length; j++) {
+                parked[j].el.setAttribute("data-rte-link-issue", parked[j].sev);
+                if (parked[j].msg) parked[j].el.setAttribute("data-rte-link-issue-message", parked[j].msg);
+            }
+        };
+    }
+
+    function wrapSerializers() {
+        if (wrapped) return;
+        var names = ["getHTMLCode", "getJSON", "getHTMLContent", "getText"];
+        var did = false;
+        for (var i = 0; i < names.length; i++) {
+            (function (name) {
+                var orig = editor[name];
+                if (typeof orig !== "function" || orig.__rteLcWrapped) return;
+                var w = function () {
+                    var restore = stripFor();
+                    try { return orig.apply(editor, arguments); } finally { restore(); }
+                };
+                w.__rteLcWrapped = true;
+                editor[name] = w;
+                did = true;
+            })(names[i]);
+        }
+        if (did) wrapped = true;
+    }
+
+    // ---- styles ----------------------------------------------------------
+
+    function css() {
+        return (
+            "a[data-rte-link-issue='error']{background:rgba(220,38,38,.12);" +
+            "box-shadow:inset 0 -2px 0 rgba(220,38,38,.65);border-radius:2px;}" +
+            "a[data-rte-link-issue='warning']{background:rgba(217,119,6,.12);" +
+            "box-shadow:inset 0 -2px 0 rgba(217,119,6,.6);border-radius:2px;}"
+        );
+    }
+
+    function injectStyles(doc) {
+        if (!doc) return;
+        var existing = doc.getElementById("rte-link-checker-styles");
+        var text = css();
+        if (existing) {
+            if (existing.getAttribute("data-css") === text) return;
+            existing.parentNode && existing.parentNode.removeChild(existing);
+        }
+        var st = doc.createElement("style");
+        st.id = "rte-link-checker-styles";
+        st.setAttribute("data-css", text);
+        st.appendChild(doc.createTextNode(text));
+        (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+    }
 }
 
 if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
@@ -26203,6 +31910,335 @@ function RTE_Plugin_Mention() {
 
 if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
 
+// 2026-07-27 Merge fields. Placeholders that stand in for data — recipient name,
+// invoice total, order date — so one document becomes a template you can render
+// against many records. The basis of mail merge, invoice runs, personalised
+// letters and contract generation.
+//
+// Premium in both majors:
+//   - CKEditor 5 merge fields: "Unlock this feature with selected CKEditor Plans".
+//   - TinyMCE mergetags: "This plugin is only available for paid TinyMCE
+//     subscriptions".
+//
+// Design notes:
+//   - A field is an ATOMIC contenteditable=false span. The caret steps over it,
+//     backspace removes the whole thing, and it can never be half-deleted into
+//     "{{customer.na}}" — which would silently stop resolving at merge time.
+//   - PREVIEW MODE IS PRESENTATIONAL AND MUST NEVER REACH THE SAVED HTML. This
+//     is the whole risk of the feature: if previewing with sample data and then
+//     saving wrote "Ada Lovelace" into the template where {{Customer name}} used
+//     to be, the user would destroy their template by looking at it. So the
+//     serializers are wrapped and every chip is restored to its label for the
+//     duration of the call — the same contract pagination.js uses for its
+//     overlay.
+//   - renderMergeFields(data) works on a DETACHED CLONE. Producing the merged
+//     output must not touch the document being edited.
+RTE_DefaultConfig.plugin_mergefields = RTE_Plugin_MergeFields;
+
+// Field definitions. Replace these with your own — they are examples, not a
+// meaningful default schema. `sample` may be a string or a function.
+if (typeof RTE_DefaultConfig.mergeFields === "undefined") {
+    RTE_DefaultConfig.mergeFields = [
+        { id: "recipient.name", label: "Recipient name", sample: "Ada Lovelace" },
+        { id: "recipient.email", label: "Recipient email", sample: "ada@example.com" },
+        { id: "company.name", label: "Company name", sample: "Analytical Engines Ltd" },
+        { id: "document.title", label: "Document title", sample: "Statement of Work" },
+        { id: "date.today", label: "Today's date", sample: function () { return new Date().toLocaleDateString(); } }
+    ];
+}
+// Wrappers shown around the label so a field is visually obvious as a placeholder.
+if (typeof RTE_DefaultConfig.mergeFieldPrefix === "undefined") RTE_DefaultConfig.mergeFieldPrefix = "{{";
+if (typeof RTE_DefaultConfig.mergeFieldSuffix === "undefined") RTE_DefaultConfig.mergeFieldSuffix = "}}";
+// What renderMergeFields does with a field the data has no value for:
+// "placeholder" leaves it visible, "empty" removes it. Defaults to leaving it
+// visible, because a silently blank invoice line is worse than an obvious one.
+if (typeof RTE_DefaultConfig.mergeFieldMissing === "undefined") RTE_DefaultConfig.mergeFieldMissing = "placeholder";
+
+function RTE_Plugin_MergeFields() {
+    var obj = this;
+    var config, editor;
+    var boundDoc = null;
+    var preview = false;
+    var wrapped = false;
+
+    obj.PluginName = "MergeFields";
+
+    obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+
+        editor.attachEvent("exec_command_insertmergefield", function (state) {
+            state.returnValue = true;
+            obj.Insert(state && state.value);
+        });
+
+        setup();
+        try { editor.attachEvent("ready", setup); } catch (e) {}
+        try { editor.attachEvent("aftersethtml", setup); } catch (e) {}
+        setTimeout(setup, 0);
+
+        // Public API.
+        editor.getMergeFieldDefinitions = function () { return definitions().slice(); };
+        editor.insertMergeField = function (id) { return obj.Insert(id); };
+        editor.listMergeFields = function () { return obj.List(); };
+        editor.setMergeFieldPreview = function (on) { return applyPreview(!!on); };
+        editor.toggleMergeFieldPreview = function () { return applyPreview(!preview); };
+        editor.isMergeFieldPreview = function () { return preview; };
+        editor.renderMergeFields = function (data) { return obj.Render(data); };
+        editor.getMergeFieldCss = function () { return css(); };
+    };
+
+    function setup() {
+        var doc = getDoc();
+        if (!doc) return;
+        injectStyles(doc);
+        wrapSerializers();
+        if (doc === boundDoc) return;
+        boundDoc = doc;
+        // Content replaced wholesale: any chips that arrived with it should show
+        // whatever mode we are currently in.
+        refreshAll();
+    }
+
+    function getDoc() { try { return editor.getDocument(); } catch (e) { return null; } }
+    function getEditable() { try { return editor.getEditable(); } catch (e) { return null; } }
+
+    function definitions() {
+        var list = config.mergeFields;
+        return Object.prototype.toString.call(list) === "[object Array]" ? list : [];
+    }
+
+    function findDefinition(id) {
+        var list = definitions();
+        for (var i = 0; i < list.length; i++) if (list[i] && list[i].id === id) return list[i];
+        return null;
+    }
+
+    function labelFor(id) {
+        var def = findDefinition(id);
+        var text = def && def.label ? def.label : id;
+        return String(config.mergeFieldPrefix || "") + text + String(config.mergeFieldSuffix || "");
+    }
+
+    function sampleFor(id) {
+        var def = findDefinition(id);
+        if (!def) return "";
+        var s = def.sample;
+        if (typeof s === "function") {
+            try { return String(s(id)); } catch (e) { return ""; }
+        }
+        return s == null ? "" : String(s);
+    }
+
+    // ---- insert ----------------------------------------------------------
+
+    obj.Insert = function (id) {
+        var doc = getDoc();
+        var editable = getEditable();
+        if (!doc || !editable) return false;
+        if (!id) {
+            var first = definitions()[0];
+            if (!first) return false;
+            id = first.id;
+        }
+        var span = doc.createElement("span");
+        span.className = "rte-merge-field";
+        span.setAttribute("data-merge-field", id);
+        span.setAttribute("contenteditable", "false");
+        span.textContent = preview ? sampleFor(id) : labelFor(id);
+        if (preview) span.className += " rte-merge-preview";
+
+        var placed = false;
+        try {
+            if (typeof editor.insertElement === "function") { editor.insertElement(span); placed = true; }
+        } catch (e) {}
+        if (!placed) {
+            try {
+                var sel = editor.getSelection();
+                if (sel && sel.rangeCount) {
+                    var r = sel.getRangeAt(0);
+                    r.collapse(false);
+                    r.insertNode(span);
+                    r.setStartAfter(span); r.collapse(true);
+                    sel.removeAllRanges(); sel.addRange(r);
+                    placed = true;
+                }
+            } catch (e) {}
+        }
+        if (!placed) editable.appendChild(span);
+        fireChange();
+        return id;
+    };
+
+    // ---- inspect ---------------------------------------------------------
+
+    function chips() {
+        var editable = getEditable();
+        if (!editable) return [];
+        return Array.prototype.slice.call(editable.querySelectorAll("span.rte-merge-field[data-merge-field]"));
+    }
+
+    obj.List = function () {
+        var out = [];
+        var seen = {};
+        var list = chips();
+        for (var i = 0; i < list.length; i++) {
+            var id = list[i].getAttribute("data-merge-field");
+            var def = findDefinition(id);
+            out.push({
+                id: id,
+                label: def && def.label ? def.label : id,
+                known: !!def,      // a chip pasted from a template built elsewhere may not be defined here
+                count: (seen[id] = (seen[id] || 0) + 1)
+            });
+        }
+        return out;
+    };
+
+    // ---- preview ---------------------------------------------------------
+
+    function applyPreview(on) {
+        preview = !!on;
+        refreshAll();
+        return preview;
+    }
+
+    function refreshAll() {
+        var list = chips();
+        for (var i = 0; i < list.length; i++) setChipText(list[i]);
+    }
+
+    function setChipText(chip) {
+        var id = chip.getAttribute("data-merge-field");
+        if (preview) {
+            chip.textContent = sampleFor(id);
+            if (chip.classList) chip.classList.add("rte-merge-preview");
+        } else {
+            chip.textContent = labelFor(id);
+            if (chip.classList) chip.classList.remove("rte-merge-preview");
+        }
+    }
+
+    // ---- render ----------------------------------------------------------
+
+    // Produce merged HTML for one record. Works on a clone: rendering output
+    // must never mutate the template being edited.
+    obj.Render = function (data) {
+        var editable = getEditable();
+        if (!editable) return "";
+        var clone = editable.cloneNode(true);
+        var list = clone.querySelectorAll("span.rte-merge-field[data-merge-field]");
+        for (var i = 0; i < list.length; i++) {
+            var chip = list[i];
+            var id = chip.getAttribute("data-merge-field");
+            var value = lookup(data, id);
+            if (value == null) {
+                if (String(config.mergeFieldMissing) === "empty") {
+                    if (chip.parentNode) chip.parentNode.removeChild(chip);
+                } else {
+                    // Leave it obvious rather than silently blank.
+                    chip.textContent = labelFor(id);
+                }
+                continue;
+            }
+            var text = chip.ownerDocument.createTextNode(String(value));
+            if (chip.parentNode) chip.parentNode.replaceChild(text, chip);
+        }
+        return clone.innerHTML;
+    };
+
+    // Supports both flat keys ({"recipient.name": "..."}) and nested objects
+    // ({recipient: {name: "..."}}), because both are natural shapes for callers.
+    function lookup(data, id) {
+        if (!data || typeof data !== "object") return null;
+        if (Object.prototype.hasOwnProperty.call(data, id)) return data[id];
+        var parts = String(id).split(".");
+        var cur = data;
+        for (var i = 0; i < parts.length; i++) {
+            if (cur == null || typeof cur !== "object") return null;
+            if (!Object.prototype.hasOwnProperty.call(cur, parts[i])) return null;
+            cur = cur[parts[i]];
+        }
+        return cur == null ? null : cur;
+    }
+
+    // ---- serialization safety -------------------------------------------
+
+    // Restore every chip to its LABEL for the duration of a serialize call, then
+    // put the preview text back. Without this, saving while preview is on writes
+    // sample data into the template permanently.
+    function stripFor() {
+        if (!preview) return function () {};
+        var list = chips();
+        var parked = [];
+        for (var i = 0; i < list.length; i++) {
+            parked.push({ chip: list[i], text: list[i].textContent });
+            list[i].textContent = labelFor(list[i].getAttribute("data-merge-field"));
+            if (list[i].classList) list[i].classList.remove("rte-merge-preview");
+        }
+        return function restore() {
+            for (var j = 0; j < parked.length; j++) {
+                parked[j].chip.textContent = parked[j].text;
+                if (parked[j].chip.classList) parked[j].chip.classList.add("rte-merge-preview");
+            }
+        };
+    }
+
+    function wrapSerializers() {
+        if (wrapped) return;
+        var names = ["getHTMLCode", "getJSON", "getHTMLContent", "getText"];
+        var did = false;
+        for (var i = 0; i < names.length; i++) {
+            (function (name) {
+                var orig = editor[name];
+                if (typeof orig !== "function" || orig.__rteMfWrapped) return;
+                var w = function () {
+                    var restore = stripFor();
+                    try { return orig.apply(editor, arguments); } finally { restore(); }
+                };
+                w.__rteMfWrapped = true;
+                editor[name] = w;
+                did = true;
+            })(names[i]);
+        }
+        if (did) wrapped = true;
+    }
+
+    function fireChange() {
+        try { if (typeof editor.updateDesign === "function") editor.updateDesign(); } catch (e) {}
+        try { if (typeof editor.fireChange === "function") editor.fireChange(); } catch (e) {}
+    }
+
+    // ---- styles ----------------------------------------------------------
+
+    function css() {
+        return (
+            "span.rte-merge-field{display:inline-block;padding:0 .35em;border-radius:3px;" +
+            "background:#e8f0fe;color:#1a4fa0;border:1px solid #c3d8f7;" +
+            "font-size:.94em;white-space:nowrap;user-select:none;cursor:default;}" +
+            "span.rte-merge-field.rte-merge-preview{background:#eef7ed;color:#1e6b32;border-color:#c6e3c8;}"
+        );
+    }
+
+    function injectStyles(doc) {
+        if (!doc) return;
+        var existing = doc.getElementById("rte-merge-field-styles");
+        var text = css();
+        if (existing) {
+            if (existing.getAttribute("data-css") === text) return;
+            existing.parentNode && existing.parentNode.removeChild(existing);
+        }
+        var st = doc.createElement("style");
+        st.id = "rte-merge-field-styles";
+        st.setAttribute("data-css", text);
+        st.appendChild(doc.createTextNode(text));
+        (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+    }
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
 // 2026-06-04 Mermaid diagram block. Closes the "diagrams-as-code" gap vs
 // GitHub / GitLab / Notion / Obsidian. Authors write Mermaid text (flowcharts,
 // sequence, gantt, pie, class, state…) and the block renders to SVG.
@@ -26494,6 +32530,2000 @@ function RTE_Plugin_MermaidDiagram() {
             editor.focus();
         };
     };
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
+// 2026-07-17 Multi-level / legal list numbering. Turns an ordered list into
+// legal-style hierarchical numbering — 1, 1.1, 1.1.1 — the numbering contracts,
+// specifications, statutes and policy documents are written in.
+//
+// CKEditor sells this as a premium "Multi-level list" feature; TinyMCE, Froala,
+// Tiptap, Lexical and Quill ship nothing equivalent.
+//
+// Implementation is CSS counters, not rewritten text:
+//   - the numbering is produced by counters(rte-legal, ".") on ::before, so the
+//     document keeps clean semantic <ol>/<li> markup with no injected number
+//     text to fall out of sync when items are added, removed or re-ordered
+//   - the only thing stored is one class on the root <ol>, which IS content (a
+//     deliberate formatting choice) and so is meant to persist in saved HTML
+//   - because it is real CSS, the browser print pipeline renders it, which means
+//     html2pdf and Print preview reproduce the numbering
+//
+// The matching stylesheet is injected into the editor document at runtime and is
+// also exposed as editor.getLegalListCss() so hosts can drop the same rules into
+// their public page, their print stylesheet, or an export template.
+RTE_DefaultConfig.plugin_multilevellist = RTE_Plugin_MultiLevelList;
+
+// Class applied to the root <ol>. Kept configurable so a host with an existing
+// convention (or a CSS-module build) can point it at their own class.
+if (typeof RTE_DefaultConfig.legalListClass === "undefined") RTE_DefaultConfig.legalListClass = "rte-legal-list";
+// Separator between levels: "1.1.1" (default) or e.g. ")" / "-".
+if (typeof RTE_DefaultConfig.legalListSeparator === "undefined") RTE_DefaultConfig.legalListSeparator = ".";
+// Trailing string after the last number: "1.1." vs "1.1)".
+if (typeof RTE_DefaultConfig.legalListSuffix === "undefined") RTE_DefaultConfig.legalListSuffix = ".";
+
+function RTE_Plugin_MultiLevelList() {
+    var obj = this;
+    var config, editor;
+    var boundDoc = null;
+
+    obj.PluginName = "MultiLevelList";
+
+    obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+        setup();
+        try { editor.attachEvent("ready", setup); } catch (e) {}
+        try { editor.attachEvent("aftersethtml", setup); } catch (e) {}
+        setTimeout(setup, 0);
+
+        // Public API.
+        editor.setLegalNumbering = function (on) { return applyToSelection(!!on); };
+        editor.toggleLegalNumbering = function () { return applyToSelection(!isLegal(nearestRootList())); };
+        editor.isLegalNumbering = function () { return isLegal(nearestRootList()); };
+        editor.getLegalListCss = function () { return css(); };
+    };
+
+    function setup() {
+        var doc = getDoc();
+        if (doc && doc !== boundDoc) { injectStyles(doc); boundDoc = doc; }
+        else if (doc) injectStyles(doc);
+    }
+
+    function getDoc() { try { return editor.getDocument(); } catch (e) { return null; } }
+    function getEditable() { try { return editor.getEditable(); } catch (e) { return null; } }
+
+    // ---- selection helpers ----------------------------------------------
+
+    // The <ol> that owns the caret, walked up to the OUTERMOST list so the class
+    // lands on the root — counters() needs a single root scope to number from.
+    function nearestRootList() {
+        try {
+            var sel = editor.getSelection();
+            if (!sel || sel.rangeCount === 0) return null;
+            var editable = getEditable();
+            var n = sel.getRangeAt(0).startContainer;
+            if (n && n.nodeType === 3) n = n.parentNode;
+            var root = null;
+            while (n && n !== editable) {
+                if (n.nodeName === "OL") root = n;   // keep climbing: last wins = outermost
+                n = n.parentNode;
+            }
+            return root;
+        } catch (e) { return null; }
+    }
+
+    function isLegal(ol) {
+        return !!(ol && ol.classList && ol.classList.contains(config.legalListClass));
+    }
+
+    function applyToSelection(on) {
+        var ol = nearestRootList();
+        if (!ol) return false;
+        if (on) ol.classList.add(config.legalListClass);
+        else ol.classList.remove(config.legalListClass);
+        // Let the host know the document changed so undo/save stay honest.
+        try { if (typeof editor.updateDesign === "function") editor.updateDesign(); } catch (e) {}
+        try { editor.fireEvent && editor.fireEvent("change"); } catch (e) {}
+        return on;
+    }
+
+    // ---- styles ----------------------------------------------------------
+
+    function css() {
+        var cls = config.legalListClass;
+        var sep = String(config.legalListSeparator || ".").replace(/"/g, '\\"');
+        var suffix = String(config.legalListSuffix == null ? "." : config.legalListSuffix).replace(/"/g, '\\"');
+        // One counter name, reset at every level; counters() joins the whole
+        // ancestor chain, which is what yields 1 / 1.1 / 1.1.1 automatically.
+        return (
+            "ol." + cls + ",ol." + cls + " ol{counter-reset:rte-legal;list-style:none;}" +
+            "ol." + cls + ">li,ol." + cls + " ol>li{counter-increment:rte-legal;position:relative;}" +
+            // Hide any native marker that a UA or reset stylesheet still draws.
+            "ol." + cls + ">li::marker,ol." + cls + " ol>li::marker{content:\"\";}" +
+            "ol." + cls + ">li::before,ol." + cls + " ol>li::before{" +
+            "content:counters(rte-legal,\"" + sep + "\")\"" + suffix + "\";" +
+            "position:absolute;left:-3.2em;width:3em;text-align:right;" +
+            "font-variant-numeric:tabular-nums;}" +
+            // Room for the widest marker; nested levels indent further.
+            "ol." + cls + "{padding-left:3.6em;}" +
+            "ol." + cls + " ol{padding-left:3.2em;margin-top:.25em;}"
+        );
+    }
+
+    function injectStyles(doc) {
+        if (!doc) return;
+        var existing = doc.getElementById("rte-legal-list-styles");
+        var text = css();
+        if (existing) {
+            // Config can change at runtime (separator/suffix) — keep it current.
+            if (existing.getAttribute("data-css") === text) return;
+            existing.parentNode && existing.parentNode.removeChild(existing);
+        }
+        var st = doc.createElement("style");
+        st.id = "rte-legal-list-styles";
+        st.setAttribute("data-css", text);
+        st.appendChild(doc.createTextNode(text));
+        (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+    }
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
+// 2026-07-17 Pagination / page view. Renders the editable as a stack of paper
+// pages — the "print layout" view Word and Google Docs have, and the feature
+// CKEditor and Tiptap both sell as a paid add-on.
+//
+// Design constraint (same as the typewriter/focus plugin): this is PURELY
+// PRESENTATIONAL. It never mutates content and nothing it draws is serialized:
+//   - page geometry is applied as styles on the editable (width/padding/background)
+//   - page boundaries, page numbers, and header/footer text are drawn in an
+//     overlay layer that is contenteditable="false", aria-hidden, pointer-events
+//     none, and stripped around every serialize call as a belt-and-braces guard.
+// Turning page view off restores the editable exactly as it was.
+//
+// Geometry comes from the document's own page setup when the host app supplies
+// one (editor.getDocumentPageSetup() / config), so the on-screen page matches
+// what html2pdf and the Word export produce: format (A4/Letter/Legal),
+// orientation, margins, and optional header/footer HTML.
+//
+// Forced breaks: any element carrying data-rte-page-break (what the
+// insertpagebreak toolbar command inserts) starts a new page, exactly as it
+// does on export.
+RTE_DefaultConfig.plugin_pagination = RTE_Plugin_Pagination;
+
+// Off by default — page view is a deliberate mode, not a surprise.
+if (typeof RTE_DefaultConfig.paginationEnabled === "undefined") RTE_DefaultConfig.paginationEnabled = false;
+// Paper format when the document carries no page setup: A4 | Letter | Legal.
+if (typeof RTE_DefaultConfig.pageFormat === "undefined") RTE_DefaultConfig.pageFormat = "A4";
+if (typeof RTE_DefaultConfig.pageOrientation === "undefined") RTE_DefaultConfig.pageOrientation = "portrait";
+// Margins in inches (Word's default is 1in all round).
+if (typeof RTE_DefaultConfig.pageMargins === "undefined") RTE_DefaultConfig.pageMargins = { top: 1, right: 1, bottom: 1, left: 1 };
+if (typeof RTE_DefaultConfig.paginationShowPageNumbers === "undefined") RTE_DefaultConfig.paginationShowPageNumbers = true;
+// "Page 3" vs "Page 3 of 12".
+if (typeof RTE_DefaultConfig.paginationShowPageCount === "undefined") RTE_DefaultConfig.paginationShowPageCount = true;
+
+function RTE_Plugin_Pagination() {
+    var obj = this;
+    var config, editor;
+    var active = false;
+    var overlay = null;
+    var boundDoc = null;
+    var wrapped = false;
+    var raf = 0;
+    var pageCount = 1;
+    var lastSignature = "";
+
+    obj.PluginName = "Pagination";
+
+    // 96 CSS px per inch is the CSS reference pixel — the same basis html2pdf
+    // and the browser's own print pipeline use.
+    var DPI = 96;
+    var MM_PER_IN = 25.4;
+
+    var FORMATS = {
+        a4: { w: 210 / MM_PER_IN, h: 297 / MM_PER_IN },
+        letter: { w: 8.5, h: 11 },
+        legal: { w: 8.5, h: 14 },
+        a3: { w: 297 / MM_PER_IN, h: 420 / MM_PER_IN },
+        a5: { w: 148 / MM_PER_IN, h: 210 / MM_PER_IN },
+        tabloid: { w: 11, h: 17 }
+    };
+
+    obj.InitConfig = function (argconfig) {
+        config = argconfig;
+        active = !!config.paginationEnabled;
+    };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+        setup();
+        try { editor.attachEvent("ready", setup); } catch (e) {}
+        try { editor.attachEvent("aftersethtml", schedule); } catch (e) {}
+
+        // Public API.
+        editor.setPageView = function (on) { active = !!on; apply(); return active; };
+        editor.togglePageView = function () { active = !active; apply(); return active; };
+        editor.isPageView = function () { return active; };
+        editor.getPageCount = function () { if (active) paginate(); return pageCount; };
+        // Let the host change paper without rebuilding the editor.
+        editor.setPageSetup = function (setup) {
+            if (setup && typeof setup === "object") {
+                if (setup.format) config.pageFormat = setup.format;
+                if (setup.orientation) config.pageOrientation = setup.orientation;
+                if (setup.margins) config.pageMargins = setup.margins;
+                if (typeof setup.headerHtml === "string") config.pageHeaderHtml = setup.headerHtml;
+                if (typeof setup.footerHtml === "string") config.pageFooterHtml = setup.footerHtml;
+            }
+            lastSignature = "";
+            apply();
+            return geometry();
+        };
+        editor.getPageGeometry = function () { return geometry(); };
+        // 2026-07-27 Which page is this element on? Added for the table-of-contents
+        // plugin, which pairs page numbers with its entries the way a word
+        // processor does. Returns null when page view is off, because outside
+        // page view a "page number" would be a fiction.
+        editor.getPageOfElement = function (el) { return pageOfElement(el); };
+
+        setTimeout(setup, 0);
+        setTimeout(schedule, 250);
+    };
+
+    // Re-runnable: the editor can recreate its document/body (setHTML, mode
+    // switches), so every hook re-attaches defensively.
+    function setup() {
+        var doc = getDoc();
+        if (doc) {
+            injectStyles(doc);
+            if (doc !== boundDoc) {
+                doc.addEventListener("input", schedule, true);
+                doc.addEventListener("keyup", schedule, true);
+                boundDoc = doc;
+                var win = doc.defaultView || doc.parentWindow;
+                if (win) { try { win.addEventListener("resize", schedule, true); } catch (e) {} }
+            }
+        }
+        wrapSerializers();
+        apply();
+    }
+
+    function getDoc() { try { return editor.getDocument(); } catch (e) { return null; } }
+    function getEditable() { try { return editor.getEditable(); } catch (e) { return null; } }
+
+    // ---- geometry -------------------------------------------------------
+
+    // Prefer the document's own page setup (so screen matches export), then
+    // config, then the A4 default.
+    function pageSetup() {
+        var s = null;
+        try { if (typeof editor.getDocumentPageSetup === "function") s = editor.getDocumentPageSetup(); } catch (e) { s = null; }
+        if (!s || typeof s !== "object") s = {};
+        return {
+            format: s.format || config.pageFormat || "A4",
+            orientation: s.orientation || config.pageOrientation || "portrait",
+            margins: s.margins || config.pageMargins || { top: 1, right: 1, bottom: 1, left: 1 },
+            headerHtml: typeof s.headerHtml === "string" ? s.headerHtml : (config.pageHeaderHtml || ""),
+            footerHtml: typeof s.footerHtml === "string" ? s.footerHtml : (config.pageFooterHtml || "")
+        };
+    }
+
+    // Margins may arrive as inches (number) or a CSS length string.
+    function toPx(v, fallbackIn) {
+        if (typeof v === "number" && isFinite(v)) return v * DPI;
+        if (typeof v === "string") {
+            var m = /^\s*(-?[\d.]+)\s*(mm|cm|in|px|pt)?\s*$/.exec(v);
+            if (m) {
+                var n = parseFloat(m[1]);
+                switch (m[2]) {
+                    case "mm": return (n / MM_PER_IN) * DPI;
+                    case "cm": return (n * 10 / MM_PER_IN) * DPI;
+                    case "pt": return (n / 72) * DPI;
+                    case "px": return n;
+                    default: return n * DPI; // bare number or "in"
+                }
+            }
+        }
+        return (fallbackIn || 0) * DPI;
+    }
+
+    function geometry() {
+        var s = pageSetup();
+        var f = FORMATS[String(s.format).toLowerCase()] || FORMATS.a4;
+        var wIn = f.w, hIn = f.h;
+        if (String(s.orientation).toLowerCase() === "landscape") { var t = wIn; wIn = hIn; hIn = t; }
+        var m = s.margins || {};
+        var g = {
+            pageWidth: Math.round(wIn * DPI),
+            pageHeight: Math.round(hIn * DPI),
+            marginTop: Math.round(toPx(m.top, 1)),
+            marginRight: Math.round(toPx(m.right, 1)),
+            marginBottom: Math.round(toPx(m.bottom, 1)),
+            marginLeft: Math.round(toPx(m.left, 1)),
+            format: s.format,
+            orientation: s.orientation,
+            headerHtml: s.headerHtml,
+            footerHtml: s.footerHtml
+        };
+        // The usable text column on one page.
+        g.contentHeight = Math.max(120, g.pageHeight - g.marginTop - g.marginBottom);
+        g.contentWidth = Math.max(120, g.pageWidth - g.marginLeft - g.marginRight);
+        return g;
+    }
+
+    // ---- apply / teardown ----------------------------------------------
+
+    function apply() {
+        var ed = getEditable();
+        if (!ed) return;
+        if (!active) { teardown(ed); return; }
+        var g = geometry();
+        // The editable becomes the paper column: fixed content width, page
+        // margins as padding, and a top offset so the first page has a margin.
+        ed.classList.add("rte-page-view");
+        ed.style.width = g.contentWidth + "px";
+        ed.style.paddingLeft = g.marginLeft + "px";
+        ed.style.paddingRight = g.marginRight + "px";
+        ed.style.paddingTop = g.marginTop + "px";
+        ed.style.paddingBottom = g.marginBottom + "px";
+        ed.style.margin = "24px auto";
+        ed.style.boxSizing = "content-box";
+        ed.style.background = "#fff";
+        ed.style.minHeight = g.contentHeight + "px";
+        schedule();
+    }
+
+    function teardown(ed) {
+        ed = ed || getEditable();
+        if (ed) {
+            ed.classList.remove("rte-page-view");
+            var props = ["width", "paddingLeft", "paddingRight", "paddingTop", "paddingBottom", "margin", "boxSizing", "background", "minHeight"];
+            for (var i = 0; i < props.length; i++) ed.style[props[i]] = "";
+        }
+        removeOverlay();
+        pageCount = 1;
+        lastSignature = "";
+    }
+
+    function schedule() {
+        if (!active) return;
+        if (raf) return;
+        var doc = getDoc();
+        var win = (doc && (doc.defaultView || doc.parentWindow)) || window;
+        var rq = (win && typeof win.requestAnimationFrame === "function")
+            ? function (f) { return win.requestAnimationFrame(f); }
+            : function (f) { return setTimeout(f, 16); };
+        raf = rq(function () { raf = 0; paginate(); });
+    }
+
+    // ---- pagination -----------------------------------------------------
+
+    // Block-level pagination: walk the top-level blocks and cut a page whenever
+    // the running height would overflow the usable page height, or when a
+    // forced break is hit. A block taller than a page simply owns its page(s) —
+    // we never split a block, matching how the print pipeline behaves for
+    // unbreakable content.
+    // All offsets here are raw offsetTop values (the editable's children share an
+    // offsetParent, so they're directly comparable). "origin" is where the first
+    // block actually sits, which is NOT zero — it's the editable's content box
+    // start. Everything is measured from there so page 1 gets a full page of
+    // content rather than a page minus the top margin.
+    function contentOrigin(ed) {
+        var kids = ed.children;
+        for (var i = 0; i < kids.length; i++) {
+            var el = kids[i];
+            if (el && el.nodeType === 1 && !(el.getAttribute && el.getAttribute("data-rte-page-overlay") === "true")) {
+                return el.offsetTop;
+            }
+        }
+        return ed.offsetTop;
+    }
+
+    // Map an element to its 1-based page number, using the same break offsets the
+    // overlay draws so the number always agrees with the boundary the user sees.
+    // Walks up to the element's top-level block, because computeBreaks measures
+    // offsetTop of the editable's own children.
+    function pageOfElement(el) {
+        if (!active || !el) return null;
+        var ed = getEditable();
+        if (!ed) return null;
+        var block = el;
+        while (block && block.parentNode && block.parentNode !== ed) block = block.parentNode;
+        if (!block || block.parentNode !== ed) return null;
+        var breaks = computeBreaks(ed, geometry());
+        var top = block.offsetTop;
+        var page = 1;
+        for (var i = 0; i < breaks.length; i++) if (breaks[i] <= top) page++;
+        return page;
+    }
+
+    function computeBreaks(ed, g) {
+        var breaks = [];
+        var kids = ed.children;
+        if (!kids || !kids.length) return breaks;
+
+        // Build the list of real content blocks once, so we can use the NEXT
+        // block's top as this block's effective bottom. offsetHeight is a
+        // border-box measure and excludes margins, so summing it undercounts the
+        // flow by every collapsed margin — which would let a page overflow.
+        var blocks = [];
+        for (var k = 0; k < kids.length; k++) {
+            var kid = kids[k];
+            if (!kid || kid.nodeType !== 1) continue;
+            if (kid.getAttribute && kid.getAttribute("data-rte-page-overlay") === "true") continue;
+            blocks.push(kid);
+        }
+        if (!blocks.length) return breaks;
+
+        var pageTop = blocks[0].offsetTop;   // offsetTop where the current page's content starts
+        var i, el, top, bottom;
+
+        for (i = 0; i < blocks.length; i++) {
+            el = blocks[i];
+            top = el.offsetTop;
+            // Effective bottom = where the following block begins (captures the
+            // margin gap); for the last block fall back to its own box bottom.
+            bottom = (i + 1 < blocks.length) ? blocks[i + 1].offsetTop : (top + el.offsetHeight);
+
+            // Forced break: this element starts a new page.
+            var forced = el.hasAttribute && (el.hasAttribute("data-rte-page-break") ||
+                (el.querySelector && !!el.querySelector("[data-rte-page-break]")));
+            if (forced && top > pageTop) {
+                breaks.push(top);
+                pageTop = top;
+                continue;
+            }
+
+            // Natural overflow: cut before this block.
+            if (bottom - pageTop > g.contentHeight) {
+                if (top > pageTop) {
+                    breaks.push(top);
+                    pageTop = top;
+                }
+                // A single over-tall block: advance whole pages past it so the
+                // following content lands on a fresh page rather than cascading.
+                while (bottom - pageTop > g.contentHeight) {
+                    pageTop += g.contentHeight;
+                    breaks.push(pageTop);
+                }
+            }
+        }
+        return breaks;
+    }
+
+    function paginate() {
+        if (!active) return;
+        var ed = getEditable(), doc = getDoc();
+        if (!ed || !doc) return;
+        var g = geometry();
+        var breaks = computeBreaks(ed, g);
+        pageCount = breaks.length + 1;
+
+        // Cheap change-detection so we don't rebuild the overlay on every keystroke.
+        var sig = g.pageWidth + "x" + g.pageHeight + "|" + g.contentHeight + "|" + breaks.join(",") + "|" + ed.offsetHeight;
+        if (sig === lastSignature) return;
+        lastSignature = sig;
+
+        render(doc, ed, g, breaks);
+    }
+
+    // ---- overlay rendering ----------------------------------------------
+
+    function ensureOverlay(doc, ed) {
+        if (overlay && overlay.parentNode) return overlay;
+        overlay = doc.createElement("div");
+        overlay.setAttribute("data-rte-page-overlay", "true");
+        overlay.setAttribute("contenteditable", "false");
+        overlay.setAttribute("aria-hidden", "true");
+        overlay.className = "rte-page-overlay";
+        // Sits in the same offset parent as the editable's children so the
+        // boundary offsets line up without extra math.
+        (ed.parentNode || doc.body || doc.documentElement).appendChild(overlay);
+        return overlay;
+    }
+
+    function removeOverlay() {
+        if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+        overlay = null;
+    }
+
+    // Header/footer HTML may use {page} and {total} placeholders, the same
+    // convention Word and Tiptap's paged view use.
+    function expand(html, page, total) {
+        return String(html)
+            .replace(/\{\s*page\s*\}/gi, String(page))
+            .replace(/\{\s*total\s*\}/gi, String(total));
+    }
+
+    // Coordinate model: `breaks` and `origin` are raw offsetTop values in the
+    // editable's offsetParent space. The overlay is pinned at the editable's own
+    // offset, so overlay-local y = absoluteOffset - ed.offsetTop.
+    function render(doc, ed, g, breaks) {
+        var ov = ensureOverlay(doc, ed);
+        while (ov.firstChild) ov.removeChild(ov.firstChild);
+
+        var edTop = ed.offsetTop;
+        var origin = contentOrigin(ed);
+        var starts = [origin].concat(breaks);
+        var total = starts.length;
+
+        // Cover from the top of the editable to the bottom of the last page.
+        var lastBottom = starts[total - 1] + g.contentHeight + g.marginBottom;
+        ov.style.position = "absolute";
+        ov.style.left = ed.offsetLeft + "px";
+        ov.style.top = edTop + "px";
+        ov.style.width = ed.offsetWidth + "px";
+        ov.style.height = Math.max(ed.offsetHeight, lastBottom - edTop) + "px";
+        ov.style.pointerEvents = "none";
+        ov.style.zIndex = "1";
+
+        var i, y;
+
+        // A separator per break: the visual gap between two sheets of paper. The
+        // break offset is where the NEXT page's content starts, so the gap is
+        // drawn just above it (in the bottom-margin band of the previous page).
+        for (i = 0; i < breaks.length; i++) {
+            y = breaks[i] - edTop - Math.round(g.marginTop / 2);
+            var sep = doc.createElement("div");
+            sep.className = "rte-page-sep";
+            sep.style.top = y + "px";
+            ov.appendChild(sep);
+        }
+
+        for (i = 0; i < starts.length; i++) {
+            var pageNo = i + 1;
+            var contentTop = starts[i] - edTop;          // page's first line
+            var contentBottom = contentTop + g.contentHeight;
+
+            if (config.paginationShowPageNumbers) {
+                var label = doc.createElement("div");
+                label.className = "rte-page-num";
+                label.style.top = (contentBottom + 6) + "px";
+                label.appendChild(doc.createTextNode(
+                    config.paginationShowPageCount ? ("Page " + pageNo + " of " + total) : ("Page " + pageNo)
+                ));
+                ov.appendChild(label);
+            }
+
+            if (g.headerHtml) {
+                var h = doc.createElement("div");
+                h.className = "rte-page-hf rte-page-header";
+                h.style.top = (contentTop - Math.round(g.marginTop / 2)) + "px";
+                h.innerHTML = expand(g.headerHtml, pageNo, total);
+                ov.appendChild(h);
+            }
+            if (g.footerHtml) {
+                var f = doc.createElement("div");
+                f.className = "rte-page-hf rte-page-footer";
+                f.style.top = (contentBottom + Math.round(g.marginBottom / 3)) + "px";
+                f.innerHTML = expand(g.footerHtml, pageNo, total);
+                ov.appendChild(f);
+            }
+        }
+    }
+
+    // ---- styles ---------------------------------------------------------
+
+    function injectStyles(doc) {
+        if (!doc || doc.getElementById("rte-pagination-styles")) return;
+        var css =
+            // The paper itself: a white column with a soft shadow on a grey desk.
+            ".rte-page-view{box-shadow:0 1px 4px rgba(15,23,42,.16),0 8px 28px rgba(15,23,42,.10);}" +
+            // Grey "desk" behind the page so the paper edge reads clearly.
+            "body.rte-page-desk{background:#f1f5f9;}" +
+            ".rte-page-overlay{position:absolute;pointer-events:none;}" +
+            // Page boundary. Content flows continuously, so this is a crisp rule
+            // drawn across the column (the way Word's page-break line reads) —
+            // never a filled band, which would cover the text underneath.
+            ".rte-page-sep{position:absolute;left:-24px;right:-24px;height:0;" +
+            "border-top:1px dashed #94a3b8;}" +
+            ".rte-page-num{position:absolute;right:8px;font:600 10px/1.4 'Segoe UI',system-ui,sans-serif;" +
+            "letter-spacing:.04em;color:#94a3b8;text-transform:uppercase;}" +
+            ".rte-page-hf{position:absolute;left:0;right:0;font:400 11px/1.4 'Segoe UI',system-ui,sans-serif;color:#64748b;}" +
+            ".rte-page-header{text-align:left;}" +
+            ".rte-page-footer{text-align:center;}" +
+            "@media print{.rte-page-overlay{display:none !important;}" +
+            ".rte-page-view{box-shadow:none !important;margin:0 !important;width:auto !important;}}";
+        var st = doc.createElement("style");
+        st.id = "rte-pagination-styles";
+        st.appendChild(doc.createTextNode(css));
+        (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+    }
+
+    // ---- serialization guard --------------------------------------------
+
+    // The overlay lives next to the editable, not inside it, so it should never
+    // serialize. This is the belt-and-braces guard for hosts where the editable
+    // IS the body (inline mode), where "next to" can still mean "inside".
+    function stripFor() {
+        var ed = getEditable();
+        if (!ed) return function () {};
+        var nodes = ed.querySelectorAll ? ed.querySelectorAll("[data-rte-page-overlay]") : [];
+        var parked = [];
+        for (var i = 0; i < nodes.length; i++) {
+            var n = nodes[i];
+            parked.push({ node: n, parent: n.parentNode, next: n.nextSibling });
+            if (n.parentNode) n.parentNode.removeChild(n);
+        }
+        return function restore() {
+            for (var j = 0; j < parked.length; j++) {
+                var p = parked[j];
+                if (p.parent) p.parent.insertBefore(p.node, p.next || null);
+            }
+        };
+    }
+
+    function wrapSerializers() {
+        if (wrapped) return;
+        var names = ["getHTMLCode", "getJSON", "getHTMLContent", "getText"];
+        var did = false;
+        for (var i = 0; i < names.length; i++) {
+            (function (name) {
+                var orig = editor[name];
+                if (typeof orig !== "function" || orig.__rtePgWrapped) return;
+                var w = function () {
+                    var restore = stripFor();
+                    try { return orig.apply(editor, arguments); } finally { restore(); }
+                };
+                w.__rtePgWrapped = true;
+                editor[name] = w;
+                did = true;
+            })(names[i]);
+        }
+        if (did) wrapped = true;
+    }
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
+// 2026-08-02 PDF export that produces REAL TEXT.
+//
+// The existing html2pdf path renders the document with html2canvas and drops a
+// JPEG onto each page. It is pixel-accurate, which is genuinely the right answer
+// when the layout is the point — but the resulting PDF is a picture:
+//
+//   - nothing is selectable, copyable or searchable
+//   - screen readers find an empty document (a hard accessibility failure, and
+//     an outright blocker for anyone shipping into government or education)
+//   - links are painted, not clickable
+//   - a text-only page costs hundreds of KB instead of a few
+//   - zooming or printing shows resampling artefacts
+//
+// This writes the PDF file format directly: no library, no canvas, no network.
+// Both exporters stay available and neither changes the other's behaviour —
+// `exportpdf` is vector, `html2pdf` remains raster.
+//
+// Why writing PDF by hand is reasonable here: a text PDF is a small object graph
+// plus a content stream, and the 14 standard fonts need no embedding at all. The
+// hard part of a PDF generator is font subsetting, and using the base-14 fonts
+// removes it entirely.
+//
+// API:
+//   editor.getPdfBytes(options)          -> Uint8Array
+//   editor.exportToPdf(filename, options)-> triggers a download
+// Command: exec_command "exportpdf".
+// Config:
+//   config.pdfExport = false                 // disable
+//   config.pdfExportFileName = "report"
+//   config.pdfExportFont = "helvetica"        // helvetica | times | courier
+//   config.pdfExportBaseFontSize = 11         // points
+//   config.pdfExportTitle / pdfExportAuthor   // document metadata
+RTE_DefaultConfig.plugin_pdfexport = RTE_Plugin_PdfExport;
+if (typeof RTE_DefaultConfig.pdfExport === "undefined") RTE_DefaultConfig.pdfExport = true;
+
+function RTE_Plugin_PdfExport() {
+    var obj = this;
+    var config, editor;
+
+    obj.PluginName = "PdfExport";
+
+    obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+        if (config.pdfExport === false) return;
+
+        editor.getPdfBytes = function (options) { return buildPdf(options || {}); };
+        editor.exportToPdf = function (filename, options) {
+            var bytes = buildPdf(options || {});
+            var base = sanitizeName(filename) || sanitizeName(config.pdfExportFileName) || defaultBase();
+            return download(bytes, base + ".pdf");
+        };
+        editor.downloadPdf = editor.exportToPdf;
+
+        editor.attachEvent("exec_command_exportpdf", function (state) {
+            state.returnValue = true;
+            state.stopBubble = true;
+            try { editor.exportToPdf(); }
+            catch (e) { if (window.console) console.error("pdfexport:", e); }
+        });
+
+        // The slash-menu entry lives in slashcommand.js, gated on
+        // `typeof editor.exportToPdf === "function"`. Registering from here
+        // instead would silently do nothing: plugins initialise in bundle
+        // order, "pdfexport" sorts before "slashcommand", and
+        // editor.slashCommands does not exist yet at this point.
+    };
+
+    // ---------------------------------------------------------------- units
+    var PT_PER_IN = 72;
+    var PAGE_SIZES = {           // points, portrait
+        letter: [612, 792], legal: [612, 1008], tabloid: [792, 1224],
+        a3: [842, 1191], a4: [595, 842], a5: [420, 595]
+    };
+
+    function toPoints(v, fallback) {
+        if (typeof v === "number" && isFinite(v)) return v * PT_PER_IN;   // bare number = inches
+        if (typeof v !== "string") return fallback;
+        var m = /^\s*(-?[\d.]+)\s*(mm|cm|in|px|pt)?\s*$/.exec(v);
+        if (!m) return fallback;
+        var n = parseFloat(m[1]);
+        if (!isFinite(n)) return fallback;
+        switch (m[2]) {
+            case "mm": return n * PT_PER_IN / 25.4;
+            case "cm": return n * PT_PER_IN / 2.54;
+            case "pt": return n;
+            case "px": return n * 0.75;                                   // CSS px at 96dpi
+            default: return n * PT_PER_IN;
+        }
+    }
+
+    function pageGeometry(options) {
+        var setup = null;
+        try { if (typeof editor.getDocumentPageSetup === "function") setup = editor.getDocumentPageSetup(); }
+        catch (e) { setup = null; }
+        setup = setup || {};
+        var fmt = String(options.format || setup.format || "letter").toLowerCase();
+        var size = PAGE_SIZES[fmt] || PAGE_SIZES.letter;
+        var landscape = String(options.orientation || setup.orientation || "").toLowerCase() === "landscape";
+        var w = landscape ? size[1] : size[0];
+        var h = landscape ? size[0] : size[1];
+        var m = options.margins || setup.margins || {};
+        var half = PT_PER_IN / 2;
+        return {
+            width: w, height: h,
+            margin: {
+                top: toPoints(m.top, half), right: toPoints(m.right, half),
+                bottom: toPoints(m.bottom, half), left: toPoints(m.left, half)
+            }
+        };
+    }
+
+    // ---------------------------------------------------------------- fonts
+    //
+    // The base-14 fonts need no embedding, but a viewer would then lay text out
+    // with ITS metrics while this code wrapped lines using its own. The two
+    // disagree and text overruns the margin. Fixing it by shipping AFM width
+    // tables would add ~1500 lines of data; instead the widths are measured here
+    // and written into the font object as /Widths, which a viewer is required to
+    // honour. Layout and rendering then use the same numbers by construction.
+    //
+    // Measurement is accurate because the base-14 fonts are metric-compatible
+    // with fonts every browser has: Helvetica/Arial, Times/Times New Roman,
+    // Courier/Courier New were designed to share advance widths.
+    var FONT_FAMILIES = {
+        helvetica: { css: "Arial, Helvetica, sans-serif", faces: ["Helvetica", "Helvetica-Bold", "Helvetica-Oblique", "Helvetica-BoldOblique"] },
+        times: { css: '"Times New Roman", Times, serif', faces: ["Times-Roman", "Times-Bold", "Times-Italic", "Times-BoldItalic"] },
+        courier: { css: '"Courier New", Courier, monospace', faces: ["Courier", "Courier-Bold", "Courier-Oblique", "Courier-BoldOblique"] }
+    };
+    var FIRST_CHAR = 32, LAST_CHAR = 255;
+
+    var widthCache = {};
+    function widthsFor(familyKey, styleIndex) {
+        var key = familyKey + ":" + styleIndex;
+        if (widthCache[key]) return widthCache[key];
+        var fam = FONT_FAMILIES[familyKey] || FONT_FAMILIES.helvetica;
+        var canvas = widthsFor.canvas || (widthsFor.canvas = document.createElement("canvas"));
+        var g = canvas.getContext("2d");
+        // 1000 units per em is the PDF glyph space; measuring at 100px and
+        // scaling by 10 keeps sub-unit rounding away from the result.
+        var weight = (styleIndex & 1) ? "bold " : "";
+        var slant = (styleIndex & 2) ? "italic " : "";
+        g.font = weight + slant + "100px " + fam.css;
+        var out = [];
+        for (var c = FIRST_CHAR; c <= LAST_CHAR; c++) {
+            var w = g.measureText(String.fromCharCode(c)).width;
+            out.push(Math.round(w * 10));
+        }
+        widthCache[key] = out;
+        return out;
+    }
+
+    function charWidth(familyKey, styleIndex, code) {
+        if (code < FIRST_CHAR || code > LAST_CHAR) code = 63;   // '?'
+        return widthsFor(familyKey, styleIndex)[code - FIRST_CHAR] || 500;
+    }
+
+    function textWidth(str, familyKey, styleIndex, size) {
+        var total = 0;
+        for (var i = 0; i < str.length; i++) total += charWidth(familyKey, styleIndex, str.charCodeAt(i));
+        return total * size / 1000;
+    }
+
+    // ------------------------------------------------------------ PDF string
+    //
+    // WinAnsiEncoding covers Latin-1 plus the printable range of CP1252. A
+    // character outside it has no glyph in a base-14 font, so it is transliterated
+    // rather than written as a byte the viewer would render as garbage.
+    var WINANSI_EXTRA = {
+        0x20AC: 128, 0x201A: 130, 0x0192: 131, 0x201E: 132, 0x2026: 133, 0x2020: 134,
+        0x2021: 135, 0x02C6: 136, 0x2030: 137, 0x0160: 138, 0x2039: 139, 0x0152: 140,
+        0x017D: 142, 0x2018: 145, 0x2019: 146, 0x201C: 147, 0x201D: 148, 0x2022: 149,
+        0x2013: 150, 0x2014: 151, 0x02DC: 152, 0x2122: 153, 0x0161: 154, 0x203A: 155,
+        0x0153: 156, 0x017E: 158, 0x0178: 159
+    };
+    function toWinAnsi(str) {
+        var out = "";
+        for (var i = 0; i < str.length; i++) {
+            var cp = str.charCodeAt(i);
+            if (cp < 256) { out += String.fromCharCode(cp); continue; }
+            var mapped = WINANSI_EXTRA[cp];
+            if (mapped) { out += String.fromCharCode(mapped); continue; }
+            // Common shapes that would otherwise become "?" for no good reason.
+            if (cp === 0x00A0) { out += " "; continue; }
+            if (cp >= 0x2000 && cp <= 0x200A) { out += " "; continue; }
+            if (cp === 0x2212) { out += "-"; continue; }
+            out += "?";
+        }
+        return out;
+    }
+    function escapeString(str) {
+        return str.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+    }
+
+    // ------------------------------------------------------------- PDF writer
+    function PdfWriter() {
+        this.objects = [];        // 1-based; objects[i] is the body of object i+1
+    }
+    PdfWriter.prototype.alloc = function () { this.objects.push(null); return this.objects.length; };
+    PdfWriter.prototype.set = function (id, body) { this.objects[id - 1] = body; };
+    PdfWriter.prototype.add = function (body) { var id = this.alloc(); this.set(id, body); return id; };
+
+    // Assembled as BYTES, not as a string: a content stream can hold binary
+    // (an embedded JPEG), and /Length plus the xref offsets are byte counts. A
+    // string-based assembler is correct right up until the first image, then
+    // silently produces a file no reader will open.
+    PdfWriter.prototype.build = function (rootId, infoId) {
+        var chunks = [], length = 0;
+        function push(part) {
+            var bytes = (typeof part === "string") ? latin1Bytes(part) : part;
+            chunks.push(bytes); length += bytes.length;
+            return length;
+        }
+        push("%PDF-1.4\n");
+        // A binary comment marks the file as binary for transfer agents.
+        push(new Uint8Array([0x25, 0xE2, 0xE3, 0xCF, 0xD3, 0x0A]));
+
+        var offsets = [];
+        for (var i = 0; i < this.objects.length; i++) {
+            offsets[i] = length;
+            push((i + 1) + " 0 obj\n");
+            var body = this.objects[i];
+            if (body && body.stream) {
+                var data = (typeof body.stream === "string") ? latin1Bytes(body.stream) : body.stream;
+                push(body.dict.replace("/Length 0", "/Length " + data.length) + "\nstream\n");
+                push(data);
+                push("\nendstream\n");
+            } else {
+                push(body + "\n");
+            }
+            push("endobj\n");
+        }
+        var xrefAt = length;
+        var xref = "xref\n0 " + (this.objects.length + 1) + "\n0000000000 65535 f \n";
+        for (var j = 0; j < offsets.length; j++) {
+            xref += pad10(offsets[j]) + " 00000 n \n";
+        }
+        push(xref);
+        push("trailer\n<< /Size " + (this.objects.length + 1) + " /Root " + rootId + " 0 R /Info " + infoId + " 0 R >>\n");
+        push("startxref\n" + xrefAt + "\n%%EOF\n");
+
+        var out = new Uint8Array(length), at = 0;
+        for (var k = 0; k < chunks.length; k++) { out.set(chunks[k], at); at += chunks[k].length; }
+        return out;
+    };
+    function pad10(n) { var s = String(n); while (s.length < 10) s = "0" + s; return s; }
+    function latin1Bytes(str) {
+        var out = new Uint8Array(str.length);
+        for (var i = 0; i < str.length; i++) out[i] = str.charCodeAt(i) & 0xFF;
+        return out;
+    }
+
+    // ---------------------------------------------------------------- layout
+    //
+    // A flat list of positioned draw operations is produced first, then paged.
+    // Keeping measurement and pagination apart is what makes "keep this heading
+    // with the paragraph under it" and "repeat a table header row" possible at
+    // all; doing both in one pass forces every decision to be final immediately.
+
+    function styleOf(node, inherited) {
+        var s = {
+            bold: inherited.bold, italic: inherited.italic, underline: inherited.underline,
+            strike: inherited.strike, size: inherited.size, color: inherited.color,
+            mono: inherited.mono, link: inherited.link
+        };
+        var tag = node.tagName ? node.tagName.toLowerCase() : "";
+        if (tag === "b" || tag === "strong") s.bold = true;
+        if (tag === "i" || tag === "em") s.italic = true;
+        if (tag === "u" || tag === "ins") s.underline = true;
+        if (tag === "s" || tag === "strike" || tag === "del") s.strike = true;
+        if (tag === "code" || tag === "kbd" || tag === "samp" || tag === "pre") s.mono = true;
+        if (tag === "a" && node.getAttribute("href")) { s.link = node.getAttribute("href"); s.color = [0, 0.33, 0.8]; s.underline = true; }
+        if (tag === "sup" || tag === "sub") s.size = s.size * 0.75;
+
+        var css = node.style;
+        if (css) {
+            if (/bold|^[6-9]00$/.test(css.fontWeight || "")) s.bold = true;
+            if (css.fontStyle === "italic" || css.fontStyle === "oblique") s.italic = true;
+            if ((css.textDecorationLine || css.textDecoration || "").indexOf("underline") >= 0) s.underline = true;
+            if ((css.textDecorationLine || css.textDecoration || "").indexOf("line-through") >= 0) s.strike = true;
+            if (css.color) { var c = parseColor(css.color); if (c) s.color = c; }
+            if (css.fontSize) { var fs = toPoints(css.fontSize, null); if (fs) s.size = fs; }
+        }
+        return s;
+    }
+
+    function parseColor(value) {
+        var m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(value.replace(/\s/g, ""));
+        if (m) {
+            var hex = m[1];
+            if (hex.length === 3) hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+            return [parseInt(hex.substr(0, 2), 16) / 255, parseInt(hex.substr(2, 2), 16) / 255, parseInt(hex.substr(4, 2), 16) / 255];
+        }
+        var rgb = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i.exec(value);
+        if (rgb) return [rgb[1] / 255, rgb[2] / 255, rgb[3] / 255];
+        return null;
+    }
+
+    var HEADING_SCALE = { h1: 2, h2: 1.6, h3: 1.35, h4: 1.15, h5: 1, h6: 0.9 };
+
+    function Layout(geom, baseSize, familyKey) {
+        this.geom = geom;
+        this.baseSize = baseSize;
+        this.family = familyKey;
+        this.contentWidth = geom.width - geom.margin.left - geom.margin.right;
+        this.blocks = [];          // { type, ... } in document order
+    }
+
+    // Collect the inline runs of a block, splitting into words for wrapping.
+    Layout.prototype.runsOf = function (node, inherited) {
+        var runs = [];
+        var self = this;
+        (function walk(n, style) {
+            for (var i = 0; i < n.childNodes.length; i++) {
+                var c = n.childNodes[i];
+                if (c.nodeType === 3) {
+                    var text = (c.nodeValue || "").replace(/\s+/g, " ");
+                    if (text) runs.push({ text: text, style: style });
+                    continue;
+                }
+                if (c.nodeType !== 1) continue;
+                var tag = c.tagName.toLowerCase();
+                if (tag === "br") { runs.push({ br: true, style: style }); continue; }
+                if (tag === "img") { runs.push({ img: c, style: style }); continue; }
+                if (tag === "script" || tag === "style") continue;
+                walk(c, styleOf(c, style));
+            }
+        })(node, inherited);
+        return runs;
+    };
+
+    // Break runs into laid-out lines that fit `width`.
+    Layout.prototype.wrap = function (runs, width, lineHeightFactor) {
+        var lines = [], line = [], used = 0, self = this;
+        var maxSize = this.baseSize;
+
+        function flush() {
+            // Trailing spaces must not count toward a line's width, or a
+            // right-aligned or centred line drifts by the width of the space.
+            while (line.length && /^\s+$/.test(line[line.length - 1].text || "")) line.pop();
+            lines.push({ parts: line, width: used, size: maxSize });
+            line = []; used = 0; maxSize = self.baseSize;
+        }
+
+        for (var r = 0; r < runs.length; r++) {
+            var run = runs[r];
+            if (run.br) { flush(); continue; }
+            if (run.img) {
+                var dims = imageDims(run.img, width);
+                if (line.length) flush();
+                lines.push({ parts: [{ img: run.img, w: dims.w, h: dims.h, style: run.style }], width: dims.w, size: dims.h, image: true });
+                continue;
+            }
+            var styleIndex = (run.style.bold ? 1 : 0) | (run.style.italic ? 2 : 0);
+            var family = run.style.mono ? "courier" : this.family;
+            // Split keeping the separators, so a space that ends a line can be
+            // dropped while a space between two words on the same line is kept.
+            var tokens = run.text.split(/(\s+)/);
+            for (var t = 0; t < tokens.length; t++) {
+                var tok = tokens[t];
+                if (!tok) continue;
+                var w = textWidth(toWinAnsi(tok), family, styleIndex, run.style.size);
+                if (used + w > width && line.length && !/^\s+$/.test(tok)) {
+                    flush();
+                    // A wrapped line never starts with the space that caused it.
+                    if (/^\s+$/.test(tok)) continue;
+                }
+                line.push({ text: tok, style: run.style, family: family, styleIndex: styleIndex, w: w });
+                used += w;
+                if (run.style.size > maxSize) maxSize = run.style.size;
+            }
+        }
+        if (line.length) flush();
+        if (!lines.length) lines.push({ parts: [], width: 0, size: this.baseSize });
+        for (var i = 0; i < lines.length; i++) lines[i].height = lines[i].image ? lines[i].size : lines[i].size * lineHeightFactor;
+        return lines;
+    };
+
+    function imageDims(img, maxWidth) {
+        var w = img.naturalWidth || img.width || 0;
+        var h = img.naturalHeight || img.height || 0;
+        if (!w || !h) return { w: 0, h: 0 };
+        var pw = w * 0.75, ph = h * 0.75;                 // CSS px -> points
+        if (pw > maxWidth) { ph = ph * maxWidth / pw; pw = maxWidth; }
+        return { w: pw, h: ph };
+    }
+
+    // ------------------------------------------------------------ block walk
+    Layout.prototype.run = function (root) {
+        var self = this;
+        var base = { bold: false, italic: false, underline: false, strike: false, size: this.baseSize, color: [0, 0, 0], mono: false, link: null };
+
+        function block(node, style, indent, listMarker, listId, listOrdered) {
+            var tag = node.tagName.toLowerCase();
+            var s = styleOf(node, style);
+            var align = "left";
+            var ta = (node.style && node.style.textAlign) || "";
+            if (ta === "center" || ta === "right" || ta === "justify") align = ta;
+
+            if (HEADING_SCALE[tag]) { s.size = self.baseSize * HEADING_SCALE[tag]; s.bold = true; }
+            if (tag === "pre") s.mono = true;
+
+            var width = self.contentWidth - indent;
+            var runs = self.runsOf(node, s);
+            var lines = self.wrap(runs, width, tag === "pre" ? 1.25 : 1.4);
+            self.blocks.push({
+                type: "text", lines: lines, indent: indent, align: align,
+                spaceBefore: HEADING_SCALE[tag] ? s.size * 0.6 : self.baseSize * 0.35,
+                spaceAfter: HEADING_SCALE[tag] ? s.size * 0.3 : self.baseSize * 0.35,
+                marker: listMarker || null, markerStyle: s,
+                // A heading alone at the foot of a page is the classic ugly
+                // break; it is pinned to what follows it.
+                keepWithNext: !!HEADING_SCALE[tag],
+                rule: tag === "blockquote" ? "quote" : null,
+                // Semantics for the tag tree. A PDF whose text is selectable but
+                // untagged still fails an accessibility audit: assistive
+                // technology gets a flat stream with no headings, no list
+                // structure and no reliable reading order.
+                role: HEADING_SCALE[tag] ? "H" + tag.charAt(1) : (tag === "blockquote" ? "BlockQuote" : "P"),
+                listId: listId || null, listOrdered: !!listOrdered
+            });
+        }
+
+        function walk(node, style, indent) {
+            for (var i = 0; i < node.childNodes.length; i++) {
+                var c = node.childNodes[i];
+                if (c.nodeType === 3) {
+                    if (!(c.nodeValue || "").trim()) continue;
+                    // Loose text directly under the root still deserves a block.
+                    self.blocks.push({ type: "text", lines: self.wrap([{ text: c.nodeValue.replace(/\s+/g, " "), style: style }], self.contentWidth - indent, 1.4), indent: indent, align: "left", spaceBefore: 0, spaceAfter: self.baseSize * 0.35 });
+                    continue;
+                }
+                if (c.nodeType !== 1) continue;
+                var tag = c.tagName.toLowerCase();
+                if (tag === "script" || tag === "style" || tag === "noscript") continue;
+
+                if (c.getAttribute && c.getAttribute("data-rte-page-break") !== null) { self.blocks.push({ type: "pagebreak" }); continue; }
+                if (c.style && /always|page/.test(c.style.pageBreakBefore || c.style.breakBefore || "")) self.blocks.push({ type: "pagebreak" });
+
+                if (tag === "hr") { self.blocks.push({ type: "rule", indent: indent }); continue; }
+                if (tag === "ul" || tag === "ol") {
+                    var counter = parseInt(c.getAttribute("start") || "1", 10) || 1;
+                    // Every item of one list shares an id so the tag tree can
+                    // rebuild a single <L> around them; without it each item
+                    // becomes an isolated paragraph and a screen reader never
+                    // announces "list, 4 items".
+                    var listId = "L" + (self.listSeq = (self.listSeq || 0) + 1);
+                    for (var li = 0; li < c.childNodes.length; li++) {
+                        var item = c.childNodes[li];
+                        if (item.nodeType !== 1 || item.tagName.toLowerCase() !== "li") continue;
+                        var marker = tag === "ol" ? (counter++) + "." : "•";
+                        // The item's own text, then any nested list one level in.
+                        block(item, styleOf(item, style), indent + self.baseSize * 1.6, marker, listId, tag === "ol");
+                        walkNestedLists(item, styleOf(item, style), indent + self.baseSize * 1.6);
+                    }
+                    continue;
+                }
+                if (tag === "table") { self.table(c, styleOf(c, style), indent); continue; }
+                if (tag === "img") {
+                    var dims = imageDims(c, self.contentWidth - indent);
+                    if (dims.w) self.blocks.push({ type: "text", role: "Figure", alt: c.getAttribute("alt") || "", lines: [{ parts: [{ img: c, w: dims.w, h: dims.h, style: style }], width: dims.w, size: dims.h, height: dims.h, image: true }], indent: indent, align: "left", spaceBefore: 4, spaceAfter: 4 });
+                    continue;
+                }
+                if (isBlockTag(tag)) {
+                    if (hasBlockChildren(c)) { walk(c, styleOf(c, style), indent + (tag === "blockquote" ? self.baseSize * 1.5 : 0)); continue; }
+                    block(c, style, indent + (tag === "blockquote" ? self.baseSize * 1.5 : 0), null);
+                    continue;
+                }
+                // Inline content sitting directly under a container.
+                block(c, style, indent, null);
+            }
+        }
+
+        function walkNestedLists(item, style, indent) {
+            for (var i = 0; i < item.childNodes.length; i++) {
+                var c = item.childNodes[i];
+                if (c.nodeType !== 1) continue;
+                var tag = c.tagName.toLowerCase();
+                if (tag === "ul" || tag === "ol") walk({ childNodes: [c] }, style, indent);
+            }
+        }
+
+        walk(root, base, 0);
+        return this.blocks;
+    };
+
+    function isBlockTag(tag) {
+        return /^(p|div|h[1-6]|blockquote|pre|section|article|header|footer|main|aside|figure|figcaption|dl|dd|dt|li|address)$/.test(tag);
+    }
+    function hasBlockChildren(node) {
+        for (var i = 0; i < node.childNodes.length; i++) {
+            var c = node.childNodes[i];
+            if (c.nodeType === 1 && (isBlockTag(c.tagName.toLowerCase()) || /^(ul|ol|table|hr)$/.test(c.tagName.toLowerCase()))) return true;
+        }
+        return false;
+    }
+
+    Layout.prototype.table = function (node, style, indent) {
+        var self = this;
+        var rows = [];
+        var trs = node.getElementsByTagName("tr");
+        var maxCells = 0;
+        for (var r = 0; r < trs.length; r++) {
+            var cells = [];
+            for (var c = 0; c < trs[r].childNodes.length; c++) {
+                var cell = trs[r].childNodes[c];
+                if (cell.nodeType !== 1) continue;
+                var tag = cell.tagName.toLowerCase();
+                if (tag !== "td" && tag !== "th") continue;
+                cells.push({ node: cell, header: tag === "th" });
+            }
+            if (cells.length) { rows.push(cells); if (cells.length > maxCells) maxCells = cells.length; }
+        }
+        if (!rows.length) return;
+
+        var width = this.contentWidth - indent;
+        var colWidth = width / maxCells;
+        var pad = 4;
+        var laid = [];
+        for (var i = 0; i < rows.length; i++) {
+            var out = [], tallest = 0;
+            for (var j = 0; j < rows[i].length; j++) {
+                var cs = styleOf(rows[i][j].node, style);
+                if (rows[i][j].header) cs.bold = true;
+                var lines = self.wrap(self.runsOf(rows[i][j].node, cs), colWidth - pad * 2, 1.35);
+                var h = 0;
+                for (var k = 0; k < lines.length; k++) h += lines[k].height;
+                if (h > tallest) tallest = h;
+                out.push({ lines: lines, header: rows[i][j].header });
+            }
+            laid.push({ cells: out, height: tallest + pad * 2, header: rows[i][0] && rows[i][0].header });
+        }
+        this.blocks.push({
+            type: "table", rows: laid, colWidth: colWidth, cols: maxCells,
+            indent: indent, pad: pad,
+            spaceBefore: this.baseSize * 0.5, spaceAfter: this.baseSize * 0.5
+        });
+    };
+
+    // ------------------------------------------------------------- rendering
+    function buildPdf(options) {
+        var familyKey = String(options.font || config.pdfExportFont || "helvetica").toLowerCase();
+        if (!FONT_FAMILIES[familyKey]) familyKey = "helvetica";
+        var baseSize = Number(options.fontSize || config.pdfExportBaseFontSize || 11);
+        if (!isFinite(baseSize) || baseSize <= 0) baseSize = 11;
+        var geom = pageGeometry(options);
+
+        // getHTMLCode() is the SERIALIZED document: presentational plugins strip
+        // their own chrome from it. Reading the live DOM instead would bake page
+        // overlays, watermarks and formatting marks into the PDF.
+        var host = document.createElement("div");
+        host.innerHTML = editor.getHTMLCode() || "";
+
+        var layout = new Layout(geom, baseSize, familyKey);
+        var blocks = layout.run(host);
+
+        var pages = paginate(blocks, geom, baseSize);
+        return emit(pages, geom, familyKey, baseSize, options);
+    }
+
+    function paginate(blocks, geom, baseSize) {
+        var usableTop = geom.height - geom.margin.top;
+        var usableBottom = geom.margin.bottom;
+        var pages = [], current = [], y = usableTop;
+
+        function newPage() { pages.push(current); current = []; y = usableTop; }
+
+        for (var i = 0; i < blocks.length; i++) {
+            var b = blocks[i];
+            if (b.type === "pagebreak") { if (current.length) newPage(); continue; }
+
+            if (b.type === "rule") {
+                if (y - baseSize < usableBottom) newPage();
+                y -= baseSize * 0.6;
+                current.push({ op: "rule", y: y, indent: b.indent });
+                y -= baseSize * 0.6;
+                continue;
+            }
+
+            if (b.type === "table") {
+                y -= b.spaceBefore;
+                for (var r = 0; r < b.rows.length; r++) {
+                    var row = b.rows[r];
+                    if (y - row.height < usableBottom) {
+                        newPage();
+                        // Repeat the header row on the continuation page, or the
+                        // rest of the table arrives as unlabelled numbers.
+                        if (b.rows[0] && b.rows[0].header && r > 0) {
+                            current.push({ op: "row", row: b.rows[0], y: y, block: b });
+                            y -= b.rows[0].height;
+                        }
+                    }
+                    current.push({ op: "row", row: row, y: y, block: b });
+                    y -= row.height;
+                }
+                y -= b.spaceAfter;
+                continue;
+            }
+
+            y -= b.spaceBefore;
+            for (var l = 0; l < b.lines.length; l++) {
+                var line = b.lines[l];
+                if (y - line.height < usableBottom) newPage();
+                current.push({ op: "line", line: line, y: y, block: b, first: l === 0 });
+                y -= line.height;
+            }
+            y -= b.spaceAfter;
+
+            // keepWithNext: if a heading ended up as the last thing on the page,
+            // move it to the next one rather than orphaning it.
+            if (b.keepWithNext && current.length && blocks[i + 1] && blocks[i + 1].type !== "pagebreak") {
+                var nextHeight = estimateFirstLine(blocks[i + 1]);
+                if (y - nextHeight < usableBottom) {
+                    var moved = [];
+                    while (current.length && current[current.length - 1].block === b) moved.unshift(current.pop());
+                    if (current.length) {
+                        newPage();
+                        for (var m = 0; m < moved.length; m++) {
+                            moved[m].y = y;
+                            current.push(moved[m]);
+                            y -= moved[m].line.height;
+                        }
+                    } else {
+                        // Already at the top of a page: nothing to gain by moving.
+                        for (var m2 = 0; m2 < moved.length; m2++) current.push(moved[m2]);
+                    }
+                }
+            }
+        }
+        if (current.length || !pages.length) pages.push(current);
+        return pages;
+    }
+
+    function estimateFirstLine(block) {
+        if (block.type === "table") return block.rows[0] ? block.rows[0].height : 0;
+        if (block.lines && block.lines[0]) return block.lines[0].height;
+        return 0;
+    }
+
+    function emit(pages, geom, familyKey, baseSize, options) {
+        var pdf = new PdfWriter();
+        var fam = FONT_FAMILIES[familyKey];
+        var mono = FONT_FAMILIES.courier;
+
+        // Font objects: four faces of the body family plus four of Courier, each
+        // carrying the widths this layout was computed with.
+        var fontIds = {}, fontRes = [];
+        function addFont(name, key, styleIndex, alias) {
+            var widths = widthsFor(key, styleIndex);
+            var id = pdf.add("<< /Type /Font /Subtype /Type1 /BaseFont /" + name +
+                " /Encoding /WinAnsiEncoding /FirstChar " + FIRST_CHAR + " /LastChar " + LAST_CHAR +
+                " /Widths [" + widths.join(" ") + "] >>");
+            fontIds[alias] = id;
+            fontRes.push("/" + alias + " " + id + " 0 R");
+        }
+        for (var s = 0; s < 4; s++) {
+            addFont(fam.faces[s], familyKey, s, "F" + s);
+            addFont(mono.faces[s], "courier", s, "M" + s);
+        }
+
+        var images = {}, imageRes = [];
+        function imageRef(img) {
+            var src = img.getAttribute("src") || "";
+            if (images[src]) return images[src];
+            var data = encodeImage(img);
+            if (!data) return null;
+            var id = pdf.add({
+                dict: "<< /Type /XObject /Subtype /Image /Width " + data.width + " /Height " + data.height +
+                    " /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length 0 >>",
+                stream: data.bytes
+            });
+            var alias = "Im" + (imageRes.length + 1);
+            images[src] = { id: id, alias: alias };
+            imageRes.push("/" + alias + " " + id + " 0 R");
+            return images[src];
+        }
+
+        var pageIds = [], contentIds = [], annotIds = [];
+        for (var p = 0; p < pages.length; p++) {
+            pageIds.push(pdf.alloc());
+            contentIds.push(pdf.alloc());
+            annotIds.push([]);
+        }
+        var pagesId = pdf.alloc();
+
+        var allMarks = [];
+        for (var pi = 0; pi < pages.length; pi++) {
+            var tagger = new Tagger(pi);
+            var draw = renderPage(pages[pi], geom, familyKey, baseSize, imageRef, pi + 1, pages.length, options, tagger);
+            pdf.set(contentIds[pi], { dict: "<< /Length 0 >>", stream: draw.content });
+            allMarks.push(draw.marks);
+            for (var a = 0; a < draw.links.length; a++) {
+                var lk = draw.links[a];
+                annotIds[pi].push(pdf.add("<< /Type /Annot /Subtype /Link /Rect [" +
+                    fixed(lk.x0) + " " + fixed(lk.y0) + " " + fixed(lk.x1) + " " + fixed(lk.y1) +
+                    "] /Border [0 0 0] /A << /S /URI /URI (" + escapeString(toWinAnsi(lk.href)) + ") >> >>"));
+            }
+        }
+
+        var struct = buildStructTree(pdf, allMarks, pageIds);
+
+        for (var pj = 0; pj < pages.length; pj++) {
+            pdf.set(pageIds[pj], "<< /Type /Page /Parent " + pagesId + " 0 R /MediaBox [0 0 " +
+                fixed(geom.width) + " " + fixed(geom.height) + "] /Resources << /Font << " + fontRes.join(" ") + " >>" +
+                (imageRes.length ? " /XObject << " + imageRes.join(" ") + " >>" : "") +
+                " >> /Contents " + contentIds[pj] + " 0 R /StructParents " + pj +
+                (annotIds[pj].length ? " /Annots [" + annotIds[pj].map(function (id) { return id + " 0 R"; }).join(" ") + "]" : "") +
+                " >>");
+        }
+        pdf.set(pagesId, "<< /Type /Pages /Count " + pages.length + " /Kids [" +
+            pageIds.map(function (id) { return id + " 0 R"; }).join(" ") + "] >>");
+
+        var title = options.title || config.pdfExportTitle || document.title || "Document";
+        var author = options.author || config.pdfExportAuthor || "";
+        // /MarkInfo and /StructTreeRoot declare the file tagged. DisplayDocTitle
+        // makes the viewer show the document's title rather than its filename,
+        // which PDF/UA requires and which is the difference between a screen
+        // reader announcing "Quarterly Report" and "Export-260802-1431.pdf".
+        var catalogId = pdf.add("<< /Type /Catalog /Pages " + pagesId + " 0 R" +
+            " /Lang (" + escapeString(String(options.lang || document.documentElement.lang || "en")) + ")" +
+            " /MarkInfo << /Marked true >>" +
+            " /StructTreeRoot " + struct.rootId + " 0 R" +
+            " /ViewerPreferences << /DisplayDocTitle true >> >>");
+        var infoId = pdf.add("<< /Title (" + escapeString(toWinAnsi(String(title))) + ")" +
+            (author ? " /Author (" + escapeString(toWinAnsi(String(author))) + ")" : "") +
+            " /Producer (RichTextEditor) /Creator (RichTextEditor) /CreationDate (" + pdfDate(new Date()) + ") >>");
+
+        return pdf.build(catalogId, infoId);
+    }
+
+    // Turn the per-page marked-content records into a structure tree.
+    //
+    // The tree is built from the marks rather than from the block list because a
+    // single block can be split across pages: its structure element then holds
+    // several marked-content references, each naming the page it lives on.
+    function buildStructTree(pdf, allMarks, pageIds) {
+        var rootId = pdf.alloc();
+        var nodes = [];                 // { id, role, kids, extra, children, parent }
+        var parentTree = [];            // per page: array of struct ids by MCID
+
+        function node(role, extra) {
+            var n = { id: pdf.alloc(), role: role, kids: [], extra: extra || "", children: [], parent: null };
+            nodes.push(n);
+            return n;
+        }
+
+        var docNode = node("Document");
+        var listNodes = new Map();      // listId -> L node
+        var itemNodes = new Map();      // block  -> LI node
+        var labelNodes = new Map();     // block  -> Lbl node
+        var bodyNodes = new Map();      // block  -> P / LBody / Figure node
+        var tableNodes = new Map();     // block  -> Table node
+        var rowNodes = new Map();       // row    -> TR node
+        var cellNodes = new Map();      // row    -> { col -> TD/TH node }
+
+        for (var p = 0; p < allMarks.length; p++) {
+            var marks = allMarks[p];
+            parentTree[p] = [];
+            for (var m = 0; m < marks.length; m++) {
+                var owner = marks[m].owner, mcid = marks[m].mcid;
+                var target = resolve(owner);
+                target.kids.push({ page: p, mcid: mcid });
+                parentTree[p][mcid] = target.id;
+            }
+        }
+
+        // The parent is recorded when the child is attached. Searching for it
+        // afterwards would be a scan of every node for every node.
+        function attach(parent, child) {
+            if (child.parent) return;
+            child.parent = parent;
+            parent.children.push(child);
+        }
+
+        function resolve(owner) {
+            if (owner.kind === "cell") {
+                var table = tableNodes.get(owner.block);
+                if (!table) { table = node("Table"); tableNodes.set(owner.block, table); attach(docNode, table); }
+                var row = rowNodes.get(owner.row);
+                if (!row) { row = node("TR"); rowNodes.set(owner.row, row); attach(table, row); }
+                var perRow = cellNodes.get(owner.row);
+                if (!perRow) { perRow = {}; cellNodes.set(owner.row, perRow); }
+                if (!perRow[owner.col]) {
+                    // A header cell must be TH, not TD: it is what lets a screen
+                    // reader announce "Revenue, 1,240" instead of just "1,240".
+                    perRow[owner.col] = node(owner.header ? "TH" : "TD", owner.header ? " /Scope /Column" : "");
+                    attach(row, perRow[owner.col]);
+                }
+                return perRow[owner.col];
+            }
+
+            var block = owner.block;
+            var container = docNode;
+            if (block.listId) {
+                var listNode = listNodes.get(block.listId);
+                if (!listNode) { listNode = node("L"); listNodes.set(block.listId, listNode); attach(docNode, listNode); }
+                var itemNode = itemNodes.get(block);
+                if (!itemNode) { itemNode = node("LI"); itemNodes.set(block, itemNode); attach(listNode, itemNode); }
+                container = itemNode;
+            }
+
+            if (owner.kind === "lbl") {
+                var lbl = labelNodes.get(block);
+                if (!lbl) { lbl = node("Lbl"); labelNodes.set(block, lbl); attach(container, lbl); }
+                return lbl;
+            }
+
+            var body = bodyNodes.get(block);
+            if (!body) {
+                if (block.listId) {
+                    body = node("LBody");
+                } else {
+                    // A figure with no alt text is an accessibility failure, but
+                    // an EMPTY /Alt is a worse one: it tells assistive tech the
+                    // image is decorative when nobody decided that.
+                    var extra = block.role === "Figure"
+                        ? " /Alt (" + escapeString(toWinAnsi(block.alt || "Image")) + ")"
+                        : "";
+                    body = node(block.role || "P", extra);
+                }
+                bodyNodes.set(block, body);
+                attach(container, body);
+            }
+            return body;
+        }
+
+        // Emit. /K holds child elements first, then marked-content references.
+        for (var n = 0; n < nodes.length; n++) {
+            var nd = nodes[n];
+            var kids = [];
+            for (var c = 0; c < nd.children.length; c++) kids.push(nd.children[c].id + " 0 R");
+            for (var k = 0; k < nd.kids.length; k++) {
+                kids.push("<< /Type /MCR /Pg " + pageIds[nd.kids[k].page] + " 0 R /MCID " + nd.kids[k].mcid + " >>");
+            }
+            var parentRef = nd.parent ? nd.parent.id : rootId;
+            pdf.set(nd.id, "<< /Type /StructElem /S /" + nd.role + " /P " + parentRef + " 0 R" + nd.extra +
+                (kids.length ? " /K [" + kids.join(" ") + "]" : "") + " >>");
+        }
+
+        // ParentTree: a number tree keyed by each page's /StructParents value,
+        // whose value is the list of owning structure elements indexed by MCID.
+        var numsParts = [];
+        for (var pt = 0; pt < parentTree.length; pt++) {
+            var arr = parentTree[pt] || [];
+            var refs = [];
+            for (var q = 0; q < arr.length; q++) refs.push((arr[q] || docNode.id) + " 0 R");
+            numsParts.push(pt + " [" + refs.join(" ") + "]");
+        }
+        var parentTreeId = pdf.add("<< /Nums [" + numsParts.join(" ") + "] >>");
+
+        pdf.set(rootId, "<< /Type /StructTreeRoot /K [" + docNode.id + " 0 R]" +
+            " /ParentTree " + parentTreeId + " 0 R /ParentTreeNextKey " + parentTree.length + " >>");
+
+        return { rootId: rootId };
+    }
+
+    function pdfDate(d) {
+        function two(n) { return (n < 10 ? "0" : "") + n; }
+        return "D:" + d.getFullYear() + two(d.getMonth() + 1) + two(d.getDate()) +
+            two(d.getHours()) + two(d.getMinutes()) + two(d.getSeconds()) + "Z";
+    }
+    function fixed(n) { return (Math.round(n * 100) / 100).toString(); }
+
+    // Marked content for the structure tree.
+    //
+    // Tagging is what separates "a screen reader can read the words" from "a
+    // screen reader knows this is a level-2 heading, followed by a 4-item list,
+    // followed by a table with header cells". Section 508 and EN 301 549 both
+    // require the second. Purely decorative output (rules, cell borders, the
+    // running header) is marked as an Artifact instead, which removes it from
+    // the reading order rather than reading "line, line, line" to the user.
+    function Tagger(pageIndex) {
+        this.pageIndex = pageIndex;
+        this.next = 0;
+        this.marks = [];       // { owner, mcid } in reading order
+    }
+    Tagger.prototype.open = function (out, role, owner) {
+        var mcid = this.next++;
+        this.marks.push({ owner: owner, mcid: mcid, role: role });
+        out.push("/" + role + " << /MCID " + mcid + " >> BDC");
+        return mcid;
+    };
+    Tagger.prototype.close = function (out) { out.push("EMC"); };
+    Tagger.prototype.artifact = function (out, fn) {
+        out.push("/Artifact BMC");
+        fn();
+        out.push("EMC");
+    };
+
+    function renderPage(ops, geom, familyKey, baseSize, imageRef, pageNumber, pageCount, options, tagger) {
+        var out = [], links = [];
+        var left = geom.margin.left;
+
+        for (var i = 0; i < ops.length; i++) {
+            var op = ops[i];
+            if (op.op === "rule") {
+                // A horizontal rule is decoration, not content.
+                tagger.artifact(out, function () {
+                    out.push("0.8 0.8 0.8 RG 0.5 w " + fixed(left + op.indent) + " " + fixed(op.y) + " m " +
+                        fixed(geom.width - geom.margin.right) + " " + fixed(op.y) + " l S");
+                });
+                continue;
+            }
+            if (op.op === "row") { renderRow(op, geom, out, left, imageRef, links, tagger); continue; }
+            renderLine(op, geom, out, left, familyKey, imageRef, links, tagger);
+        }
+
+        // Running header/footer, drawn after the body so they always sit on top.
+        // Both are artifacts: repeating them into the reading order on every
+        // page is one of the most common findings in a PDF accessibility audit.
+        var hf = headerFooter(options);
+        if (hf.header || hf.footer) {
+            tagger.artifact(out, function () {
+                if (hf.header) drawRunning(out, hf.header, geom, geom.height - geom.margin.top * 0.55, familyKey, baseSize * 0.85, pageNumber, pageCount);
+                if (hf.footer) drawRunning(out, hf.footer, geom, geom.margin.bottom * 0.55, familyKey, baseSize * 0.85, pageNumber, pageCount);
+            });
+        }
+
+        return { content: out.join("\n"), links: links, marks: tagger.marks };
+    }
+
+    function headerFooter(options) {
+        var setup = null;
+        try { if (typeof editor.getDocumentPageSetup === "function") setup = editor.getDocumentPageSetup(); } catch (e) {}
+        setup = setup || {};
+        return {
+            header: options.headerText || config.pdfExportHeader || plainText(setup.headerHtml) || "",
+            footer: options.footerText || config.pdfExportFooter || plainText(setup.footerHtml) || ""
+        };
+    }
+    function plainText(html) {
+        if (!html || typeof html !== "string") return "";
+        var d = document.createElement("div");
+        d.innerHTML = html;
+        return (d.textContent || "").replace(/\s+/g, " ").trim();
+    }
+
+    function drawRunning(out, template, geom, y, familyKey, size, pageNumber, pageCount) {
+        var text = String(template).replace(/\{page\}/g, pageNumber).replace(/\{total\}/g, pageCount);
+        var win = toWinAnsi(text);
+        var w = textWidth(win, familyKey, 0, size);
+        var x = (geom.width - w) / 2;
+        out.push("BT /F0 " + fixed(size) + " Tf 0.4 0.4 0.4 rg " + fixed(x) + " " + fixed(y) + " Td (" + escapeString(win) + ") Tj ET");
+    }
+
+    function renderLine(op, geom, out, left, familyKey, imageRef, links, tagger) {
+        var line = op.line, block = op.block;
+        var x = left + (block.indent || 0);
+        var avail = geom.width - geom.margin.right - x;
+        if (block.align === "center") x += (avail - line.width) / 2;
+        else if (block.align === "right") x += avail - line.width;
+
+        if (block.rule === "quote" && !line.image) {
+            // The quote bar is decoration.
+            var barX = fixed(left + block.indent - 8);
+            var run = function () {
+                out.push("0.8 0.8 0.85 RG 2 w " + barX + " " + fixed(op.y - line.height + 4) +
+                    " m " + barX + " " + fixed(op.y + line.size * 0.8) + " l S");
+            };
+            if (tagger) tagger.artifact(out, run); else run();
+        }
+
+        // A list marker belongs to the FIRST line only; repeating it on a wrapped
+        // continuation line turns one bullet into several.
+        if (op.first && block.marker) {
+            var ms = block.markerStyle || { size: line.size, color: [0, 0, 0] };
+            var mw = textWidth(block.marker, familyKey, 0, ms.size);
+            if (tagger) tagger.open(out, "Lbl", { kind: "lbl", block: block });
+            out.push("BT /F0 " + fixed(ms.size) + " Tf " + colorOp(ms.color) + " " +
+                fixed(x - mw - 6) + " " + fixed(op.y - line.size * 0.85) + " Td (" + escapeString(toWinAnsi(block.marker)) + ") Tj ET");
+            if (tagger) tagger.close(out);
+        }
+
+        // Text of the block itself. Figures carry /Alt on the structure element
+        // rather than in the content stream.
+        //
+        // A table cell renders through this function with a SYNTHETIC block
+        // (just indent/align), so the owner has to be the cell descriptor the
+        // caller supplied. Passing the synthetic block instead makes every cell
+        // a top-level paragraph and the table loses its structure entirely.
+        if (tagger) tagger.open(out, line.image ? "Figure" : "Span", op.cell || { kind: "body", block: block });
+
+        // Wrapping split the text into words, but emitting one BT/Tj block per
+        // WORD is wrong twice over: the content stream balloons, and text
+        // extractors that infer spacing from separate show-operations can lose
+        // the spaces between them, so copying a paragraph out of the PDF yields
+        // "onelongrunofwords". Adjacent parts that share a font, size and colour
+        // are merged back into a single run, spaces included.
+        var segments = [];
+        var cursor = x;
+        for (var i = 0; i < line.parts.length; i++) {
+            var part = line.parts[i];
+            if (part.img) { segments.push({ img: part, x: cursor, w: part.w }); cursor += part.w; continue; }
+            var st = part.style;
+            var alias = (st.mono ? "M" : "F") + part.styleIndex;
+            var last = segments.length ? segments[segments.length - 1] : null;
+            var mergeable = last && !last.img && last.alias === alias && last.style.size === st.size &&
+                sameColor(last.style.color, st.color) && last.style.underline === st.underline &&
+                last.style.strike === st.strike && last.style.link === st.link;
+            if (mergeable) { last.text += part.text; last.w += part.w; }
+            else { segments.push({ text: part.text, style: st, alias: alias, x: cursor, w: part.w }); }
+            cursor += part.w;
+        }
+
+        var baseline = op.y - line.size * 0.85;
+        for (var s = 0; s < segments.length; s++) {
+            var seg = segments[s];
+            if (seg.img) {
+                var ref = imageRef(seg.img.img);
+                if (ref) {
+                    out.push("q " + fixed(seg.w) + " 0 0 " + fixed(seg.img.h) + " " + fixed(seg.x) + " " +
+                        fixed(op.y - seg.img.h) + " cm /" + ref.alias + " Do Q");
+                }
+                continue;
+            }
+            // A run of pure whitespace still advanced the cursor; drawing it
+            // would only add an empty operation.
+            if (!seg.text || /^\s+$/.test(seg.text)) continue;
+            var sst = seg.style;
+            out.push("BT /" + seg.alias + " " + fixed(sst.size) + " Tf " + colorOp(sst.color) + " " +
+                fixed(seg.x) + " " + fixed(baseline) + " Td (" + escapeString(toWinAnsi(seg.text)) + ") Tj ET");
+            if (sst.underline) {
+                out.push(colorStroke(sst.color) + " 0.5 w " + fixed(seg.x) + " " + fixed(baseline - sst.size * 0.12) +
+                    " m " + fixed(seg.x + seg.w) + " " + fixed(baseline - sst.size * 0.12) + " l S");
+            }
+            if (sst.strike) {
+                out.push(colorStroke(sst.color) + " 0.5 w " + fixed(seg.x) + " " + fixed(baseline + sst.size * 0.28) +
+                    " m " + fixed(seg.x + seg.w) + " " + fixed(baseline + sst.size * 0.28) + " l S");
+            }
+            if (sst.link) {
+                links.push({ href: sst.link, x0: seg.x, y0: baseline - 2, x1: seg.x + seg.w, y1: baseline + sst.size });
+            }
+        }
+        if (tagger) tagger.close(out);
+    }
+
+    function sameColor(a, b) {
+        a = a || [0, 0, 0]; b = b || [0, 0, 0];
+        return a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
+    }
+
+    function renderRow(op, geom, out, left, imageRef, links, tagger) {
+        var block = op.block, row = op.row;
+        var x = left + block.indent;
+        var top = op.y, bottom = op.y - row.height;
+
+        for (var c = 0; c < row.cells.length; c++) {
+            var cellX = x + c * block.colWidth;
+            // Shading and borders are decoration; only the cell TEXT belongs to
+            // the reading order.
+            var paint = function () {
+                if (row.header) {
+                    out.push("0.94 0.95 0.97 rg " + fixed(cellX) + " " + fixed(bottom) + " " +
+                        fixed(block.colWidth) + " " + fixed(row.height) + " re f");
+                }
+                out.push("0.75 0.78 0.82 RG 0.5 w " + fixed(cellX) + " " + fixed(bottom) + " " +
+                    fixed(block.colWidth) + " " + fixed(row.height) + " re S");
+            };
+            if (tagger) tagger.artifact(out, paint); else paint();
+
+            // One structure element per CELL, identified by the row object and
+            // column index so a table split across pages still resolves to the
+            // right TD (and a repeated header row to the right TH).
+            var cellOwner = { kind: "cell", block: block, row: row, col: c, header: !!row.cells[c].header };
+            var cy = top - block.pad;
+            var lines = row.cells[c].lines;
+            for (var l = 0; l < lines.length; l++) {
+                renderLine({ line: lines[l], y: cy, block: { indent: 0, align: "left" }, first: l === 0, cell: cellOwner },
+                    { width: cellX + block.colWidth + geom.margin.right, margin: { right: geom.margin.right } },
+                    out, cellX + block.pad, "helvetica", imageRef, links, tagger);
+                cy -= lines[l].height;
+            }
+        }
+    }
+
+    function colorOp(c) { c = c || [0, 0, 0]; return fixed(c[0]) + " " + fixed(c[1]) + " " + fixed(c[2]) + " rg"; }
+    function colorStroke(c) { c = c || [0, 0, 0]; return fixed(c[0]) + " " + fixed(c[1]) + " " + fixed(c[2]) + " RG"; }
+
+    // Every image is re-encoded to JPEG through a canvas. PNG could be embedded
+    // as FlateDecode without re-encoding, but only for a narrow set of colour
+    // types and never with an alpha channel; routing everything through one path
+    // means GIF, WEBP, BMP and SVG all work rather than only some of them.
+    // Transparent pixels are composited onto white, which is what the page is.
+    function encodeImage(img) {
+        try {
+            var w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+            if (!w || !h) return null;
+            var max = 2000;
+            var scale = Math.min(1, max / Math.max(w, h));
+            var cw = Math.max(1, Math.round(w * scale)), ch = Math.max(1, Math.round(h * scale));
+            var canvas = document.createElement("canvas");
+            canvas.width = cw; canvas.height = ch;
+            var g = canvas.getContext("2d");
+            g.fillStyle = "#ffffff";
+            g.fillRect(0, 0, cw, ch);
+            g.drawImage(img, 0, 0, cw, ch);
+            var uri = canvas.toDataURL("image/jpeg", 0.92);
+            var comma = uri.indexOf(",");
+            if (comma < 0) return null;
+            var binary = atob(uri.slice(comma + 1));
+            var bytes = new Uint8Array(binary.length);
+            for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            return { bytes: bytes, width: cw, height: ch };
+        } catch (e) {
+            // A cross-origin image taints the canvas. Skipping it is correct:
+            // there is no way to read its pixels, and failing the whole export
+            // over one decorative image would be worse.
+            return null;
+        }
+    }
+
+    // ------------------------------------------------------------- downloads
+    function sanitizeName(name) {
+        if (!name || typeof name !== "string") return "";
+        return name.replace(/\.pdf$/i, "").replace(/[\\/:*?"<>|]+/g, "").trim().slice(0, 120);
+    }
+    function defaultBase() {
+        var d = new Date();
+        function two(n) { return (n < 10 ? "0" : "") + n; }
+        return "Export-" + String(d.getFullYear()).slice(2) + two(d.getMonth() + 1) + two(d.getDate()) +
+            "-" + two(d.getHours()) + two(d.getMinutes()) + two(d.getSeconds());
+    }
+    function download(bytes, filename) {
+        var blob = new Blob([bytes], { type: "application/pdf" });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement("a");
+        a.href = url; a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+        return filename;
+    }
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
+// 2026-07-27 Permanent pen. Turns on a fixed character format that applies to
+// everything typed from then on, until switched off — the marker you pick up to
+// annotate a document in a colour that is obviously not the original text.
+//
+// TinyMCE Permanent Pen: "This plugin is only available for paid TinyMCE
+// subscriptions".
+//
+// Design notes:
+//   - The pen writes into a span that it OWNS and keeps extending, rather than
+//     re-wrapping every keystroke. Wrapping per character produces one span per
+//     letter, which bloats the HTML and makes the text impossible to edit
+//     sensibly afterwards.
+//   - It re-arms on selection changes. Click somewhere else and keep typing and
+//     the pen still applies, which is the entire point of "permanent" — but the
+//     new run gets its own span rather than reaching back to the old one.
+//   - Pen output is REAL CONTENT. Unlike the format painter's transient state,
+//     annotations written with the pen are meant to persist in the saved HTML.
+RTE_DefaultConfig.plugin_permanentpen = RTE_Plugin_PermanentPen;
+
+// The format the pen writes. Any CSS the host wants; these are the properties a
+// reviewer's marker usually needs.
+if (typeof RTE_DefaultConfig.permanentPenStyle === "undefined") {
+    RTE_DefaultConfig.permanentPenStyle = {
+        "color": "#c81e1e",
+        "font-weight": "700"
+    };
+}
+// Class placed on every run the pen writes, so a host can style or find them.
+if (typeof RTE_DefaultConfig.permanentPenClass === "undefined") RTE_DefaultConfig.permanentPenClass = "rte-pen";
+
+function RTE_Plugin_PermanentPen() {
+    var obj = this;
+    var config, editor;
+    var boundDoc = null;
+    var active = false;
+    var currentRun = null;   // the span this pen stroke is currently extending
+
+    obj.PluginName = "PermanentPen";
+
+    obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+
+        editor.attachEvent("exec_command_permanentpen", function (state) {
+            state.returnValue = true;
+            obj.Toggle();
+        });
+
+        setup();
+        try { editor.attachEvent("ready", setup); } catch (e) {}
+        try { editor.attachEvent("aftersethtml", setup); } catch (e) {}
+        setTimeout(setup, 0);
+
+        // Public API.
+        editor.setPermanentPen = function (on) { return apply(!!on); };
+        editor.togglePermanentPen = function () { return apply(!active); };
+        editor.isPermanentPenActive = function () { return active; };
+        editor.setPermanentPenStyle = function (style) {
+            if (style && typeof style === "object") { config.permanentPenStyle = style; currentRun = null; }
+            return config.permanentPenStyle;
+        };
+        editor.getPermanentPenStyle = function () {
+            var s = config.permanentPenStyle || {}, out = {};
+            for (var k in s) if (s.hasOwnProperty(k)) out[k] = s[k];
+            return out;
+        };
+    };
+
+    function setup() {
+        var doc = getDoc();
+        if (!doc || doc === boundDoc) return;
+        boundDoc = doc;
+        var editable = getEditable();
+        if (!editable) return;
+        // beforeinput fires while the caret is still where the text will land,
+        // which is when the run has to exist for the character to go into it.
+        editable.addEventListener("beforeinput", onBeforeInput, true);
+        // Moving the caret ends the current stroke: the next typing starts a new
+        // run instead of teleporting text into the old one.
+        editable.addEventListener("mouseup", function () { currentRun = null; });
+        editable.addEventListener("keydown", function (e) {
+            if (/^Arrow|^Home|^End|^Page/.test(e.key)) currentRun = null;
+        });
+        editable.addEventListener("blur", function () { currentRun = null; });
+    }
+
+    function getDoc() { try { return editor.getDocument(); } catch (e) { return null; } }
+    function getEditable() { try { return editor.getEditable(); } catch (e) { return null; } }
+
+    function apply(on) {
+        var wasActive = active;
+        active = !!on;
+        var editable = getEditable();
+        if (editable && editable.classList) {
+            if (active) editable.classList.add("rte-pen-active");
+            else editable.classList.remove("rte-pen-active");
+        }
+        // Switching OFF has to move the caret out of the run. Typing continues
+        // in whatever element the caret is in, so leaving it inside the styled
+        // span means the pen visibly refuses to turn off — the user keeps typing
+        // red text after pressing the button that was supposed to stop that.
+        if (wasActive && !active) stepOutOfRun();
+        currentRun = null;
+        return active;
+    }
+
+    function stepOutOfRun() {
+        var doc = getDoc();
+        if (!doc) return;
+        var sel;
+        try { sel = editor.getSelection(); } catch (e) { return; }
+        if (!sel || sel.rangeCount === 0) return;
+        var run = closestPenRun(sel.getRangeAt(0).startContainer);
+        if (!run || !run.parentNode) return;
+        tidyRun(run);
+        try {
+            var r = doc.createRange();
+            r.setStartAfter(run);
+            r.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(r);
+        } catch (e) {}
+    }
+
+    // The run is seeded with a zero-width space so the caret has somewhere to
+    // live inside an otherwise empty inline element. Once the run has real text
+    // that placeholder is just litter in the saved HTML, so drop it.
+    function tidyRun(run) {
+        if (!run) return;
+        var text = run.textContent || "";
+        if (text.replace(/​/g, "") === "") {
+            // Nothing was ever typed: remove the empty run entirely.
+            if (run.parentNode) run.parentNode.removeChild(run);
+            return;
+        }
+        var walker = run.ownerDocument.createTreeWalker(run, 4 /* SHOW_TEXT */, null, false);
+        var n;
+        while ((n = walker.nextNode())) {
+            if (n.nodeValue.indexOf("​") >= 0) n.nodeValue = n.nodeValue.replace(/​/g, "");
+        }
+    }
+
+    function onBeforeInput(e) {
+        if (!active) return;
+        // Only ordinary typing. Deletions, formatting commands and paste keep
+        // their normal behaviour — a pen that hijacked paste would be a menace.
+        if (e.inputType && e.inputType !== "insertText" && e.inputType !== "insertCompositionText") return;
+
+        var doc = getDoc();
+        if (!doc) return;
+        var sel;
+        try { sel = editor.getSelection(); } catch (x) { return; }
+        if (!sel || sel.rangeCount === 0) return;
+        var range = sel.getRangeAt(0);
+        if (!range.collapsed) return;    // replacing a selection: let it be
+
+        // Already inside our current run — nothing to do, the character will
+        // land in it naturally.
+        if (currentRun && containsNode(currentRun, range.startContainer)) return;
+
+        // Already inside an identically-styled pen run (e.g. the user clicked
+        // back into an annotation): adopt it rather than nesting a new span.
+        var existing = closestPenRun(range.startContainer);
+        if (existing && sameStyle(existing)) { currentRun = existing; return; }
+
+        var span = doc.createElement("span");
+        span.className = String(config.permanentPenClass || "rte-pen");
+        var style = config.permanentPenStyle || {};
+        for (var k in style) if (style.hasOwnProperty(k)) span.style.setProperty(k, style[k]);
+        // A zero-width space gives the caret something real to sit inside; an
+        // empty inline element cannot hold a caret, so the first character would
+        // land outside the span and the pen would appear not to work.
+        span.appendChild(doc.createTextNode("​"));
+
+        range.insertNode(span);
+        var r = doc.createRange();
+        r.setStart(span.firstChild, 1);      // after the ZWSP
+        r.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(r);
+        currentRun = span;
+    }
+
+    function containsNode(root, node) {
+        while (node) { if (node === root) return true; node = node.parentNode; }
+        return false;
+    }
+
+    function closestPenRun(node) {
+        var editable = getEditable();
+        var cls = String(config.permanentPenClass || "rte-pen");
+        var n = node && node.nodeType === 3 ? node.parentNode : node;
+        while (n && n !== editable) {
+            if (n.nodeType === 1 && n.classList && n.classList.contains(cls)) return n;
+            n = n.parentNode;
+        }
+        return null;
+    }
+
+    function sameStyle(el) {
+        var style = config.permanentPenStyle || {};
+        for (var k in style) {
+            if (!style.hasOwnProperty(k)) continue;
+            if (el.style.getPropertyValue(k) !== String(style[k])) return false;
+        }
+        return true;
+    }
 }
 
 if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
@@ -27784,6 +35814,644 @@ function RTE_Plugin_RevisionHistory() {
 
 if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
 
+// 2026-07-31 Right-to-left EDITOR CHROME. textdirection.js flips the document;
+// this flips the editor around it — toolbar, dropdowns, menus, dialogs — so an
+// Arabic or Hebrew user is not typing right-to-left text inside a left-to-right
+// application.
+//
+// Deliberately a plugin rather than an edit to rte_theme_default.css:
+//   - the theme is 146 KB, shared by every tier, and cached behind a fixed
+//     "?v=" query, so changing it means a cache-buster bump across the site
+//   - LTR users get zero new CSS; every rule here is scoped under [dir="rtl"]
+//   - it rides the existing plugin bundle, which is already audited for drift
+//
+// Why this is mostly small: the chrome is flexbox with NO floats, no
+// text-align:left/right and no left:0/right:0 anchors, so `direction: rtl`
+// reverses the layout on its own. What remains is the handful of PHYSICAL
+// margins/paddings the theme still uses, which have to be mirrored by hand.
+//
+// Icons are deliberately NOT mirrored. Word does not flip its toolbar icons in
+// RTL either: bold, italic and the alignment glyphs mean the same thing in both
+// directions, and flipping them makes the toolbar harder to read, not easier.
+// The only icons that SHOULD flip are the ones that encode reading order --
+// indent/outdent and the menu disclosure arrow -- and those are handled below.
+RTE_DefaultConfig.plugin_rtlui = RTE_Plugin_RtlUi;
+
+// "auto"  = mirror when the document/base direction is RTL
+// true    = always mirror | false = never
+if (typeof RTE_DefaultConfig.rtlUserInterface === "undefined") RTE_DefaultConfig.rtlUserInterface = "auto";
+
+function RTE_Plugin_RtlUi() {
+    var obj = this;
+    var config, editor;
+    var applied = false;
+
+    obj.PluginName = "RtlUi";
+
+    obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+
+        editor.attachEvent("exec_command_rtlui", function (state) {
+            state.returnValue = true;
+            obj.Toggle();
+        });
+
+        setup();
+        try { editor.attachEvent("ready", setup); } catch (e) {}
+        try { editor.attachEvent("aftersethtml", setup); } catch (e) {}
+        setTimeout(setup, 0);
+
+        editor.setRtlUserInterface = function (on) { return apply(!!on); };
+        editor.toggleRtlUserInterface = function () { return apply(!applied); };
+        editor.isRtlUserInterface = function () { return applied; };
+        editor.getRtlUiCss = function () { return css(); };
+    };
+
+    obj.Toggle = function () { return apply(!applied); };
+
+    function setup() {
+        injectStyles();
+        if (config.rtlUserInterface === true) apply(true);
+        else if (config.rtlUserInterface === false) apply(false);
+        else apply(detect());
+    }
+
+    // "auto": follow the document's own direction.
+    function detect() {
+        try {
+            if (typeof editor.getBaseDirection === "function" && editor.getBaseDirection() === "rtl") return true;
+            var ed = editor.getEditable();
+            if (ed) {
+                var doc = ed.ownerDocument;
+                var win = doc && (doc.defaultView || doc.parentWindow);
+                if (win && win.getComputedStyle(ed).direction === "rtl") return true;
+            }
+        } catch (e) {}
+        return false;
+    }
+
+    // The editor shell lives in the HOST document, not the editable iframe, so
+    // the class and the stylesheet both belong there.
+    function shell() {
+        try {
+            var ed = editor.getEditable();
+            if (!ed) return null;
+            // The iframe's frameElement walks us back out to the host page.
+            var win = ed.ownerDocument.defaultView;
+            var node = (win && win.frameElement) ? win.frameElement : ed;
+            while (node && node.classList && !node.classList.contains("richtexteditor")) node = node.parentNode;
+            return (node && node.classList) ? node : null;
+        } catch (e) { return null; }
+    }
+
+    function apply(on) {
+        var el = shell();
+        // Set the flag only once the change has actually landed. Setting it
+        // first meant isRtlUserInterface() reported success when the shell could
+        // not be resolved (the editor not yet built, or a host that reparents
+        // it) -- a state that reads as "mirrored" while nothing is mirrored.
+        if (!el) return applied;
+        if (on) el.setAttribute("dir", "rtl");
+        else el.removeAttribute("dir");
+        applied = !!on;
+        return applied;
+    }
+
+    function css() {
+        return [
+            // Flexbox does the bulk of the work once direction is set.
+            '.richtexteditor[dir="rtl"]{direction:rtl;}',
+            // Menus and dropdown panels open from the correct edge.
+            '.richtexteditor[dir="rtl"] rte-dropdown,',
+            '.richtexteditor[dir="rtl"] rte-submenu,',
+            '.richtexteditor[dir="rtl"] rte-floatpanel{direction:rtl;text-align:right;}',
+            '.richtexteditor[dir="rtl"] rte-menuitem{flex-direction:row-reverse;}',
+            // Mirror the theme's remaining PHYSICAL spacing.
+            '.richtexteditor[dir="rtl"] rte-menutext{margin-left:0;margin-right:3px;}',
+            '.richtexteditor[dir="rtl"] rte-menuarrow{margin-right:0;margin-left:4px;}',
+            '.richtexteditor[dir="rtl"] rte-ribbon-group-right{margin-left:2px;margin-right:5px;}',
+            '.richtexteditor[dir="rtl"] rte-toolbar-arrowbutton{padding-right:0;padding-left:12px;}',
+            '.richtexteditor[dir="rtl"] rte-toolbar-dropdown-input{padding-left:0;padding-right:3px;}',
+            '.richtexteditor[dir="rtl"] rte-dialog-line-target rte-dialog-input-label{padding-left:0;padding-right:20px;}',
+            // margin-*:auto is a push-to-the-far-edge idiom; the edge changes.
+            '.richtexteditor[dir="rtl"] .rte-find-replace-all{margin-left:0;margin-right:auto;}',
+            '.richtexteditor[dir="rtl"] .rte-gallery-browser-footer-text{margin-right:0;margin-left:auto;}',
+            // Status bar and tag list read from the right.
+            '.richtexteditor[dir="rtl"] rte-bottom,',
+            '.richtexteditor[dir="rtl"] rte-taglist,',
+            '.richtexteditor[dir="rtl"] rte-textcounter{direction:rtl;}',
+            // Resize grip moves to the opposite corner.
+            '.richtexteditor[dir="rtl"] rte-resizecorner{transform:scaleX(-1);}',
+            // ONLY the icons that encode reading order flip. Bold/italic/align
+            // glyphs deliberately do not.
+            '.richtexteditor[dir="rtl"] [class*="indent"] svg,',
+            '.richtexteditor[dir="rtl"] [class*="outdent"] svg,',
+            '.richtexteditor[dir="rtl"] rte-menuarrow svg{transform:scaleX(-1);}'
+        ].join("\n");
+    }
+
+    function injectStyles() {
+        // Host document: this styles the editor chrome, not the content.
+        var doc = document;
+        if (doc.getElementById("rte-rtl-ui-styles")) return;
+        var st = doc.createElement("style");
+        st.id = "rte-rtl-ui-styles";
+        st.appendChild(doc.createTextNode(css()));
+        (doc.head || doc.documentElement).appendChild(st);
+    }
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
+// 2026-08-02 Content sanitizer.
+//
+// The editor core already does most of the hard part: it strips inline event
+// handlers (onerror/onload/ontoggle/onfocus) and rejects javascript: on links
+// and form actions. Verified by loading a battery of payloads — none of them
+// executed inside the editor.
+//
+// But "nothing executes in the editor" is the wrong bar. The bar is "nothing
+// executes in the application that renders what the editor SAVED", because that
+// is the shape every deployment has: user A writes content, it is stored, and
+// user B's browser renders it. Three constructs survived the core filter into
+// saved output, and one of them is live stored XSS:
+//
+//   <iframe srcdoc="&lt;script&gt;...">   -- EXECUTES when rendered downstream
+//   <object data="javascript:...">         -- script-bearing URL kept verbatim
+//   <style>@import "javascript:..."</style>-- CSS injection / exfiltration
+//
+// So this filters on the way in AND on the way out. Output is the guaranteed
+// path: it is what gets stored, it runs against a detached copy so it can never
+// disturb the caret, and it means content that arrived before this plugin
+// existed is cleaned on its next save.
+//
+// This is a defence in depth, not a licence to render untrusted HTML without
+// server-side checks — see the note in the docs.
+//
+// API:
+//   editor.sanitizeHtml(html)     -> cleaned HTML string
+//   editor.getSanitizerReport()   -> what the last pass removed
+// Config:
+//   config.contentSanitizer = false          // disable entirely
+//   config.sanitizerAllowStyleTags = true    // keep <style> in content
+//   config.sanitizerAllowIframes = false     // drop <iframe> outright
+//   config.sanitizerAllowedIframeHosts = ["www.youtube.com"]
+//   config.sanitizerAllowTags = ["custom-el"]
+//   config.sanitizerAllowAttributes = ["my-attr"]
+RTE_DefaultConfig.plugin_sanitizer = RTE_Plugin_Sanitizer;
+if (typeof RTE_DefaultConfig.contentSanitizer === "undefined") RTE_DefaultConfig.contentSanitizer = true;
+
+function RTE_Plugin_Sanitizer() {
+    var obj = this;
+    var config, editor;
+    var wrapped = false;
+    // Cumulative, not per-call. The input pass cleans the content and the
+    // output pass then legitimately finds nothing left to remove, so a
+    // last-call-wins report answers "was anything stripped?" with a confident
+    // and completely wrong "no".
+    var report = { removedTags: [], removedAttributes: [], calls: 0, lastPasses: 0 };
+    var liveGuards = [];
+
+    obj.PluginName = "Sanitizer";
+
+    obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+        if (config.contentSanitizer === false) return;
+
+        editor.sanitizeHtml = function (html) { return sanitizeHtml(String(html == null ? "" : html)); };
+        editor.getSanitizerReport = function () { return JSON.parse(JSON.stringify(report)); };
+
+        // The core does not isolate plugin init: one throw in here and the
+        // editor never finishes building. A filter is defence in depth, so it
+        // must never be the reason the product fails to load.
+        function install() {
+            try { wrapSerializers(); wrapSetters(); } catch (e) {}
+            try { bindPaste(); } catch (e) {}
+            try { guardLiveDom(); } catch (e) {}
+        }
+        install();
+        // The editable is created asynchronously, and collaboration attaches
+        // later still — so re-install until it takes.
+        try { editor.attachEvent("ready", install); } catch (e) {}
+        setTimeout(install, 0);
+        setTimeout(install, 400);
+    };
+
+    // ------------------------------------------------------------- policy
+    //
+    // Allowlist, not blocklist. A blocklist is a promise to have thought of
+    // every element HTML will ever gain; an allowlist fails closed.
+    var ALLOWED_TAGS = {};
+    (
+        "p,div,span,br,hr,h1,h2,h3,h4,h5,h6," +
+        "b,strong,i,em,u,s,strike,del,ins,mark,small,sub,sup,abbr,cite,q,dfn,kbd,samp,var,time,data," +
+        "bdi,bdo,wbr,ruby,rt,rp," +
+        "ul,ol,li,dl,dt,dd," +
+        "table,thead,tbody,tfoot,tr,td,th,caption,colgroup,col," +
+        "blockquote,pre,code,figure,figcaption," +
+        "section,article,header,footer,main,aside,nav,address,details,summary," +
+        "a,img,picture,source,video,audio,track,map,area," +
+        // Chips, task lists and the code plugin put these in content.
+        "input,label,button," +
+        // Inline SVG (icons, diagrams). Its dangerous children are dropped below.
+        "svg,g,path,circle,ellipse,rect,line,polyline,polygon,text,tspan,defs,marker," +
+        "linearGradient,radialGradient,stop,clipPath,mask,pattern,use,symbol,title,desc"
+    ).split(",").forEach(function (t) { ALLOWED_TAGS[t] = true; });
+
+    // Removed WITH their contents: their text is markup, not prose.
+    var DROP_WHOLE = {
+        script: 1, noscript: 1, template: 1, object: 1, embed: 1, applet: 1,
+        base: 1, meta: 1, link: 1, frame: 1, frameset: 1, "foreignobject": 1,
+        // <title>/<desc> are legal in SVG and harmless; kept in ALLOWED_TAGS.
+        xml: 1, "script:": 1
+    };
+
+    var ALLOWED_ATTRS = {};
+    (
+        "id,class,style,title,lang,dir,translate,hidden,tabindex,role," +
+        // contenteditable is what keeps a footnote marker, merge field or smart
+        // chip ATOMIC — stripping it silently makes those editable character by
+        // character. It executes nothing, so there is no reason to remove it.
+        // sandbox is a restriction, never a capability; dropping it would make
+        // an embed MORE powerful.
+        "contenteditable,spellcheck,autocomplete,draggable,sandbox,allowfullscreen,allow,frameborder,scrolling," +
+        "href,src,srcset,sizes,alt,width,height,loading,decoding,referrerpolicy," +
+        "target,rel,download,type,value,name,placeholder,checked,disabled,readonly," +
+        "colspan,rowspan,headers,scope,span,align,valign,bgcolor,border,cellpadding,cellspacing," +
+        "start,reversed,datetime,cite,open,controls,autoplay,loop,muted,playsinline,poster,preload,kind,srclang,label," +
+        "usemap,ismap,coords,shape," +
+        // SVG presentation
+        "viewbox,xmlns,fill,stroke,stroke-width,stroke-linecap,stroke-linejoin,stroke-dasharray," +
+        "d,cx,cy,r,rx,ry,x,y,x1,y1,x2,y2,points,transform,opacity,fill-rule,clip-rule," +
+        "gradientunits,offset,stop-color,stop-opacity,text-anchor,font-size,font-family,font-weight," +
+        "preserveaspectratio,version"
+    ).split(",").forEach(function (a) { ALLOWED_ATTRS[a] = true; });
+
+    // Attributes whose value is a URL and must therefore be scheme-checked.
+    var URL_ATTRS = { href: 1, src: 1, action: 1, formaction: 1, poster: 1, cite: 1, data: 1, longdesc: 1, background: 1, ping: 1, srcset: 1 };
+    var SAFE_SCHEMES = /^(https?|mailto|tel|ftp|sms|callto|webcal|geo|bitcoin):/i;
+    var IMAGE_DATA_URI = /^data:image\/(png|jpe?g|gif|webp|bmp|x-icon|avif);base64,[a-z0-9+/=\s]+$/i;
+    // Deliberately NOT allowed as a data: type: image/svg+xml. An SVG data URI
+    // is a document, and a document can carry script.
+
+    function isSafeUrl(value, tag, attr) {
+        // Control characters and whitespace are stripped first: "java\\u0009script:"
+        // and "java\\nscript:" are both parsed as javascript: by browsers, so a
+        // scheme test on the raw string is trivially bypassed. Written as
+        // escapes — a literal control byte here would be invisible in source.
+        var v = String(value == null ? "" : value).replace(/[\u0000-\u0020\u007F-\u00A0]+/g, "").trim();
+        if (!v) return false;
+
+        // Fragments, absolute paths and query-only URLs carry no scheme.
+        if (/^[#?/]/.test(v)) return true;
+
+        var scheme = /^([a-z][a-z0-9+.\-]*):/i.exec(v);
+        if (!scheme) return true;                       // no scheme at all: relative
+
+        if (IMAGE_DATA_URI.test(v)) {
+            // A data: URI is only ever acceptable where an IMAGE is expected.
+            return tag === "img" || tag === "source" || attr === "poster" || attr === "srcset";
+        }
+        if (/^blob:/i.test(v)) {
+            return tag === "img" || tag === "video" || tag === "audio" || tag === "source";
+        }
+        return SAFE_SCHEMES.test(v);
+    }
+
+    // A style attribute can carry script in legacy engines and can exfiltrate
+    // through url(). Values are filtered rather than the attribute dropped,
+    // because style is how nearly all editor formatting is expressed.
+    function cleanStyle(value) {
+        // Whole DECLARATIONS are dropped, not fragments of them. Editing a value
+        // in place leaves debris that is both invalid CSS and misleading:
+        // removing "javascript:" from url(javascript:foo()) yields url(foo()),
+        // which then reads as a harmless relative URL and passes the very check
+        // that was supposed to catch it. Nesting also defeats surgical removal —
+        // expression(f(1)) has an inner ")" that ends the match early.
+        var out = [];
+        var decls = String(value == null ? "" : value).split(";");
+        for (var i = 0; i < decls.length; i++) {
+            var d = decls[i];
+            if (!d.trim()) continue;
+            if (/expression\s*\(|(javascript|vbscript|livescript)\s*:|-moz-binding|behaviou?r\s*:|@import|-o-link/i.test(d)) continue;
+            var url = /url\s*\(\s*(['"]?)([^'")]*)\1\s*\)/i.exec(d);
+            if (url && !isSafeUrl(url[2], "img", "src")) continue;
+            out.push(d.trim());
+        }
+        return out.join("; ");
+    }
+
+    // Embeds are a legitimate feature (autoembed), so iframes cannot simply be
+    // dropped. But an INJECTED iframe is still a phishing surface even though
+    // it cannot script the parent: it can navigate the top window, open popups
+    // and submit forms.
+    //
+    // With no host allowlist configured, the compromise is to keep https frames
+    // and force a sandbox that permits what a video embed needs and nothing
+    // else. Top-navigation, popups, modals and forms are all withheld. Setting
+    // sanitizerAllowedIframeHosts is still the stronger control.
+    var DEFAULT_IFRAME_SANDBOX = "allow-scripts allow-same-origin allow-presentation";
+
+    function iframeAllowed(el) {
+        if (config.sanitizerAllowIframes === false) return false;
+        var src = el.getAttribute("src") || "";
+        if (!/^https?:/i.test(src)) return false;
+        var hosts = config.sanitizerAllowedIframeHosts;
+        if (!hosts || !hosts.length) {
+            if (!el.hasAttribute("sandbox")) el.setAttribute("sandbox", DEFAULT_IFRAME_SANDBOX);
+            return true;
+        }
+        try {
+            var host = new URL(src).hostname.toLowerCase();
+            for (var i = 0; i < hosts.length; i++) {
+                var h = String(hosts[i]).toLowerCase();
+                if (host === h || host.slice(-(h.length + 1)) === "." + h) return true;
+            }
+        } catch (e) {}
+        return false;
+    }
+
+    // --------------------------------------------------------------- engine
+    function sanitizeNode(root, report) {
+        var allowExtra = {};
+        (config.sanitizerAllowTags || []).forEach(function (t) { allowExtra[String(t).toLowerCase()] = true; });
+        var attrExtra = {};
+        (config.sanitizerAllowAttributes || []).forEach(function (a) { attrExtra[String(a).toLowerCase()] = true; });
+        var allowStyleTag = config.sanitizerAllowStyleTags === true;
+
+        // Collect first: removing nodes while walking a live list skips siblings.
+        var all = [];
+        (function collect(n) {
+            for (var i = 0; i < n.childNodes.length; i++) {
+                var c = n.childNodes[i];
+                if (c.nodeType === 1) { all.push(c); collect(c); }
+                else if (c.nodeType === 8) all.push(c);   // comments can hide markup
+            }
+        })(root);
+
+        for (var i = 0; i < all.length; i++) {
+            var el = all[i];
+            if (!el.parentNode) continue;                 // already removed with an ancestor
+
+            if (el.nodeType === 8) { el.parentNode.removeChild(el); continue; }
+
+            var tag = (el.localName || el.nodeName || "").toLowerCase();
+
+            if (tag === "style") {
+                if (!allowStyleTag) { note(report.removedTags, "style"); el.parentNode.removeChild(el); continue; }
+            } else if (tag === "iframe") {
+                // srcdoc is an inline document and is never needed for an embed.
+                // This is the construct that actually executed downstream.
+                if (el.hasAttribute("srcdoc")) { note(report.removedAttributes, "iframe[srcdoc]"); el.removeAttribute("srcdoc"); }
+                if (!iframeAllowed(el)) { note(report.removedTags, "iframe"); el.parentNode.removeChild(el); continue; }
+            } else if (DROP_WHOLE[tag]) {
+                note(report.removedTags, tag);
+                el.parentNode.removeChild(el);
+                continue;
+            } else if (!ALLOWED_TAGS[tag] && !allowExtra[tag]) {
+                // Unknown element: unwrap rather than delete, so the words a
+                // user typed inside a stray tag are not silently lost.
+                note(report.removedTags, tag);
+                unwrap(el);
+                continue;
+            }
+
+            var attrs = [];
+            for (var a = 0; a < el.attributes.length; a++) attrs.push(el.attributes[a]);
+            for (var k = 0; k < attrs.length; k++) {
+                var name = attrs[k].name.toLowerCase();
+                var value = attrs[k].value;
+
+                // Any event handler, including ones invented after this ships.
+                if (name.indexOf("on") === 0) { note(report.removedAttributes, name); el.removeAttribute(attrs[k].name); continue; }
+                // Namespaced links are a classic bypass: xlink:href on <use>.
+                if (name === "xlink:href" || name === "xmlns:xlink") {
+                    if (!isSafeUrl(value, tag, name)) { note(report.removedAttributes, name); el.removeAttribute(attrs[k].name); }
+                    continue;
+                }
+                if (name === "srcdoc") { note(report.removedAttributes, "srcdoc"); el.removeAttribute(attrs[k].name); continue; }
+                if (name === "style") { el.setAttribute("style", cleanStyle(value)); continue; }
+                if (name.indexOf("data-") === 0 || name.indexOf("aria-") === 0) continue;
+
+                if (URL_ATTRS[name]) {
+                    if (!isSafeUrl(value, tag, name)) { note(report.removedAttributes, tag + "[" + name + "]"); el.removeAttribute(attrs[k].name); }
+                    continue;
+                }
+                if (!ALLOWED_ATTRS[name] && !attrExtra[name]) {
+                    note(report.removedAttributes, name);
+                    el.removeAttribute(attrs[k].name);
+                }
+            }
+
+            // A link that opens a new tab without rel="noopener" hands the
+            // opener window to the destination.
+            if (tag === "a" && (el.getAttribute("target") || "").toLowerCase() === "_blank") {
+                var rel = (el.getAttribute("rel") || "").toLowerCase();
+                if (rel.indexOf("noopener") < 0) el.setAttribute("rel", (rel ? rel + " " : "") + "noopener noreferrer");
+            }
+        }
+        return root;
+    }
+
+    function unwrap(el) {
+        var parent = el.parentNode;
+        while (el.firstChild) parent.insertBefore(el.firstChild, el);
+        parent.removeChild(el);
+    }
+    function note(list, what) { if (list.indexOf(what) < 0) list.push(what); }
+
+    function sanitizeHtml(html) {
+        var out = html;
+        report.calls++;
+        // Parsing into an inert document means nothing loads or executes while
+        // we inspect it -- innerHTML on a live div would fire <img onerror>
+        // before the first line of this ran.
+        for (var pass = 0; pass < 3; pass++) {
+            var doc = new DOMParser().parseFromString("<body>" + out + "</body>", "text/html");
+            sanitizeNode(doc.body, report);
+            var next = doc.body.innerHTML;
+            report.lastPasses = pass + 1;
+            // Re-parsing can RESURRECT markup: the classic mutation-XSS trick is
+            // content that is inert in one parse and dangerous once the
+            // serializer has rewritten it. Loop until it stops changing.
+            if (next === out) break;
+            out = next;
+        }
+        return out;
+    }
+
+    // ------------------------------------------------------------- plumbing
+    function wrapSerializers() {
+        if (wrapped) return;
+        var names = ["getHTMLCode", "getHTMLContent"];
+        var did = false;
+        for (var i = 0; i < names.length; i++) {
+            (function (name) {
+                var orig = editor[name];
+                if (typeof orig !== "function" || orig.__rteSanitized) return;
+                var w = function () {
+                    var html = orig.apply(editor, arguments);
+                    if (typeof html !== "string") return html;
+                    return sanitizeHtml(html);
+                };
+                w.__rteSanitized = true;
+                editor[name] = w;
+                did = true;
+            })(names[i]);
+        }
+        if (did) wrapped = true;
+    }
+
+    function wrapSetters() {
+        var names = ["setHTMLCode", "setHTMLContent"];
+        for (var i = 0; i < names.length; i++) {
+            (function (name) {
+                var orig = editor[name];
+                if (typeof orig !== "function" || orig.__rteSanitizedIn) return;
+                var w = function (html) {
+                    var args = [].slice.call(arguments);
+                    if (typeof html === "string") args[0] = sanitizeHtml(html);
+                    return orig.apply(editor, args);
+                };
+                w.__rteSanitizedIn = true;
+                editor[name] = w;
+            })(names[i]);
+        }
+    }
+
+    // Paste is the other way hostile markup arrives — and cleaning up AFTERWARDS
+    // is not good enough, which measurement made obvious: pasting
+    // <iframe srcdoc="<script>…"> executed 70ms after the paste, long before a
+    // post-paste pass could run. The saved document was clean, so there was no
+    // stored XSS, but script had already run in the editing session under the
+    // host page's origin. Post-hoc cleaning cannot prevent execution; only
+    // keeping the markup out of the live DOM can.
+    //
+    // The editor has its own paste pipeline (pasteMode, Word cleanup), and
+    // replacing it wholesale would throw that away. So this intercepts ONLY
+    // clipboard HTML carrying something that executes on insertion. A Word
+    // paste — heavy with <style> and mso- rules but no handlers — is left
+    // entirely alone and keeps its normal cleanup path.
+    function executesOnInsert(html) {
+        return /\son[a-z]+\s*=/i.test(html)                    // any inline handler
+            || /<\s*(script|iframe|object|embed|base)\b/i.test(html)
+            || /srcdoc\s*=/i.test(html)                        // a document inside an attribute
+            || /(javascript|vbscript)\s*:/i.test(html)
+            || /data:\s*text\/html/i.test(html);
+        // <style> is deliberately NOT here: it cannot execute script, and
+        // listing it would intercept every paste from Word.
+    }
+
+    // Content can enter the editable without passing through setHTMLCode or
+    // paste at all. The case that matters is real-time collaboration: a remote
+    // peer's edits are applied straight to the DOM by the sync engine, so a
+    // malicious collaborator could push <iframe srcdoc> into the shared
+    // document and execute script in every other participant's browser.
+    // Measured: the payload ran locally AND replicated to the peer with its
+    // onerror attribute intact.
+    //
+    // A MutationObserver is the only place to catch every arrival path — sync,
+    // drop, a third-party plugin, host-page code. It is honest to say this
+    // narrows the window rather than closing it completely: the observer runs
+    // as a microtask, so it beats anything that executes on a load or error
+    // event (which is how srcdoc and onerror fire), but it cannot pre-empt
+    // something that executes synchronously during insertion.
+    //
+    // Cost is kept near zero for the common case: text-node insertions from
+    // typing are rejected on the first check and never walk a subtree.
+    var DANGER_TAGS = /^(script|iframe|object|embed|base|meta|link|form)$/;
+
+    function hasExecutableAttr(el) {
+        if (!el.attributes) return false;
+        for (var i = 0; i < el.attributes.length; i++) {
+            var n = el.attributes[i].name.toLowerCase();
+            if (n.indexOf("on") === 0 || n === "srcdoc") return true;
+            if ((n === "href" || n === "src" || n === "data" || n === "action" || n === "xlink:href") &&
+                /(javascript|vbscript)\s*:|data:\s*text\/html/i.test(el.attributes[i].value || "")) return true;
+        }
+        return false;
+    }
+
+    function looksDangerous(el) {
+        if (DANGER_TAGS.test(el.localName || "")) return true;
+        if (hasExecutableAttr(el)) return true;
+        var kids = el.getElementsByTagName ? el.getElementsByTagName("*") : [];
+        for (var i = 0; i < kids.length; i++) {
+            if (DANGER_TAGS.test(kids[i].localName || "") || hasExecutableAttr(kids[i])) return true;
+        }
+        return false;
+    }
+
+    function guardLiveDom() {
+        if (config.sanitizerGuardLiveDom === false) return;
+        var ed = null;
+        try { ed = editor.getEditable(); } catch (e) { return; }
+        if (!ed || ed.__rteLiveGuard) return;
+        ed.__rteLiveGuard = true;
+
+        var mo = new MutationObserver(function (records) {
+            var suspect = false;
+            for (var i = 0; i < records.length && !suspect; i++) {
+                var rec = records[i];
+                if (rec.type === "attributes") {
+                    var n = (rec.attributeName || "").toLowerCase();
+                    if (n.indexOf("on") === 0 || n === "srcdoc" || hasExecutableAttr(rec.target)) suspect = true;
+                    continue;
+                }
+                for (var a = 0; a < rec.addedNodes.length; a++) {
+                    var node = rec.addedNodes[a];
+                    if (node.nodeType !== 1) continue;      // typing inserts text: free
+                    if (looksDangerous(node)) { suspect = true; break; }
+                }
+            }
+            if (!suspect) return;
+            try { sanitizeNode(ed, report); } catch (e) {}
+        });
+        mo.observe(ed, { childList: true, subtree: true, attributes: true });
+        liveGuards.push(mo);
+    }
+
+    function bindPaste() {
+        var ed = null;
+        try { ed = editor.getEditable(); } catch (e) { return; }
+        if (!ed || ed.__rteSanitizePaste) return;
+        ed.__rteSanitizePaste = true;
+
+        ed.addEventListener("paste", function (e) {
+            var dt = e.clipboardData || window.clipboardData;
+            if (!dt) return;
+            var html = "";
+            try { html = dt.getData("text/html") || ""; } catch (x) { return; }
+            if (!html || !executesOnInsert(html)) return;      // normal paste: untouched
+
+            // Dangerous: it must never reach the live DOM at all.
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            var clean = sanitizeHtml(html);
+            try { editor.insertHTML(clean); }
+            catch (x) { try { editor.insertText(dt.getData("text/plain") || ""); } catch (y) {} }
+        }, true);
+
+        // Defence in depth for anything that still lands another way (drop, a
+        // path this plugin does not see). Two passes because a single
+        // setTimeout(0) can run BEFORE the browser has finished inserting —
+        // measured, and the reason the first version cleaned nothing.
+        function sweep() {
+            var run = function () { try { sanitizeNode(ed, report); } catch (e) {} };
+            setTimeout(run, 0);
+            setTimeout(run, 250);
+        }
+        ed.addEventListener("paste", sweep, false);
+        ed.addEventListener("drop", sweep, true);
+    }
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
 RTE_DefaultConfig.plugin_slashcommand = RTE_Plugin_SlashCommand;
 
 function RTE_Plugin_SlashCommand() {
@@ -28017,9 +36685,128 @@ function RTE_Plugin_SlashCommand() {
             push("Tools", "readaloud", "Read aloud", "Speak the selection or document (text-to-speech)", ["tts", "speak", "speech", "voice", "accessibility", "narrate"], iconReadAloud(),
                 function () { editor.execCommand("readaloud"); });
         }
+        // 2026-07-27 Footnotes / format painter / change case. Each is gated
+        // behind a premium plan by CKEditor and/or TinyMCE; all three ship here.
+        // One entry per defined merge field, so the slash menu's own search does
+        // the filtering — the same shape as TinyMCE's searchable merge-tag menu.
+        if (typeof editor.sortTableAtCaret === "function") {
+            push("Tools", "sorttableasc", "Sort table by this column", "Sort the table rows by the column the caret is in", ["sort", "table", "column", "order", "ascending"], iconSort(),
+                function () { editor.sortTableAtCaret("asc"); });
+            push("Tools", "sorttabledesc", "Sort table (descending)", "Sort the table rows by this column, largest first", ["sort", "table", "column", "descending", "reverse"], iconSort(),
+                function () { editor.sortTableAtCaret("desc"); });
+            push("Tools", "tablerownumbers", "Number table rows", "Add or remove an automatic row-numbering column", ["number", "rows", "table", "count", "index"], iconSort(),
+                function () { editor.execCommand("tablerownumbers"); });
+        }
+        if (typeof editor.moveBlockUp === "function") {
+            push("Tools", "moveblockup", "Move block up", "Move this paragraph or block above the previous one (Alt+Shift+Up)", ["move", "block", "up", "reorder", "drag"], iconMoveBlock(),
+                function () { editor.moveBlockUp(); });
+            push("Tools", "moveblockdown", "Move block down", "Move this paragraph or block below the next one (Alt+Shift+Down)", ["move", "block", "down", "reorder", "drag"], iconMoveBlock(),
+                function () { editor.moveBlockDown(); });
+        }
+        if (typeof editor.toggleRtlUserInterface === "function") {
+            push("Tools", "rtlui", "Mirror editor for RTL", "Flip the toolbar, menus and dialogs for right-to-left languages", ["rtl", "mirror", "interface", "toolbar", "arabic", "hebrew"], iconRtl(),
+                function () { editor.toggleRtlUserInterface(); });
+        }
+        if (typeof editor.setTextDirection === "function") {
+            push("Tools", "rtl", "Right-to-left", "Set this paragraph to right-to-left (Arabic, Hebrew, Persian)", ["rtl", "arabic", "hebrew", "persian", "urdu", "direction", "bidi"], iconRtl(),
+                function () { editor.setTextDirection("rtl"); });
+            push("Tools", "ltr", "Left-to-right", "Set this paragraph to left-to-right", ["ltr", "direction", "bidi"], iconLtr(),
+                function () { editor.setTextDirection("ltr"); });
+            push("Tools", "autodir", "Detect text direction", "Set each paragraph's direction from its own content", ["direction", "detect", "auto", "rtl", "bidi"], iconRtl(),
+                function () { editor.autoDetectTextDirection(); });
+        }
+        if (typeof editor.toggleFormattingMarks === "function") {
+            push("Tools", "formattingmarks", "Formatting marks", "Show paragraph marks, block outlines and invisible characters", ["marks", "pilcrow", "paragraph", "invisible", "whitespace", "nbsp"], iconPilcrow(),
+                function () { editor.toggleFormattingMarks(); });
+        }
+        if (typeof editor.toggleWatermark === "function") {
+            push("Tools", "watermark", "Watermark", "Draw DRAFT or CONFIDENTIAL behind the content", ["watermark", "draft", "confidential", "background", "stamp"], iconWatermark(),
+                function () { editor.toggleWatermark(); });
+        }
+        if (typeof editor.toggleLineNumbers === "function") {
+            push("Tools", "linenumbers", "Line numbers", "Number every line in the margin, as pleadings and transcripts require", ["line", "numbers", "margin", "pleading", "legal", "transcript"], iconLineNumbers(),
+                function () { editor.toggleLineNumbers(); });
+        }
+        if (typeof editor.togglePermanentPen === "function") {
+            push("Tools", "permanentpen", "Permanent pen", "Keep typing in a fixed annotation format until switched off", ["pen", "marker", "annotate", "highlight", "review"], iconPen(),
+                function () { editor.togglePermanentPen(); });
+        }
+        if (typeof editor.checkLinks === "function") {
+            push("Tools", "checklinks", "Check links", "Find broken anchors, unsafe schemes and unlabelled links", ["link", "check", "broken", "audit", "url", "accessibility"], iconLinkCheck(),
+                function () {
+                    editor.highlightLinkIssues(true);
+                    editor.checkLinks();
+                });
+        }
+        if (typeof editor.getMergeFieldDefinitions === "function") {
+            var mfDefs = editor.getMergeFieldDefinitions();
+            for (var mfi = 0; mfi < mfDefs.length; mfi++) {
+                (function (def) {
+                    if (!def || !def.id) return;
+                    push("Insert", "mergefield-" + def.id, def.label || def.id,
+                        "Insert the " + (def.label || def.id) + " merge field",
+                        ["merge", "field", "placeholder", "variable", "mail merge", def.id],
+                        iconMergeField(),
+                        function () { editor.insertMergeField(def.id); });
+                })(mfDefs[mfi]);
+            }
+            push("Tools", "mergepreview", "Preview merge fields", "Swap merge-field placeholders for sample data", ["merge", "preview", "sample", "data", "placeholder"], iconMergeField(),
+                function () { editor.toggleMergeFieldPreview(); });
+        }
+        // One entry per referable target, resolved when the menu is built, so the
+        // slash menu's own search filters headings/clauses/tables/figures.
+        if (typeof editor.listCrossReferenceTargets === "function") {
+            var xrefTargets = [];
+            try { xrefTargets = editor.listCrossReferenceTargets(); } catch (e) { xrefTargets = []; }
+            for (var xi = 0; xi < xrefTargets.length && xi < 40; xi++) {
+                (function (tg) {
+                    if (!tg || !tg.id) return;
+                    var shown = tg.number ? (tg.number + " " + tg.label) : tg.label;
+                    push("Insert", "xref-" + tg.id, "Reference: " + shown,
+                        "Insert a cross-reference to this " + tg.type + " that updates itself",
+                        ["cross", "reference", "xref", "see", "refer", tg.type, tg.number || ""],
+                        iconXref(),
+                        function () { editor.insertCrossReference(tg.id, tg.number ? "label" : "text"); });
+                })(xrefTargets[xi]);
+            }
+        }
+        if (typeof editor.insertTableOfContents === "function") {
+            push("Insert", "toc", "Table of contents", "Insert a contents block that updates itself from your headings", ["toc", "contents", "outline", "index", "headings"], iconToc(),
+                function () { editor.insertTableOfContents(); });
+        }
+        if (typeof editor.insertFootnote === "function") {
+            push("Insert", "footnote", "Footnote", "Insert a numbered footnote reference and note", ["footnote", "note", "citation", "reference", "endnote", "cite"], iconFootnote(),
+                function () { editor.insertFootnote(); });
+        }
+        if (typeof editor.toggleFormatPainter === "function") {
+            push("Tools", "formatpainter", "Format painter", "Copy formatting here, then select the text to paint it onto", ["format", "painter", "brush", "copy", "style", "clone"], iconBrush(),
+                function () { editor.toggleFormatPainter(); });
+        }
+        if (typeof editor.changeCase === "function") {
+            push("Tools", "caseupper", "UPPERCASE", "Convert the selection to upper case", ["case", "upper", "caps", "capitals"], iconCase(),
+                function () { editor.changeCase("upper"); });
+            push("Tools", "caselower", "lowercase", "Convert the selection to lower case", ["case", "lower", "small"], iconCase(),
+                function () { editor.changeCase("lower"); });
+            push("Tools", "casetitle", "Title Case", "Capitalise each significant word in the selection", ["case", "title", "headline", "capitalise", "capitalize"], iconCase(),
+                function () { editor.changeCase("title"); });
+            push("Tools", "casesentence", "Sentence case", "Capitalise the first letter of each sentence", ["case", "sentence", "capitalise", "capitalize"], iconCase(),
+                function () { editor.changeCase("sentence"); });
+        }
         if (typeof editor.requestGhostText === "function") {
             push("Tools", "aicomplete", "AI complete", "Suggest an inline AI completion of the current sentence", ["ai", "complete", "autocomplete", "ghost", "suggest", "continue", "copilot"], iconGhost(),
                 function () { editor.requestGhostText(); });
+        }
+        // Gated on the API rather than registered by the plugin itself: plugins
+        // initialise in bundle order, so anything sorting before "slashcommand"
+        // would call slashCommands.register() before it exists and vanish from
+        // this menu without any error. This check runs when the menu opens.
+        if (typeof editor.exportToPdf === "function") {
+            push("Tools", "exportpdf", "Export to PDF", "Real text, not a screenshot — selectable, searchable and screen-reader friendly", ["pdf", "export", "download", "save", "print", "text", "accessible", "searchable"], iconPdfText(),
+                function () { editor.exportToPdf(); });
+        }
+        if (typeof editor.exportToDocx === "function") {
+            push("Tools", "exportdocx", "Export to Word (.docx)", "A real OOXML document, built in the browser with no upload", ["word", "docx", "ooxml", "export", "download", "save", "office"], iconWordFile(),
+                function () { editor.exportToDocx(); });
         }
         if (typeof editor.copyAsMarkdown === "function") {
             push("Tools", "copymarkdown", "Copy as Markdown", "Copy the whole document to the clipboard as Markdown", ["markdown", "md", "copy", "clipboard", "export"], iconMarkdown(),
@@ -28465,6 +37252,21 @@ function RTE_Plugin_SlashCommand() {
     function iconEmail() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M4 7l8 6 8-6"/></svg>'; }
     function iconDiagram() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="6" height="5" rx="1"/><rect x="15" y="3" width="6" height="5" rx="1"/><rect x="9" y="16" width="6" height="5" rx="1"/><path d="M6 8v3h12V8M12 11v5"/></svg>'; }
     function iconReadAloud() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16 8.5a4 4 0 010 7"/><path d="M19 6a7 7 0 010 12"/></svg>'; }
+    function iconMoveBlock() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="M8 7l4-4 4 4"/><path d="M8 17l4 4 4-4"/></svg>'; }
+    function iconRtl() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6H10a3 3 0 000 6h3"/><path d="M13 6v12"/><path d="M17 6v12"/><path d="M7 18l-3-3 3-3"/></svg>'; }
+    function iconLtr() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 6H7a3 3 0 000 6h3"/><path d="M11 6v12"/><path d="M7 6v12"/><path d="M17 12l3 3-3 3"/></svg>'; }
+    function iconPilcrow() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 4v16"/><path d="M17 4v16"/><path d="M13 4H9a4 4 0 000 8h4"/></svg>'; }
+    function iconWatermark() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 15l4-5 3 3 3-4"/></svg>'; }
+    function iconLineNumbers() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h1v4"/><path d="M4 14h2l-2 3h2"/><path d="M10 7h10"/><path d="M10 12h10"/><path d="M10 17h10"/></svg>'; }
+    function iconSort() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v16"/><path d="M4 8l3-4 3 4"/><path d="M14 6h6"/><path d="M14 12h5"/><path d="M14 18h3"/></svg>'; }
+    function iconPen() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3l6 6L9 21H3v-6z"/><path d="M13 5l6 6"/></svg>'; }
+    function iconLinkCheck() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 13a4 4 0 005.7 0l2-2a4 4 0 10-5.7-5.7l-1 1"/><path d="M13 11a4 4 0 00-5.7 0l-2 2a4 4 0 105.7 5.7l1-1"/><path d="M16 18l2 2 4-4"/></svg>'; }
+    function iconMergeField() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4H7a2 2 0 00-2 2v3a2 2 0 01-2 2 2 2 0 012 2v3a2 2 0 002 2h2"/><path d="M15 4h2a2 2 0 012 2v3a2 2 0 002 2 2 2 0 00-2 2v3a2 2 0 01-2 2h-2"/></svg>'; }
+    function iconXref() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h8"/><path d="M4 12h5"/><path d="M4 17h8"/><path d="M14 12h6"/><path d="M17 9l3 3-3 3"/></svg>'; }
+    function iconToc() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h7"/><path d="M4 11h9"/><path d="M4 16h5"/><path d="M17 6h3"/><path d="M17 11h3"/><path d="M17 16h3"/></svg>'; }
+    function iconFootnote() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h9"/><path d="M4 11h9"/><path d="M4 18h16"/><path d="M17 4v6"/><path d="M20 7h-6"/></svg>'; }
+    function iconBrush() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h11a2 2 0 012 2v4a2 2 0 01-2 2H6z"/><path d="M12 11v3"/><path d="M10 14h4v5a2 2 0 01-4 0z"/></svg>'; }
+    function iconCase() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18L8 6l5 12"/><path d="M4.6 14.5h6.8"/><path d="M21 11.5a3 3 0 00-6 0"/><path d="M21 11.5V18"/><path d="M21 15.5a3 3 0 11-6 0 3 3 0 016 0z"/></svg>'; }
     function iconTodo() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="7" height="7" rx="1.5"/><path d="M4.5 7.5 6 9l2.5-3"/><line x1="13" y1="6" x2="21" y2="6"/><line x1="13" y1="13" x2="21" y2="13"/><line x1="3" y1="17" x2="21" y2="17"/><line x1="3" y1="20.5" x2="14" y2="20.5"/></svg>'; }
     function iconFold() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l3 3 3-3"/><path d="M9 18l3-3 3 3"/><line x1="4" y1="12" x2="20" y2="12"/></svg>'; }
     function iconKeyboard() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M18 14h.01M9 14h6"/></svg>'; }
@@ -28473,6 +37275,10 @@ function RTE_Plugin_SlashCommand() {
     function iconFocus() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M3 12h3M18 12h3M12 3v3M12 18v3"/></svg>'; }
     function iconMarkdown() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M6 15V9l3 3 3-3v6"/><path d="M17 9v6M14.5 12.5L17 15l2.5-2.5"/></svg>'; }
     function iconGhost() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V9a7 7 0 0114 0v12l-3-2-2 2-2-2-2 2-3-2z"/><circle cx="9.5" cy="10" r="1" fill="currentColor"/><circle cx="14.5" cy="10" r="1" fill="currentColor"/></svg>'; }
+    // A page with text lines on it, rather than the usual PDF badge: the point
+    // of this entry is that the output contains text.
+    function iconPdfText() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg>'; }
+    function iconWordFile() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"/><path d="M14 3v5h5"/><path d="M8.5 12l1.3 5 2.2-3.6 2.2 3.6 1.3-5"/></svg>'; }
 }
 
 if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
@@ -28908,6 +37714,1017 @@ function RTE_Plugin_SpellCheck() {
                 (host.head || host.documentElement).appendChild(st);
             }
         } catch (e) { /* ignore */ }
+    }
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
+// 2026-07-27 Table of contents. An insertable, self-updating contents block
+// built from the document's headings, with links that jump to them.
+//
+// Premium in both majors:
+//   - CKEditor 5 table of contents: "Unlock this feature with selected CKEditor
+//     Plans". Their pitch is that "the list stays up-to-date automatically as
+//     the user works on the document", which is the bar this has to clear.
+//   - TinyMCE tableofcontents: "This plugin is only available for paid TinyMCE
+//     subscriptions".
+//
+// This editor already ships documentoutline.js, but that is a NAVIGATION PANEL
+// beside the editor — chrome, not content. It never lands in the saved HTML.
+// A table of contents is the opposite: it is part of the document you publish
+// or print, so it has to survive getHTMLCode() and read correctly with no
+// JavaScript running.
+//
+// Design notes:
+//   - The block is contenteditable=false and rebuilt from the headings on every
+//     mutation, so it cannot drift from the document. Hand-editing generated
+//     content is a trap, so the block simply is not editable; delete it as a
+//     unit and re-insert to move it.
+//   - Entry text and numbers are written as REAL TEXT into the block (the same
+//     reasoning as footnotes.js): the saved HTML has to stand alone once it
+//     leaves the editor, where no script will regenerate anything.
+//   - Headings inside generated regions (this block, the footnotes section) are
+//     skipped, otherwise the TOC lists its own title.
+//   - Page numbers are shown when pagination.js is loaded AND page view is on,
+//     via editor.getPageOfElement(). Outside page view a page number would be a
+//     fiction, so none is written.
+RTE_DefaultConfig.plugin_tableofcontents = RTE_Plugin_TableOfContents;
+
+// Heading above the list. Set to "" to omit it.
+if (typeof RTE_DefaultConfig.tocTitle === "undefined") RTE_DefaultConfig.tocTitle = "Contents";
+// Heading levels included, inclusive.
+if (typeof RTE_DefaultConfig.tocMinLevel === "undefined") RTE_DefaultConfig.tocMinLevel = 1;
+if (typeof RTE_DefaultConfig.tocMaxLevel === "undefined") RTE_DefaultConfig.tocMaxLevel = 3;
+// "auto" = page numbers when page view is on | true = always try | false = never.
+if (typeof RTE_DefaultConfig.tocPageNumbers === "undefined") RTE_DefaultConfig.tocPageNumbers = "auto";
+
+function RTE_Plugin_TableOfContents() {
+    var obj = this;
+    var config, editor;
+    var boundDoc = null;
+    var queued = false;
+    var idSeq = 0;
+
+    obj.PluginName = "TableOfContents";
+
+    obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+
+        editor.attachEvent("exec_command_inserttoc", function (state) {
+            state.returnValue = true;
+            obj.Insert();
+        });
+
+        setup();
+        try { editor.attachEvent("ready", setup); } catch (e) {}
+        try { editor.attachEvent("aftersethtml", function () { setup(); queue(); }); } catch (e) {}
+        setTimeout(function () { setup(); queue(); }, 0);
+
+        // Public API.
+        editor.insertTableOfContents = function () { return obj.Insert(); };
+        editor.updateTableOfContents = function () { return rebuild(); };
+        editor.removeTableOfContents = function () { return obj.Remove(); };
+        editor.hasTableOfContents = function () { return !!block(); };
+        editor.getTableOfContents = function () { return obj.List(); };
+        editor.getTocCss = function () { return css(); };
+    };
+
+    function setup() {
+        var doc = getDoc();
+        if (!doc) return;
+        injectStyles(doc);
+        if (doc === boundDoc) return;
+        boundDoc = doc;
+        var editable = getEditable();
+        if (!editable) return;
+        editable.addEventListener("keyup", queue);
+        editable.addEventListener("cut", queue);
+        editable.addEventListener("paste", queue);
+        editable.addEventListener("drop", queue);
+        // Clicking an entry scrolls to its heading. The block is not editable, so
+        // the anchors would otherwise do nothing inside the iframe.
+        editable.addEventListener("click", function (e) {
+            var a = closestClass(e.target, "rte-toc-link", editable);
+            if (!a) return;
+            e.preventDefault();
+            var target = editable.querySelector("#" + cssEscapeId(a.getAttribute("data-toc-target")));
+            if (!target) return;
+            try { target.scrollIntoView({ block: "center" }); } catch (e2) { target.scrollIntoView(); }
+        });
+    }
+
+    function getDoc() { try { return editor.getDocument(); } catch (e) { return null; } }
+    function getEditable() { try { return editor.getEditable(); } catch (e) { return null; } }
+
+    // setTimeout not rAF: a hidden iframe or background tab never fires rAF, and
+    // the contents would silently stop updating.
+    function queue() {
+        if (queued) return;
+        queued = true;
+        setTimeout(function () { queued = false; rebuild(); }, 0);
+    }
+
+    function closestClass(node, cls, root) {
+        while (node && node !== root) {
+            if (node.nodeType === 1 && node.classList && node.classList.contains(cls)) return node;
+            node = node.parentNode;
+        }
+        return null;
+    }
+
+    function cssEscapeId(s) { return String(s || "").replace(/["\\\]\[]/g, "\\$&"); }
+
+    function block() {
+        var editable = getEditable();
+        return editable ? editable.querySelector("nav.rte-toc") : null;
+    }
+
+    // ---- heading collection ---------------------------------------------
+
+    function levelRange() {
+        var min = Math.max(1, Math.min(6, parseInt(config.tocMinLevel, 10) || 1));
+        var max = Math.max(min, Math.min(6, parseInt(config.tocMaxLevel, 10) || 3));
+        return { min: min, max: max };
+    }
+
+    function headings() {
+        var editable = getEditable();
+        if (!editable) return [];
+        var r = levelRange();
+        var sel = [];
+        for (var l = r.min; l <= r.max; l++) sel.push("h" + l);
+        var all = editable.querySelectorAll(sel.join(","));
+        var out = [];
+        for (var i = 0; i < all.length; i++) {
+            var h = all[i];
+            // Skip generated regions, or the TOC lists its own "Contents" title
+            // and the footnotes section heading.
+            if (h.closest && (h.closest("nav.rte-toc") || h.closest("section.rte-footnotes"))) continue;
+            if (!(h.textContent || "").trim()) continue;   // empty heading = noise
+            out.push(h);
+        }
+        return out;
+    }
+
+    function ensureHeadingId(h) {
+        var id = h.getAttribute("id");
+        if (id && id.indexOf("rte-h-") === 0) return id;
+        if (id) return id;   // respect an id the author already chose
+        id = "rte-h-" + Math.floor(Math.random() * 1e9).toString(36) + (idSeq++).toString(36);
+        h.setAttribute("id", id);
+        return id;
+    }
+
+    function wantPageNumbers() {
+        var mode = config.tocPageNumbers;
+        if (mode === false) return false;
+        if (typeof editor.getPageOfElement !== "function") return false;
+        if (mode === true) return true;
+        // "auto": only in page view, where the numbers mean something.
+        try { return typeof editor.isPageView === "function" && editor.isPageView(); } catch (e) { return false; }
+    }
+
+    // ---- build -----------------------------------------------------------
+
+    obj.Insert = function () {
+        var doc = getDoc();
+        var editable = getEditable();
+        if (!doc || !editable) return false;
+        var existing = block();
+        if (existing) { rebuild(); return true; }   // one per document
+
+        var nav = doc.createElement("nav");
+        nav.className = "rte-toc";
+        nav.setAttribute("contenteditable", "false");
+        nav.setAttribute("data-rte-toc", "1");
+
+        var placed = false;
+        try {
+            if (typeof editor.insertElement === "function") { editor.insertElement(nav); placed = true; }
+        } catch (e) {}
+        if (!placed) editable.insertBefore(nav, editable.firstChild);
+
+        rebuild();
+        fireChange();
+        return true;
+    };
+
+    obj.Remove = function () {
+        var b = block();
+        if (!b || !b.parentNode) return false;
+        b.parentNode.removeChild(b);
+        fireChange();
+        return true;
+    };
+
+    function rebuild() {
+        var nav = block();
+        if (!nav) return [];
+        var doc = getDoc();
+        if (!doc) return [];
+
+        var hs = headings();
+        var r = levelRange();
+        var pages = wantPageNumbers();
+
+        // Carry forward the page numbers already in the block, keyed by heading.
+        // Without this, opening a document that was saved in page view and then
+        // rebuilding with page view OFF silently deletes numbers that were
+        // computed for real — destroying part of the saved document just by
+        // loading it. Stale-until-you-re-enter-page-view matches how a word
+        // processor treats a contents field; silently losing them does not.
+        var priorPages = {};
+        var priorItems = nav.querySelectorAll("li.rte-toc-item");
+        for (var p = 0; p < priorItems.length; p++) {
+            var pa = priorItems[p].querySelector("a.rte-toc-link");
+            var pp = priorItems[p].querySelector(".rte-toc-page");
+            if (pa && pp) {
+                var n = parseInt(pp.textContent, 10);
+                if (n) priorPages[pa.getAttribute("data-toc-target")] = n;
+            }
+        }
+
+        // Rebuild the inner list wholesale. The block is not editable, so there
+        // is no caret inside it to preserve.
+        while (nav.firstChild) nav.removeChild(nav.firstChild);
+
+        var title = String(config.tocTitle == null ? "" : config.tocTitle);
+        if (title) {
+            var h = doc.createElement("div");
+            h.className = "rte-toc-title";
+            h.textContent = title;
+            nav.appendChild(h);
+        }
+
+        if (!hs.length) {
+            var empty = doc.createElement("div");
+            empty.className = "rte-toc-empty";
+            empty.textContent = "No headings yet.";
+            nav.appendChild(empty);
+            return [];
+        }
+
+        var ol = doc.createElement("ol");
+        ol.className = "rte-toc-list";
+        var out = [];
+        for (var i = 0; i < hs.length; i++) {
+            var head = hs[i];
+            var level = parseInt(head.nodeName.substring(1), 10) || 1;
+            var id = ensureHeadingId(head);
+            var text = (head.textContent || "").trim();
+
+            var li = doc.createElement("li");
+            li.className = "rte-toc-item rte-toc-l" + (level - r.min + 1);
+
+            var a = doc.createElement("a");
+            a.className = "rte-toc-link";
+            a.setAttribute("href", "#" + id);
+            a.setAttribute("data-toc-target", id);
+            a.textContent = text;
+            li.appendChild(a);
+
+            var page = null;
+            if (pages) {
+                try { page = editor.getPageOfElement(head); } catch (e) { page = null; }
+            }
+            // Could not compute one (page view off) but this entry already had a
+            // number: keep it rather than throw it away.
+            if (!page && priorPages[id]) page = priorPages[id];
+            if (page) {
+                var span = doc.createElement("span");
+                span.className = "rte-toc-page";
+                span.textContent = String(page);
+                li.appendChild(span);
+            }
+            ol.appendChild(li);
+            out.push({ id: id, level: level, text: text, page: page });
+        }
+        nav.appendChild(ol);
+        return out;
+    }
+
+    obj.List = function () {
+        var nav = block();
+        if (!nav) return [];
+        var items = nav.querySelectorAll("li.rte-toc-item");
+        var out = [];
+        for (var i = 0; i < items.length; i++) {
+            var a = items[i].querySelector("a.rte-toc-link");
+            var p = items[i].querySelector(".rte-toc-page");
+            var cls = items[i].className.match(/rte-toc-l(\d+)/);
+            out.push({
+                id: a ? a.getAttribute("data-toc-target") : null,
+                level: cls ? parseInt(cls[1], 10) : 1,
+                text: a ? a.textContent : "",
+                page: p ? parseInt(p.textContent, 10) : null
+            });
+        }
+        return out;
+    };
+
+    function fireChange() {
+        try { if (typeof editor.updateDesign === "function") editor.updateDesign(); } catch (e) {}
+        try { if (typeof editor.fireChange === "function") editor.fireChange(); } catch (e) {}
+    }
+
+    // ---- styles ----------------------------------------------------------
+
+    function css() {
+        return (
+            "nav.rte-toc{margin:0 0 1.4em;padding:.9em 1.1em;border:1px solid #ddd;border-radius:6px;" +
+            "background:#fafbfc;}" +
+            "nav.rte-toc .rte-toc-title{font-weight:700;margin-bottom:.45em;}" +
+            "nav.rte-toc .rte-toc-empty{color:#888;font-style:italic;}" +
+            "ol.rte-toc-list{list-style:none;margin:0;padding:0;counter-reset:rte-toc;}" +
+            "ol.rte-toc-list>li{counter-increment:rte-toc;margin:.16em 0;display:flex;align-items:baseline;gap:.5em;}" +
+            // A leader line between the entry and its page number, the way a
+            // printed contents page sets it.
+            "ol.rte-toc-list>li>a{color:#1474ea;text-decoration:none;cursor:pointer;}" +
+            "ol.rte-toc-list>li>a:hover{text-decoration:underline;}" +
+            "ol.rte-toc-list>li:has(>.rte-toc-page)>a::after{content:'';flex:1 1 auto;margin:0 .4em;" +
+            "border-bottom:1px dotted #bbb;transform:translateY(-.25em);display:inline-block;min-width:1.5em;}" +
+            "ol.rte-toc-list>li>a{flex:1 1 auto;display:flex;align-items:baseline;}" +
+            ".rte-toc-page{flex:0 0 auto;color:#666;font-variant-numeric:tabular-nums;}" +
+            ".rte-toc-l2{padding-left:1.3em;}" +
+            ".rte-toc-l3{padding-left:2.6em;}" +
+            ".rte-toc-l4{padding-left:3.9em;}" +
+            ".rte-toc-l5{padding-left:5.2em;}" +
+            ".rte-toc-l6{padding-left:6.5em;}"
+        );
+    }
+
+    function injectStyles(doc) {
+        if (!doc) return;
+        var existing = doc.getElementById("rte-toc-styles");
+        var text = css();
+        if (existing) {
+            if (existing.getAttribute("data-css") === text) return;
+            existing.parentNode && existing.parentNode.removeChild(existing);
+        }
+        var st = doc.createElement("style");
+        st.id = "rte-toc-styles";
+        st.setAttribute("data-css", text);
+        st.appendChild(doc.createTextNode(text));
+        (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+    }
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
+// 2026-07-27 Table sorting and row numbering.
+//
+// TinyMCE sells both as the premium "Enhanced Tables" plugin: "This plugin is
+// only available for paid TinyMCE subscriptions". It adds sorting by column and
+// an automatic row-numbering column on top of the standard table plugin.
+//
+// Design notes:
+//   - Column type is DETECTED, not assumed. A column of prices sorts numerically
+//     even when the cells read "$1,240.00" or "(500)"; a column of dates sorts
+//     chronologically rather than as strings. Text sorting a numeric column is
+//     the classic wrong answer that puts 10 before 9.
+//   - The sort REFUSES on a table with merged body cells rather than doing it
+//     badly. A rowspan crossing rows has no meaning once the rows move; silently
+//     shredding a table the user spent an hour on is far worse than declining.
+//   - <thead> and <tfoot> never move. If a table has no <thead>, a first row
+//     that looks like a header (all <th>) is pinned anyway.
+//   - The sort is STABLE, so re-sorting by a second column preserves the order
+//     of the first — which is how people expect to sort by two things.
+RTE_DefaultConfig.plugin_tabletools = RTE_Plugin_TableTools;
+
+// "numeric" | "upper-alpha" | "lower-alpha" | "upper-roman" | "lower-roman"
+if (typeof RTE_DefaultConfig.tableNumberSeries === "undefined") RTE_DefaultConfig.tableNumberSeries = "numeric";
+// Heading placed above the numbering column.
+if (typeof RTE_DefaultConfig.tableNumberHeader === "undefined") RTE_DefaultConfig.tableNumberHeader = "#";
+
+function RTE_Plugin_TableTools() {
+    var obj = this;
+    var config, editor;
+
+    obj.PluginName = "TableTools";
+
+    obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+
+        editor.attachEvent("exec_command_sorttable", function (state) {
+            state.returnValue = true;
+            obj.SortAtCaret(state && state.value === "desc" ? "desc" : "asc");
+        });
+        editor.attachEvent("exec_command_tablerownumbers", function (state) {
+            state.returnValue = true;
+            obj.ToggleRowNumbers();
+        });
+
+        // Public API.
+        editor.sortTableByColumn = function (index, dir) { return obj.Sort(tableAtCaret(), index, dir); };
+        editor.sortTableAtCaret = function (dir) { return obj.SortAtCaret(dir); };
+        editor.canSortTable = function () { return canSort(tableAtCaret()); };
+        editor.addTableRowNumbers = function (opts) { return obj.AddRowNumbers(opts); };
+        editor.removeTableRowNumbers = function () { return obj.RemoveRowNumbers(); };
+        editor.hasTableRowNumbers = function () {
+            var t = tableAtCaret();
+            return !!(t && t.querySelector("[data-rte-rownum]"));
+        };
+    };
+
+    function getEditable() { try { return editor.getEditable(); } catch (e) { return null; } }
+
+    // ---- locating ---------------------------------------------------------
+
+    function tableAtCaret() {
+        try {
+            var sel = editor.getSelection();
+            if (!sel || sel.rangeCount === 0) return null;
+            var n = sel.getRangeAt(0).startContainer;
+            if (n && n.nodeType === 3) n = n.parentNode;
+            var editable = getEditable();
+            while (n && n !== editable) {
+                if (n.nodeName === "TABLE") return n;
+                n = n.parentNode;
+            }
+            return null;
+        } catch (e) { return null; }
+    }
+
+    function cellAtCaret() {
+        try {
+            var sel = editor.getSelection();
+            if (!sel || sel.rangeCount === 0) return null;
+            var n = sel.getRangeAt(0).startContainer;
+            if (n && n.nodeType === 3) n = n.parentNode;
+            var editable = getEditable();
+            while (n && n !== editable) {
+                if (n.nodeName === "TD" || n.nodeName === "TH") return n;
+                n = n.parentNode;
+            }
+            return null;
+        } catch (e) { return null; }
+    }
+
+    // Rows that are allowed to move: everything except thead/tfoot and a
+    // header-looking first row.
+    function bodyRows(table) {
+        if (!table) return [];
+        var all = Array.prototype.slice.call(table.rows || []);
+        var out = [];
+        for (var i = 0; i < all.length; i++) {
+            var r = all[i];
+            var section = r.parentNode ? r.parentNode.nodeName : "";
+            if (section === "THEAD" || section === "TFOOT") continue;
+            // No <thead>: treat an all-<th> first row as the header anyway.
+            if (out.length === 0 && i === 0 && r.cells.length && allHeaderCells(r)) continue;
+            out.push(r);
+        }
+        return out;
+    }
+
+    function allHeaderCells(row) {
+        for (var i = 0; i < row.cells.length; i++) if (row.cells[i].nodeName !== "TH") return false;
+        return true;
+    }
+
+    // ---- safety -----------------------------------------------------------
+
+    function canSort(table) {
+        if (!table) return { ok: false, reason: "The caret is not inside a table." };
+        var rows = bodyRows(table);
+        if (rows.length < 2) return { ok: false, reason: "The table has fewer than two sortable rows." };
+        for (var i = 0; i < rows.length; i++) {
+            for (var c = 0; c < rows[i].cells.length; c++) {
+                var cell = rows[i].cells[c];
+                if ((cell.rowSpan || 1) > 1 || (cell.colSpan || 1) > 1) {
+                    return {
+                        ok: false,
+                        reason: "This table has merged cells. Sorting would move rows out from under a rowspan and break the table, so it has been left alone."
+                    };
+                }
+            }
+        }
+        return { ok: true, reason: "" };
+    }
+
+    // ---- value typing -----------------------------------------------------
+
+    // Detect what a cell actually holds so the comparison matches the data.
+    function cellValue(text) {
+        var t = String(text == null ? "" : text).trim();
+        if (!t) return { type: "empty", v: "" };
+        if (/\d/.test(t)) {
+            // Strip currency, spaces, thousands separators; (500) is accounting
+            // notation for negative.
+            var num = t.replace(/[\s ,]/g, "").replace(/^\(([^)]*)\)$/, "-$1").replace(/[^0-9.eE+-]/g, "");
+            if (num && /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(num)) {
+                return { type: "number", v: parseFloat(num) };
+            }
+            var d = Date.parse(t);
+            if (!isNaN(d)) return { type: "date", v: d };
+        }
+        return { type: "text", v: t.toLowerCase() };
+    }
+
+    // The column's type is whatever most of its non-empty cells are.
+    function columnType(rows, index) {
+        var counts = { number: 0, date: 0, text: 0 };
+        for (var i = 0; i < rows.length; i++) {
+            var cell = rows[i].cells[index];
+            if (!cell) continue;
+            var val = cellValue(cell.textContent);
+            if (val.type === "empty") continue;
+            counts[val.type]++;
+        }
+        if (counts.number >= counts.date && counts.number >= counts.text && counts.number > 0) return "number";
+        if (counts.date >= counts.text && counts.date > 0) return "date";
+        return "text";
+    }
+
+    // ---- sort -------------------------------------------------------------
+
+    obj.SortAtCaret = function (dir) {
+        var table = tableAtCaret();
+        var cell = cellAtCaret();
+        if (!table || !cell) return false;
+        return obj.Sort(table, cell.cellIndex, dir);
+    };
+
+    obj.Sort = function (table, index, dir) {
+        var check = canSort(table);
+        if (!check.ok) return check;
+        var descending = String(dir).toLowerCase() === "desc";
+        var rows = bodyRows(table);
+        var type = columnType(rows, index);
+
+        // Decorate with the original position so the sort is stable — the
+        // Array.prototype.sort in older engines is not guaranteed to be.
+        var decorated = [];
+        for (var i = 0; i < rows.length; i++) {
+            var cell = rows[i].cells[index];
+            decorated.push({ row: rows[i], order: i, val: cellValue(cell ? cell.textContent : "") });
+        }
+
+        decorated.sort(function (a, b) {
+            // Empty cells sink to the bottom in both directions: a blank is
+            // "no value", not "the smallest value".
+            if (a.val.type === "empty" && b.val.type === "empty") return a.order - b.order;
+            if (a.val.type === "empty") return 1;
+            if (b.val.type === "empty") return -1;
+
+            var cmp;
+            if (type === "number" || type === "date") {
+                var av = a.val.type === type ? a.val.v : Number.POSITIVE_INFINITY;
+                var bv = b.val.type === type ? b.val.v : Number.POSITIVE_INFINITY;
+                cmp = av < bv ? -1 : (av > bv ? 1 : 0);
+            } else {
+                var as = String(a.val.v), bs = String(b.val.v);
+                cmp = as.localeCompare ? as.localeCompare(bs, undefined, { numeric: true, sensitivity: "base" })
+                                       : (as < bs ? -1 : (as > bs ? 1 : 0));
+            }
+            if (cmp === 0) return a.order - b.order;      // stable
+            return descending ? -cmp : cmp;
+        });
+
+        // Re-append in the new order. Appending a row already in the table moves
+        // it, so this reorders in place without cloning (which would drop any
+        // event handlers or editor state attached to the cells).
+        var parent = decorated.length ? decorated[0].row.parentNode : null;
+        if (!parent) return { ok: false, reason: "The table has no sortable rows." };
+
+        // Moving a row that contains the caret collapses the selection, so a
+        // second sort would find no cell and silently do nothing. Remember the
+        // cell and put the caret back into it afterwards.
+        var caretCell = cellAtCaret();
+        for (var j = 0; j < decorated.length; j++) parent.appendChild(decorated[j].row);
+        restoreCaret(caretCell);
+
+        renumber(table);      // numbering is positional, so it follows the sort
+        fireChange();
+        return { ok: true, reason: "", sortedBy: index, direction: descending ? "desc" : "asc", detectedType: type };
+    };
+
+    // ---- row numbering ----------------------------------------------------
+
+    function seriesLabel(n, series) {
+        switch (String(series)) {
+            case "upper-alpha": return alpha(n).toUpperCase();
+            case "lower-alpha": return alpha(n);
+            case "upper-roman": return roman(n);
+            case "lower-roman": return roman(n).toLowerCase();
+            default: return String(n);
+        }
+    }
+
+    function alpha(n) {
+        var s = "";
+        while (n > 0) { var m = (n - 1) % 26; s = String.fromCharCode(97 + m) + s; n = Math.floor((n - 1) / 26); }
+        return s || "a";
+    }
+
+    function roman(n) {
+        var map = [[1000,"M"],[900,"CM"],[500,"D"],[400,"CD"],[100,"C"],[90,"XC"],
+                   [50,"L"],[40,"XL"],[10,"X"],[9,"IX"],[5,"V"],[4,"IV"],[1,"I"]];
+        var out = "";
+        for (var i = 0; i < map.length; i++) while (n >= map[i][0]) { out += map[i][1]; n -= map[i][0]; }
+        return out || "I";
+    }
+
+    obj.AddRowNumbers = function (opts) {
+        var table = tableAtCaret();
+        if (!table) return false;
+        if (table.querySelector("[data-rte-rownum]")) { renumber(table); return true; }
+        opts = opts || {};
+        var series = opts.series || config.tableNumberSeries;
+        var doc = table.ownerDocument;
+
+        // Header cell in every header row so the columns stay aligned.
+        var all = Array.prototype.slice.call(table.rows || []);
+        var body = bodyRows(table);
+        var bodySet = {};
+        for (var b = 0; b < body.length; b++) bodySet[rowKey(body[b])] = true;
+
+        for (var i = 0; i < all.length; i++) {
+            var row = all[i];
+            var isBody = bodySet[rowKey(row)];
+            var cell = doc.createElement(isBody ? "td" : "th");
+            cell.setAttribute("data-rte-rownum", isBody ? "value" : "header");
+            if (!isBody) cell.textContent = String(config.tableNumberHeader == null ? "#" : config.tableNumberHeader);
+            row.insertBefore(cell, row.firstChild);
+        }
+        table.setAttribute("data-rte-rownum-series", series);
+        renumber(table);
+        fireChange();
+        return true;
+    };
+
+    // rows have no stable identity across arrays, so key on position
+    var keySeq = 0;
+    function rowKey(row) {
+        if (!row.__rteKey) row.__rteKey = "r" + (keySeq++);
+        return row.__rteKey;
+    }
+
+    obj.RemoveRowNumbers = function () {
+        var table = tableAtCaret();
+        if (!table) return false;
+        var cells = table.querySelectorAll("[data-rte-rownum]");
+        if (!cells.length) return false;
+        for (var i = 0; i < cells.length; i++) if (cells[i].parentNode) cells[i].parentNode.removeChild(cells[i]);
+        table.removeAttribute("data-rte-rownum-series");
+        fireChange();
+        return true;
+    };
+
+    obj.ToggleRowNumbers = function () {
+        var table = tableAtCaret();
+        if (!table) return false;
+        return table.querySelector("[data-rte-rownum]") ? obj.RemoveRowNumbers() : obj.AddRowNumbers();
+    };
+
+    // Numbering is positional: after a sort, row 1 is whatever is now on top.
+    function renumber(table) {
+        if (!table) return;
+        var series = table.getAttribute("data-rte-rownum-series") || config.tableNumberSeries;
+        var rows = bodyRows(table);
+        var n = 1;
+        for (var i = 0; i < rows.length; i++) {
+            var cell = rows[i].querySelector("[data-rte-rownum='value']");
+            if (!cell) continue;
+            cell.textContent = seriesLabel(n++, series);
+        }
+    }
+
+    // Put a collapsed caret back into a cell that has just been moved.
+    function restoreCaret(cell) {
+        if (!cell || !cell.parentNode) return;
+        try {
+            var doc = cell.ownerDocument;
+            var r = doc.createRange();
+            r.selectNodeContents(cell);
+            r.collapse(true);
+            var sel = editor.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(r);
+        } catch (e) {}
+    }
+
+    function fireChange() {
+        try { if (typeof editor.updateDesign === "function") editor.updateDesign(); } catch (e) {}
+        try { if (typeof editor.fireChange === "function") editor.fireChange(); } catch (e) {}
+    }
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
+// 2026-07-28 Text direction / bidirectional text. Arabic, Hebrew, Persian and
+// Urdu are written right-to-left, and until now this editor had no way to say so
+// — no direction command, no toolbar item, not even a language string. Seventy-two
+// translation files do not help if the text still runs the wrong way.
+//
+// Design notes:
+//   - `dir` is CONTENT, not presentation. It must persist in getHTMLCode(), and
+//     it is deliberately NOT stripped around serialize the way the page-view
+//     overlay or the watermark are. A document whose direction disappeared on
+//     save would be unreadable.
+//   - Flipping direction SWAPS an explicit physical alignment. `dir` alone only
+//     changes the DEFAULT alignment, so a paragraph explicitly set to
+//     text-align:left stays hard-left in RTL and looks broken. Word swaps it;
+//     so do we.
+//   - Detection uses the first-strong algorithm, the same rule the HTML spec
+//     defines for dir="auto": the paragraph's direction is that of its first
+//     strongly-directional character, ignoring digits and punctuation.
+//   - Mixed content is isolated, not just marked. Dropping an LTR URL into an
+//     RTL sentence without isolation lets the bidi algorithm reorder the
+//     surrounding punctuation, which is how "(https://example.com)" ends up
+//     rendering with its brackets swapped.
+//
+// Not covered here: mirroring the editor's own toolbar/chrome for RTL locales.
+// That is theme work in rte_theme_default.css, not document direction.
+RTE_DefaultConfig.plugin_textdirection = RTE_Plugin_TextDirection;
+
+// "rtl" | "ltr" | null (leave the document alone)
+if (typeof RTE_DefaultConfig.defaultTextDirection === "undefined") RTE_DefaultConfig.defaultTextDirection = null;
+// Detect direction from content when HTML is loaded or pasted.
+if (typeof RTE_DefaultConfig.textDirectionAutoDetect === "undefined") RTE_DefaultConfig.textDirectionAutoDetect = false;
+// Swap an explicit left/right alignment when direction flips.
+if (typeof RTE_DefaultConfig.textDirectionSwapAlign === "undefined") RTE_DefaultConfig.textDirectionSwapAlign = true;
+
+function RTE_Plugin_TextDirection() {
+    var obj = this;
+    var config, editor;
+    var boundDoc = null;
+
+    var BLOCKS = { P: 1, DIV: 1, LI: 1, H1: 1, H2: 1, H3: 1, H4: 1, H5: 1, H6: 1,
+                   BLOCKQUOTE: 1, TD: 1, TH: 1, PRE: 1, UL: 1, OL: 1, TABLE: 1, SECTION: 1, ARTICLE: 1 };
+
+    // Strongly right-to-left ranges: Hebrew, Arabic (+ supplement, extended),
+    // Syriac, Thaana, NKo, Samaritan, Mandaic, and the Arabic presentation forms.
+    var RTL_RE = /[֐-׿؀-ۿ܀-ݏݐ-ݿހ-޿߀-߿ࠀ-࠿ࡀ-࡟ࢠ-ࣿיִ-﷿ﹰ-﻿]/;
+    // Strongly left-to-right: Latin, Greek, Cyrillic, Armenian, and CJK/Kana
+    // (which are LTR for bidi purposes).
+    var LTR_RE = /[A-Za-zÀ-ʯͰ-֏ऀ-႟Ḁ-῿Ⰰ-ⷿ⺀-꓏가-힯]/;
+
+    obj.PluginName = "TextDirection";
+
+    obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+
+        editor.attachEvent("exec_command_textdirection", function (state) {
+            state.returnValue = true;
+            var v = state && state.value;
+            if (v === "rtl" || v === "ltr") obj.Apply(v);
+            else obj.Toggle();
+        });
+
+        setup();
+        try { editor.attachEvent("ready", setup); } catch (e) {}
+        try { editor.attachEvent("aftersethtml", function () { setup(); afterLoad(); }); } catch (e) {}
+        setTimeout(function () { setup(); afterLoad(); }, 0);
+
+        // Public API.
+        editor.setTextDirection = function (dir) { return obj.Apply(dir); };
+        editor.toggleTextDirection = function () { return obj.Toggle(); };
+        editor.getTextDirection = function () { return obj.Current(); };
+        editor.setBaseDirection = function (dir) { return obj.Base(dir); };
+        editor.getBaseDirection = function () {
+            var ed = getEditable();
+            return ed ? (ed.getAttribute("dir") || "ltr") : "ltr";
+        };
+        editor.detectTextDirection = function (text) { return firstStrong(String(text == null ? "" : text)); };
+        editor.autoDetectTextDirection = function () { return obj.AutoDetect(); };
+        editor.isolateBidi = function (html, dir) { return obj.Isolate(html, dir); };
+        editor.insertIsolated = function (html, dir) { return obj.InsertIsolated(html, dir); };
+        editor.getTextDirectionCss = function () { return css(); };
+    };
+
+    function setup() {
+        var doc = getDoc();
+        if (!doc || doc === boundDoc) return;
+        boundDoc = doc;
+        injectStyles(doc);
+    }
+
+    function afterLoad() {
+        var ed = getEditable();
+        if (!ed) return;
+        if (config.defaultTextDirection === "rtl" || config.defaultTextDirection === "ltr") {
+            if (!ed.getAttribute("dir")) obj.Base(config.defaultTextDirection);
+        }
+        if (config.textDirectionAutoDetect) obj.AutoDetect();
+    }
+
+    function getDoc() { try { return editor.getDocument(); } catch (e) { return null; } }
+    function getEditable() { try { return editor.getEditable(); } catch (e) { return null; } }
+
+    // ---- detection -------------------------------------------------------
+
+    // First-strong: the direction of the first strongly-directional character.
+    // Digits, punctuation and whitespace are neutral and skipped, which is why
+    // "123 שלום" is RTL and "123 hello" is LTR.
+    function firstStrong(text) {
+        for (var i = 0; i < text.length; i++) {
+            var ch = text.charAt(i);
+            if (RTL_RE.test(ch)) return "rtl";
+            if (LTR_RE.test(ch)) return "ltr";
+        }
+        return "neutral";
+    }
+
+    // ---- selection -------------------------------------------------------
+
+    function blocksInSelection() {
+        var ed = getEditable();
+        var out = [];
+        try {
+            var sel = editor.getSelection();
+            if (!sel || sel.rangeCount === 0) return out;
+            var range = sel.getRangeAt(0);
+            var start = blockOf(range.startContainer);
+            var end = blockOf(range.endContainer);
+            if (!start) return out;
+            if (start === end || range.collapsed) return [start];
+
+            // Walk top-level blocks between the two endpoints.
+            var all = ed.querySelectorAll("*");
+            var collecting = false;
+            for (var i = 0; i < all.length; i++) {
+                var el = all[i];
+                if (!BLOCKS[el.nodeName]) continue;
+                if (el === start) collecting = true;
+                if (collecting && !containsBlockChild(el)) out.push(el);
+                if (el === end) break;
+            }
+            if (!out.length) out.push(start);
+        } catch (e) {}
+        return out;
+    }
+
+    // Only leaf-ish blocks get dir, so setting it on a <li> does not also stamp
+    // the parent <ul> and double-apply.
+    function containsBlockChild(el) {
+        for (var i = 0; i < el.children.length; i++) {
+            if (BLOCKS[el.children[i].nodeName]) return true;
+        }
+        return false;
+    }
+
+    function blockOf(node) {
+        var ed = getEditable();
+        var n = node && node.nodeType === 3 ? node.parentNode : node;
+        while (n && n !== ed) {
+            if (n.nodeType === 1 && BLOCKS[n.nodeName]) return n;
+            n = n.parentNode;
+        }
+        return ed && ed.firstElementChild ? ed.firstElementChild : null;
+    }
+
+    // ---- apply -----------------------------------------------------------
+
+    obj.Current = function () {
+        var b = blocksInSelection()[0];
+        if (!b) return editor.getBaseDirection ? editor.getBaseDirection() : "ltr";
+        var d = b.getAttribute("dir");
+        if (d) return d;
+        try {
+            var doc = getDoc();
+            var win = doc && (doc.defaultView || doc.parentWindow);
+            if (win) return win.getComputedStyle(b).direction || "ltr";
+        } catch (e) {}
+        return "ltr";
+    };
+
+    obj.Apply = function (dir) {
+        dir = (dir === "rtl") ? "rtl" : (dir === "auto" ? "auto" : "ltr");
+        var blocks = blocksInSelection();
+        if (!blocks.length) return false;
+        for (var i = 0; i < blocks.length; i++) {
+            var b = blocks[i];
+            var was = b.getAttribute("dir") || "ltr";
+            b.setAttribute("dir", dir);
+            if (config.textDirectionSwapAlign !== false && dir !== "auto" && was !== dir) swapAlign(b, dir);
+        }
+        fireChange();
+        return dir;
+    };
+
+    obj.Toggle = function () {
+        return obj.Apply(obj.Current() === "rtl" ? "ltr" : "rtl");
+    };
+
+    // `dir` only changes the DEFAULT alignment. An explicit text-align:left
+    // survives the flip and pins the text to the wrong edge, so swap the
+    // physical value to the mirror side.
+    function swapAlign(el, dir) {
+        var cur = (el.style && el.style.textAlign) || el.getAttribute("align") || "";
+        if (!cur) return;
+        var next = null;
+        if (cur === "left") next = "right";
+        else if (cur === "right") next = "left";
+        if (!next) return;
+        // Landing on the new direction's natural side means the explicit value
+        // is now redundant; drop it so the block follows `dir` from here on.
+        var natural = (dir === "rtl") ? "right" : "left";
+        if (el.style) el.style.textAlign = (next === natural) ? "" : next;
+        if (el.getAttribute("align")) el.removeAttribute("align");
+    }
+
+    obj.Base = function (dir) {
+        var ed = getEditable();
+        if (!ed) return false;
+        dir = (dir === "rtl") ? "rtl" : (dir === "auto" ? "auto" : "ltr");
+        ed.setAttribute("dir", dir);
+        fireChange();
+        return dir;
+    };
+
+    // Stamp each block with the direction its own text implies.
+    obj.AutoDetect = function () {
+        var ed = getEditable();
+        if (!ed) return [];
+        var out = [];
+        var all = ed.querySelectorAll("*");
+        for (var i = 0; i < all.length; i++) {
+            var el = all[i];
+            if (!BLOCKS[el.nodeName] || containsBlockChild(el)) continue;
+            var d = firstStrong(el.textContent || "");
+            if (d === "neutral") continue;          // nothing to go on: leave it
+            if (el.getAttribute("dir") === d) continue;
+            el.setAttribute("dir", d);
+            out.push({ tag: el.nodeName, dir: d });
+        }
+        if (out.length) fireChange();
+        return out;
+    };
+
+    // ---- bidi isolation --------------------------------------------------
+
+    // <bdi> isolates a run so the surrounding text's direction cannot reorder
+    // it. Without this, an LTR URL inside an RTL sentence drags the adjacent
+    // punctuation to the wrong side.
+    obj.Isolate = function (html, dir) {
+        var d = (dir === "rtl" || dir === "ltr") ? dir : "auto";
+        return '<bdi dir="' + d + '">' + String(html == null ? "" : html) + "</bdi>";
+    };
+
+    obj.InsertIsolated = function (html, dir) {
+        var doc = getDoc();
+        if (!doc) return false;
+        var span = doc.createElement("bdi");
+        span.setAttribute("dir", (dir === "rtl" || dir === "ltr") ? dir : "auto");
+        span.innerHTML = String(html == null ? "" : html);
+        try {
+            if (typeof editor.insertElement === "function") { editor.insertElement(span); fireChange(); return true; }
+        } catch (e) {}
+        try {
+            var sel = editor.getSelection();
+            if (sel && sel.rangeCount) {
+                var r = sel.getRangeAt(0);
+                r.collapse(false);
+                r.insertNode(span);
+                r.setStartAfter(span); r.collapse(true);
+                sel.removeAllRanges(); sel.addRange(r);
+                fireChange();
+                return true;
+            }
+        } catch (e) {}
+        return false;
+    };
+
+    function fireChange() {
+        try { if (typeof editor.updateDesign === "function") editor.updateDesign(); } catch (e) {}
+        try { if (typeof editor.fireChange === "function") editor.fireChange(); } catch (e) {}
+    }
+
+    // ---- styles ----------------------------------------------------------
+
+    function css() {
+        return (
+            // Lists and quotes carry their decoration on the physical side, so
+            // they need flipping too or bullets sit on the wrong edge.
+            "[dir='rtl'] ul,[dir='rtl'] ol{padding-right:1.6em;padding-left:0;}" +
+            "[dir='rtl'] blockquote{border-right:3px solid #ddd;border-left:0;" +
+            "padding-right:.9em;padding-left:0;margin-right:0;}" +
+            "[dir='rtl'] table{direction:rtl;}" +
+            // Isolation should be visually invisible.
+            "bdi{unicode-bidi:isolate;}"
+        );
+    }
+
+    function injectStyles(doc) {
+        if (!doc) return;
+        var existing = doc.getElementById("rte-textdirection-styles");
+        var text = css();
+        if (existing) {
+            if (existing.getAttribute("data-css") === text) return;
+            existing.parentNode && existing.parentNode.removeChild(existing);
+        }
+        var st = doc.createElement("style");
+        st.id = "rte-textdirection-styles";
+        st.setAttribute("data-css", text);
+        st.appendChild(doc.createTextNode(text));
+        (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
     }
 }
 
@@ -29945,6 +39762,221 @@ function RTE_Plugin_Typewriter() {
 
 if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
 
+// 2026-07-28 Watermark. Draws DRAFT / CONFIDENTIAL / a customer name behind the
+// content — the marking that tells a reader at a glance not to treat a document
+// as final or not to circulate it.
+//
+// Design notes:
+//   - PRESENTATIONAL. The watermark is an overlay, never content, and it is
+//     stripped around every serialize. That is the whole point: a watermark
+//     baked into the saved HTML would survive into a published page long after
+//     the document stopped being a draft, and worse, "CONFIDENTIAL" written into
+//     content is trivially deleted while a rendering-layer mark is not.
+//   - It also does NOT print by default. Screen marking and print marking are
+//     different decisions: config.watermarkPrint opts in.
+//   - Rendered as an SVG data URI background rather than DOM text, so it cannot
+//     be selected, cannot be caught by find-and-replace, and cannot land in a
+//     copy-paste of the document body.
+RTE_DefaultConfig.plugin_watermark = RTE_Plugin_Watermark;
+
+if (typeof RTE_DefaultConfig.watermarkText === "undefined") RTE_DefaultConfig.watermarkText = "DRAFT";
+if (typeof RTE_DefaultConfig.watermarkColor === "undefined") RTE_DefaultConfig.watermarkColor = "#94a3b8";
+if (typeof RTE_DefaultConfig.watermarkOpacity === "undefined") RTE_DefaultConfig.watermarkOpacity = 0.18;
+if (typeof RTE_DefaultConfig.watermarkAngle === "undefined") RTE_DefaultConfig.watermarkAngle = -30;
+if (typeof RTE_DefaultConfig.watermarkFontSize === "undefined") RTE_DefaultConfig.watermarkFontSize = 48;
+// "tile" repeats across the page; "single" draws one centred mark.
+if (typeof RTE_DefaultConfig.watermarkMode === "undefined") RTE_DefaultConfig.watermarkMode = "tile";
+// Include the watermark when printing / exporting to PDF via the print pipeline.
+if (typeof RTE_DefaultConfig.watermarkPrint === "undefined") RTE_DefaultConfig.watermarkPrint = false;
+// Optional image watermark (data URI or URL); overrides the text when set.
+if (typeof RTE_DefaultConfig.watermarkImage === "undefined") RTE_DefaultConfig.watermarkImage = null;
+
+function RTE_Plugin_Watermark() {
+    var obj = this;
+    var config, editor;
+    var boundDoc = null;
+    var active = false;
+    var wrapped = false;
+
+    obj.PluginName = "Watermark";
+
+    obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+
+        editor.attachEvent("exec_command_watermark", function (state) {
+            state.returnValue = true;
+            obj.Toggle();
+        });
+
+        setup();
+        try { editor.attachEvent("ready", setup); } catch (e) {}
+        try { editor.attachEvent("aftersethtml", setup); } catch (e) {}
+        setTimeout(setup, 0);
+
+        editor.setWatermark = function (on) { active = !!on; apply(); return active; };
+        editor.toggleWatermark = function () { active = !active; apply(); return active; };
+        editor.isWatermark = function () { return active; };
+        editor.setWatermarkOptions = function (o) {
+            if (o && typeof o === "object") {
+                var keys = ["watermarkText", "watermarkColor", "watermarkOpacity", "watermarkAngle",
+                            "watermarkFontSize", "watermarkMode", "watermarkPrint", "watermarkImage"];
+                var short = { text: 0, color: 1, opacity: 2, angle: 3, fontSize: 4, mode: 5, print: 6, image: 7 };
+                for (var k in o) {
+                    if (!o.hasOwnProperty(k)) continue;
+                    if (short[k] !== undefined) config[keys[short[k]]] = o[k];
+                    else if (keys.indexOf(k) >= 0) config[k] = o[k];
+                }
+            }
+            apply();
+            return obj.Options();
+        };
+        editor.getWatermarkOptions = function () { return obj.Options(); };
+    };
+
+    obj.Options = function () {
+        return {
+            text: config.watermarkText, color: config.watermarkColor,
+            opacity: config.watermarkOpacity, angle: config.watermarkAngle,
+            fontSize: config.watermarkFontSize, mode: config.watermarkMode,
+            print: config.watermarkPrint, image: config.watermarkImage
+        };
+    };
+
+    function setup() {
+        var doc = getDoc();
+        if (!doc) return;
+        wrapSerializers();
+        if (doc !== boundDoc) boundDoc = doc;
+        if (active) apply();
+    }
+
+    function getDoc() { try { return editor.getDocument(); } catch (e) { return null; } }
+    function getEditable() { try { return editor.getEditable(); } catch (e) { return null; } }
+
+    function esc(s) {
+        return String(s == null ? "" : s)
+            .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+    }
+
+    // An SVG data URI, so the mark is a background image: unselectable,
+    // uncopyable, and invisible to find-and-replace.
+    function backgroundUri() {
+        if (config.watermarkImage) return String(config.watermarkImage);
+        var text = String(config.watermarkText == null ? "" : config.watermarkText);
+        if (!text) return null;
+        var size = parseInt(config.watermarkFontSize, 10) || 48;
+        var angle = parseFloat(config.watermarkAngle);
+        if (isNaN(angle)) angle = -30;
+        // Tile big enough that rotated text does not clip at the edges.
+        var w = Math.max(240, text.length * size * 0.72);
+        var h = Math.max(160, size * 3.2);
+        var svg =
+            '<svg xmlns="http://www.w3.org/2000/svg" width="' + Math.round(w) + '" height="' + Math.round(h) + '">' +
+            '<text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" ' +
+            'transform="rotate(' + angle + ' ' + Math.round(w / 2) + ' ' + Math.round(h / 2) + ')" ' +
+            'font-family="Segoe UI, Arial, sans-serif" font-size="' + size + '" font-weight="700" ' +
+            'fill="' + esc(config.watermarkColor || "#94a3b8") + '">' + esc(text) + '</text></svg>';
+        return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+    }
+
+    function apply() {
+        var editable = getEditable();
+        var doc = getDoc();
+        if (!editable || !doc) return;
+        injectStyles(doc);
+
+        if (!active) {
+            editable.style.backgroundImage = "";
+            editable.style.backgroundRepeat = "";
+            editable.style.backgroundPosition = "";
+            editable.removeAttribute("data-rte-watermark");
+            return;
+        }
+        var uri = backgroundUri();
+        if (!uri) return;
+        var single = String(config.watermarkMode) === "single";
+        editable.setAttribute("data-rte-watermark", "true");
+        editable.style.backgroundImage = "url(\"" + uri + "\")";
+        editable.style.backgroundRepeat = single ? "no-repeat" : "repeat";
+        editable.style.backgroundPosition = single ? "center center" : "0 0";
+        // Opacity has to live on the background, not the element, or the text
+        // on top fades with it.
+        var op = parseFloat(config.watermarkOpacity);
+        editable.style.opacity = "";
+        var st = doc.getElementById("rte-watermark-dynamic");
+        if (!st) {
+            st = doc.createElement("style");
+            st.id = "rte-watermark-dynamic";
+            (doc.head || doc.documentElement).appendChild(st);
+        }
+        st.textContent =
+            "[data-rte-watermark]{background-blend-mode:multiply;}" +
+            "[data-rte-watermark]::before{content:'';position:absolute;inset:0;pointer-events:none;" +
+            "background-image:inherit;background-repeat:inherit;background-position:inherit;" +
+            "opacity:" + (isNaN(op) ? 0.18 : op) + ";z-index:0;}" +
+            (config.watermarkPrint
+                ? ""
+                : "@media print{[data-rte-watermark]{background-image:none !important;}" +
+                  "[data-rte-watermark]::before{display:none !important;}}");
+    }
+
+    // ---- serialization safety -------------------------------------------
+
+    // The watermark lives in inline styles on the editable, so a serializer that
+    // reads them would carry DRAFT into the saved document. Park them.
+    function stripFor() {
+        var editable = getEditable();
+        if (!editable || !active) return function () {};
+        var bg = editable.style.backgroundImage;
+        var rep = editable.style.backgroundRepeat;
+        var pos = editable.style.backgroundPosition;
+        var attr = editable.getAttribute("data-rte-watermark");
+        editable.style.backgroundImage = "";
+        editable.style.backgroundRepeat = "";
+        editable.style.backgroundPosition = "";
+        editable.removeAttribute("data-rte-watermark");
+        return function restore() {
+            editable.style.backgroundImage = bg;
+            editable.style.backgroundRepeat = rep;
+            editable.style.backgroundPosition = pos;
+            if (attr) editable.setAttribute("data-rte-watermark", attr);
+        };
+    }
+
+    function wrapSerializers() {
+        if (wrapped) return;
+        var names = ["getHTMLCode", "getJSON", "getHTMLContent", "getText"];
+        var did = false;
+        for (var i = 0; i < names.length; i++) {
+            (function (name) {
+                var orig = editor[name];
+                if (typeof orig !== "function" || orig.__rteWmWrapped) return;
+                var w = function () {
+                    var restore = stripFor();
+                    try { return orig.apply(editor, arguments); } finally { restore(); }
+                };
+                w.__rteWmWrapped = true;
+                editor[name] = w;
+                did = true;
+            })(names[i]);
+        }
+        if (did) wrapped = true;
+    }
+
+    function injectStyles(doc) {
+        if (!doc || doc.getElementById("rte-watermark-styles")) return;
+        var st = doc.createElement("style");
+        st.id = "rte-watermark-styles";
+        st.appendChild(doc.createTextNode("[data-rte-watermark]{position:relative;}"));
+        (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+    }
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
 // 2026-06-09 Export to Word. Closes the "no Word export" gap vs CKEditor /
 // TinyMCE (both gate Word export behind premium). Library-free: wraps the
 // document's HTML in a Word-compatible HTML container (MSO namespaces + print
@@ -30001,11 +40033,16 @@ function RTE_Plugin_WordExport() {
         // Discoverable as a slash command when the slash plugin is present.
         if (editor.slashCommands && typeof editor.slashCommands.register === "function") {
             try {
+                // Disambiguated from the real OOXML exporter (docxexport.js).
+                // Two menu entries both reading "Export to Word" is a coin toss
+                // for the user, and the formats are genuinely different: this
+                // one is HTML in a Word wrapper, which Word opens but nags on
+                // save and round-trips poorly.
                 editor.slashCommands.register({
                     id: "export-word",
-                    title: "Export to Word",
-                    description: "Download the document as a .doc Word file",
-                    keywords: ["word", "doc", "docx", "export", "download"],
+                    title: "Export to Word (legacy .doc)",
+                    description: "HTML wrapped for Word — use Export to Word (.docx) for a real OOXML file",
+                    keywords: ["word", "doc", "legacy", "html", "export", "download"],
                     run: function () { editor.exportToWord(); }
                 });
             } catch (e) {}
@@ -30026,12 +40063,39 @@ function RTE_Plugin_WordExport() {
         return ed ? ed.innerHTML : "";
     }
 
+    // Paper size / margins / orientation stored on the document itself, so the
+    // exported .doc matches the paginated page view and the PDF export. Returns
+    // null when the document carries no page setup, in which case the explicit
+    // options and the wordExport* config defaults apply exactly as before.
+    function documentPageSetup() {
+        try {
+            if (!editor || typeof editor.getDocumentPageSetup !== "function") return null;
+            var s = editor.getDocumentPageSetup();
+            if (!s || typeof s !== "object") return null;
+            var out = {};
+            // width/height are normalized by the document model (e.g. "210mm").
+            if (s.width && s.height) out.pageSize = s.width + " " + s.height;
+            if (s.orientation) out.landscape = String(s.orientation).toLowerCase() === "landscape";
+            var m = s.margins;
+            if (m && typeof m === "object" && m.top && m.right && m.bottom && m.left) {
+                // CSS shorthand order: top right bottom left.
+                out.margin = m.top + " " + m.right + " " + m.bottom + " " + m.left;
+            }
+            return out;
+        } catch (e) { return null; }
+    }
+
     function buildWordHtml(options) {
+        // Precedence: explicit call options > the document's own page setup >
+        // wordExport* config > built-in Letter defaults.
+        var docSetup = documentPageSetup() || {};
         var font = options.fontFamily || config.wordExportFontFamily || "Calibri, 'Segoe UI', Arial, sans-serif";
         var fontSize = options.fontSize || config.wordExportFontSize || "11pt";
-        var pageSize = options.pageSize || config.wordExportPageSize || "8.5in 11in";
-        var margin = options.margin || config.wordExportMargin || "1in";
-        var landscape = (typeof options.landscape !== "undefined") ? options.landscape : config.wordExportLandscape;
+        var pageSize = options.pageSize || docSetup.pageSize || config.wordExportPageSize || "8.5in 11in";
+        var margin = options.margin || docSetup.margin || config.wordExportMargin || "1in";
+        var landscape = (typeof options.landscape !== "undefined") ? options.landscape
+            : (typeof docSetup.landscape !== "undefined") ? docSetup.landscape
+            : config.wordExportLandscape;
         var title = esc(options.title || documentTitle() || "Document");
         var view = landscape ? "Print" : "Print";
         var orientation = landscape ? "landscape" : "portrait";

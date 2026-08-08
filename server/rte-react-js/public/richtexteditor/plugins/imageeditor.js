@@ -70,14 +70,40 @@ function RTE_Plugin_ImageEditor() {
 		var scriptbase = config.url_base + "/plugins/tui.image-editor/";
 
 		window.rte_image_editor_callback = function (win) {
+			// 2026-07-31 No outbound calls from the image editor, at any layer.
+			//
+			// Upstream Toast UI ships a "usage statistics" beacon (in
+			// tui-code-snippet and tui-color-picker) that reports the host's own
+			// hostname to a third-party analytics endpoint, and its default theme
+			// loads a branding logo from the vendor's CDN. Both endpoint strings
+			// have been removed from the vendored copies in
+			// plugins/tui.image-editor/ -- deliberately from the FILES, not just
+			// disabled at runtime, because static scanners (Fortify CWE-297) flag
+			// the literal URL and a runtime flag does not satisfy them.
+			//
+			// Do NOT write those hostnames into this file either: it is
+			// concatenated into all_plugins.js, which is what customers scan.
+			//
+			// The settings below are the belt to that braces -- they switch the
+			// beacon off through the library's own supported option, so a future
+			// vendor upgrade that reintroduces the endpoint still does not phone
+			// home until someone re-applies the patch.
+			try { win.tui = win.tui || {}; win.tui.usageStatistics = false; } catch (e) {}
+
 			var options = {
+				usageStatistics: false,
 				includeUI: {
 					loadImage: {
 						path: img.src,
 						name: 'RteImage'
 					},
+					usageStatistics: false,
 					//locale: locale_ru_RU,
 					theme: {
+						// Blank rather than Toast's CDN-hosted logo.
+						'common.bi.image': '',
+						'common.bisize.width': '0',
+						'common.bisize.height': '0',
 						// main icons
 						'menu.normalIcon.path': scriptbase + 'svg/icon-d.svg',
 						'menu.activeIcon.path': scriptbase + 'svg/icon-b.svg',

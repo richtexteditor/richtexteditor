@@ -1,3 +1,27 @@
+// 2026-08-05 Image gallery browser.
+//
+// Two implementations of this dialog had drifted apart: the flagship shipped a
+// flat grid built from config.galleryImages, while the RichTextBox package
+// shipped a server-backed file manager (folders, breadcrumb, New folder, upload
+// into the current folder). The tier audit requires one identical plugin
+// everywhere, so keeping both meant one of them silently overwriting the other
+// on the next sync — which is exactly what happened: the folder browser's CSS
+// was dropped and its folder tiles rendered as blank boxes on the live site.
+//
+// This is the merged implementation. It is server-backed when an endpoint is
+// configured and falls back to the packaged preset list otherwise, so a host
+// with no gallery endpoint behaves exactly as the flat grid always did.
+//
+//   config.galleryEndpoint   URL returning { currentFolder, currentFolderDisplay,
+//                            parentFolder, folders: [{folder,name}],
+//                            images: [{url,name,folder,size,source}] }.
+//                            Absent -> local mode: presets only, no request.
+//   config.galleryImages     Preset images. String, [url, text], or an object
+//                            with url/src/href plus optional thumbnail/name/meta.
+//
+// Uploads use window.richTextBoxUploadFile when present (it accepts a target
+// folder), otherwise the generic window.rte_file_upload_handler.
+
 RTE_DefaultConfig.plugin_insertgallery = RTE_Plugin_InsertGallery;
 
 function RTE_Plugin_InsertGallery() {
@@ -35,12 +59,50 @@ function RTE_Plugin_InsertGallery() {
         return tag;
     }
 
-    function clear(node) {
-        while (node.firstChild) {
-            node.removeChild(node.firstChild);
-        }
+    function getGalleryEndpoint() {
+        return config.galleryEndpoint || window.RichTextBoxGalleryUrl || "";
     }
 
+    function withFolder(url, folder) {
+        var separator = url.indexOf("?") >= 0 ? "&" : "?";
+        return url + separator + "folder=" + encodeURIComponent(folder || "");
+    }
+
+    function requestJson(method, url, body, callback) {
+        var request = new XMLHttpRequest();
+        request.open(method, url, true);
+
+        request.onreadystatechange = function () {
+            if (request.readyState !== 4) {
+                return;
+            }
+
+            if (request.status < 200 || request.status >= 300) {
+                callback(null, "http-" + request.status);
+                return;
+            }
+
+            try {
+                callback(JSON.parse(request.responseText), null);
+            } catch (ex) {
+                callback(null, "invalid-json");
+            }
+        };
+
+        request.onerror = function () {
+            callback(null, "network-error");
+        };
+
+        if (body) {
+            request.send(body);
+            return;
+        }
+
+        request.send();
+    }
+
+    // Query strings and percent-escapes both show up in real upload URLs, so
+    // strip and decode rather than splitting on "/" alone.
     function getFileName(url) {
         var value = String(url || "").split("#")[0].split("?")[0];
         var lastSlash = value.lastIndexOf("/");
@@ -52,25 +114,24 @@ function RTE_Plugin_InsertGallery() {
         return name || "Image";
     }
 
-    function getMetaText(item) {
-        if (item.meta) {
-            return item.meta;
+    function humanSize(size) {
+        if (!size) {
+            return "";
         }
-        if (item.alt) {
-            return item.alt;
+        if (size < 1024) {
+            return size + " B";
         }
-        return item.url;
+        if (size < 1024 * 1024) {
+            return Math.round(size / 1024) + " KB";
+        }
+        return (Math.round(size * 10 / (1024 * 1024)) / 10) + " MB";
     }
 
-    function normalizeGalleryItem(item) {
+    function normalizePreset(item) {
         var normalized = null;
 
         if (typeof item === "string") {
-            normalized = {
-                url: item,
-                thumbnail: item,
-                name: getFileName(item)
-            };
+            normalized = { url: item, thumbnail: item, name: getFileName(item) };
         } else if (item instanceof Array) {
             normalized = {
                 url: item[0],
@@ -83,7 +144,6 @@ function RTE_Plugin_InsertGallery() {
             if (!url) {
                 return null;
             }
-
             normalized = {
                 url: url,
                 thumbnail: item.thumbnail || item.thumb || item.preview || url,
@@ -96,64 +156,72 @@ function RTE_Plugin_InsertGallery() {
             return null;
         }
 
-        if (!normalized.thumbnail) {
-            normalized.thumbnail = normalized.url;
-        }
-
-        if (!normalized.name) {
-            normalized.name = getFileName(normalized.url);
-        }
-
+        normalized.thumbnail = normalized.thumbnail || normalized.url;
+        normalized.name = normalized.name || getFileName(normalized.url);
+        normalized.source = "preset";
+        normalized.folder = "";
+        normalized.searchText = (normalized.name + " " + (normalized.meta || "") + " " + normalized.url).toLowerCase();
         return normalized;
     }
 
-    function uploadFiles(fileList, onUploaded, onFinished, onFailed) {
-        var files = [];
-        var handler = window.rte_file_upload_handler;
-        var i;
-
-        for (i = 0; i < fileList.length; i++) {
-            files.push(fileList[i]);
+    function normalizeServerFolder(item) {
+        if (!item || !item.folder) {
+            return null;
         }
+        var name = item.name || getFileName(item.folder) || item.folder;
+        return {
+            name: name,
+            folder: item.folder,
+            searchText: (name + " " + item.folder).toLowerCase()
+        };
+    }
 
-        if (!files.length) {
-            onFinished();
-            return;
+    function normalizeServerImage(item) {
+        if (!item || !item.url) {
+            return null;
         }
+        var name = item.name || getFileName(item.url);
+        return {
+            name: name,
+            url: item.url,
+            thumbnail: item.thumbnail || item.url,
+            folder: item.folder || "",
+            source: item.source || "upload",
+            size: item.size || 0,
+            searchText: (name + " " + item.url).toLowerCase()
+        };
+    }
 
-        if (typeof handler !== "function") {
-            if (onFailed) {
-                onFailed("Upload handler is not configured.");
-            }
-            onFinished();
-            return;
+    function setDisabled(button, disabled) {
+        button.disabled = !!disabled;
+        if (disabled) {
+            button.setAttribute("aria-disabled", "true");
+        } else {
+            button.removeAttribute("aria-disabled");
         }
+    }
 
-        var index = 0;
-
-        function next() {
-            if (index >= files.length) {
-                onFinished();
-                return;
-            }
-
-            var file = files[index];
-            handler(file, function (url, error) {
-                if (url) {
-                    onUploaded(url, file, index, files);
-                } else if (onFailed) {
-                    onFailed(error || ("Upload failed for " + file.name), file);
-                }
-
-                index++;
-                next();
-            }, index, files);
-        }
-
-        next();
+    function show(element, visible) {
+        element.style.display = visible ? "" : "none";
     }
 
     obj.DoInsertGallery = function () {
+        var endpoint = getGalleryEndpoint();
+        var serverMode = !!endpoint;
+        var uploadToFolder = typeof window.richTextBoxUploadFile === "function";
+        var genericUpload = typeof window.rte_file_upload_handler === "function";
+        var canUpload = uploadToFolder || genericUpload;
+
+        var presetImages = [];
+        var presetSource = config.galleryImages || [];
+        var i;
+        for (i = 0; i < presetSource.length; i++) {
+            var preset = normalizePreset(presetSource[i]);
+            if (preset) {
+                presetImages.push(preset);
+            }
+        }
+
         var dialoginner = editor.createDialog(editor.getLangText("insertgallerytitle") || "Image gallery", "rte-dialog-insertgallery");
         var closeDialog = typeof dialoginner.close === "function" ? function () {
             dialoginner.close();
@@ -162,50 +230,79 @@ function RTE_Plugin_InsertGallery() {
         };
 
         var browser = append(dialoginner, "div", "", "rte-gallery-browser");
-        // The outer dialog frame already supplies a title bar + close button via
-        // __UI_CreateDialogFrame, so we only render a short subtitle here (no
-        // duplicate "Image gallery" heading underneath the frame title).
+
+        // The dialog frame already draws a title bar and close button, so this is
+        // a one-line subtitle, not a second heading.
         var header = append(browser, "div", "", "rte-dialog-browser-header");
         var copy = append(header, "div", "", "rte-dialog-browser-copy");
-        copy.innerText = "Browse uploaded assets, filter by name, and insert the selected image into the editor.";
+        copy.innerText = serverMode
+            ? "Browse folders, upload new files, and insert the selected image into the editor."
+            : "Browse the available images, filter by name, and insert the selected image into the editor.";
 
         var toolbar = append(browser, "div", "", "rte-gallery-browser-toolbar");
-        var path = append(toolbar, "div", "", "rte-gallery-browser-path");
-        path.innerText = "/";
-        var type = append(toolbar, "div", "", "rte-gallery-browser-type");
-        type.innerText = "Image Files";
+        var toolbarLeft = append(toolbar, "div", "", "rte-gallery-browser-toolbar-group");
+        var toolbarRight = append(toolbar, "div", "", "rte-gallery-browser-toolbar-group rte-gallery-browser-toolbar-group-right");
 
-        var uploadButton = append(toolbar, "button", "", "rte-gallery-browser-button");
+        var upButton = append(toolbarLeft, "button", "", "rte-gallery-browser-button");
+        upButton.type = "button";
+        upButton.innerText = "Up";
+        upButton.setAttribute("aria-label", "Go to the parent folder");
+
+        var path = append(toolbarLeft, "div", "", "rte-gallery-browser-path");
+        path.innerText = "/";
+
+        var type = append(toolbarLeft, "div", "", "rte-gallery-browser-type");
+        type.innerText = "Image files";
+
+        var createFolderButton = append(toolbarLeft, "button", "", "rte-gallery-browser-button");
+        createFolderButton.type = "button";
+        createFolderButton.innerText = "New folder";
+
+        var uploadButton = append(toolbarLeft, "button", "", "rte-gallery-browser-button rte-gallery-browser-button-primary");
         uploadButton.type = "button";
         uploadButton.innerText = "Upload";
 
-        var refreshButton = append(toolbar, "button", "", "rte-gallery-browser-button");
+        var refreshButton = append(toolbarLeft, "button", "", "rte-gallery-browser-button");
         refreshButton.type = "button";
         refreshButton.innerText = "Refresh";
 
-        var search = append(toolbar, "input", "", "rte-gallery-browser-search");
+        var search = append(toolbarRight, "input", "", "rte-gallery-browser-search");
         search.type = "search";
         search.placeholder = "Search images";
         search.setAttribute("aria-label", "Search images");
 
-        var fileInput = append(toolbar, "input", "display:none;");
+        var fileInput = append(toolbarRight, "input", "display:none;");
         fileInput.type = "file";
         fileInput.accept = "image/*,.jpg,.jpeg,.png,.gif,.bmp,.webp,.svg";
         fileInput.multiple = true;
 
+        // Without a server there is no folder tree to walk and nothing to create
+        // a folder in, so those controls are hidden rather than shown disabled.
+        show(upButton, serverMode);
+        show(path, serverMode);
+        show(createFolderButton, serverMode);
+        show(uploadButton, canUpload);
+
         var status = append(browser, "div", "", "rte-gallery-browser-status");
         status.setAttribute("role", "status");
         status.setAttribute("aria-live", "polite");
+
         var surface = append(browser, "div", "", "rte-gallery-browser-surface");
+
+        // Folders are navigation and images are choices, so they cannot share one
+        // listbox — a non-option child of a listbox is invalid ARIA.
+        var folderGrid = append(surface, "div", "", "rte-gallery-browser-grid rte-gallery-browser-grid-folders");
+        folderGrid.setAttribute("role", "group");
+        folderGrid.setAttribute("aria-label", "Folders");
+
         var grid = append(surface, "div", "", "rte-gallery-browser-grid");
         grid.setAttribute("role", "listbox");
         grid.setAttribute("aria-label", "Available images");
+
         var empty = append(surface, "div", "", "rte-gallery-browser-empty");
-        empty.innerText = "No images match this search. Upload a file or adjust the filter.";
 
         var footer = append(browser, "div", "", "rte-gallery-browser-footer");
         var footerText = append(footer, "div", "", "rte-gallery-browser-footer-text");
-        footerText.innerText = "Choose an image to enable insert.";
 
         var cancelButton = append(footer, "button", "", "rte-gallery-browser-button");
         cancelButton.type = "button";
@@ -214,149 +311,435 @@ function RTE_Plugin_InsertGallery() {
         var insertButton = append(footer, "button", "", "rte-gallery-browser-button rte-gallery-browser-button-primary");
         insertButton.type = "button";
         insertButton.innerText = "Insert";
-        insertButton.disabled = true;
 
-        var selectedUrl = "";
+        var state = {
+            currentFolder: "",
+            currentFolderDisplay: "/",
+            parentFolder: null,
+            folders: [],
+            images: presetImages.slice(0),
+            selectedUrl: "",
+            loading: false,
+            error: "",
+            fallbackMode: !serverMode
+        };
 
-        function getNormalizedItems() {
-            var list = [];
-            var items = config.galleryImages || [];
-            var i;
-            for (i = 0; i < items.length; i++) {
-                var normalized = normalizeGalleryItem(items[i]);
-                if (normalized) {
-                    list.push(normalized);
+        function filterList(list) {
+            var term = search.value.toLowerCase();
+            if (!term) {
+                return list.slice(0);
+            }
+
+            var items = [];
+            for (var index = 0; index < list.length; index++) {
+                if (list[index].searchText.indexOf(term) >= 0) {
+                    items.push(list[index]);
                 }
             }
-            return list;
+            return items;
         }
 
-        function getFilteredItems() {
-            var keyword = search.value.replace(/^\s+|\s+$/g, "").toLowerCase();
-            var items = getNormalizedItems();
-            if (!keyword) {
-                return items;
-            }
-
-            return items.filter(function (item) {
-                return (item.name && item.name.toLowerCase().indexOf(keyword) >= 0)
-                    || (item.meta && item.meta.toLowerCase().indexOf(keyword) >= 0)
-                    || (item.url && item.url.toLowerCase().indexOf(keyword) >= 0);
-            });
+        function setSelected(url) {
+            state.selectedUrl = url || "";
+            render();
         }
 
-        function updateStatus(items) {
-            var selectedName = "";
-            var i;
-            for (i = 0; i < items.length; i++) {
-                if (items[i].url === selectedUrl) {
-                    selectedName = items[i].name;
+        function insertSelected() {
+            var selected = null;
+            for (var index = 0; index < state.images.length; index++) {
+                if (state.images[index].url === state.selectedUrl) {
+                    selected = state.images[index];
                     break;
                 }
             }
 
-            status.innerText = items.length + " item" + (items.length === 1 ? "" : "s") + " available."
-                + (selectedName ? " " + selectedName + " selected." : " No image selected.");
-            footerText.innerText = selectedName ? ("Ready to insert " + selectedName + ".") : "Choose an image to enable insert.";
-            insertButton.disabled = !selectedName;
-        }
-
-        function insertSelected() {
-            if (!selectedUrl) {
+            if (!selected) {
                 return;
             }
-            editor.insertImageByUrl(selectedUrl);
+
+            editor.insertImageByUrl(selected.url);
             closeDialog();
             editor.focus();
         }
 
-        function render() {
-            clear(grid);
-            var items = getFilteredItems();
-            var i;
+        function updateStatus(folderCount, imageCount) {
+            var total = folderCount + imageCount;
+            var where = serverMode ? (" in " + state.currentFolderDisplay) : "";
+            var message = total + " item" + (total === 1 ? "" : "s") + where + ". ";
 
-            empty.style.display = items.length ? "none" : "block";
-
-            for (i = 0; i < items.length; i++) {
-                (function (item) {
-                    var card = append(grid, "button", "", "rte-gallery-browser-card");
-                    card.type = "button";
-                    card.setAttribute("role", "option");
-                    card.setAttribute("aria-selected", item.url === selectedUrl ? "true" : "false");
-                    if (item.url === selectedUrl) {
-                        card.classList.add("is-selected");
-                    }
-
-                    var selection = append(card, "div", "", "rte-gallery-browser-selection");
-                    selection.innerText = item.url === selectedUrl ? "Selected" : "";
-
-                    var thumb = append(card, "div", "", "rte-gallery-browser-thumbnail");
-                    var image = append(thumb, "img", "", "rte-gallery-browser-thumbnail-image");
-                    image.src = item.thumbnail;
-                    image.alt = item.name;
-
-                    var name = append(card, "div", "", "rte-gallery-browser-name");
-                    name.innerText = item.name;
-
-                    var meta = append(card, "div", "", "rte-gallery-browser-meta");
-                    meta.innerText = getMetaText(item);
-
-                    card.onclick = function () {
-                        selectedUrl = item.url;
-                        render();
-                    };
-
-                    card.ondblclick = function () {
-                        selectedUrl = item.url;
-                        insertSelected();
-                    };
-                })(items[i]);
+            if (!state.selectedUrl) {
+                status.innerText = message + "No image selected.";
+                footerText.innerText = state.fallbackMode && serverMode
+                    ? "Showing packaged gallery items. Uploads still save into the current folder."
+                    : "Choose an image to enable insert.";
+                setDisabled(insertButton, true);
+                return;
             }
 
-            if (selectedUrl) {
+            var selectedName = getFileName(state.selectedUrl);
+            status.innerText = message + "Selected: " + selectedName + ".";
+            setDisabled(insertButton, state.loading);
+
+            for (var index = 0; index < state.images.length; index++) {
+                if (state.images[index].url === state.selectedUrl) {
+                    var size = humanSize(state.images[index].size);
+                    footerText.innerText = selectedName + " ready to insert" + (size ? " (" + size + ")." : ".");
+                    return;
+                }
+            }
+
+            footerText.innerText = selectedName + " ready to insert.";
+        }
+
+        function createFolderCard(item) {
+            var button = append(folderGrid, "button", "", "rte-gallery-browser-card rte-gallery-folder-card");
+            button.type = "button";
+            button.title = "Open " + item.name;
+
+            var selection = append(button, "div", "", "rte-gallery-browser-selection");
+            selection.innerHTML = "&nbsp;";
+
+            var thumbnail = append(button, "div", "", "rte-gallery-browser-thumbnail rte-gallery-browser-thumbnail-folder");
+            append(thumbnail, "div", "", "rte-gallery-browser-folder-icon");
+
+            var label = append(button, "div", "", "rte-gallery-browser-name");
+            label.innerText = item.name;
+
+            var meta = append(button, "div", "", "rte-gallery-browser-meta");
+            meta.innerText = "Folder";
+
+            button.onclick = function () {
+                loadFolder(item.folder);
+            };
+        }
+
+        function createImageCard(item) {
+            var isSelected = item.url === state.selectedUrl;
+            var button = append(grid, "button", "", "rte-gallery-browser-card rte-gallery-image-card" + (isSelected ? " is-selected" : ""));
+            button.type = "button";
+            button.title = item.name;
+            button.setAttribute("role", "option");
+            button.setAttribute("aria-selected", isSelected ? "true" : "false");
+
+            var selection = append(button, "div", "", "rte-gallery-browser-selection");
+            selection.innerHTML = isSelected ? "&#10003;" : "&nbsp;";
+
+            var thumbnail = append(button, "div", "", "rte-gallery-browser-thumbnail");
+            var image = append(thumbnail, "img", "", "rte-gallery-browser-thumbnail-image");
+            image.src = item.thumbnail || item.url;
+            image.alt = item.name;
+
+            var label = append(button, "div", "", "rte-gallery-browser-name");
+            label.innerText = item.name;
+
+            var meta = append(button, "div", "", "rte-gallery-browser-meta");
+            meta.innerText = item.meta || (item.source === "preset" ? "Preset image" : humanSize(item.size)) || item.url;
+
+            button.onclick = function () {
+                setSelected(item.url);
+            };
+
+            button.ondblclick = function () {
+                setSelected(item.url);
+                insertSelected();
+            };
+        }
+
+        // Presets belong to no folder, so they are only offered at the root —
+        // otherwise every folder would appear to contain them.
+        function mergePresets(serverImages) {
+            var merged = [];
+            var seen = {};
+            var index;
+
+            for (index = 0; index < serverImages.length; index++) {
+                merged.push(serverImages[index]);
+                seen[serverImages[index].url] = true;
+            }
+
+            if (state.currentFolder) {
+                return merged;
+            }
+
+            for (index = 0; index < presetImages.length; index++) {
+                if (!seen[presetImages[index].url]) {
+                    merged.push(presetImages[index]);
+                }
+            }
+
+            return merged;
+        }
+
+        function render() {
+            var visibleFolders = filterList(state.folders);
+            var visibleImages = filterList(state.images);
+
+            path.innerText = state.currentFolderDisplay || "/";
+            setDisabled(upButton, state.loading || state.parentFolder === null);
+            setDisabled(createFolderButton, state.loading);
+            setDisabled(uploadButton, state.loading);
+            setDisabled(refreshButton, state.loading);
+
+            folderGrid.innerHTML = "";
+            grid.innerHTML = "";
+            show(empty, false);
+            show(folderGrid, false);
+            show(grid, true);
+
+            if (state.loading) {
+                empty.innerText = "Loading gallery...";
+                show(empty, true);
+                show(grid, false);
+                updateStatus(0, 0);
+                return;
+            }
+
+            if (state.error) {
+                empty.innerText = state.error;
+                show(empty, true);
+                show(grid, false);
+                updateStatus(0, 0);
+                return;
+            }
+
+            for (var folderIndex = 0; folderIndex < visibleFolders.length; folderIndex++) {
+                createFolderCard(visibleFolders[folderIndex]);
+            }
+            show(folderGrid, visibleFolders.length > 0);
+
+            for (var imageIndex = 0; imageIndex < visibleImages.length; imageIndex++) {
+                createImageCard(visibleImages[imageIndex]);
+            }
+            show(grid, visibleImages.length > 0);
+
+            updateStatus(visibleFolders.length, visibleImages.length);
+
+            if (!visibleFolders.length && !visibleImages.length) {
+                empty.innerText = search.value
+                    ? "No folders or images match the current filter."
+                    : (serverMode
+                        ? "This folder is empty. Create a folder or upload an image to get started."
+                        : "No images are available. Upload a file to get started.");
+                show(empty, true);
+            }
+        }
+
+        function applyResponse(payload, fallbackMode) {
+            var nextFolders = [];
+            var nextImages = [];
+            var index;
+
+            state.currentFolder = payload.currentFolder || "";
+            state.currentFolderDisplay = payload.currentFolderDisplay || "/";
+            state.parentFolder = typeof payload.parentFolder === "undefined" ? null : payload.parentFolder;
+            state.fallbackMode = !!fallbackMode;
+            state.error = "";
+
+            if (payload.folders) {
+                for (index = 0; index < payload.folders.length; index++) {
+                    var normalizedFolder = normalizeServerFolder(payload.folders[index]);
+                    if (normalizedFolder) {
+                        nextFolders.push(normalizedFolder);
+                    }
+                }
+            }
+
+            if (payload.images) {
+                for (index = 0; index < payload.images.length; index++) {
+                    var normalizedImage = normalizeServerImage(payload.images[index]);
+                    if (normalizedImage) {
+                        nextImages.push(normalizedImage);
+                    }
+                }
+            }
+
+            state.folders = nextFolders;
+            state.images = mergePresets(nextImages);
+
+            if (state.selectedUrl) {
                 var stillVisible = false;
-                for (i = 0; i < items.length; i++) {
-                    if (items[i].url === selectedUrl) {
+                for (index = 0; index < state.images.length; index++) {
+                    if (state.images[index].url === state.selectedUrl) {
                         stillVisible = true;
                         break;
                     }
                 }
                 if (!stillVisible) {
-                    selectedUrl = "";
+                    state.selectedUrl = "";
                 }
             }
-
-            updateStatus(items);
         }
+
+        function loadFallback(errorCode) {
+            applyResponse({
+                currentFolder: "",
+                currentFolderDisplay: "/",
+                parentFolder: null,
+                folders: [],
+                images: []
+            }, true);
+            state.images = presetImages.slice(0);
+            state.error = presetImages.length ? "" : ("The image gallery is unavailable right now (" + errorCode + ").");
+            state.loading = false;
+            render();
+        }
+
+        function loadFolder(folder, selectAfterLoad) {
+            if (!serverMode) {
+                state.images = presetImages.slice(0);
+                render();
+                return;
+            }
+
+            state.loading = true;
+            state.error = "";
+            render();
+
+            requestJson("GET", withFolder(endpoint, folder), null, function (payload, errorCode) {
+                if (errorCode) {
+                    loadFallback(errorCode);
+                    return;
+                }
+
+                applyResponse(payload || {}, false);
+                if (selectAfterLoad) {
+                    state.selectedUrl = selectAfterLoad;
+                }
+                state.loading = false;
+                render();
+            });
+        }
+
+        function createFolder() {
+            var folderName = window.prompt("New folder name", "");
+            if (!folderName) {
+                return;
+            }
+
+            state.loading = true;
+            state.error = "";
+            render();
+
+            var formData = new FormData();
+            formData.append("action", "create-folder");
+            formData.append("folder", state.currentFolder || "");
+            formData.append("name", folderName);
+
+            requestJson("POST", endpoint, formData, function (payload, errorCode) {
+                if (errorCode) {
+                    state.loading = false;
+                    state.error = "The folder could not be created right now.";
+                    render();
+                    return;
+                }
+
+                applyResponse(payload || {}, false);
+                state.loading = false;
+                render();
+            });
+        }
+
+        function uploadFiles(fileList) {
+            var files = [];
+            var index;
+            for (index = 0; index < fileList.length; index++) {
+                files.push(fileList[index]);
+            }
+
+            if (!files.length || !canUpload) {
+                return;
+            }
+
+            var lastUploadedUrl = "";
+
+            function uploadNext(nextIndex) {
+                if (nextIndex >= files.length) {
+                    if (serverMode) {
+                        loadFolder(state.currentFolder, lastUploadedUrl);
+                        return;
+                    }
+
+                    // No server to re-list from, so fold the upload into the
+                    // preset list directly and keep it selected.
+                    if (lastUploadedUrl) {
+                        var uploaded = normalizePreset(lastUploadedUrl);
+                        if (uploaded) {
+                            uploaded.source = "upload";
+                            presetImages.unshift(uploaded);
+                            config.galleryImages.unshift(lastUploadedUrl);
+                        }
+                        state.selectedUrl = lastUploadedUrl;
+                    }
+                    state.images = presetImages.slice(0);
+                    state.loading = false;
+                    render();
+                    return;
+                }
+
+                var file = files[nextIndex];
+
+                function done(url, errorCode) {
+                    if (!url) {
+                        state.error = errorCode || ("Upload failed for " + file.name + ".");
+                        state.loading = false;
+                        render();
+                        return;
+                    }
+
+                    lastUploadedUrl = url;
+                    uploadNext(nextIndex + 1);
+                }
+
+                if (uploadToFolder) {
+                    window.richTextBoxUploadFile(file, function (url, errorCode) {
+                        done(errorCode ? "" : url, errorCode ? ("Upload failed for " + file.name + ".") : "");
+                    }, { folder: state.currentFolder }, nextIndex, files);
+                    return;
+                }
+
+                window.rte_file_upload_handler(file, function (url, error) {
+                    done(url, error);
+                }, nextIndex, files);
+            }
+
+            state.loading = true;
+            state.error = "";
+            render();
+            uploadNext(0);
+        }
+
+        upButton.onclick = function () {
+            if (state.parentFolder === null) {
+                return;
+            }
+            loadFolder(state.parentFolder);
+        };
+
+        createFolderButton.onclick = createFolder;
 
         uploadButton.onclick = function () {
             fileInput.click();
         };
 
         fileInput.onchange = function () {
-            var lastUploaded = "";
-            status.innerText = "Uploading images...";
-
-            uploadFiles(fileInput.files, function (url) {
-                lastUploaded = url;
-                config.galleryImages.unshift(url);
-            }, function () {
-                if (lastUploaded) {
-                    selectedUrl = lastUploaded;
-                }
-                fileInput.value = "";
-                render();
-            }, function (error) {
-                status.innerText = error || "Upload failed.";
-            });
+            uploadFiles(this.files);
+            this.value = "";
         };
 
-        refreshButton.onclick = render;
+        refreshButton.onclick = function () {
+            loadFolder(state.currentFolder, state.selectedUrl);
+        };
+
         search.oninput = render;
         cancelButton.onclick = closeDialog;
         insertButton.onclick = insertSelected;
 
-        render();
+        if (serverMode) {
+            loadFolder("");
+        } else {
+            render();
+        }
+
         search.focus();
     };
 }

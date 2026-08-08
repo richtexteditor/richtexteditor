@@ -15,8 +15,19 @@ if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
 //   };
 RTE_DefaultConfig.plugin_bookmarkcard = RTE_Plugin_BookmarkCard;
 RTE_DefaultConfig.bookmarkResolver = RTE_DefaultConfig.bookmarkResolver || null;
+// 2026-07-31 Favicon lookup is OFF by default.
+//
+// This used to default to a third-party favicon service, which meant every
+// bookmark card quietly sent the bookmarked domain to someone else's server —
+// on a self-hosted editor whose whole position is that it makes no outbound
+// calls. That is a privacy leak the host never opted into, and it also puts a
+// public URL in a file that security-scanned deployments have to ship.
+//
+// Opt in by setting the service prefix explicitly, e.g.
+//   RTE_DefaultConfig.bookmarkFaviconService = "/favicon-proxy?domain=";
+// or supply favicons through bookmarkResolver, which already returns one.
 RTE_DefaultConfig.bookmarkFaviconService = (typeof RTE_DefaultConfig.bookmarkFaviconService === "undefined")
-    ? "https://www.google.com/s2/favicons?sz=64&domain=" // set to "" to disable favicon fetch
+    ? ""
     : RTE_DefaultConfig.bookmarkFaviconService;
 
 function RTE_Plugin_BookmarkCard() {

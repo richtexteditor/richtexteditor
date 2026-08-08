@@ -233,9 +233,128 @@ function RTE_Plugin_SlashCommand() {
             push("Tools", "readaloud", "Read aloud", "Speak the selection or document (text-to-speech)", ["tts", "speak", "speech", "voice", "accessibility", "narrate"], iconReadAloud(),
                 function () { editor.execCommand("readaloud"); });
         }
+        // 2026-07-27 Footnotes / format painter / change case. Each is gated
+        // behind a premium plan by CKEditor and/or TinyMCE; all three ship here.
+        // One entry per defined merge field, so the slash menu's own search does
+        // the filtering — the same shape as TinyMCE's searchable merge-tag menu.
+        if (typeof editor.sortTableAtCaret === "function") {
+            push("Tools", "sorttableasc", "Sort table by this column", "Sort the table rows by the column the caret is in", ["sort", "table", "column", "order", "ascending"], iconSort(),
+                function () { editor.sortTableAtCaret("asc"); });
+            push("Tools", "sorttabledesc", "Sort table (descending)", "Sort the table rows by this column, largest first", ["sort", "table", "column", "descending", "reverse"], iconSort(),
+                function () { editor.sortTableAtCaret("desc"); });
+            push("Tools", "tablerownumbers", "Number table rows", "Add or remove an automatic row-numbering column", ["number", "rows", "table", "count", "index"], iconSort(),
+                function () { editor.execCommand("tablerownumbers"); });
+        }
+        if (typeof editor.moveBlockUp === "function") {
+            push("Tools", "moveblockup", "Move block up", "Move this paragraph or block above the previous one (Alt+Shift+Up)", ["move", "block", "up", "reorder", "drag"], iconMoveBlock(),
+                function () { editor.moveBlockUp(); });
+            push("Tools", "moveblockdown", "Move block down", "Move this paragraph or block below the next one (Alt+Shift+Down)", ["move", "block", "down", "reorder", "drag"], iconMoveBlock(),
+                function () { editor.moveBlockDown(); });
+        }
+        if (typeof editor.toggleRtlUserInterface === "function") {
+            push("Tools", "rtlui", "Mirror editor for RTL", "Flip the toolbar, menus and dialogs for right-to-left languages", ["rtl", "mirror", "interface", "toolbar", "arabic", "hebrew"], iconRtl(),
+                function () { editor.toggleRtlUserInterface(); });
+        }
+        if (typeof editor.setTextDirection === "function") {
+            push("Tools", "rtl", "Right-to-left", "Set this paragraph to right-to-left (Arabic, Hebrew, Persian)", ["rtl", "arabic", "hebrew", "persian", "urdu", "direction", "bidi"], iconRtl(),
+                function () { editor.setTextDirection("rtl"); });
+            push("Tools", "ltr", "Left-to-right", "Set this paragraph to left-to-right", ["ltr", "direction", "bidi"], iconLtr(),
+                function () { editor.setTextDirection("ltr"); });
+            push("Tools", "autodir", "Detect text direction", "Set each paragraph's direction from its own content", ["direction", "detect", "auto", "rtl", "bidi"], iconRtl(),
+                function () { editor.autoDetectTextDirection(); });
+        }
+        if (typeof editor.toggleFormattingMarks === "function") {
+            push("Tools", "formattingmarks", "Formatting marks", "Show paragraph marks, block outlines and invisible characters", ["marks", "pilcrow", "paragraph", "invisible", "whitespace", "nbsp"], iconPilcrow(),
+                function () { editor.toggleFormattingMarks(); });
+        }
+        if (typeof editor.toggleWatermark === "function") {
+            push("Tools", "watermark", "Watermark", "Draw DRAFT or CONFIDENTIAL behind the content", ["watermark", "draft", "confidential", "background", "stamp"], iconWatermark(),
+                function () { editor.toggleWatermark(); });
+        }
+        if (typeof editor.toggleLineNumbers === "function") {
+            push("Tools", "linenumbers", "Line numbers", "Number every line in the margin, as pleadings and transcripts require", ["line", "numbers", "margin", "pleading", "legal", "transcript"], iconLineNumbers(),
+                function () { editor.toggleLineNumbers(); });
+        }
+        if (typeof editor.togglePermanentPen === "function") {
+            push("Tools", "permanentpen", "Permanent pen", "Keep typing in a fixed annotation format until switched off", ["pen", "marker", "annotate", "highlight", "review"], iconPen(),
+                function () { editor.togglePermanentPen(); });
+        }
+        if (typeof editor.checkLinks === "function") {
+            push("Tools", "checklinks", "Check links", "Find broken anchors, unsafe schemes and unlabelled links", ["link", "check", "broken", "audit", "url", "accessibility"], iconLinkCheck(),
+                function () {
+                    editor.highlightLinkIssues(true);
+                    editor.checkLinks();
+                });
+        }
+        if (typeof editor.getMergeFieldDefinitions === "function") {
+            var mfDefs = editor.getMergeFieldDefinitions();
+            for (var mfi = 0; mfi < mfDefs.length; mfi++) {
+                (function (def) {
+                    if (!def || !def.id) return;
+                    push("Insert", "mergefield-" + def.id, def.label || def.id,
+                        "Insert the " + (def.label || def.id) + " merge field",
+                        ["merge", "field", "placeholder", "variable", "mail merge", def.id],
+                        iconMergeField(),
+                        function () { editor.insertMergeField(def.id); });
+                })(mfDefs[mfi]);
+            }
+            push("Tools", "mergepreview", "Preview merge fields", "Swap merge-field placeholders for sample data", ["merge", "preview", "sample", "data", "placeholder"], iconMergeField(),
+                function () { editor.toggleMergeFieldPreview(); });
+        }
+        // One entry per referable target, resolved when the menu is built, so the
+        // slash menu's own search filters headings/clauses/tables/figures.
+        if (typeof editor.listCrossReferenceTargets === "function") {
+            var xrefTargets = [];
+            try { xrefTargets = editor.listCrossReferenceTargets(); } catch (e) { xrefTargets = []; }
+            for (var xi = 0; xi < xrefTargets.length && xi < 40; xi++) {
+                (function (tg) {
+                    if (!tg || !tg.id) return;
+                    var shown = tg.number ? (tg.number + " " + tg.label) : tg.label;
+                    push("Insert", "xref-" + tg.id, "Reference: " + shown,
+                        "Insert a cross-reference to this " + tg.type + " that updates itself",
+                        ["cross", "reference", "xref", "see", "refer", tg.type, tg.number || ""],
+                        iconXref(),
+                        function () { editor.insertCrossReference(tg.id, tg.number ? "label" : "text"); });
+                })(xrefTargets[xi]);
+            }
+        }
+        if (typeof editor.insertTableOfContents === "function") {
+            push("Insert", "toc", "Table of contents", "Insert a contents block that updates itself from your headings", ["toc", "contents", "outline", "index", "headings"], iconToc(),
+                function () { editor.insertTableOfContents(); });
+        }
+        if (typeof editor.insertFootnote === "function") {
+            push("Insert", "footnote", "Footnote", "Insert a numbered footnote reference and note", ["footnote", "note", "citation", "reference", "endnote", "cite"], iconFootnote(),
+                function () { editor.insertFootnote(); });
+        }
+        if (typeof editor.toggleFormatPainter === "function") {
+            push("Tools", "formatpainter", "Format painter", "Copy formatting here, then select the text to paint it onto", ["format", "painter", "brush", "copy", "style", "clone"], iconBrush(),
+                function () { editor.toggleFormatPainter(); });
+        }
+        if (typeof editor.changeCase === "function") {
+            push("Tools", "caseupper", "UPPERCASE", "Convert the selection to upper case", ["case", "upper", "caps", "capitals"], iconCase(),
+                function () { editor.changeCase("upper"); });
+            push("Tools", "caselower", "lowercase", "Convert the selection to lower case", ["case", "lower", "small"], iconCase(),
+                function () { editor.changeCase("lower"); });
+            push("Tools", "casetitle", "Title Case", "Capitalise each significant word in the selection", ["case", "title", "headline", "capitalise", "capitalize"], iconCase(),
+                function () { editor.changeCase("title"); });
+            push("Tools", "casesentence", "Sentence case", "Capitalise the first letter of each sentence", ["case", "sentence", "capitalise", "capitalize"], iconCase(),
+                function () { editor.changeCase("sentence"); });
+        }
         if (typeof editor.requestGhostText === "function") {
             push("Tools", "aicomplete", "AI complete", "Suggest an inline AI completion of the current sentence", ["ai", "complete", "autocomplete", "ghost", "suggest", "continue", "copilot"], iconGhost(),
                 function () { editor.requestGhostText(); });
+        }
+        // Gated on the API rather than registered by the plugin itself: plugins
+        // initialise in bundle order, so anything sorting before "slashcommand"
+        // would call slashCommands.register() before it exists and vanish from
+        // this menu without any error. This check runs when the menu opens.
+        if (typeof editor.exportToPdf === "function") {
+            push("Tools", "exportpdf", "Export to PDF", "Real text, not a screenshot — selectable, searchable and screen-reader friendly", ["pdf", "export", "download", "save", "print", "text", "accessible", "searchable"], iconPdfText(),
+                function () { editor.exportToPdf(); });
+        }
+        if (typeof editor.exportToDocx === "function") {
+            push("Tools", "exportdocx", "Export to Word (.docx)", "A real OOXML document, built in the browser with no upload", ["word", "docx", "ooxml", "export", "download", "save", "office"], iconWordFile(),
+                function () { editor.exportToDocx(); });
         }
         if (typeof editor.copyAsMarkdown === "function") {
             push("Tools", "copymarkdown", "Copy as Markdown", "Copy the whole document to the clipboard as Markdown", ["markdown", "md", "copy", "clipboard", "export"], iconMarkdown(),
@@ -681,6 +800,21 @@ function RTE_Plugin_SlashCommand() {
     function iconEmail() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M4 7l8 6 8-6"/></svg>'; }
     function iconDiagram() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="6" height="5" rx="1"/><rect x="15" y="3" width="6" height="5" rx="1"/><rect x="9" y="16" width="6" height="5" rx="1"/><path d="M6 8v3h12V8M12 11v5"/></svg>'; }
     function iconReadAloud() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16 8.5a4 4 0 010 7"/><path d="M19 6a7 7 0 010 12"/></svg>'; }
+    function iconMoveBlock() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="M8 7l4-4 4 4"/><path d="M8 17l4 4 4-4"/></svg>'; }
+    function iconRtl() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6H10a3 3 0 000 6h3"/><path d="M13 6v12"/><path d="M17 6v12"/><path d="M7 18l-3-3 3-3"/></svg>'; }
+    function iconLtr() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 6H7a3 3 0 000 6h3"/><path d="M11 6v12"/><path d="M7 6v12"/><path d="M17 12l3 3-3 3"/></svg>'; }
+    function iconPilcrow() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 4v16"/><path d="M17 4v16"/><path d="M13 4H9a4 4 0 000 8h4"/></svg>'; }
+    function iconWatermark() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 15l4-5 3 3 3-4"/></svg>'; }
+    function iconLineNumbers() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h1v4"/><path d="M4 14h2l-2 3h2"/><path d="M10 7h10"/><path d="M10 12h10"/><path d="M10 17h10"/></svg>'; }
+    function iconSort() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v16"/><path d="M4 8l3-4 3 4"/><path d="M14 6h6"/><path d="M14 12h5"/><path d="M14 18h3"/></svg>'; }
+    function iconPen() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3l6 6L9 21H3v-6z"/><path d="M13 5l6 6"/></svg>'; }
+    function iconLinkCheck() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 13a4 4 0 005.7 0l2-2a4 4 0 10-5.7-5.7l-1 1"/><path d="M13 11a4 4 0 00-5.7 0l-2 2a4 4 0 105.7 5.7l1-1"/><path d="M16 18l2 2 4-4"/></svg>'; }
+    function iconMergeField() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4H7a2 2 0 00-2 2v3a2 2 0 01-2 2 2 2 0 012 2v3a2 2 0 002 2h2"/><path d="M15 4h2a2 2 0 012 2v3a2 2 0 002 2 2 2 0 00-2 2v3a2 2 0 01-2 2h-2"/></svg>'; }
+    function iconXref() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h8"/><path d="M4 12h5"/><path d="M4 17h8"/><path d="M14 12h6"/><path d="M17 9l3 3-3 3"/></svg>'; }
+    function iconToc() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h7"/><path d="M4 11h9"/><path d="M4 16h5"/><path d="M17 6h3"/><path d="M17 11h3"/><path d="M17 16h3"/></svg>'; }
+    function iconFootnote() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h9"/><path d="M4 11h9"/><path d="M4 18h16"/><path d="M17 4v6"/><path d="M20 7h-6"/></svg>'; }
+    function iconBrush() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h11a2 2 0 012 2v4a2 2 0 01-2 2H6z"/><path d="M12 11v3"/><path d="M10 14h4v5a2 2 0 01-4 0z"/></svg>'; }
+    function iconCase() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18L8 6l5 12"/><path d="M4.6 14.5h6.8"/><path d="M21 11.5a3 3 0 00-6 0"/><path d="M21 11.5V18"/><path d="M21 15.5a3 3 0 11-6 0 3 3 0 016 0z"/></svg>'; }
     function iconTodo() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="7" height="7" rx="1.5"/><path d="M4.5 7.5 6 9l2.5-3"/><line x1="13" y1="6" x2="21" y2="6"/><line x1="13" y1="13" x2="21" y2="13"/><line x1="3" y1="17" x2="21" y2="17"/><line x1="3" y1="20.5" x2="14" y2="20.5"/></svg>'; }
     function iconFold() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l3 3 3-3"/><path d="M9 18l3-3 3 3"/><line x1="4" y1="12" x2="20" y2="12"/></svg>'; }
     function iconKeyboard() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M18 14h.01M9 14h6"/></svg>'; }
@@ -689,4 +823,8 @@ function RTE_Plugin_SlashCommand() {
     function iconFocus() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M3 12h3M18 12h3M12 3v3M12 18v3"/></svg>'; }
     function iconMarkdown() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M6 15V9l3 3 3-3v6"/><path d="M17 9v6M14.5 12.5L17 15l2.5-2.5"/></svg>'; }
     function iconGhost() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V9a7 7 0 0114 0v12l-3-2-2 2-2-2-2 2-3-2z"/><circle cx="9.5" cy="10" r="1" fill="currentColor"/><circle cx="14.5" cy="10" r="1" fill="currentColor"/></svg>'; }
+    // A page with text lines on it, rather than the usual PDF badge: the point
+    // of this entry is that the output contains text.
+    function iconPdfText() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg>'; }
+    function iconWordFile() { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"/><path d="M14 3v5h5"/><path d="M8.5 12l1.3 5 2.2-3.6 2.2 3.6 1.3-5"/></svg>'; }
 }
