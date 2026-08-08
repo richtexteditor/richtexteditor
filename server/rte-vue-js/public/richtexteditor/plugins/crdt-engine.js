@@ -1,4 +1,4 @@
-/* RichTextEditor CRDT engine. */
+/* RichTextEditor CRDT engine — bundled for rte.js consumption. See https://richtexteditor.com/docs/crdt-internals.aspx */
 "use strict";
 (() => {
   var __defProp = Object.defineProperty;
@@ -10,8 +10,8 @@
   var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
 
   // src/index.ts
-  var src_exports = {};
-  __export(src_exports, {
+  var index_exports = {};
+  __export(index_exports, {
     BLOCK_TAGS: () => BLOCK_TAGS,
     INLINE_MARK_TAGS: () => INLINE_MARK_TAGS,
     LEAF_TAGS: () => LEAF_TAGS,
@@ -30,7 +30,115 @@
   });
 
   // src/types.ts
-  var LOCAL_ORIGIN = Symbol.for("rte.crdt.local");
+  var LOCAL_ORIGIN = /* @__PURE__ */ Symbol.for("rte.crdt.local");
+
+  // node_modules/yjs/dist/yjs.mjs
+  var yjs_exports = {};
+  __export(yjs_exports, {
+    AbsolutePosition: () => AbsolutePosition,
+    AbstractConnector: () => AbstractConnector,
+    AbstractStruct: () => AbstractStruct,
+    AbstractType: () => AbstractType,
+    Array: () => YArray,
+    ContentAny: () => ContentAny,
+    ContentBinary: () => ContentBinary,
+    ContentDeleted: () => ContentDeleted,
+    ContentDoc: () => ContentDoc,
+    ContentEmbed: () => ContentEmbed,
+    ContentFormat: () => ContentFormat,
+    ContentJSON: () => ContentJSON,
+    ContentString: () => ContentString,
+    ContentType: () => ContentType,
+    Doc: () => Doc,
+    GC: () => GC,
+    ID: () => ID,
+    Item: () => Item,
+    Map: () => YMap,
+    PermanentUserData: () => PermanentUserData,
+    RelativePosition: () => RelativePosition,
+    Skip: () => Skip,
+    Snapshot: () => Snapshot,
+    Text: () => YText,
+    Transaction: () => Transaction,
+    UndoManager: () => UndoManager,
+    UpdateDecoderV1: () => UpdateDecoderV1,
+    UpdateDecoderV2: () => UpdateDecoderV2,
+    UpdateEncoderV1: () => UpdateEncoderV1,
+    UpdateEncoderV2: () => UpdateEncoderV2,
+    XmlElement: () => YXmlElement,
+    XmlFragment: () => YXmlFragment,
+    XmlHook: () => YXmlHook,
+    XmlText: () => YXmlText,
+    YArrayEvent: () => YArrayEvent,
+    YEvent: () => YEvent,
+    YMapEvent: () => YMapEvent,
+    YTextEvent: () => YTextEvent,
+    YXmlEvent: () => YXmlEvent,
+    applyUpdate: () => applyUpdate,
+    applyUpdateV2: () => applyUpdateV2,
+    cleanupYTextFormatting: () => cleanupYTextFormatting,
+    compareIDs: () => compareIDs,
+    compareRelativePositions: () => compareRelativePositions,
+    convertUpdateFormatV1ToV2: () => convertUpdateFormatV1ToV2,
+    convertUpdateFormatV2ToV1: () => convertUpdateFormatV2ToV1,
+    createAbsolutePositionFromRelativePosition: () => createAbsolutePositionFromRelativePosition,
+    createDeleteSet: () => createDeleteSet,
+    createDeleteSetFromStructStore: () => createDeleteSetFromStructStore,
+    createDocFromSnapshot: () => createDocFromSnapshot,
+    createID: () => createID,
+    createRelativePositionFromJSON: () => createRelativePositionFromJSON,
+    createRelativePositionFromTypeIndex: () => createRelativePositionFromTypeIndex,
+    createSnapshot: () => createSnapshot,
+    decodeRelativePosition: () => decodeRelativePosition,
+    decodeSnapshot: () => decodeSnapshot,
+    decodeSnapshotV2: () => decodeSnapshotV2,
+    decodeStateVector: () => decodeStateVector,
+    decodeUpdate: () => decodeUpdate,
+    decodeUpdateV2: () => decodeUpdateV2,
+    diffUpdate: () => diffUpdate,
+    diffUpdateV2: () => diffUpdateV2,
+    emptySnapshot: () => emptySnapshot,
+    encodeRelativePosition: () => encodeRelativePosition,
+    encodeSnapshot: () => encodeSnapshot,
+    encodeSnapshotV2: () => encodeSnapshotV2,
+    encodeStateAsUpdate: () => encodeStateAsUpdate,
+    encodeStateAsUpdateV2: () => encodeStateAsUpdateV2,
+    encodeStateVector: () => encodeStateVector,
+    encodeStateVectorFromUpdate: () => encodeStateVectorFromUpdate,
+    encodeStateVectorFromUpdateV2: () => encodeStateVectorFromUpdateV2,
+    equalDeleteSets: () => equalDeleteSets,
+    equalSnapshots: () => equalSnapshots,
+    findIndexSS: () => findIndexSS,
+    findRootTypeKey: () => findRootTypeKey,
+    getItem: () => getItem,
+    getItemCleanEnd: () => getItemCleanEnd,
+    getItemCleanStart: () => getItemCleanStart,
+    getState: () => getState,
+    getTypeChildren: () => getTypeChildren,
+    isDeleted: () => isDeleted,
+    isParentOf: () => isParentOf,
+    iterateDeletedStructs: () => iterateDeletedStructs,
+    logType: () => logType,
+    logUpdate: () => logUpdate,
+    logUpdateV2: () => logUpdateV2,
+    mergeDeleteSets: () => mergeDeleteSets,
+    mergeUpdates: () => mergeUpdates,
+    mergeUpdatesV2: () => mergeUpdatesV2,
+    obfuscateUpdate: () => obfuscateUpdate,
+    obfuscateUpdateV2: () => obfuscateUpdateV2,
+    parseUpdateMeta: () => parseUpdateMeta,
+    parseUpdateMetaV2: () => parseUpdateMetaV2,
+    readUpdate: () => readUpdate,
+    readUpdateV2: () => readUpdateV2,
+    relativePositionToJSON: () => relativePositionToJSON,
+    snapshot: () => snapshot,
+    snapshotContainsUpdate: () => snapshotContainsUpdate,
+    transact: () => transact,
+    tryGc: () => tryGc,
+    typeListToArraySnapshot: () => typeListToArraySnapshot,
+    typeMapGetAllSnapshot: () => typeMapGetAllSnapshot,
+    typeMapGetSnapshot: () => typeMapGetSnapshot
+  });
 
   // node_modules/lib0/map.js
   var create = () => /* @__PURE__ */ new Map();
@@ -162,6 +270,57 @@
      * @template {keyof EVENTS & string} NAME
      * @param {NAME} name The event name.
      * @param {Parameters<EVENTS[NAME]>} args The arguments that are applied to the event listener.
+     */
+    emit(name, args2) {
+      return from((this._observers.get(name) || create()).values()).forEach((f) => f(...args2));
+    }
+    destroy() {
+      this._observers = create();
+    }
+  };
+  var Observable = class {
+    constructor() {
+      this._observers = create();
+    }
+    /**
+     * @param {N} name
+     * @param {function} f
+     */
+    on(name, f) {
+      setIfUndefined(this._observers, name, create2).add(f);
+    }
+    /**
+     * @param {N} name
+     * @param {function} f
+     */
+    once(name, f) {
+      const _f = (...args2) => {
+        this.off(name, _f);
+        f(...args2);
+      };
+      this.on(name, _f);
+    }
+    /**
+     * @param {N} name
+     * @param {function} f
+     */
+    off(name, f) {
+      const observers = this._observers.get(name);
+      if (observers !== void 0) {
+        observers.delete(f);
+        if (observers.size === 0) {
+          this._observers.delete(name);
+        }
+      }
+    }
+    /**
+     * Emit a named event. All registered event listeners that listen to the
+     * specified name will receive the event.
+     *
+     * @todo This should catch exceptions
+     *
+     * @param {N} name The event name.
+     * @param {Array<any>} args The arguments that are applied to the event listener.
      */
     emit(name, args2) {
       return from((this._observers.get(name) || create()).values()).forEach((f) => f(...args2));
@@ -351,6 +510,7 @@
   };
   var writeVarString = utf8TextEncoder && /** @type {any} */
   utf8TextEncoder.encodeInto ? _writeVarStringNative : _writeVarStringPolyfill;
+  var writeBinaryEncoder = (encoder, append2) => writeUint8Array(encoder, toUint8Array(append2));
   var writeUint8Array = (encoder, uint8Array) => {
     const bufferLen = encoder.cbuf.length;
     const cpos = encoder.cpos;
@@ -667,6 +827,157 @@
     utf8TextDecoder.decode(readVarUint8Array(decoder))
   );
   var readVarString = utf8TextDecoder ? _readVarStringNative : _readVarStringPolyfill;
+  var readFromDataView = (decoder, len) => {
+    const dv = new DataView(decoder.arr.buffer, decoder.arr.byteOffset + decoder.pos, len);
+    decoder.pos += len;
+    return dv;
+  };
+  var readFloat32 = (decoder) => readFromDataView(decoder, 4).getFloat32(0, false);
+  var readFloat64 = (decoder) => readFromDataView(decoder, 8).getFloat64(0, false);
+  var readBigInt64 = (decoder) => (
+    /** @type {any} */
+    readFromDataView(decoder, 8).getBigInt64(0, false)
+  );
+  var readAnyLookupTable = [
+    (decoder) => void 0,
+    // CASE 127: undefined
+    (decoder) => null,
+    // CASE 126: null
+    readVarInt,
+    // CASE 125: integer
+    readFloat32,
+    // CASE 124: float32
+    readFloat64,
+    // CASE 123: float64
+    readBigInt64,
+    // CASE 122: bigint
+    (decoder) => false,
+    // CASE 121: boolean (false)
+    (decoder) => true,
+    // CASE 120: boolean (true)
+    readVarString,
+    // CASE 119: string
+    (decoder) => {
+      const len = readVarUint(decoder);
+      const obj = {};
+      for (let i = 0; i < len; i++) {
+        const key = readVarString(decoder);
+        obj[key] = readAny(decoder);
+      }
+      return obj;
+    },
+    (decoder) => {
+      const len = readVarUint(decoder);
+      const arr = [];
+      for (let i = 0; i < len; i++) {
+        arr.push(readAny(decoder));
+      }
+      return arr;
+    },
+    readVarUint8Array
+    // CASE 116: Uint8Array
+  ];
+  var readAny = (decoder) => readAnyLookupTable[127 - readUint8(decoder)](decoder);
+  var RleDecoder = class extends Decoder {
+    /**
+     * @param {Uint8Array} uint8Array
+     * @param {function(Decoder):T} reader
+     */
+    constructor(uint8Array, reader) {
+      super(uint8Array);
+      this.reader = reader;
+      this.s = null;
+      this.count = 0;
+    }
+    read() {
+      if (this.count === 0) {
+        this.s = this.reader(this);
+        if (hasContent(this)) {
+          this.count = readVarUint(this) + 1;
+        } else {
+          this.count = -1;
+        }
+      }
+      this.count--;
+      return (
+        /** @type {T} */
+        this.s
+      );
+    }
+  };
+  var UintOptRleDecoder = class extends Decoder {
+    /**
+     * @param {Uint8Array} uint8Array
+     */
+    constructor(uint8Array) {
+      super(uint8Array);
+      this.s = 0;
+      this.count = 0;
+    }
+    read() {
+      if (this.count === 0) {
+        this.s = readVarInt(this);
+        const isNegative = isNegativeZero(this.s);
+        this.count = 1;
+        if (isNegative) {
+          this.s = -this.s;
+          this.count = readVarUint(this) + 2;
+        }
+      }
+      this.count--;
+      return (
+        /** @type {number} */
+        this.s
+      );
+    }
+  };
+  var IntDiffOptRleDecoder = class extends Decoder {
+    /**
+     * @param {Uint8Array} uint8Array
+     */
+    constructor(uint8Array) {
+      super(uint8Array);
+      this.s = 0;
+      this.count = 0;
+      this.diff = 0;
+    }
+    /**
+     * @return {number}
+     */
+    read() {
+      if (this.count === 0) {
+        const diff = readVarInt(this);
+        const hasCount = diff & 1;
+        this.diff = floor(diff / 2);
+        this.count = 1;
+        if (hasCount) {
+          this.count = readVarUint(this) + 2;
+        }
+      }
+      this.s += this.diff;
+      this.count--;
+      return this.s;
+    }
+  };
+  var StringDecoder = class {
+    /**
+     * @param {Uint8Array} uint8Array
+     */
+    constructor(uint8Array) {
+      this.decoder = new UintOptRleDecoder(uint8Array);
+      this.str = readVarString(this.decoder);
+      this.spos = 0;
+    }
+    /**
+     * @return {string}
+     */
+    read() {
+      const end = this.spos + this.decoder.read();
+      const res = this.str.slice(this.spos, end);
+      this.spos = end;
+      return res;
+    }
+  };
 
   // node_modules/lib0/webcrypto.js
   var subtle = crypto.subtle;
@@ -725,7 +1036,7 @@
   var varStorage = _localStorage;
 
   // node_modules/lib0/trait/equality.js
-  var EqualityTraitSymbol = Symbol("Equality");
+  var EqualityTraitSymbol = /* @__PURE__ */ Symbol("Equality");
   var equals = (a, b) => {
     var _a;
     return a === b || !!((_a = a == null ? void 0 : a[EqualityTraitSymbol]) == null ? void 0 : _a.call(a, b)) || false;
@@ -780,6 +1091,7 @@
       }
     }
   };
+  var id = (a) => a;
   var equalityDeep = (a, b) => {
     if (a === b) {
       return true;
@@ -909,6 +1221,14 @@
   var supportsColor = forceColor || !hasParam("--no-colors") && // @todo deprecate --no-colors
   !hasConf("no-color") && (!isNode || process.stdout.isTTY) && (!isNode || hasParam("--color") || getVariable("COLORTERM") !== null || (getVariable("TERM") || "").includes("color"));
 
+  // node_modules/lib0/buffer.js
+  var createUint8ArrayFromLen = (len) => new Uint8Array(len);
+  var copyUint8Array = (uint8Array) => {
+    const newBuf = createUint8ArrayFromLen(uint8Array.byteLength);
+    newBuf.set(uint8Array);
+    return newBuf;
+  };
+
   // node_modules/lib0/pair.js
   var Pair = class {
     /**
@@ -939,7 +1259,7 @@
   var oneOf = (gen, array) => array[int31(gen, 0, array.length - 1)];
 
   // node_modules/lib0/schema.js
-  var schemaSymbol = Symbol("0schema");
+  var schemaSymbol = /* @__PURE__ */ Symbol("0schema");
   var ValidationError = class {
     constructor() {
       this._rerrs = [];
@@ -1217,7 +1537,7 @@
     }
   };
   var $$stringTemplate = $constructedBy($StringTemplate);
-  var isOptionalSymbol = Symbol("optional");
+  var isOptionalSymbol = /* @__PURE__ */ Symbol("optional");
   var $Optional = class extends Schema {
     /**
      * @param {S} shape
@@ -1838,6 +2158,17 @@ ${err.toString()}`);
   });
 
   // node_modules/yjs/dist/yjs.mjs
+  var AbstractConnector = class extends ObservableV2 {
+    /**
+     * @param {Doc} ydoc
+     * @param {any} awareness
+     */
+    constructor(ydoc, awareness) {
+      super();
+      this.doc = ydoc;
+      this.awareness = awareness;
+    }
+  };
   var DeleteItem = class {
     /**
      * @param {number} clock
@@ -1930,6 +2261,29 @@ ${err.toString()}`);
     )).push(new DeleteItem(clock, length2));
   };
   var createDeleteSet = () => new DeleteSet();
+  var createDeleteSetFromStructStore = (ss) => {
+    const ds = createDeleteSet();
+    ss.clients.forEach((structs, client) => {
+      const dsitems = [];
+      for (let i = 0; i < structs.length; i++) {
+        const struct = structs[i];
+        if (struct.deleted) {
+          const clock = struct.id.clock;
+          let len = struct.length;
+          if (i + 1 < structs.length) {
+            for (let next = structs[i + 1]; i + 1 < structs.length && next.deleted; next = structs[++i + 1]) {
+              len += next.length;
+            }
+          }
+          dsitems.push(new DeleteItem(clock, len));
+        }
+      }
+      if (dsitems.length > 0) {
+        ds.clients.set(client, dsitems);
+      }
+    });
+    return ds;
+  };
   var writeDeleteSet = (encoder, ds) => {
     writeVarUint(encoder.restEncoder, ds.clients.size);
     from(ds.clients.entries()).sort((a, b) => b[0] - a[0]).forEach(([client, dsitems]) => {
@@ -1943,6 +2297,91 @@ ${err.toString()}`);
         encoder.writeDsLen(item.len);
       }
     });
+  };
+  var readDeleteSet = (decoder) => {
+    const ds = new DeleteSet();
+    const numClients = readVarUint(decoder.restDecoder);
+    for (let i = 0; i < numClients; i++) {
+      decoder.resetDsCurVal();
+      const client = readVarUint(decoder.restDecoder);
+      const numberOfDeletes = readVarUint(decoder.restDecoder);
+      if (numberOfDeletes > 0) {
+        const dsField = setIfUndefined(ds.clients, client, () => (
+          /** @type {Array<DeleteItem>} */
+          []
+        ));
+        for (let i2 = 0; i2 < numberOfDeletes; i2++) {
+          dsField.push(new DeleteItem(decoder.readDsClock(), decoder.readDsLen()));
+        }
+      }
+    }
+    return ds;
+  };
+  var readAndApplyDeleteSet = (decoder, transaction, store) => {
+    const unappliedDS = new DeleteSet();
+    const numClients = readVarUint(decoder.restDecoder);
+    for (let i = 0; i < numClients; i++) {
+      decoder.resetDsCurVal();
+      const client = readVarUint(decoder.restDecoder);
+      const numberOfDeletes = readVarUint(decoder.restDecoder);
+      const structs = store.clients.get(client) || [];
+      const state = getState(store, client);
+      for (let i2 = 0; i2 < numberOfDeletes; i2++) {
+        const clock = decoder.readDsClock();
+        const clockEnd = clock + decoder.readDsLen();
+        if (clock < state) {
+          if (state < clockEnd) {
+            addToDeleteSet(unappliedDS, client, state, clockEnd - state);
+          }
+          let index = findIndexSS(structs, clock);
+          let struct = structs[index];
+          if (!struct.deleted && struct.id.clock < clock) {
+            structs.splice(index + 1, 0, splitItem(transaction, struct, clock - struct.id.clock));
+            index++;
+          }
+          while (index < structs.length) {
+            struct = structs[index++];
+            if (struct.id.clock < clockEnd) {
+              if (!struct.deleted) {
+                if (clockEnd < struct.id.clock + struct.length) {
+                  structs.splice(index, 0, splitItem(transaction, struct, clockEnd - struct.id.clock));
+                }
+                struct.delete(transaction);
+              }
+            } else {
+              break;
+            }
+          }
+        } else {
+          addToDeleteSet(unappliedDS, client, clock, clockEnd - clock);
+        }
+      }
+    }
+    if (unappliedDS.clients.size > 0) {
+      const ds = new UpdateEncoderV2();
+      writeVarUint(ds.restEncoder, 0);
+      writeDeleteSet(ds, unappliedDS);
+      return ds.toUint8Array();
+    }
+    return null;
+  };
+  var equalDeleteSets = (ds1, ds2) => {
+    if (ds1.clients.size !== ds2.clients.size) return false;
+    for (const [client, deleteItems1] of ds1.clients.entries()) {
+      const deleteItems2 = (
+        /** @type {Array<import('../internals.js').DeleteItem>} */
+        ds2.clients.get(client)
+      );
+      if (deleteItems2 === void 0 || deleteItems1.length !== deleteItems2.length) return false;
+      for (let i = 0; i < deleteItems1.length; i++) {
+        const di1 = deleteItems1[i];
+        const di2 = deleteItems2[i];
+        if (di1.clock !== di2.clock || di1.len !== di2.len) {
+          return false;
+        }
+      }
+    }
+    return true;
   };
   var generateNewClientId = uint32;
   var Doc = class _Doc extends ObservableV2 {
@@ -2210,6 +2649,242 @@ ${err.toString()}`);
       this.emit("destroyed", [true]);
       this.emit("destroy", [this]);
       super.destroy();
+    }
+  };
+  var DSDecoderV1 = class {
+    /**
+     * @param {decoding.Decoder} decoder
+     */
+    constructor(decoder) {
+      this.restDecoder = decoder;
+    }
+    resetDsCurVal() {
+    }
+    /**
+     * @return {number}
+     */
+    readDsClock() {
+      return readVarUint(this.restDecoder);
+    }
+    /**
+     * @return {number}
+     */
+    readDsLen() {
+      return readVarUint(this.restDecoder);
+    }
+  };
+  var UpdateDecoderV1 = class extends DSDecoderV1 {
+    /**
+     * @return {ID}
+     */
+    readLeftID() {
+      return createID(readVarUint(this.restDecoder), readVarUint(this.restDecoder));
+    }
+    /**
+     * @return {ID}
+     */
+    readRightID() {
+      return createID(readVarUint(this.restDecoder), readVarUint(this.restDecoder));
+    }
+    /**
+     * Read the next client id.
+     * Use this in favor of readID whenever possible to reduce the number of objects created.
+     */
+    readClient() {
+      return readVarUint(this.restDecoder);
+    }
+    /**
+     * @return {number} info An unsigned 8-bit integer
+     */
+    readInfo() {
+      return readUint8(this.restDecoder);
+    }
+    /**
+     * @return {string}
+     */
+    readString() {
+      return readVarString(this.restDecoder);
+    }
+    /**
+     * @return {boolean} isKey
+     */
+    readParentInfo() {
+      return readVarUint(this.restDecoder) === 1;
+    }
+    /**
+     * @return {number} info An unsigned 8-bit integer
+     */
+    readTypeRef() {
+      return readVarUint(this.restDecoder);
+    }
+    /**
+     * Write len of a struct - well suited for Opt RLE encoder.
+     *
+     * @return {number} len
+     */
+    readLen() {
+      return readVarUint(this.restDecoder);
+    }
+    /**
+     * @return {any}
+     */
+    readAny() {
+      return readAny(this.restDecoder);
+    }
+    /**
+     * @return {Uint8Array}
+     */
+    readBuf() {
+      return copyUint8Array(readVarUint8Array(this.restDecoder));
+    }
+    /**
+     * Legacy implementation uses JSON parse. We use any-decoding in v2.
+     *
+     * @return {any}
+     */
+    readJSON() {
+      return JSON.parse(readVarString(this.restDecoder));
+    }
+    /**
+     * @return {string}
+     */
+    readKey() {
+      return readVarString(this.restDecoder);
+    }
+  };
+  var DSDecoderV2 = class {
+    /**
+     * @param {decoding.Decoder} decoder
+     */
+    constructor(decoder) {
+      this.dsCurrVal = 0;
+      this.restDecoder = decoder;
+    }
+    resetDsCurVal() {
+      this.dsCurrVal = 0;
+    }
+    /**
+     * @return {number}
+     */
+    readDsClock() {
+      this.dsCurrVal += readVarUint(this.restDecoder);
+      return this.dsCurrVal;
+    }
+    /**
+     * @return {number}
+     */
+    readDsLen() {
+      const diff = readVarUint(this.restDecoder) + 1;
+      this.dsCurrVal += diff;
+      return diff;
+    }
+  };
+  var UpdateDecoderV2 = class extends DSDecoderV2 {
+    /**
+     * @param {decoding.Decoder} decoder
+     */
+    constructor(decoder) {
+      super(decoder);
+      this.keys = [];
+      readVarUint(decoder);
+      this.keyClockDecoder = new IntDiffOptRleDecoder(readVarUint8Array(decoder));
+      this.clientDecoder = new UintOptRleDecoder(readVarUint8Array(decoder));
+      this.leftClockDecoder = new IntDiffOptRleDecoder(readVarUint8Array(decoder));
+      this.rightClockDecoder = new IntDiffOptRleDecoder(readVarUint8Array(decoder));
+      this.infoDecoder = new RleDecoder(readVarUint8Array(decoder), readUint8);
+      this.stringDecoder = new StringDecoder(readVarUint8Array(decoder));
+      this.parentInfoDecoder = new RleDecoder(readVarUint8Array(decoder), readUint8);
+      this.typeRefDecoder = new UintOptRleDecoder(readVarUint8Array(decoder));
+      this.lenDecoder = new UintOptRleDecoder(readVarUint8Array(decoder));
+    }
+    /**
+     * @return {ID}
+     */
+    readLeftID() {
+      return new ID(this.clientDecoder.read(), this.leftClockDecoder.read());
+    }
+    /**
+     * @return {ID}
+     */
+    readRightID() {
+      return new ID(this.clientDecoder.read(), this.rightClockDecoder.read());
+    }
+    /**
+     * Read the next client id.
+     * Use this in favor of readID whenever possible to reduce the number of objects created.
+     */
+    readClient() {
+      return this.clientDecoder.read();
+    }
+    /**
+     * @return {number} info An unsigned 8-bit integer
+     */
+    readInfo() {
+      return (
+        /** @type {number} */
+        this.infoDecoder.read()
+      );
+    }
+    /**
+     * @return {string}
+     */
+    readString() {
+      return this.stringDecoder.read();
+    }
+    /**
+     * @return {boolean}
+     */
+    readParentInfo() {
+      return this.parentInfoDecoder.read() === 1;
+    }
+    /**
+     * @return {number} An unsigned 8-bit integer
+     */
+    readTypeRef() {
+      return this.typeRefDecoder.read();
+    }
+    /**
+     * Write len of a struct - well suited for Opt RLE encoder.
+     *
+     * @return {number}
+     */
+    readLen() {
+      return this.lenDecoder.read();
+    }
+    /**
+     * @return {any}
+     */
+    readAny() {
+      return readAny(this.restDecoder);
+    }
+    /**
+     * @return {Uint8Array}
+     */
+    readBuf() {
+      return readVarUint8Array(this.restDecoder);
+    }
+    /**
+     * This is mainly here for legacy purposes.
+     *
+     * Initial we incoded objects using JSON. Now we use the much faster lib0/any-encoder. This method mainly exists for legacy purposes for the v1 encoder.
+     *
+     * @return {any}
+     */
+    readJSON() {
+      return readAny(this.restDecoder);
+    }
+    /**
+     * @return {string}
+     */
+    readKey() {
+      const keyClock = this.keyClockDecoder.read();
+      if (keyClock < this.keys.length) {
+        return this.keys[keyClock];
+      } else {
+        const key = this.stringDecoder.read();
+        this.keys.push(key);
+        return key;
+      }
     }
   };
   var DSEncoderV1 = class {
@@ -2500,7 +3175,285 @@ ${err.toString()}`);
       );
     });
   };
+  var readClientsStructRefs = (decoder, doc2) => {
+    const clientRefs = create();
+    const numOfStateUpdates = readVarUint(decoder.restDecoder);
+    for (let i = 0; i < numOfStateUpdates; i++) {
+      const numberOfStructs = readVarUint(decoder.restDecoder);
+      const refs = new Array(numberOfStructs);
+      const client = decoder.readClient();
+      let clock = readVarUint(decoder.restDecoder);
+      clientRefs.set(client, { i: 0, refs });
+      for (let i2 = 0; i2 < numberOfStructs; i2++) {
+        const info = decoder.readInfo();
+        switch (BITS5 & info) {
+          case 0: {
+            const len = decoder.readLen();
+            refs[i2] = new GC(createID(client, clock), len);
+            clock += len;
+            break;
+          }
+          case 10: {
+            const len = readVarUint(decoder.restDecoder);
+            refs[i2] = new Skip(createID(client, clock), len);
+            clock += len;
+            break;
+          }
+          default: {
+            const cantCopyParentInfo = (info & (BIT7 | BIT8)) === 0;
+            const struct = new Item(
+              createID(client, clock),
+              null,
+              // left
+              (info & BIT8) === BIT8 ? decoder.readLeftID() : null,
+              // origin
+              null,
+              // right
+              (info & BIT7) === BIT7 ? decoder.readRightID() : null,
+              // right origin
+              cantCopyParentInfo ? decoder.readParentInfo() ? doc2.get(decoder.readString()) : decoder.readLeftID() : null,
+              // parent
+              cantCopyParentInfo && (info & BIT6) === BIT6 ? decoder.readString() : null,
+              // parentSub
+              readItemContent(decoder, info)
+              // item content
+            );
+            refs[i2] = struct;
+            clock += struct.length;
+          }
+        }
+      }
+    }
+    return clientRefs;
+  };
+  var integrateStructs = (transaction, store, clientsStructRefs) => {
+    const stack = [];
+    let clientsStructRefsIds = from(clientsStructRefs.keys()).sort((a, b) => a - b);
+    if (clientsStructRefsIds.length === 0) {
+      return null;
+    }
+    const getNextStructTarget = () => {
+      if (clientsStructRefsIds.length === 0) {
+        return null;
+      }
+      let nextStructsTarget = (
+        /** @type {{i:number,refs:Array<GC|Item>}} */
+        clientsStructRefs.get(clientsStructRefsIds[clientsStructRefsIds.length - 1])
+      );
+      while (nextStructsTarget.refs.length === nextStructsTarget.i) {
+        clientsStructRefsIds.pop();
+        if (clientsStructRefsIds.length > 0) {
+          nextStructsTarget = /** @type {{i:number,refs:Array<GC|Item>}} */
+          clientsStructRefs.get(clientsStructRefsIds[clientsStructRefsIds.length - 1]);
+        } else {
+          return null;
+        }
+      }
+      return nextStructsTarget;
+    };
+    let curStructsTarget = getNextStructTarget();
+    if (curStructsTarget === null) {
+      return null;
+    }
+    const restStructs = new StructStore();
+    const missingSV = /* @__PURE__ */ new Map();
+    const updateMissingSv = (client, clock) => {
+      const mclock = missingSV.get(client);
+      if (mclock == null || mclock > clock) {
+        missingSV.set(client, clock);
+      }
+    };
+    let stackHead = (
+      /** @type {any} */
+      curStructsTarget.refs[
+        /** @type {any} */
+        curStructsTarget.i++
+      ]
+    );
+    const state = /* @__PURE__ */ new Map();
+    const addStackToRestSS = () => {
+      for (const item of stack) {
+        const client = item.id.client;
+        const inapplicableItems = clientsStructRefs.get(client);
+        if (inapplicableItems) {
+          inapplicableItems.i--;
+          restStructs.clients.set(client, inapplicableItems.refs.slice(inapplicableItems.i));
+          clientsStructRefs.delete(client);
+          inapplicableItems.i = 0;
+          inapplicableItems.refs = [];
+        } else {
+          restStructs.clients.set(client, [item]);
+        }
+        clientsStructRefsIds = clientsStructRefsIds.filter((c) => c !== client);
+      }
+      stack.length = 0;
+    };
+    while (true) {
+      if (stackHead.constructor !== Skip) {
+        const localClock = setIfUndefined(state, stackHead.id.client, () => getState(store, stackHead.id.client));
+        const offset = localClock - stackHead.id.clock;
+        if (offset < 0) {
+          stack.push(stackHead);
+          updateMissingSv(stackHead.id.client, stackHead.id.clock - 1);
+          addStackToRestSS();
+        } else {
+          const missing = stackHead.getMissing(transaction, store);
+          if (missing !== null) {
+            stack.push(stackHead);
+            const structRefs = clientsStructRefs.get(
+              /** @type {number} */
+              missing
+            ) || { refs: [], i: 0 };
+            if (structRefs.refs.length === structRefs.i) {
+              updateMissingSv(
+                /** @type {number} */
+                missing,
+                getState(store, missing)
+              );
+              addStackToRestSS();
+            } else {
+              stackHead = structRefs.refs[structRefs.i++];
+              continue;
+            }
+          } else if (offset === 0 || offset < stackHead.length) {
+            stackHead.integrate(transaction, offset);
+            state.set(stackHead.id.client, stackHead.id.clock + stackHead.length);
+          }
+        }
+      }
+      if (stack.length > 0) {
+        stackHead = /** @type {GC|Item} */
+        stack.pop();
+      } else if (curStructsTarget !== null && curStructsTarget.i < curStructsTarget.refs.length) {
+        stackHead = /** @type {GC|Item} */
+        curStructsTarget.refs[curStructsTarget.i++];
+      } else {
+        curStructsTarget = getNextStructTarget();
+        if (curStructsTarget === null) {
+          break;
+        } else {
+          stackHead = /** @type {GC|Item} */
+          curStructsTarget.refs[curStructsTarget.i++];
+        }
+      }
+    }
+    if (restStructs.clients.size > 0) {
+      const encoder = new UpdateEncoderV2();
+      writeClientsStructs(encoder, restStructs, /* @__PURE__ */ new Map());
+      writeVarUint(encoder.restEncoder, 0);
+      return { missing: missingSV, update: encoder.toUint8Array() };
+    }
+    return null;
+  };
   var writeStructsFromTransaction = (encoder, transaction) => writeClientsStructs(encoder, transaction.doc.store, transaction.beforeState);
+  var readUpdateV2 = (decoder, ydoc, transactionOrigin, structDecoder = new UpdateDecoderV2(decoder)) => transact(ydoc, (transaction) => {
+    transaction.local = false;
+    let retry = false;
+    const doc2 = transaction.doc;
+    const store = doc2.store;
+    const ss = readClientsStructRefs(structDecoder, doc2);
+    const restStructs = integrateStructs(transaction, store, ss);
+    const pending = store.pendingStructs;
+    if (pending) {
+      for (const [client, clock] of pending.missing) {
+        if (clock < getState(store, client)) {
+          retry = true;
+          break;
+        }
+      }
+      if (restStructs) {
+        for (const [client, clock] of restStructs.missing) {
+          const mclock = pending.missing.get(client);
+          if (mclock == null || mclock > clock) {
+            pending.missing.set(client, clock);
+          }
+        }
+        pending.update = mergeUpdatesV2([pending.update, restStructs.update]);
+      }
+    } else {
+      store.pendingStructs = restStructs;
+    }
+    const dsRest = readAndApplyDeleteSet(structDecoder, transaction, store);
+    if (store.pendingDs) {
+      const pendingDSUpdate = new UpdateDecoderV2(createDecoder(store.pendingDs));
+      readVarUint(pendingDSUpdate.restDecoder);
+      const dsRest2 = readAndApplyDeleteSet(pendingDSUpdate, transaction, store);
+      if (dsRest && dsRest2) {
+        store.pendingDs = mergeUpdatesV2([dsRest, dsRest2]);
+      } else {
+        store.pendingDs = dsRest || dsRest2;
+      }
+    } else {
+      store.pendingDs = dsRest;
+    }
+    if (retry) {
+      const update = (
+        /** @type {{update: Uint8Array}} */
+        store.pendingStructs.update
+      );
+      store.pendingStructs = null;
+      applyUpdateV2(transaction.doc, update);
+    }
+  }, transactionOrigin, false);
+  var readUpdate = (decoder, ydoc, transactionOrigin) => readUpdateV2(decoder, ydoc, transactionOrigin, new UpdateDecoderV1(decoder));
+  var applyUpdateV2 = (ydoc, update, transactionOrigin, YDecoder = UpdateDecoderV2) => {
+    const decoder = createDecoder(update);
+    readUpdateV2(decoder, ydoc, transactionOrigin, new YDecoder(decoder));
+  };
+  var applyUpdate = (ydoc, update, transactionOrigin) => applyUpdateV2(ydoc, update, transactionOrigin, UpdateDecoderV1);
+  var writeStateAsUpdate = (encoder, doc2, targetStateVector = /* @__PURE__ */ new Map()) => {
+    writeClientsStructs(encoder, doc2.store, targetStateVector);
+    writeDeleteSet(encoder, createDeleteSetFromStructStore(doc2.store));
+  };
+  var encodeStateAsUpdateV2 = (doc2, encodedTargetStateVector = new Uint8Array([0]), encoder = new UpdateEncoderV2()) => {
+    const targetStateVector = decodeStateVector(encodedTargetStateVector);
+    writeStateAsUpdate(encoder, doc2, targetStateVector);
+    const updates = [encoder.toUint8Array()];
+    if (doc2.store.pendingDs) {
+      updates.push(doc2.store.pendingDs);
+    }
+    if (doc2.store.pendingStructs) {
+      updates.push(diffUpdateV2(doc2.store.pendingStructs.update, encodedTargetStateVector));
+    }
+    if (updates.length > 1) {
+      if (encoder.constructor === UpdateEncoderV1) {
+        return mergeUpdates(updates.map((update, i) => i === 0 ? update : convertUpdateFormatV2ToV1(update)));
+      } else if (encoder.constructor === UpdateEncoderV2) {
+        return mergeUpdatesV2(updates);
+      }
+    }
+    return updates[0];
+  };
+  var encodeStateAsUpdate = (doc2, encodedTargetStateVector) => encodeStateAsUpdateV2(doc2, encodedTargetStateVector, new UpdateEncoderV1());
+  var readStateVector = (decoder) => {
+    const ss = /* @__PURE__ */ new Map();
+    const ssLength = readVarUint(decoder.restDecoder);
+    for (let i = 0; i < ssLength; i++) {
+      const client = readVarUint(decoder.restDecoder);
+      const clock = readVarUint(decoder.restDecoder);
+      ss.set(client, clock);
+    }
+    return ss;
+  };
+  var decodeStateVector = (decodedState) => readStateVector(new DSDecoderV1(createDecoder(decodedState)));
+  var writeStateVector = (encoder, sv) => {
+    writeVarUint(encoder.restEncoder, sv.size);
+    from(sv.entries()).sort((a, b) => b[0] - a[0]).forEach(([client, clock]) => {
+      writeVarUint(encoder.restEncoder, client);
+      writeVarUint(encoder.restEncoder, clock);
+    });
+    return encoder;
+  };
+  var writeDocumentStateVector = (encoder, doc2) => writeStateVector(encoder, getStateVector(doc2.store));
+  var encodeStateVectorV2 = (doc2, encoder = new DSEncoderV2()) => {
+    if (doc2 instanceof Map) {
+      writeStateVector(encoder, doc2);
+    } else {
+      writeDocumentStateVector(encoder, doc2);
+    }
+    return encoder.toUint8Array();
+  };
+  var encodeStateVector = (doc2) => encodeStateVectorV2(doc2, new DSEncoderV1());
   var EventHandler = class {
     constructor() {
       this.l = [];
@@ -2552,6 +3505,132 @@ ${err.toString()}`);
     }
     return false;
   };
+  var logType = (type) => {
+    const res = [];
+    let n = type._start;
+    while (n) {
+      res.push(n);
+      n = n.right;
+    }
+    console.log("Children: ", res);
+    console.log("Children content: ", res.filter((m) => !m.deleted).map((m) => m.content));
+  };
+  var PermanentUserData = class {
+    /**
+     * @param {Doc} doc
+     * @param {YMap<any>} [storeType]
+     */
+    constructor(doc2, storeType = doc2.getMap("users")) {
+      const dss = /* @__PURE__ */ new Map();
+      this.yusers = storeType;
+      this.doc = doc2;
+      this.clients = /* @__PURE__ */ new Map();
+      this.dss = dss;
+      const initUser = (user, userDescription) => {
+        const ds = user.get("ds");
+        const ids = user.get("ids");
+        const addClientId = (
+          /** @param {number} clientid */
+          (clientid) => this.clients.set(clientid, userDescription)
+        );
+        ds.observe(
+          /** @param {YArrayEvent<any>} event */
+          (event) => {
+            event.changes.added.forEach((item) => {
+              item.content.getContent().forEach((encodedDs) => {
+                if (encodedDs instanceof Uint8Array) {
+                  this.dss.set(userDescription, mergeDeleteSets([this.dss.get(userDescription) || createDeleteSet(), readDeleteSet(new DSDecoderV1(createDecoder(encodedDs)))]));
+                }
+              });
+            });
+          }
+        );
+        this.dss.set(userDescription, mergeDeleteSets(ds.map((encodedDs) => readDeleteSet(new DSDecoderV1(createDecoder(encodedDs))))));
+        ids.observe(
+          /** @param {YArrayEvent<any>} event */
+          (event) => event.changes.added.forEach((item) => item.content.getContent().forEach(addClientId))
+        );
+        ids.forEach(addClientId);
+      };
+      storeType.observe((event) => {
+        event.keysChanged.forEach(
+          (userDescription) => initUser(storeType.get(userDescription), userDescription)
+        );
+      });
+      storeType.forEach(initUser);
+    }
+    /**
+     * @param {Doc} doc
+     * @param {number} clientid
+     * @param {string} userDescription
+     * @param {Object} conf
+     * @param {function(Transaction, DeleteSet):boolean} [conf.filter]
+     */
+    setUserMapping(doc2, clientid, userDescription, { filter = () => true } = {}) {
+      const users = this.yusers;
+      let user = users.get(userDescription);
+      if (!user) {
+        user = new YMap();
+        user.set("ids", new YArray());
+        user.set("ds", new YArray());
+        users.set(userDescription, user);
+      }
+      user.get("ids").push([clientid]);
+      users.observe((_event) => {
+        setTimeout(() => {
+          const userOverwrite = users.get(userDescription);
+          if (userOverwrite !== user) {
+            user = userOverwrite;
+            this.clients.forEach((_userDescription, clientid2) => {
+              if (userDescription === _userDescription) {
+                user.get("ids").push([clientid2]);
+              }
+            });
+            const encoder = new DSEncoderV1();
+            const ds = this.dss.get(userDescription);
+            if (ds) {
+              writeDeleteSet(encoder, ds);
+              user.get("ds").push([encoder.toUint8Array()]);
+            }
+          }
+        }, 0);
+      });
+      doc2.on(
+        "afterTransaction",
+        /** @param {Transaction} transaction */
+        (transaction) => {
+          setTimeout(() => {
+            const yds = user.get("ds");
+            const ds = transaction.deleteSet;
+            if (transaction.local && ds.clients.size > 0 && filter(transaction, ds)) {
+              const encoder = new DSEncoderV1();
+              writeDeleteSet(encoder, ds);
+              yds.push([encoder.toUint8Array()]);
+            }
+          });
+        }
+      );
+    }
+    /**
+     * @param {number} clientid
+     * @return {any}
+     */
+    getUserByClientId(clientid) {
+      return this.clients.get(clientid) || null;
+    }
+    /**
+     * @param {ID} id
+     * @return {string | null}
+     */
+    getUserByDeletedId(id2) {
+      for (const [userDescription, ds] of this.dss.entries()) {
+        if (isDeleted(ds, id2)) {
+          return userDescription;
+        }
+      }
+      return null;
+    }
+  };
   var RelativePosition = class {
     /**
      * @param {ID|null} type
@@ -2565,6 +3644,26 @@ ${err.toString()}`);
       this.item = item;
       this.assoc = assoc;
     }
+  };
+  var relativePositionToJSON = (rpos) => {
+    const json = {};
+    if (rpos.type) {
+      json.type = rpos.type;
+    }
+    if (rpos.tname) {
+      json.tname = rpos.tname;
+    }
+    if (rpos.item) {
+      json.item = rpos.item;
+    }
+    if (rpos.assoc != null) {
+      json.assoc = rpos.assoc;
+    }
+    return json;
+  };
+  var createRelativePositionFromJSON = (json) => {
+    var _a;
+    return new RelativePosition(json.type == null ? null : createID(json.type.client, json.type.clock), (_a = json.tname) != null ? _a : null, json.item == null ? null : createID(json.item.client, json.item.clock), json.assoc == null ? 0 : json.assoc);
   };
   var AbsolutePosition = class {
     /**
@@ -2713,6 +3812,7 @@ ${err.toString()}`);
     }
     return createAbsolutePosition(type, index, rpos.assoc);
   };
+  var compareRelativePositions = (a, b) => a === b || a !== null && b !== null && a.tname === b.tname && compareIDs(a.item, b.item) && compareIDs(a.type, b.type) && a.assoc === b.assoc;
   var Snapshot = class {
     /**
      * @param {DeleteSet} ds
@@ -2723,23 +3823,109 @@ ${err.toString()}`);
       this.sv = sv;
     }
   };
+  var equalSnapshots = (snap1, snap2) => {
+    const ds1 = snap1.ds.clients;
+    const ds2 = snap2.ds.clients;
+    const sv1 = snap1.sv;
+    const sv2 = snap2.sv;
+    if (sv1.size !== sv2.size || ds1.size !== ds2.size) {
+      return false;
+    }
+    for (const [key, value] of sv1.entries()) {
+      if (sv2.get(key) !== value) {
+        return false;
+      }
+    }
+    for (const [client, dsitems1] of ds1.entries()) {
+      const dsitems2 = ds2.get(client) || [];
+      if (dsitems1.length !== dsitems2.length) {
+        return false;
+      }
+      for (let i = 0; i < dsitems1.length; i++) {
+        const dsitem1 = dsitems1[i];
+        const dsitem2 = dsitems2[i];
+        if (dsitem1.clock !== dsitem2.clock || dsitem1.len !== dsitem2.len) {
+          return false;
+        }
+      }
+    }
+    return true;
+  };
+  var encodeSnapshotV2 = (snapshot2, encoder = new DSEncoderV2()) => {
+    writeDeleteSet(encoder, snapshot2.ds);
+    writeStateVector(encoder, snapshot2.sv);
+    return encoder.toUint8Array();
+  };
+  var encodeSnapshot = (snapshot2) => encodeSnapshotV2(snapshot2, new DSEncoderV1());
+  var decodeSnapshotV2 = (buf, decoder = new DSDecoderV2(createDecoder(buf))) => {
+    return new Snapshot(readDeleteSet(decoder), readStateVector(decoder));
+  };
+  var decodeSnapshot = (buf) => decodeSnapshotV2(buf, new DSDecoderV1(createDecoder(buf)));
   var createSnapshot = (ds, sm) => new Snapshot(ds, sm);
   var emptySnapshot = createSnapshot(createDeleteSet(), /* @__PURE__ */ new Map());
-  var isVisible = (item, snapshot) => snapshot === void 0 ? !item.deleted : snapshot.sv.has(item.id.client) && (snapshot.sv.get(item.id.client) || 0) > item.id.clock && !isDeleted(snapshot.ds, item.id);
-  var splitSnapshotAffectedStructs = (transaction, snapshot) => {
+  var snapshot = (doc2) => createSnapshot(createDeleteSetFromStructStore(doc2.store), getStateVector(doc2.store));
+  var isVisible = (item, snapshot2) => snapshot2 === void 0 ? !item.deleted : snapshot2.sv.has(item.id.client) && (snapshot2.sv.get(item.id.client) || 0) > item.id.clock && !isDeleted(snapshot2.ds, item.id);
+  var splitSnapshotAffectedStructs = (transaction, snapshot2) => {
     const meta = setIfUndefined(transaction.meta, splitSnapshotAffectedStructs, create2);
     const store = transaction.doc.store;
-    if (!meta.has(snapshot)) {
-      snapshot.sv.forEach((clock, client) => {
+    if (!meta.has(snapshot2)) {
+      snapshot2.sv.forEach((clock, client) => {
         if (clock < getState(store, client)) {
           getItemCleanStart(transaction, createID(client, clock));
         }
       });
-      iterateDeletedStructs(transaction, snapshot.ds, (_item) => {
+      iterateDeletedStructs(transaction, snapshot2.ds, (_item) => {
       });
-      meta.add(snapshot);
+      meta.add(snapshot2);
     }
   };
+  var createDocFromSnapshot = (originDoc, snapshot2, newDoc = new Doc()) => {
+    if (originDoc.gc) {
+      throw new Error("Garbage-collection must be disabled in `originDoc`!");
+    }
+    const { sv, ds } = snapshot2;
+    const encoder = new UpdateEncoderV2();
+    originDoc.transact((transaction) => {
+      let size2 = 0;
+      sv.forEach((clock) => {
+        if (clock > 0) {
+          size2++;
+        }
+      });
+      writeVarUint(encoder.restEncoder, size2);
+      for (const [client, clock] of sv) {
+        if (clock === 0) {
+          continue;
+        }
+        if (clock < getState(originDoc.store, client)) {
+          getItemCleanStart(transaction, createID(client, clock));
+        }
+        const structs = originDoc.store.clients.get(client) || [];
+        const lastStructIndex = findIndexSS(structs, clock - 1);
+        writeVarUint(encoder.restEncoder, lastStructIndex + 1);
+        encoder.writeClient(client);
+        writeVarUint(encoder.restEncoder, 0);
+        for (let i = 0; i <= lastStructIndex; i++) {
+          structs[i].write(encoder, 0);
+        }
+      }
+      writeDeleteSet(encoder, ds);
+    });
+    applyUpdateV2(newDoc, encoder.toUint8Array(), "snapshot");
+    return newDoc;
+  };
+  var snapshotContainsUpdateV2 = (snapshot2, update, YDecoder = UpdateDecoderV2) => {
+    const updateDecoder = new YDecoder(createDecoder(update));
+    const lazyDecoder = new LazyStructReader(updateDecoder, false);
+    for (let curr = lazyDecoder.curr; curr !== null; curr = lazyDecoder.next()) {
+      if ((snapshot2.sv.get(curr.id.client) || 0) < curr.id.clock + curr.length) {
+        return false;
+      }
+    }
+    const mergedDS = mergeDeleteSets([snapshot2.ds, readDeleteSet(updateDecoder)]);
+    return equalDeleteSets(snapshot2.ds, mergedDS);
+  };
+  var snapshotContainsUpdate = (snapshot2, update) => snapshotContainsUpdateV2(snapshot2, update, UpdateDecoderV1);
   var StructStore = class {
     constructor() {
       this.clients = /* @__PURE__ */ new Map();
@@ -2954,6 +4140,10 @@ ${err.toString()}`);
         }
       }
     });
+  };
+  var tryGc = (ds, store, gcFilter) => {
+    tryGcDeleteSet(ds, store, gcFilter);
+    tryMergeDeleteSet(ds, store);
   };
   var cleanupTransactions = (transactionCleanups, i) => {
     if (i < transactionCleanups.length) {
@@ -3403,6 +4593,493 @@ ${err.toString()}`);
       super.destroy();
     }
   };
+  function* lazyStructReaderGenerator(decoder) {
+    const numOfStateUpdates = readVarUint(decoder.restDecoder);
+    for (let i = 0; i < numOfStateUpdates; i++) {
+      const numberOfStructs = readVarUint(decoder.restDecoder);
+      const client = decoder.readClient();
+      let clock = readVarUint(decoder.restDecoder);
+      for (let i2 = 0; i2 < numberOfStructs; i2++) {
+        const info = decoder.readInfo();
+        if (info === 10) {
+          const len = readVarUint(decoder.restDecoder);
+          yield new Skip(createID(client, clock), len);
+          clock += len;
+        } else if ((BITS5 & info) !== 0) {
+          const cantCopyParentInfo = (info & (BIT7 | BIT8)) === 0;
+          const struct = new Item(
+            createID(client, clock),
+            null,
+            // left
+            (info & BIT8) === BIT8 ? decoder.readLeftID() : null,
+            // origin
+            null,
+            // right
+            (info & BIT7) === BIT7 ? decoder.readRightID() : null,
+            // right origin
+            // @ts-ignore Force writing a string here.
+            cantCopyParentInfo ? decoder.readParentInfo() ? decoder.readString() : decoder.readLeftID() : null,
+            // parent
+            cantCopyParentInfo && (info & BIT6) === BIT6 ? decoder.readString() : null,
+            // parentSub
+            readItemContent(decoder, info)
+            // item content
+          );
+          yield struct;
+          clock += struct.length;
+        } else {
+          const len = decoder.readLen();
+          yield new GC(createID(client, clock), len);
+          clock += len;
+        }
+      }
+    }
+  }
+  var LazyStructReader = class {
+    /**
+     * @param {UpdateDecoderV1 | UpdateDecoderV2} decoder
+     * @param {boolean} filterSkips
+     */
+    constructor(decoder, filterSkips) {
+      this.gen = lazyStructReaderGenerator(decoder);
+      this.curr = null;
+      this.done = false;
+      this.filterSkips = filterSkips;
+      this.next();
+    }
+    /**
+     * @return {Item | GC | Skip |null}
+     */
+    next() {
+      do {
+        this.curr = this.gen.next().value || null;
+      } while (this.filterSkips && this.curr !== null && this.curr.constructor === Skip);
+      return this.curr;
+    }
+  };
+  var logUpdate = (update) => logUpdateV2(update, UpdateDecoderV1);
+  var logUpdateV2 = (update, YDecoder = UpdateDecoderV2) => {
+    const structs = [];
+    const updateDecoder = new YDecoder(createDecoder(update));
+    const lazyDecoder = new LazyStructReader(updateDecoder, false);
+    for (let curr = lazyDecoder.curr; curr !== null; curr = lazyDecoder.next()) {
+      structs.push(curr);
+    }
+    print("Structs: ", structs);
+    const ds = readDeleteSet(updateDecoder);
+    print("DeleteSet: ", ds);
+  };
+  var decodeUpdate = (update) => decodeUpdateV2(update, UpdateDecoderV1);
+  var decodeUpdateV2 = (update, YDecoder = UpdateDecoderV2) => {
+    const structs = [];
+    const updateDecoder = new YDecoder(createDecoder(update));
+    const lazyDecoder = new LazyStructReader(updateDecoder, false);
+    for (let curr = lazyDecoder.curr; curr !== null; curr = lazyDecoder.next()) {
+      structs.push(curr);
+    }
+    return {
+      structs,
+      ds: readDeleteSet(updateDecoder)
+    };
+  };
+  var LazyStructWriter = class {
+    /**
+     * @param {UpdateEncoderV1 | UpdateEncoderV2} encoder
+     */
+    constructor(encoder) {
+      this.currClient = 0;
+      this.startClock = 0;
+      this.written = 0;
+      this.encoder = encoder;
+      this.clientStructs = [];
+    }
+  };
+  var mergeUpdates = (updates) => mergeUpdatesV2(updates, UpdateDecoderV1, UpdateEncoderV1);
+  var encodeStateVectorFromUpdateV2 = (update, YEncoder = DSEncoderV2, YDecoder = UpdateDecoderV2) => {
+    const encoder = new YEncoder();
+    const updateDecoder = new LazyStructReader(new YDecoder(createDecoder(update)), false);
+    let curr = updateDecoder.curr;
+    if (curr !== null) {
+      let size2 = 0;
+      let currClient = curr.id.client;
+      let stopCounting = curr.id.clock !== 0;
+      let currClock = stopCounting ? 0 : curr.id.clock + curr.length;
+      for (; curr !== null; curr = updateDecoder.next()) {
+        if (currClient !== curr.id.client) {
+          if (currClock !== 0) {
+            size2++;
+            writeVarUint(encoder.restEncoder, currClient);
+            writeVarUint(encoder.restEncoder, currClock);
+          }
+          currClient = curr.id.client;
+          currClock = 0;
+          stopCounting = curr.id.clock !== 0;
+        }
+        if (curr.constructor === Skip) {
+          stopCounting = true;
+        }
+        if (!stopCounting) {
+          currClock = curr.id.clock + curr.length;
+        }
+      }
+      if (currClock !== 0) {
+        size2++;
+        writeVarUint(encoder.restEncoder, currClient);
+        writeVarUint(encoder.restEncoder, currClock);
+      }
+      const enc = createEncoder();
+      writeVarUint(enc, size2);
+      writeBinaryEncoder(enc, encoder.restEncoder);
+      encoder.restEncoder = enc;
+      return encoder.toUint8Array();
+    } else {
+      writeVarUint(encoder.restEncoder, 0);
+      return encoder.toUint8Array();
+    }
+  };
+  var encodeStateVectorFromUpdate = (update) => encodeStateVectorFromUpdateV2(update, DSEncoderV1, UpdateDecoderV1);
+  var parseUpdateMetaV2 = (update, YDecoder = UpdateDecoderV2) => {
+    const from2 = /* @__PURE__ */ new Map();
+    const to = /* @__PURE__ */ new Map();
+    const updateDecoder = new LazyStructReader(new YDecoder(createDecoder(update)), false);
+    let curr = updateDecoder.curr;
+    if (curr !== null) {
+      let currClient = curr.id.client;
+      let currClock = curr.id.clock;
+      from2.set(currClient, currClock);
+      for (; curr !== null; curr = updateDecoder.next()) {
+        if (currClient !== curr.id.client) {
+          to.set(currClient, currClock);
+          from2.set(curr.id.client, curr.id.clock);
+          currClient = curr.id.client;
+        }
+        currClock = curr.id.clock + curr.length;
+      }
+      to.set(currClient, currClock);
+    }
+    return { from: from2, to };
+  };
+  var parseUpdateMeta = (update) => parseUpdateMetaV2(update, UpdateDecoderV1);
+  var sliceStruct = (left, diff) => {
+    if (left.constructor === GC) {
+      const { client, clock } = left.id;
+      return new GC(createID(client, clock + diff), left.length - diff);
+    } else if (left.constructor === Skip) {
+      const { client, clock } = left.id;
+      return new Skip(createID(client, clock + diff), left.length - diff);
+    } else {
+      const leftItem = (
+        /** @type {Item} */
+        left
+      );
+      const { client, clock } = leftItem.id;
+      return new Item(
+        createID(client, clock + diff),
+        null,
+        createID(client, clock + diff - 1),
+        null,
+        leftItem.rightOrigin,
+        leftItem.parent,
+        leftItem.parentSub,
+        leftItem.content.splice(diff)
+      );
+    }
+  };
+  var mergeUpdatesV2 = (updates, YDecoder = UpdateDecoderV2, YEncoder = UpdateEncoderV2) => {
+    if (updates.length === 1) {
+      return updates[0];
+    }
+    const updateDecoders = updates.map((update) => new YDecoder(createDecoder(update)));
+    let lazyStructDecoders = updateDecoders.map((decoder) => new LazyStructReader(decoder, true));
+    let currWrite = null;
+    const updateEncoder = new YEncoder();
+    const lazyStructEncoder = new LazyStructWriter(updateEncoder);
+    while (true) {
+      lazyStructDecoders = lazyStructDecoders.filter((dec) => dec.curr !== null);
+      lazyStructDecoders.sort(
+        /** @type {function(any,any):number} */
+        (dec1, dec2) => {
+          if (dec1.curr.id.client === dec2.curr.id.client) {
+            const clockDiff = dec1.curr.id.clock - dec2.curr.id.clock;
+            if (clockDiff === 0) {
+              return dec1.curr.constructor === dec2.curr.constructor ? 0 : dec1.curr.constructor === Skip ? 1 : -1;
+            } else {
+              return clockDiff;
+            }
+          } else {
+            return dec2.curr.id.client - dec1.curr.id.client;
+          }
+        }
+      );
+      if (lazyStructDecoders.length === 0) {
+        break;
+      }
+      const currDecoder = lazyStructDecoders[0];
+      const firstClient = (
+        /** @type {Item | GC} */
+        currDecoder.curr.id.client
+      );
+      if (currWrite !== null) {
+        let curr = (
+          /** @type {Item | GC | null} */
+          currDecoder.curr
+        );
+        let iterated = false;
+        while (curr !== null && curr.id.clock + curr.length <= currWrite.struct.id.clock + currWrite.struct.length && curr.id.client >= currWrite.struct.id.client) {
+          curr = currDecoder.next();
+          iterated = true;
+        }
+        if (curr === null || // current decoder is empty
+        curr.id.client !== firstClient || // check whether there is another decoder that has has updates from `firstClient`
+        iterated && curr.id.clock > currWrite.struct.id.clock + currWrite.struct.length) {
+          continue;
+        }
+        if (firstClient !== currWrite.struct.id.client) {
+          writeStructToLazyStructWriter(lazyStructEncoder, currWrite.struct, currWrite.offset);
+          currWrite = { struct: curr, offset: 0 };
+          currDecoder.next();
+        } else {
+          if (currWrite.struct.id.clock + currWrite.struct.length < curr.id.clock) {
+            if (currWrite.struct.constructor === Skip) {
+              currWrite.struct.length = curr.id.clock + curr.length - currWrite.struct.id.clock;
+            } else {
+              writeStructToLazyStructWriter(lazyStructEncoder, currWrite.struct, currWrite.offset);
+              const diff = curr.id.clock - currWrite.struct.id.clock - currWrite.struct.length;
+              const struct = new Skip(createID(firstClient, currWrite.struct.id.clock + currWrite.struct.length), diff);
+              currWrite = { struct, offset: 0 };
+            }
+          } else {
+            const diff = currWrite.struct.id.clock + currWrite.struct.length - curr.id.clock;
+            if (diff > 0) {
+              if (currWrite.struct.constructor === Skip) {
+                currWrite.struct.length -= diff;
+              } else {
+                curr = sliceStruct(curr, diff);
+              }
+            }
+            if (!currWrite.struct.mergeWith(
+              /** @type {any} */
+              curr
+            )) {
+              writeStructToLazyStructWriter(lazyStructEncoder, currWrite.struct, currWrite.offset);
+              currWrite = { struct: curr, offset: 0 };
+              currDecoder.next();
+            }
+          }
+        }
+      } else {
+        currWrite = { struct: (
+          /** @type {Item | GC} */
+          currDecoder.curr
+        ), offset: 0 };
+        currDecoder.next();
+      }
+      for (let next = currDecoder.curr; next !== null && next.id.client === firstClient && next.id.clock === currWrite.struct.id.clock + currWrite.struct.length && next.constructor !== Skip; next = currDecoder.next()) {
+        writeStructToLazyStructWriter(lazyStructEncoder, currWrite.struct, currWrite.offset);
+        currWrite = { struct: next, offset: 0 };
+      }
+    }
+    if (currWrite !== null) {
+      writeStructToLazyStructWriter(lazyStructEncoder, currWrite.struct, currWrite.offset);
+      currWrite = null;
+    }
+    finishLazyStructWriting(lazyStructEncoder);
+    const dss = updateDecoders.map((decoder) => readDeleteSet(decoder));
+    const ds = mergeDeleteSets(dss);
+    writeDeleteSet(updateEncoder, ds);
+    return updateEncoder.toUint8Array();
+  };
+  var diffUpdateV2 = (update, sv, YDecoder = UpdateDecoderV2, YEncoder = UpdateEncoderV2) => {
+    const state = decodeStateVector(sv);
+    const encoder = new YEncoder();
+    const lazyStructWriter = new LazyStructWriter(encoder);
+    const decoder = new YDecoder(createDecoder(update));
+    const reader = new LazyStructReader(decoder, false);
+    while (reader.curr) {
+      const curr = reader.curr;
+      const currClient = curr.id.client;
+      const svClock = state.get(currClient) || 0;
+      if (reader.curr.constructor === Skip) {
+        reader.next();
+        continue;
+      }
+      if (curr.id.clock + curr.length > svClock) {
+        writeStructToLazyStructWriter(lazyStructWriter, curr, max(svClock - curr.id.clock, 0));
+        reader.next();
+        while (reader.curr && reader.curr.id.client === currClient) {
+          writeStructToLazyStructWriter(lazyStructWriter, reader.curr, 0);
+          reader.next();
+        }
+      } else {
+        while (reader.curr && reader.curr.id.client === currClient && reader.curr.id.clock + reader.curr.length <= svClock) {
+          reader.next();
+        }
+      }
+    }
+    finishLazyStructWriting(lazyStructWriter);
+    const ds = readDeleteSet(decoder);
+    writeDeleteSet(encoder, ds);
+    return encoder.toUint8Array();
+  };
+  var diffUpdate = (update, sv) => diffUpdateV2(update, sv, UpdateDecoderV1, UpdateEncoderV1);
+  var flushLazyStructWriter = (lazyWriter) => {
+    if (lazyWriter.written > 0) {
+      lazyWriter.clientStructs.push({ written: lazyWriter.written, restEncoder: toUint8Array(lazyWriter.encoder.restEncoder) });
+      lazyWriter.encoder.restEncoder = createEncoder();
+      lazyWriter.written = 0;
+    }
+  };
+  var writeStructToLazyStructWriter = (lazyWriter, struct, offset) => {
+    if (lazyWriter.written > 0 && lazyWriter.currClient !== struct.id.client) {
+      flushLazyStructWriter(lazyWriter);
+    }
+    if (lazyWriter.written === 0) {
+      lazyWriter.currClient = struct.id.client;
+      lazyWriter.encoder.writeClient(struct.id.client);
+      writeVarUint(lazyWriter.encoder.restEncoder, struct.id.clock + offset);
+    }
+    struct.write(lazyWriter.encoder, offset);
+    lazyWriter.written++;
+  };
+  var finishLazyStructWriting = (lazyWriter) => {
+    flushLazyStructWriter(lazyWriter);
+    const restEncoder = lazyWriter.encoder.restEncoder;
+    writeVarUint(restEncoder, lazyWriter.clientStructs.length);
+    for (let i = 0; i < lazyWriter.clientStructs.length; i++) {
+      const partStructs = lazyWriter.clientStructs[i];
+      writeVarUint(restEncoder, partStructs.written);
+      writeUint8Array(restEncoder, partStructs.restEncoder);
+    }
+  };
+  var convertUpdateFormat = (update, blockTransformer, YDecoder, YEncoder) => {
+    const updateDecoder = new YDecoder(createDecoder(update));
+    const lazyDecoder = new LazyStructReader(updateDecoder, false);
+    const updateEncoder = new YEncoder();
+    const lazyWriter = new LazyStructWriter(updateEncoder);
+    for (let curr = lazyDecoder.curr; curr !== null; curr = lazyDecoder.next()) {
+      writeStructToLazyStructWriter(lazyWriter, blockTransformer(curr), 0);
+    }
+    finishLazyStructWriting(lazyWriter);
+    const ds = readDeleteSet(updateDecoder);
+    writeDeleteSet(updateEncoder, ds);
+    return updateEncoder.toUint8Array();
+  };
+  var createObfuscator = ({ formatting = true, subdocs = true, yxml = true } = {}) => {
+    let i = 0;
+    const mapKeyCache = create();
+    const nodeNameCache = create();
+    const formattingKeyCache = create();
+    const formattingValueCache = create();
+    formattingValueCache.set(null, null);
+    return (block) => {
+      switch (block.constructor) {
+        case GC:
+        case Skip:
+          return block;
+        case Item: {
+          const item = (
+            /** @type {Item} */
+            block
+          );
+          const content = item.content;
+          switch (content.constructor) {
+            case ContentDeleted:
+              break;
+            case ContentType: {
+              if (yxml) {
+                const type = (
+                  /** @type {ContentType} */
+                  content.type
+                );
+                if (type instanceof YXmlElement) {
+                  type.nodeName = setIfUndefined(nodeNameCache, type.nodeName, () => "node-" + i);
+                }
+                if (type instanceof YXmlHook) {
+                  type.hookName = setIfUndefined(nodeNameCache, type.hookName, () => "hook-" + i);
+                }
+              }
+              break;
+            }
+            case ContentAny: {
+              const c = (
+                /** @type {ContentAny} */
+                content
+              );
+              c.arr = c.arr.map(() => i);
+              break;
+            }
+            case ContentBinary: {
+              const c = (
+                /** @type {ContentBinary} */
+                content
+              );
+              c.content = new Uint8Array([i]);
+              break;
+            }
+            case ContentDoc: {
+              const c = (
+                /** @type {ContentDoc} */
+                content
+              );
+              if (subdocs) {
+                c.opts = {};
+                c.doc.guid = i + "";
+              }
+              break;
+            }
+            case ContentEmbed: {
+              const c = (
+                /** @type {ContentEmbed} */
+                content
+              );
+              c.embed = {};
+              break;
+            }
+            case ContentFormat: {
+              const c = (
+                /** @type {ContentFormat} */
+                content
+              );
+              if (formatting) {
+                c.key = setIfUndefined(formattingKeyCache, c.key, () => i + "");
+                c.value = setIfUndefined(formattingValueCache, c.value, () => ({ i }));
+              }
+              break;
+            }
+            case ContentJSON: {
+              const c = (
+                /** @type {ContentJSON} */
+                content
+              );
+              c.arr = c.arr.map(() => i);
+              break;
+            }
+            case ContentString: {
+              const c = (
+                /** @type {ContentString} */
+                content
+              );
+              c.str = repeat(i % 10 + "", c.str.length);
+              break;
+            }
+            default:
+              unexpectedCase();
+          }
+          if (item.parentSub) {
+            item.parentSub = setIfUndefined(mapKeyCache, item.parentSub, () => i + "");
+          }
+          i++;
+          return block;
+        }
+        default:
+          unexpectedCase();
+      }
+    };
+  };
+  var obfuscateUpdate = (update, opts) => convertUpdateFormat(update, createObfuscator(opts), UpdateDecoderV1, UpdateEncoderV1);
+  var obfuscateUpdateV2 = (update, opts) => convertUpdateFormat(update, createObfuscator(opts), UpdateDecoderV2, UpdateEncoderV2);
+  var convertUpdateFormatV1ToV2 = (update) => convertUpdateFormat(update, id, UpdateDecoderV1, UpdateEncoderV2);
+  var convertUpdateFormatV2ToV1 = (update) => convertUpdateFormat(update, id, UpdateDecoderV2, UpdateEncoderV1);
   var errorComputeChanges = "You must not compute changes after the event-handler fired.";
   var YEvent = class {
     /**
@@ -3729,6 +5406,17 @@ ${err.toString()}`);
       }
     }
   };
+  var getTypeChildren = (t) => {
+    var _a;
+    (_a = t.doc) != null ? _a : warnPrematureAccess();
+    let s = t._start;
+    const arr = [];
+    while (s) {
+      arr.push(s);
+      s = s.right;
+    }
+    return arr;
+  };
   var callTypeObservers = (type, transaction, event) => {
     const changedType = type;
     const changedParentTypes = transaction.changedParentTypes;
@@ -3894,6 +5582,20 @@ ${err.toString()}`);
     let n = type._start;
     while (n !== null) {
       if (n.countable && !n.deleted) {
+        const c = n.content.getContent();
+        for (let i = 0; i < c.length; i++) {
+          cs.push(c[i]);
+        }
+      }
+      n = n.right;
+    }
+    return cs;
+  };
+  var typeListToArraySnapshot = (type, snapshot2) => {
+    const cs = [];
+    let n = type._start;
+    while (n !== null) {
+      if (n.countable && isVisible(n, snapshot2)) {
         const c = n.content.getContent();
         for (let i = 0; i < c.length; i++) {
           cs.push(c[i]);
@@ -4193,14 +5895,21 @@ ${err.toString()}`);
     const val = parent._map.get(key);
     return val !== void 0 && !val.deleted;
   };
-  var typeMapGetAllSnapshot = (parent, snapshot) => {
+  var typeMapGetSnapshot = (parent, key, snapshot2) => {
+    let v = parent._map.get(key) || null;
+    while (v !== null && (!snapshot2.sv.has(v.id.client) || v.id.clock >= (snapshot2.sv.get(v.id.client) || 0))) {
+      v = v.left;
+    }
+    return v !== null && isVisible(v, snapshot2) ? v.content.getContent()[v.length - 1] : void 0;
+  };
+  var typeMapGetAllSnapshot = (parent, snapshot2) => {
     const res = {};
     parent._map.forEach((value, key) => {
       let v = value;
-      while (v !== null && (!snapshot.sv.has(v.id.client) || v.id.clock >= (snapshot.sv.get(v.id.client) || 0))) {
+      while (v !== null && (!snapshot2.sv.has(v.id.client) || v.id.clock >= (snapshot2.sv.get(v.id.client) || 0))) {
         v = v.left;
       }
-      if (v !== null && isVisible(v, snapshot)) {
+      if (v !== null && isVisible(v, snapshot2)) {
         res[key] = v.content.getContent()[v.length - 1];
       }
     });
@@ -4439,6 +6148,7 @@ ${err.toString()}`);
       encoder.writeTypeRef(YArrayRefID);
     }
   };
+  var readYArray = (_decoder) => new YArray();
   var YMapEvent = class extends YEvent {
     /**
      * @param {YMap<T>} ymap The YArray that changed.
@@ -4679,6 +6389,7 @@ ${err.toString()}`);
       encoder.writeTypeRef(YMapRefID);
     }
   };
+  var readYMap = (_decoder) => new YMap();
   var equalAttrs = (a, b) => a === b || typeof a === "object" && typeof b === "object" && a && b && equalFlat(a, b);
   var ItemTextListPosition = class {
     /**
@@ -5461,7 +7172,7 @@ ${err.toString()}`);
      *
      * @public
      */
-    toDelta(snapshot, prevSnapshot, computeYChange) {
+    toDelta(snapshot2, prevSnapshot, computeYChange) {
       var _a;
       (_a = this.doc) != null ? _a : warnPrematureAccess();
       const ops = [];
@@ -5490,11 +7201,11 @@ ${err.toString()}`);
       }
       const computeDelta = () => {
         while (n !== null) {
-          if (isVisible(n, snapshot) || prevSnapshot !== void 0 && isVisible(n, prevSnapshot)) {
+          if (isVisible(n, snapshot2) || prevSnapshot !== void 0 && isVisible(n, prevSnapshot)) {
             switch (n.content.constructor) {
               case ContentString: {
                 const cur = currentAttributes.get("ychange");
-                if (snapshot !== void 0 && !isVisible(n, snapshot)) {
+                if (snapshot2 !== void 0 && !isVisible(n, snapshot2)) {
                   if (cur === void 0 || cur.user !== n.id.client || cur.type !== "removed") {
                     packStr();
                     currentAttributes.set("ychange", computeYChange ? computeYChange("removed", n.id) : { type: "removed" });
@@ -5532,7 +7243,7 @@ ${err.toString()}`);
                 break;
               }
               case ContentFormat:
-                if (isVisible(n, snapshot)) {
+                if (isVisible(n, snapshot2)) {
                   packStr();
                   updateCurrentAttributes(
                     currentAttributes,
@@ -5547,10 +7258,10 @@ ${err.toString()}`);
         }
         packStr();
       };
-      if (snapshot || prevSnapshot) {
+      if (snapshot2 || prevSnapshot) {
         transact(doc2, (transaction) => {
-          if (snapshot) {
-            splitSnapshotAffectedStructs(transaction, snapshot);
+          if (snapshot2) {
+            splitSnapshotAffectedStructs(transaction, snapshot2);
           }
           if (prevSnapshot) {
             splitSnapshotAffectedStructs(transaction, prevSnapshot);
@@ -5734,6 +7445,7 @@ ${err.toString()}`);
       encoder.writeTypeRef(YTextRefID);
     }
   };
+  var readYText = (_decoder) => new YText();
   var YXmlTreeWalker = class {
     /**
      * @param {YXmlFragment | YXmlElement} root
@@ -6083,6 +7795,7 @@ ${err.toString()}`);
       encoder.writeTypeRef(YXmlFragmentRefID);
     }
   };
+  var readYXmlFragment = (_decoder) => new YXmlFragment();
   var YXmlElement = class _YXmlElement extends YXmlFragment {
     constructor(nodeName = "UNDEFINED") {
       super();
@@ -6257,10 +7970,10 @@ ${err.toString()}`);
      *
      * @public
      */
-    getAttributes(snapshot) {
+    getAttributes(snapshot2) {
       return (
         /** @type {any} */
-        snapshot ? typeMapGetAllSnapshot(this, snapshot) : typeMapGetAll(this)
+        snapshot2 ? typeMapGetAllSnapshot(this, snapshot2) : typeMapGetAll(this)
       );
     }
     /**
@@ -6308,6 +8021,7 @@ ${err.toString()}`);
       encoder.writeKey(this.nodeName);
     }
   };
+  var readYXmlElement = (decoder) => new YXmlElement(decoder.readKey());
   var YXmlEvent = class extends YEvent {
     /**
      * @param {YXmlElement|YXmlText|YXmlFragment} target The target on which the event is created.
@@ -6329,6 +8043,77 @@ ${err.toString()}`);
       });
     }
   };
+  var YXmlHook = class _YXmlHook extends YMap {
+    /**
+     * @param {string} hookName nodeName of the Dom Node.
+     */
+    constructor(hookName) {
+      super();
+      this.hookName = hookName;
+    }
+    /**
+     * Creates an Item with the same effect as this Item (without position effect)
+     */
+    _copy() {
+      return new _YXmlHook(this.hookName);
+    }
+    /**
+     * Makes a copy of this data type that can be included somewhere else.
+     *
+     * Note that the content is only readable _after_ it has been included somewhere in the Ydoc.
+     *
+     * @return {YXmlHook}
+     */
+    clone() {
+      const el = new _YXmlHook(this.hookName);
+      this.forEach((value, key) => {
+        el.set(key, value);
+      });
+      return el;
+    }
+    /**
+     * Creates a Dom Element that mirrors this YXmlElement.
+     *
+     * @param {Document} [_document=document] The document object (you must define
+     *                                        this when calling this method in
+     *                                        nodejs)
+     * @param {Object.<string, any>} [hooks] Optional property to customize how hooks
+     *                                             are presented in the DOM
+     * @param {any} [binding] You should not set this property. This is
+     *                               used if DomBinding wants to create a
+     *                               association to the created DOM type
+     * @return {Element} The {@link https://developer.mozilla.org/en-US/docs/Web/API/Element|Dom Element}
+     *
+     * @public
+     */
+    toDOM(_document = document, hooks = {}, binding) {
+      const hook = hooks[this.hookName];
+      let dom;
+      if (hook !== void 0) {
+        dom = hook.createDom(this);
+      } else {
+        dom = document.createElement(this.hookName);
+      }
+      dom.setAttribute("data-yjs-hook", this.hookName);
+      if (binding !== void 0) {
+        binding._createAssociation(dom, this);
+      }
+      return dom;
+    }
+    /**
+     * Transform the properties of this type to binary and write it to an
+     * BinaryEncoder.
+     *
+     * This is called when this Item is sent to a remote peer.
+     *
+     * @param {UpdateEncoderV1 | UpdateEncoderV2} encoder The encoder to write data to.
+     */
+    _write(encoder) {
+      encoder.writeTypeRef(YXmlHookRefID);
+      encoder.writeKey(this.hookName);
+    }
+  };
+  var readYXmlHook = (decoder) => new YXmlHook(decoder.readKey());
   var YXmlText = class _YXmlText extends YText {
     /**
      * @type {YXmlElement|YXmlText|null}
@@ -6431,6 +8216,7 @@ ${err.toString()}`);
       encoder.writeTypeRef(YXmlTextRefID);
     }
   };
+  var readYXmlText = (decoder) => new YXmlText();
   var AbstractStruct = class {
     /**
      * @param {ID} id
@@ -6593,6 +8379,7 @@ ${err.toString()}`);
       return 3;
     }
   };
+  var readContentBinary = (decoder) => new ContentBinary(decoder.readBuf());
   var ContentDeleted = class _ContentDeleted {
     /**
      * @param {number} len
@@ -6673,6 +8460,7 @@ ${err.toString()}`);
       return 1;
     }
   };
+  var readContentDeleted = (decoder) => new ContentDeleted(decoder.readLen());
   var createDocFromOpts = (guid, opts) => new Doc({ guid, ...opts, shouldLoad: opts.shouldLoad || opts.autoLoad || false });
   var ContentDoc = class _ContentDoc {
     /**
@@ -6774,6 +8562,7 @@ ${err.toString()}`);
       return 9;
     }
   };
+  var readContentDoc = (decoder) => new ContentDoc(createDocFromOpts(decoder.readString(), decoder.readAny()));
   var ContentEmbed = class _ContentEmbed {
     /**
      * @param {Object} embed
@@ -6849,6 +8638,7 @@ ${err.toString()}`);
       return 5;
     }
   };
+  var readContentEmbed = (decoder) => new ContentEmbed(decoder.readJSON());
   var ContentFormat = class _ContentFormat {
     /**
      * @param {string} key
@@ -6932,6 +8722,103 @@ ${err.toString()}`);
     getRef() {
       return 6;
     }
+  };
+  var readContentFormat = (decoder) => new ContentFormat(decoder.readKey(), decoder.readJSON());
+  var ContentJSON = class _ContentJSON {
+    /**
+     * @param {Array<any>} arr
+     */
+    constructor(arr) {
+      this.arr = arr;
+    }
+    /**
+     * @return {number}
+     */
+    getLength() {
+      return this.arr.length;
+    }
+    /**
+     * @return {Array<any>}
+     */
+    getContent() {
+      return this.arr;
+    }
+    /**
+     * @return {boolean}
+     */
+    isCountable() {
+      return true;
+    }
+    /**
+     * @return {ContentJSON}
+     */
+    copy() {
+      return new _ContentJSON(this.arr);
+    }
+    /**
+     * @param {number} offset
+     * @return {ContentJSON}
+     */
+    splice(offset) {
+      const right = new _ContentJSON(this.arr.slice(offset));
+      this.arr = this.arr.slice(0, offset);
+      return right;
+    }
+    /**
+     * @param {ContentJSON} right
+     * @return {boolean}
+     */
+    mergeWith(right) {
+      this.arr = this.arr.concat(right.arr);
+      return true;
+    }
+    /**
+     * @param {Transaction} transaction
+     * @param {Item} item
+     */
+    integrate(transaction, item) {
+    }
+    /**
+     * @param {Transaction} transaction
+     */
+    delete(transaction) {
+    }
+    /**
+     * @param {StructStore} store
+     */
+    gc(store) {
+    }
+    /**
+     * @param {UpdateEncoderV1 | UpdateEncoderV2} encoder
+     * @param {number} offset
+     */
+    write(encoder, offset) {
+      const len = this.arr.length;
+      encoder.writeLen(len - offset);
+      for (let i = offset; i < len; i++) {
+        const c = this.arr[i];
+        encoder.writeString(c === void 0 ? "undefined" : JSON.stringify(c));
+      }
+    }
+    /**
+     * @return {number}
+     */
+    getRef() {
+      return 2;
+    }
+  };
+  var readContentJSON = (decoder) => {
+    const len = decoder.readLen();
+    const cs = [];
+    for (let i = 0; i < len; i++) {
+      const c = decoder.readString();
+      if (c === "undefined") {
+        cs.push(void 0);
+      } else {
+        cs.push(JSON.parse(c));
+      }
+    }
+    return new ContentJSON(cs);
   };
   var isDevMode = getVariable("node_env") === "development";
   var ContentAny = class _ContentAny {
@@ -7018,6 +8905,14 @@ ${err.toString()}`);
       return 8;
     }
   };
+  var readContentAny = (decoder) => {
+    const len = decoder.readLen();
+    const cs = [];
+    for (let i = 0; i < len; i++) {
+      cs.push(decoder.readAny());
+    }
+    return new ContentAny(cs);
+  };
   var ContentString = class _ContentString {
     /**
      * @param {string} str
@@ -7101,11 +8996,22 @@ ${err.toString()}`);
       return 4;
     }
   };
+  var readContentString = (decoder) => new ContentString(decoder.readString());
+  var typeRefs = [
+    readYArray,
+    readYMap,
+    readYText,
+    readYXmlElement,
+    readYXmlFragment,
+    readYXmlHook,
+    readYXmlText
+  ];
   var YArrayRefID = 0;
   var YMapRefID = 1;
   var YTextRefID = 2;
   var YXmlElementRefID = 3;
   var YXmlFragmentRefID = 4;
+  var YXmlHookRefID = 5;
   var YXmlTextRefID = 6;
   var ContentType = class _ContentType {
     /**
@@ -7216,6 +9122,7 @@ ${err.toString()}`);
       return 7;
     }
   };
+  var readContentType = (decoder) => new ContentType(typeRefs[decoder.readTypeRef()](decoder));
   var followRedone = (store, id2) => {
     let nextID = id2;
     let diff = 0;
@@ -7728,6 +9635,77 @@ ${err.toString()}`);
       this.content.write(encoder, offset);
     }
   };
+  var readItemContent = (decoder, info) => contentRefs[info & BITS5](decoder);
+  var contentRefs = [
+    () => {
+      unexpectedCase();
+    },
+    // GC is not ItemContent
+    readContentDeleted,
+    // 1
+    readContentJSON,
+    // 2
+    readContentBinary,
+    // 3
+    readContentString,
+    // 4
+    readContentEmbed,
+    // 5
+    readContentFormat,
+    // 6
+    readContentType,
+    // 7
+    readContentAny,
+    // 8
+    readContentDoc,
+    // 9
+    () => {
+      unexpectedCase();
+    }
+    // 10 - Skip is not ItemContent
+  ];
+  var structSkipRefNumber = 10;
+  var Skip = class extends AbstractStruct {
+    get deleted() {
+      return true;
+    }
+    delete() {
+    }
+    /**
+     * @param {Skip} right
+     * @return {boolean}
+     */
+    mergeWith(right) {
+      if (this.constructor !== right.constructor) {
+        return false;
+      }
+      this.length += right.length;
+      return true;
+    }
+    /**
+     * @param {Transaction} transaction
+     * @param {number} offset
+     */
+    integrate(transaction, offset) {
+      unexpectedCase();
+    }
+    /**
+     * @param {UpdateEncoderV1 | UpdateEncoderV2} encoder
+     * @param {number} offset
+     */
+    write(encoder, offset) {
+      encoder.writeInfo(structSkipRefNumber);
+      writeVarUint(encoder.restEncoder, this.length - offset);
+    }
+    /**
+     * @param {Transaction} transaction
+     * @param {StructStore} store
+     * @return {null | number}
+     */
+    getMissing(transaction, store) {
+      return null;
+    }
+  };
   var glo = (
     /** @type {any} */
     typeof globalThis !== "undefined" ? globalThis : typeof window !== "undefined" ? window : typeof global !== "undefined" ? global : {}
@@ -7830,49 +9808,6 @@ ${err.toString()}`);
 
   // src/render.ts
   var HTML_NS = "http://www.w3.org/1999/xhtml";
-  // --- dual-Yjs interop (CRITICAL) -------------------------------------------
-  // crdt-engine bundles its own copy of Yjs, but the app supplies the Y.Doc
-  // (and provider) from a SEPARATE Yjs instance (CDN UMD/ESM). Inserting nodes
-  // built with the bundled Yjs classes into the app's doc throws
-  // "Unexpected content type in insert operation", and reading app-built remote
-  // nodes via `instanceof <bundled class>` silently fails. We therefore:
-  //   (a) construct nodes with the APP's Yjs constructors (resolved at attach),
-  //   (b) detect node kinds by duck-typing instead of instanceof.
-  var __appXmlText = null;
-  var __appXmlElement = null;
-  function setAppYjs(Y) {
-    if (Y && typeof Y.XmlText === "function" && typeof Y.XmlElement === "function") {
-      __appXmlText = Y.XmlText;
-      __appXmlElement = Y.XmlElement;
-      return true;
-    }
-    return false;
-  }
-  function resolveAppYjs(options) {
-    if (options && setAppYjs(options.Y)) return;
-    if (typeof window !== "undefined" && setAppYjs(window.Y)) return;
-    // Fallback: bundled classes (only correct when the app's doc was created
-    // from this same bundled Yjs, e.g. RichTextEditorCrdt.Y).
-    __appXmlText = YXmlText;
-    __appXmlElement = YXmlElement;
-  }
-  function mkYText(s) {
-    return new (__appXmlText || YXmlText)(s);
-  }
-  function mkYElement(tag) {
-    return new (__appXmlElement || YXmlElement)(tag);
-  }
-  function isYXmlElementLike(n) {
-    return !!n && typeof n.nodeName === "string" && typeof n.getAttributes === "function";
-  }
-  function isYXmlTextLike(n) {
-    return !!n && typeof n.toDelta === "function" && typeof n.nodeName !== "string";
-  }
-  function hostHasMeaningfulContent(host) {
-    if (!host) return false;
-    if (host.textContent && host.textContent.trim().length > 0) return true;
-    return !!host.querySelector && !!host.querySelector("img,table,hr,video,iframe,figure,ul,ol,blockquote,pre");
-  }
   function renderFragmentToHost(fragment, host) {
     while (host.firstChild) {
       host.removeChild(host.firstChild);
@@ -7891,10 +9826,10 @@ ${err.toString()}`);
     }
   }
   function renderYNodeToDom(node, doc2) {
-    if (isYXmlTextLike(node)) {
+    if (node instanceof YXmlText) {
       return renderYTextToDom(node, doc2);
     }
-    if (isYXmlElementLike(node)) {
+    if (node instanceof YXmlElement) {
       return renderYElementToDom(node, doc2);
     }
     return null;
@@ -8188,11 +10123,11 @@ ${err.toString()}`);
     for (let i = 0; i < path.length - 1; i++) {
       const idx = path[i];
       const child = cursor.get(idx);
-      if (!isYXmlElementLike(child)) return null;
+      if (!(child instanceof YXmlElement)) return null;
       cursor = child;
     }
     const last2 = cursor.get(path[path.length - 1]);
-    if (isYXmlTextLike(last2)) return last2;
+    if (last2 instanceof YXmlText) return last2;
     return null;
   }
   function locateYElement(domEl, opts) {
@@ -8201,10 +10136,10 @@ ${err.toString()}`);
     let cursor = opts.fragment;
     for (const idx of path) {
       const child = cursor.get(idx);
-      if (!isYXmlElementLike(child)) return null;
+      if (!(child instanceof YXmlElement)) return null;
       cursor = child;
     }
-    return isYXmlElementLike(cursor) ? cursor : null;
+    return cursor instanceof YXmlElement ? cursor : null;
   }
   function pathFromHost2(host, target) {
     const path = [];
@@ -8254,7 +10189,7 @@ ${err.toString()}`);
   }
   function buildYNodeFromDomChild(node) {
     if (node.nodeType === 3) {
-      const t = mkYText(node.data);
+      const t = new YXmlText(node.data);
       return { node: t, marked: [] };
     }
     if (node.nodeType !== 1) return null;
@@ -8262,7 +10197,7 @@ ${err.toString()}`);
     const tag = el.tagName.toLowerCase();
     const kind = classify(tag);
     if (kind === "mark") return null;
-    const yel = mkYElement(tag);
+    const yel = new YXmlElement(tag);
     for (const attr of Array.from(el.attributes)) {
       yel.setAttribute(attr.name, attr.value);
     }
@@ -8281,7 +10216,7 @@ ${err.toString()}`);
     let buffer = null;
     const flushText = () => {
       if (buffer && buffer.str.length > 0) {
-        const yt = mkYText(buffer.str);
+        const yt = new YXmlText(buffer.str);
         result.children.push(yt);
         if (buffer.ranges.length > 0) {
           result.marked.push({ text: yt, ranges: buffer.ranges });
@@ -8313,7 +10248,7 @@ ${err.toString()}`);
       }
       flushText();
       if (kind === "leaf") {
-        const leaf = mkYElement(tag);
+        const leaf = new YXmlElement(tag);
         for (const attr of Array.from(el.attributes)) {
           leaf.setAttribute(attr.name, attr.value);
         }
@@ -8437,7 +10372,6 @@ ${err.toString()}`);
   // src/binding.ts
   function attachCrdtBinding(options) {
     var _a, _b, _c;
-    resolveAppYjs(options);
     const fragmentName = (_a = options.fragmentName) != null ? _a : "default";
     const fragment = options.ydoc.getXmlFragment(fragmentName);
     const awareness = (_c = options.awareness) != null ? _c : (_b = options.provider) == null ? void 0 : _b.awareness;
@@ -8447,74 +10381,14 @@ ${err.toString()}`);
       fragment,
       isApplyingRemote: () => applyingRemote
     });
-    // Initial reconciliation (provider/seed aware). Without this, attaching to
-    // an EMPTY shared doc renders the empty fragment over the editor, silently
-    // WIPING any existing content. Instead: if the shared doc already has
-    // content, render it (remote wins); if it's empty but this editor has
-    // content, SEED the shared doc from it (first writer); otherwise normalize.
-    // Gated on provider sync so we never seed over not-yet-synced remote state.
-    const hostHadContent = hostHasMeaningfulContent(options.editable);
-    let reconciled = false;
-    let syncTimer = null;
-    const reconcileInitial = () => {
-      if (reconciled) return;
-      reconciled = true;
-      if (syncTimer != null) {
-        try {
-          clearTimeout(syncTimer);
-        } catch (e) {
-        }
-        syncTimer = null;
-      }
-      applyingRemote = true;
-      try {
-        if (fragment.length > 0) {
-          renderFragmentToHost(fragment, options.editable);
-        } else if (hostHadContent && options.seedFromHost !== false) {
-          const seedDoc = fragment.doc;
-          if (seedDoc) {
-            seedDoc.transact(() => rebuildFragmentFromEditable({ editable: options.editable, fragment }), LOCAL_ORIGIN);
-          }
-        } else {
-          renderFragmentToHost(fragment, options.editable);
-        }
-      } finally {
-        observerHandle.drainPending();
-        applyingRemote = false;
-      }
-    };
-    let unsubscribeSync = () => {
-    };
     applyingRemote = true;
-    const _provider = options.provider;
-    if (_provider && _provider.synced === true) {
-      reconcileInitial();
-    } else if (_provider && typeof _provider.on === "function") {
-      const onSync = (state) => {
-        if (state === void 0 || state) reconcileInitial();
-      };
-      _provider.on("sync", onSync);
-      _provider.on("synced", onSync);
-      unsubscribeSync = () => {
-        try {
-          if (typeof _provider.off === "function") {
-            _provider.off("sync", onSync);
-            _provider.off("synced", onSync);
-          }
-        } catch (e) {
-        }
-      };
-      if (typeof setTimeout === "function") {
-        syncTimer = setTimeout(reconcileInitial, 3e3);
-      } else {
-        reconcileInitial();
-      }
-    } else {
-      reconcileInitial();
+    try {
+      renderFragmentToHost(fragment, options.editable);
+    } finally {
+      observerHandle.drainPending();
+      applyingRemote = false;
     }
     const onUpdate = (_update, origin) => {
-      if (!reconciled) return;
-      if (origin === LOCAL_ORIGIN) return;
       if (origin === LOCAL_ORIGIN) return;
       const captured = captureSelection(options.editable);
       applyingRemote = true;
@@ -8532,7 +10406,7 @@ ${err.toString()}`);
     };
     const unsubscribeLocal = () => observerHandle.disconnect();
     const unsubscribeAwareness = subscribeAwarenessStub(awareness, options.initialAwareness);
-    let cleanups = [unsubscribeRemote, unsubscribeLocal, unsubscribeAwareness, unsubscribeSync];
+    let cleanups = [unsubscribeRemote, unsubscribeLocal, unsubscribeAwareness];
     return {
       ydoc: options.ydoc,
       fragment,
@@ -8898,8 +10772,137 @@ ${err.toString()}`);
     return fragment;
   }
 
+  // node_modules/y-protocols/awareness.js
+  var outdatedTimeout = 3e4;
+  var Awareness = class extends Observable {
+    /**
+     * @param {Y.Doc} doc
+     */
+    constructor(doc2) {
+      super();
+      this.doc = doc2;
+      this.clientID = doc2.clientID;
+      this.states = /* @__PURE__ */ new Map();
+      this.meta = /* @__PURE__ */ new Map();
+      this._checkInterval = /** @type {any} */
+      setInterval(() => {
+        const now = getUnixTime();
+        if (this.getLocalState() !== null && outdatedTimeout / 2 <= now - /** @type {{lastUpdated:number}} */
+        this.meta.get(this.clientID).lastUpdated) {
+          this.setLocalState(this.getLocalState());
+        }
+        const remove = [];
+        this.meta.forEach((meta, clientid) => {
+          if (clientid !== this.clientID && outdatedTimeout <= now - meta.lastUpdated && this.states.has(clientid)) {
+            remove.push(clientid);
+          }
+        });
+        if (remove.length > 0) {
+          removeAwarenessStates(this, remove, "timeout");
+        }
+      }, floor(outdatedTimeout / 10));
+      doc2.on("destroy", () => {
+        this.destroy();
+      });
+      this.setLocalState({});
+    }
+    destroy() {
+      this.emit("destroy", [this]);
+      this.setLocalState(null);
+      super.destroy();
+      clearInterval(this._checkInterval);
+    }
+    /**
+     * @return {Object<string,any>|null}
+     */
+    getLocalState() {
+      return this.states.get(this.clientID) || null;
+    }
+    /**
+     * @param {Object<string,any>|null} state
+     */
+    setLocalState(state) {
+      const clientID = this.clientID;
+      const currLocalMeta = this.meta.get(clientID);
+      const clock = currLocalMeta === void 0 ? 0 : currLocalMeta.clock + 1;
+      const prevState = this.states.get(clientID);
+      if (state === null) {
+        this.states.delete(clientID);
+      } else {
+        this.states.set(clientID, state);
+      }
+      this.meta.set(clientID, {
+        clock,
+        lastUpdated: getUnixTime()
+      });
+      const added = [];
+      const updated = [];
+      const filteredUpdated = [];
+      const removed = [];
+      if (state === null) {
+        removed.push(clientID);
+      } else if (prevState == null) {
+        if (state != null) {
+          added.push(clientID);
+        }
+      } else {
+        updated.push(clientID);
+        if (!equalityDeep(prevState, state)) {
+          filteredUpdated.push(clientID);
+        }
+      }
+      if (added.length > 0 || filteredUpdated.length > 0 || removed.length > 0) {
+        this.emit("change", [{ added, updated: filteredUpdated, removed }, "local"]);
+      }
+      this.emit("update", [{ added, updated, removed }, "local"]);
+    }
+    /**
+     * @param {string} field
+     * @param {any} value
+     */
+    setLocalStateField(field, value) {
+      const state = this.getLocalState();
+      if (state !== null) {
+        this.setLocalState({
+          ...state,
+          [field]: value
+        });
+      }
+    }
+    /**
+     * @return {Map<number,Object<string,any>>}
+     */
+    getStates() {
+      return this.states;
+    }
+  };
+  var removeAwarenessStates = (awareness, clients, origin) => {
+    const removed = [];
+    for (let i = 0; i < clients.length; i++) {
+      const clientID = clients[i];
+      if (awareness.states.has(clientID)) {
+        awareness.states.delete(clientID);
+        if (clientID === awareness.clientID) {
+          const curMeta = (
+            /** @type {MetaClientState} */
+            awareness.meta.get(clientID)
+          );
+          awareness.meta.set(clientID, {
+            clock: curMeta.clock + 1,
+            lastUpdated: getUnixTime()
+          });
+        }
+        removed.push(clientID);
+      }
+    }
+    if (removed.length > 0) {
+      awareness.emit("change", [{ added: [], updated: [], removed }, origin]);
+      awareness.emit("update", [{ added: [], updated: [], removed }, origin]);
+    }
+  };
+
   // src/global-shim.ts
   if (typeof window !== "undefined") {
-    window.RichTextEditorCrdt = src_exports;
+    window.RichTextEditorCrdt = Object.assign({}, index_exports, { Y: yjs_exports, Awareness });
   }
 })();
