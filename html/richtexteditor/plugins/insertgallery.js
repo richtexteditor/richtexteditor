@@ -231,6 +231,15 @@ function RTE_Plugin_InsertGallery() {
 
         var browser = append(dialoginner, "div", "", "rte-gallery-browser");
 
+        // Exactly what the upload endpoint accepts, and nothing more. The file
+        // picker used to advertise "image/*,...,.svg", so it offered files the
+        // server then rejected with "Invalid file extension" and the user had no
+        // way to know the real list until after the failure. Declared here
+        // because both the header hint and the file input read it.
+        // SVG is excluded on purpose: it can carry script, so it is not a safe
+        // thing to store and serve back from our own origin.
+        var GALLERY_ACCEPT = [".jpg", ".jpeg", ".jfif", ".png", ".gif", ".webp", ".bmp", ".avif"];
+
         // The dialog frame already draws a title bar and close button, so this is
         // a one-line subtitle, not a second heading.
         var header = append(browser, "div", "", "rte-dialog-browser-header");
@@ -238,6 +247,12 @@ function RTE_Plugin_InsertGallery() {
         copy.innerText = serverMode
             ? "Browse folders, upload new files, and insert the selected image into the editor."
             : "Browse the available images, filter by name, and insert the selected image into the editor.";
+
+        // State the accepted formats up front. Previously the only way to learn
+        // them was to pick an unsupported file and read "Invalid file extension".
+        var acceptHint = append(header, "div", "", "rte-dialog-browser-accept");
+        acceptHint.innerText = "Accepted formats: " +
+            GALLERY_ACCEPT.map(function (ext) { return ext.replace(".", "").toUpperCase(); }).join(", ");
 
         var toolbar = append(browser, "div", "", "rte-gallery-browser-toolbar");
         var toolbarLeft = append(toolbar, "div", "", "rte-gallery-browser-toolbar-group");
@@ -273,7 +288,7 @@ function RTE_Plugin_InsertGallery() {
 
         var fileInput = append(toolbarRight, "input", "display:none;");
         fileInput.type = "file";
-        fileInput.accept = "image/*,.jpg,.jpeg,.png,.gif,.bmp,.webp,.svg";
+        fileInput.accept = GALLERY_ACCEPT.join(",");
         fileInput.multiple = true;
 
         // Without a server there is no folder tree to walk and nothing to create
@@ -298,6 +313,12 @@ function RTE_Plugin_InsertGallery() {
         var grid = append(surface, "div", "", "rte-gallery-browser-grid");
         grid.setAttribute("role", "listbox");
         grid.setAttribute("aria-label", "Available images");
+
+        // Non-blocking failure notice. Sits above the grid instead of replacing
+        // it, so a rejected upload never hides the images you can still pick.
+        var errorBar = append(surface, "div", "", "rte-gallery-browser-error");
+        errorBar.setAttribute("role", "status");
+        show(errorBar, false);
 
         var empty = append(surface, "div", "", "rte-gallery-browser-empty");
 
@@ -341,6 +362,9 @@ function RTE_Plugin_InsertGallery() {
 
         function setSelected(url) {
             state.selectedUrl = url || "";
+            // Picking an image is a fresh action, so a stale failure notice from
+            // an earlier upload must not linger next to it.
+            state.error = "";
             render();
         }
 
@@ -494,12 +518,16 @@ function RTE_Plugin_InsertGallery() {
                 return;
             }
 
+            // An upload failure must not wipe the browser. It used to replace the
+            // whole grid, so one rejected file left the dialog reading "0 items"
+            // with an error where the images should be - while the footer still
+            // said the previously selected image was ready to insert. Two panels
+            // contradicting each other. Show it as a banner and keep browsing.
             if (state.error) {
-                empty.innerText = state.error;
-                show(empty, true);
-                show(grid, false);
-                updateStatus(0, 0);
-                return;
+                errorBar.innerText = state.error;
+                show(errorBar, true);
+            } else {
+                show(errorBar, false);
             }
 
             for (var folderIndex = 0; folderIndex < visibleFolders.length; folderIndex++) {

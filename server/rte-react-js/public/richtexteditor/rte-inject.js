@@ -327,7 +327,7 @@ function ValidateLicense() {
 		if (lictype == "-4") {
 			var __licdomain = "";
 			try { __licdomain = "&domain=" + encodeURIComponent(location.hostname || ""); } catch (e) { }
-			__licconsolewarn("This is a trial license and it will expire on   " + lcdate.toLocaleDateString() + ". License this domain (perpetual, from $129): https://richtexteditor.com/pricing?from=trial" + __licdomain + "  -  or get the free community version: https://richtexteditor.com/download?from=trial");
+			__licconsolewarn("This is a trial license. License this domain (perpetual, from $129): https://richtexteditor.com/pricing?from=trial" + __licdomain + "  -  or get the free community version: https://richtexteditor.com/download?from=trial");
 		}
 		return;// -1:Community,-4:Trial
 	}
