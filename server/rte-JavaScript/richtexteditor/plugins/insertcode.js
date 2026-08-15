@@ -248,6 +248,29 @@ function RTE_Plugin_InsertCode() {
 
 	obj.DoShowDialog = function () {
 
+		// Capture the caret BEFORE the dialog opens. The dialog focuses its own
+		// textarea, which clears the editor's selection - so by the time Insert
+		// is clicked there is no caret left to insert at, and the code block was
+		// appended as a new root paragraph instead of landing where the user was
+		// typing. Same failure mode as the 2026-05-08 image-upload fix in core.
+		var savedRange = null;
+		try {
+			var edoc = editor.getDocument();
+			var esel = edoc.defaultView.getSelection();
+			if (esel && esel.rangeCount) savedRange = esel.getRangeAt(0).cloneRange();
+		} catch (e) { savedRange = null; }
+
+		function restoreCaret() {
+			if (!savedRange) return false;
+			try {
+				var edoc = editor.getDocument();
+				var esel = edoc.defaultView.getSelection();
+				esel.removeAllRanges();
+				esel.addRange(savedRange);
+				return true;
+			} catch (e) { return false; }
+		}
+
 		var dialoginner = editor.createDialog(editor.getLangText("insertcode"), "rte-dialog-insertcode");
 
 		var div2 = __Append(dialoginner, "div", "position:relative;text-align:center;");
@@ -300,12 +323,23 @@ function RTE_Plugin_InsertCode() {
 
 				var tag = textarea.previousSibling
 
-				var p = editor.insertRootParagraph()
-				p.innerHTML = '<div class="dp-highlighter">' + tag.innerHTML + "</div>";
+				// insertHTML honours the caret; insertRootParagraph always
+				// appended at document level, which is why the block never
+				// landed at the focus position.
+				if (restoreCaret()) {
+					editor.insertHTML('<div class="dp-highlighter">' + tag.innerHTML + "</div>");
+				} else {
+					var p = editor.insertRootParagraph();
+					p.innerHTML = '<div class="dp-highlighter">' + tag.innerHTML + "</div>";
+				}
 			}
 			else {
-				var p = editor.insertRootParagraph()
-				p.innerText = textarea.value;
+				if (restoreCaret()) {
+					editor.insertText(textarea.value);
+				} else {
+					var p = editor.insertRootParagraph();
+					p.innerText = textarea.value;
+				}
 			}
 
 			editor.focus();

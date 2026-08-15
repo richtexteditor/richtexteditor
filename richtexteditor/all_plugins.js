@@ -28123,7 +28123,22 @@ function RTE_Plugin_ImageEditor() {
 		return tag;
 	}
 	
-	function dataURLToBlob(dataurl) {
+	var MIME_EXTENSION = {
+		"image/png": ".png",
+		"image/jpeg": ".jpg",
+		"image/jpg": ".jpg",
+		"image/webp": ".webp",
+		"image/gif": ".gif",
+		"image/bmp": ".bmp",
+		"image/avif": ".avif"
+	};
+
+	// Returns a File, not a bare Blob. Upload handlers identify the file by its
+	// .name - a Blob has none, so the edited image was posted with an undefined
+	// name and every server rejected it ("Invalid file extension"), surfacing as
+	// "Upload failed. Check your connection and try again." when the network was
+	// perfectly fine.
+	function dataURLToBlob(dataurl, filename) {
 		var arr = dataurl.split(',');
 		var mime = arr[0].match(/:(.*?);/)[1];
 		var bstr = atob(arr[1]);
@@ -28132,7 +28147,16 @@ function RTE_Plugin_ImageEditor() {
 		while (n--) {
 			u8arr[n] = bstr.charCodeAt(n);
 		}
-		return new Blob([u8arr], { type: mime });
+		var name = filename || ("image-" + new Date().getTime() + (MIME_EXTENSION[mime] || ".png"));
+		try {
+			return new File([u8arr], name, { type: mime });
+		} catch (e) {
+			// Very old browsers have no File constructor. Keep the name reachable
+			// so a handler reading file.name still works.
+			var blob = new Blob([u8arr], { type: mime });
+			blob.name = name;
+			return blob;
+		}
 	}
 
 	obj.DoImageEditor = function () {
@@ -28239,8 +28263,11 @@ function RTE_Plugin_ImageEditor() {
 					}
 					savebtn.disabled = false;
 					savebtn.innerText = "Save";
+					// Show what the server actually said. Blaming the connection sent
+					// people chasing a network problem when the real answer was a
+					// rejected file type or a size limit.
 					status.innerText = error
-						? "Upload failed. Check your connection and try again."
+						? ("Upload failed: " + error)
 						: "The upload did not return a file URL. Please try again.";
 				});
 
@@ -28518,6 +28545,29 @@ function RTE_Plugin_InsertCode() {
 
 	obj.DoShowDialog = function () {
 
+		// Capture the caret BEFORE the dialog opens. The dialog focuses its own
+		// textarea, which clears the editor's selection - so by the time Insert
+		// is clicked there is no caret left to insert at, and the code block was
+		// appended as a new root paragraph instead of landing where the user was
+		// typing. Same failure mode as the 2026-05-08 image-upload fix in core.
+		var savedRange = null;
+		try {
+			var edoc = editor.getDocument();
+			var esel = edoc.defaultView.getSelection();
+			if (esel && esel.rangeCount) savedRange = esel.getRangeAt(0).cloneRange();
+		} catch (e) { savedRange = null; }
+
+		function restoreCaret() {
+			if (!savedRange) return false;
+			try {
+				var edoc = editor.getDocument();
+				var esel = edoc.defaultView.getSelection();
+				esel.removeAllRanges();
+				esel.addRange(savedRange);
+				return true;
+			} catch (e) { return false; }
+		}
+
 		var dialoginner = editor.createDialog(editor.getLangText("insertcode"), "rte-dialog-insertcode");
 
 		var div2 = __Append(dialoginner, "div", "position:relative;text-align:center;");
@@ -28570,12 +28620,23 @@ function RTE_Plugin_InsertCode() {
 
 				var tag = textarea.previousSibling
 
-				var p = editor.insertRootParagraph()
-				p.innerHTML = '<div class="dp-highlighter">' + tag.innerHTML + "</div>";
+				// insertHTML honours the caret; insertRootParagraph always
+				// appended at document level, which is why the block never
+				// landed at the focus position.
+				if (restoreCaret()) {
+					editor.insertHTML('<div class="dp-highlighter">' + tag.innerHTML + "</div>");
+				} else {
+					var p = editor.insertRootParagraph();
+					p.innerHTML = '<div class="dp-highlighter">' + tag.innerHTML + "</div>";
+				}
 			}
 			else {
-				var p = editor.insertRootParagraph()
-				p.innerText = textarea.value;
+				if (restoreCaret()) {
+					editor.insertText(textarea.value);
+				} else {
+					var p = editor.insertRootParagraph();
+					p.innerText = textarea.value;
+				}
 			}
 
 			editor.focus();
@@ -35428,6 +35489,11 @@ function RTE_Plugin_RevisionHistory() {
     }
 
     function restore(id, opts) {
+        // The dialog's own Restore button calls restore(id) with no options, so
+        // reading opts.skipConfirm threw and the button did nothing at all. The
+        // public API wrapper defaulted this, the internal caller did not - so
+        // default it here, where every caller is covered.
+        opts = opts || {};
         var entry = findById(id);
         if (!entry) return false;
         if (!opts.skipConfirm) {
