@@ -287,7 +287,7 @@ rte-codebox {
        (rte-dropdown-panel) are absolutely positioned children of this element,
        so clipping here cut off any panel anchored near the right edge: Line
        Height rendered only the "1" of "100%", Paragraphs and Document Outline
-       lost 91px. Corner rounding does not depend on this clip - the toolbar and
+       lost 91px. Corner rounding does not depend on this clip — the toolbar and
        status bar round their own corners (see the rule below). */
     overflow: visible;
     background-clip: padding-box;
@@ -329,6 +329,20 @@ rte-bottom {
     user-select: none;
     min-height: 35px;
     background-color: #fff;
+    /* WCAG 1.4.10 Reflow: this is a flex row (word count, tag list, "powered by",
+       resize grip). At 320px it was nowrap with non-shrinking children, so the
+       row's contents ran past the editor AND past the viewport — measured on the
+       live home page: document scrollWidth 349 against a 320 viewport, with
+       rte-powerby ending at 333 and rte-resizecorner at 349. Horizontal page
+       scrolling at 320px is exactly what 1.4.10 prohibits.
+       Wrapping the row keeps every control reachable instead of clipping it. */
+    flex-wrap: wrap;
+}
+
+/* Flex children default to min-width:auto, which refuses to shrink below their
+   content and is what pushed the row wide in the first place. */
+rte-bottom > * {
+    min-width: 0;
 }
 
 .rte-modern rte-plusbtn rte-toolbar-button {
@@ -1999,6 +2013,21 @@ rte-menuspliter {
     margin: 3px 0px 3px 28px;
 }
 
+/* The panel is shrink-to-fit, so its width is decided by its widest preview —
+   "Headline 1" at 32px — and measured 187px of text inside 187px of space:
+   ZERO tolerance. Whenever the font used at layout time is a hair narrower than
+   the one finally painted (a fallback still in place during a webfont swap, a
+   different platform's metrics), the label overflows and the last character is
+   cut off. Reported from the wild with "Headline 1" clipped.
+
+   A min-width gives the panel slack that does not depend on font metrics
+   matching to the pixel; the previews are nowrap, so slack is the only thing
+   that can absorb the variance. */
+.rte-dropdown-panel.rte_command_paragraphs,
+rte-dropdown-panel.rte_command_paragraphs {
+    min-width: 292px;
+}
+
 .rte_command_paragraphs rte-toolbar-dropdown-item div {
     font-size: 15px;
     margin: 0px;
@@ -2597,6 +2626,25 @@ rte-content::-webkit-scrollbar-thumb:hover {
     flex-wrap: wrap;
 }
 
+/* The toolbar is a flex row whose children are these two groups. Without a
+   display on the groups themselves the buttons stack vertically and the row
+   collapses to the width of its widest label — which is exactly what shipped
+   when these rules went missing. */
+.rte-gallery-browser-toolbar-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+}
+
+.rte-gallery-browser-toolbar-group-right {
+    flex: 0 1 auto;
+    justify-content: flex-end;
+    margin-left: auto;
+}
+
 .rte-gallery-browser-button {
     border: 1px solid rgba(116, 135, 162, 0.28);
     border-radius: 999px;
@@ -2729,6 +2777,44 @@ rte-content::-webkit-scrollbar-thumb:hover {
     border-radius: 12px;
     background: linear-gradient(180deg, #ffffff 0%, #f3f7fc 100%);
     overflow: hidden;
+}
+
+/* Folders sit in their own container above the image listbox, so the two are
+   separated by a rule rather than running together in one grid. */
+.rte-gallery-browser-grid-folders {
+    margin-bottom: 14px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid rgba(116, 135, 162, 0.16);
+}
+
+/* Folder tiles have no image to show, so the icon is drawn in CSS. The plugin
+   emits an empty div for it — with no rule here the tile renders blank. */
+.rte-gallery-browser-thumbnail-folder {
+    background: linear-gradient(180deg, #fffaea 0%, #fdeec4 100%);
+    border-color: rgba(197, 158, 61, 0.32);
+}
+
+.rte-gallery-browser-folder-icon {
+    position: relative;
+    width: 60px;
+    height: 42px;
+    border: 1px solid rgba(178, 138, 45, 0.7);
+    border-radius: 7px;
+    background: linear-gradient(180deg, #ffe6a1 0%, #f3c957 100%);
+    box-shadow: 0 8px 16px rgba(140, 100, 20, 0.18);
+}
+
+.rte-gallery-browser-folder-icon:before {
+    content: "";
+    position: absolute;
+    left: 7px;
+    top: -9px;
+    width: 25px;
+    height: 13px;
+    border: 1px solid rgba(178, 138, 45, 0.7);
+    border-bottom: 0;
+    border-radius: 6px 6px 0 0;
+    background: linear-gradient(180deg, #fff1c4 0%, #f8d97c 100%);
 }
 
 .rte-gallery-browser-thumbnail-image {

@@ -270,6 +270,11 @@ function RTE_Plugin_RevisionHistory() {
     }
 
     function restore(id, opts) {
+        // The dialog's own Restore button calls restore(id) with no options, so
+        // reading opts.skipConfirm threw and the button did nothing at all. The
+        // public API wrapper defaulted this, the internal caller did not - so
+        // default it here, where every caller is covered.
+        opts = opts || {};
         var entry = findById(id);
         if (!entry) return false;
         if (!opts.skipConfirm) {

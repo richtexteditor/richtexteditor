@@ -323,7 +323,14 @@ function RTE_Plugin_AccessibilityChecker() {
     function repairIssue(issueIndex, options) {
         if (!lastResult || !lastResult.issues || !lastResult.issues[issueIndex]) return runAudit();
         var ctor = window.RichTextEditor;
-        if (!ctor || typeof ctor.repairAccessibilityIssue !== "function") return repairDomIssue(lastResult.issues[issueIndex], options || {});
+        // An issue carrying `_target` came from the DOM audit and is addressed
+        // by a DOM node, not by a JSON path. Handing it to the structured-content
+        // repairer looks like it works — no error, a document comes back — but
+        // that repairer cannot resolve the node and returns the input unchanged,
+        // so the fix silently does nothing.
+        var issue = lastResult.issues[issueIndex];
+        if (issue._target || lastResult.source === "dom") return repairDomIssue(issue, options || {});
+        if (!ctor || typeof ctor.repairAccessibilityIssue !== "function") return repairDomIssue(issue, options || {});
         var nextDocument = ctor.repairAccessibilityIssue(editor.getJSON(), lastResult.issues[issueIndex], options || {});
         editor.setJSON(nextDocument);
         selectedIssueIndex = issueIndex;
@@ -353,6 +360,101 @@ function RTE_Plugin_AccessibilityChecker() {
             target.scrollIntoView({ behavior: "smooth", block: "center" });
         }
         editor.focus();
+    }
+
+    // ---- WCAG 3.1.2 Language of Parts -----------------------------------
+    //
+    // A passage in a language other than the document's must be marked, or a
+    // screen reader pronounces it with the wrong phoneme set. Detecting
+    // "French inside English" is a language-identification problem we are not
+    // going to pretend to solve; detecting a different WRITING SYSTEM is
+    // deterministic, and it catches the cases that actually break speech
+    // synthesis outright (Hebrew, Arabic, Greek, Cyrillic, CJK in a Latin
+    // document, and the reverse). We flag only what we can be certain of —
+    // a checker that cries wolf gets switched off.
+    var SCRIPTS = [
+        { name: "Hebrew",   lang: "he", re: /[֐-׿]/g },
+        { name: "Arabic",   lang: "ar", re: /[؀-ۿݐ-ݿﭐ-﷿ﹰ-﻿]/g },
+        { name: "Greek",    lang: "el", re: /[Ͱ-Ͽἀ-῿]/g },
+        { name: "Cyrillic", lang: "ru", re: /[Ѐ-ӿ]/g },
+        { name: "Han",      lang: "zh", re: /[㐀-䶿一-鿿]/g },
+        { name: "Kana",     lang: "ja", re: /[぀-ゟ゠-ヿ]/g },
+        { name: "Hangul",   lang: "ko", re: /[가-힯ᄀ-ᇿ]/g },
+        { name: "Devanagari", lang: "hi", re: /[ऀ-ॿ]/g },
+        { name: "Thai",     lang: "th", re: /[฀-๿]/g },
+        { name: "Latin",    lang: "en", re: /[A-Za-zÀ-ɏ]/g }
+    ];
+
+    // Below this, a "run" is more likely a stray glyph, a maths symbol or a
+    // single borrowed character than a passage worth annotating.
+    var MIN_SCRIPT_RUN = 4;
+
+    // Every script present in the text with enough characters to be a passage.
+    //
+    // Deliberately NOT "the dominant script": a foreign phrase is by definition
+    // the minority of its paragraph, so picking the most common script finds
+    // the document's own language and reports nothing. "A Hebrew proverb,
+    // שלום עליכם, appears mid-sentence" is 40 Latin characters and 9 Hebrew —
+    // the 9 are the entire point.
+    function scriptsIn(text) {
+        var found = [];
+        for (var i = 0; i < SCRIPTS.length; i++) {
+            var m = String(text).match(SCRIPTS[i].re);
+            if (m && m.length >= MIN_SCRIPT_RUN) found.push(SCRIPTS[i]);
+        }
+        return found;
+    }
+
+    function documentScript() {
+        var editable = editor.getEditable ? editor.getEditable() : null;
+        var code = (editable && editable.getAttribute("lang")) ||
+                   (typeof document !== "undefined" && document.documentElement.getAttribute("lang")) || "en";
+        code = String(code).toLowerCase().split("-")[0];
+        for (var i = 0; i < SCRIPTS.length; i++) if (SCRIPTS[i].lang === code) return SCRIPTS[i];
+        // An unlisted language tag (nl, pt, sv…) is Latin-script; defaulting to
+        // Latin keeps us from flagging every English word in a Dutch document.
+        return SCRIPTS[SCRIPTS.length - 1];
+    }
+
+    function hasLangAncestor(node, editable) {
+        var n = (node && node.nodeType === 3) ? node.parentNode : node;
+        while (n && n !== editable && n.nodeType === 1) {
+            if (n.hasAttribute && n.hasAttribute("lang")) return true;
+            n = n.parentNode;
+        }
+        return false;
+    }
+
+    function collectUnmarkedLanguageRuns(block, editable, path, issues) {
+        var docScript = documentScript();
+        var doc = block.ownerDocument;
+        if (!doc || !doc.createTreeWalker) return;
+        var walker = doc.createTreeWalker(block, 4 /* SHOW_TEXT */, null, false);
+        var textNode, seen = {};
+        while ((textNode = walker.nextNode())) {
+            var value = textNode.nodeValue || "";
+            if (!value.replace(/\s+/g, "")) continue;
+            if (hasLangAncestor(textNode, editable)) continue;
+            var scripts = scriptsIn(value);
+            for (var s = 0; s < scripts.length; s++) {
+                var script = scripts[s];
+                if (script === docScript) continue;
+                // One issue per script per block: a paragraph with six Hebrew
+                // words is one thing to fix, not six.
+                if (seen[script.name]) continue;
+                seen[script.name] = true;
+                issues.push({
+                    code: "language-of-parts",
+                    severity: "warning",
+                    message: script.name + " text is not marked with a language. Select the phrase and set its " +
+                             "language so assistive technology pronounces it correctly (WCAG 3.1.2).",
+                    path: path + ".lang",
+                    _target: block,
+                    _lang: script.lang,
+                    _script: script.name
+                });
+            }
+        }
     }
 
     function auditDomAccessibility() {
@@ -424,6 +526,8 @@ function RTE_Plugin_AccessibilityChecker() {
                     });
                 }
             }
+
+            collectUnmarkedLanguageRuns(node, editable, path, issues);
         }
 
         return { document: null, issues: issues, valid: !issues.length, source: "dom" };
@@ -449,10 +553,72 @@ function RTE_Plugin_AccessibilityChecker() {
         else if (issue.code === "table-missing-header") {
             promoteFirstTableRow(target);
         }
+        else if (issue.code === "language-of-parts") {
+            markLanguageRuns(target, options && options.lang ? options.lang : issue._lang, issue._script);
+        }
 
         selectedIssueIndex = 0;
         scheduleEditorChange();
         return runAudit();
+    }
+
+    // Wrap the offending script's runs in <span lang> — the same markup
+    // textpartlanguage.js produces, so the two features agree on one shape and
+    // the author can retarget the result from the Language dropdown afterwards.
+    //
+    // Only the matching characters (plus the spaces and punctuation BETWEEN
+    // them) are wrapped: wrapping the whole text node would relabel the
+    // surrounding English as Hebrew, which is a worse lie than leaving it
+    // unmarked.
+    function markLanguageRuns(block, lang, scriptName) {
+        if (!block || !lang) return;
+        var script = null;
+        for (var i = 0; i < SCRIPTS.length; i++) if (SCRIPTS[i].name === scriptName) script = SCRIPTS[i];
+        if (!script) return;
+        var doc = block.ownerDocument;
+        var editable = editor.getEditable ? editor.getEditable() : null;
+        var rtl = (lang === "he" || lang === "ar" || lang === "fa" || lang === "ur");
+
+        var walker = doc.createTreeWalker(block, 4 /* SHOW_TEXT */, null, false);
+        var pending = [], n;
+        while ((n = walker.nextNode())) {
+            if (hasLangAncestor(n, editable)) continue;
+            pending.push(n);
+        }
+
+        for (var t = 0; t < pending.length; t++) {
+            var node = pending[t];
+            var value = node.nodeValue || "";
+            // Character classes are per-char; build a run matcher that also
+            // absorbs the neutral characters sitting inside a passage.
+            var runRe = new RegExp("(?:" + script.re.source + "|[\\s.,;:!?'\"()\\u2010-\\u2027\\u00AB\\u00BB\\u201C\\u201D])*" +
+                                   script.re.source +
+                                   "(?:" + script.re.source + "|[\\s.,;:!?'\"()\\u2010-\\u2027\\u00AB\\u00BB\\u201C\\u201D])*", "g");
+            var frag = doc.createDocumentFragment();
+            var last = 0, m, wrapped = false;
+            while ((m = runRe.exec(value))) {
+                var text = m[0];
+                // Trim the neutrals the greedy match pulled in at the edges;
+                // they belong to the surrounding sentence, not the phrase.
+                var lead = text.length - text.replace(/^[\s.,;:!?'"()‐-‧«»“”]+/, "").length;
+                var trail = text.length - text.replace(/[\s.,;:!?'"()‐-‧«»“”]+$/, "").length;
+                var start = m.index + lead;
+                var end = m.index + text.length - trail;
+                if (end - start < MIN_SCRIPT_RUN) continue;
+                if (start > last) frag.appendChild(doc.createTextNode(value.slice(last, start)));
+                var span = doc.createElement("span");
+                span.setAttribute("lang", lang);
+                if (rtl) span.setAttribute("dir", "rtl");
+                span.appendChild(doc.createTextNode(value.slice(start, end)));
+                frag.appendChild(span);
+                last = end;
+                wrapped = true;
+                if (runRe.lastIndex === m.index) runRe.lastIndex++; // zero-width guard
+            }
+            if (!wrapped) continue;
+            if (last < value.length) frag.appendChild(doc.createTextNode(value.slice(last)));
+            node.parentNode.replaceChild(frag, node);
+        }
     }
 
     function promoteFirstTableRow(table) {
@@ -603,6 +769,25 @@ function RTE_Plugin_AccessibilityChecker() {
             return;
         }
 
+        if (issue.code === "language-of-parts") {
+            var langRow = detail.ownerDocument.createElement("div");
+            langRow.className = "rte-a11y-row";
+            var mark = detail.ownerDocument.createElement("button");
+            mark.type = "button";
+            mark.className = "rte-a11y-button";
+            mark.innerText = "Mark as " + issue._script;
+            mark.onclick = function () { repairIssue(selectedIssueIndex, { lang: issue._lang }); };
+            var look = detail.ownerDocument.createElement("button");
+            look.type = "button";
+            look.className = "rte-a11y-button rte-a11y-button-secondary";
+            look.innerText = "Focus issue";
+            look.onclick = function () { focusIssue(issue); };
+            langRow.appendChild(mark);
+            langRow.appendChild(look);
+            detail.appendChild(langRow);
+            return;
+        }
+
         detail.innerHTML += '<div class="rte-a11y-detail-copy">This issue is visible here, but does not have an automatic repair action yet.</div>';
     }
 
@@ -711,7 +896,7 @@ if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
 
 if (!RTE_DefaultConfig.svgCode_aiassist) {
     RTE_DefaultConfig.svgCode_aiassist = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true"><defs><linearGradient id="rte-ai-robot-shell" x1="5" y1="6" x2="19" y2="18" gradientUnits="userSpaceOnUse"><stop stop-color="#1fb6ff"/><stop offset=".52" stop-color="#2563eb"/><stop offset="1" stop-color="#7c3aed"/></linearGradient><linearGradient id="rte-ai-robot-glow" x1="8" y1="10" x2="16" y2="15" gradientUnits="userSpaceOnUse"><stop stop-color="#fef9c3"/><stop offset="1" stop-color="#fde68a"/></linearGradient></defs><path d="M12 2.4v2.4" stroke="#f59e0b" stroke-width="1.7" stroke-linecap="round"/><circle cx="12" cy="2.4" r="1" fill="#fbbf24"/><rect x="5.1" y="6.1" width="13.8" height="11.2" rx="3.4" fill="url(#rte-ai-robot-shell)" stroke="#1e40af" stroke-width="1.2"/><path d="M8.2 6.1V5.8A1.8 1.8 0 0110 4h4a1.8 1.8 0 011.8 1.8v.3" stroke="#93c5fd" stroke-width="1.2" stroke-linecap="round"/><rect x="7.7" y="9.2" width="8.6" height="4.8" rx="2.4" fill="#0f172a" opacity=".26"/><circle cx="10" cy="11.6" r="1.15" fill="url(#rte-ai-robot-glow)"/><circle cx="14" cy="11.6" r="1.15" fill="url(#rte-ai-robot-glow)"/><path d="M9.4 14.9c.8.55 1.66.83 2.6.83s1.8-.28 2.6-.83" stroke="#ffffff" stroke-width="1.45" stroke-linecap="round"/><path d="M8.1 19.2l1-2.1M15.9 19.2l-1-2.1" stroke="#2563eb" stroke-width="1.5" stroke-linecap="round"/><path d="M18.8 6.4l.55-1.25.55 1.25 1.25.55-1.25.55-.55 1.25-.55-1.25-1.25-.55z" fill="#fef08a"/></svg>';
-    RTE_DefaultConfig.svgCode_aiassist = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true"><defs><linearGradient id="rte-ai-bot-v4-shell" x1="4.2" y1="5.8" x2="19.8" y2="18.4" gradientUnits="userSpaceOnUse"><stop stop-color="#22d3ee"/><stop offset=".52" stop-color="#2563eb"/><stop offset="1" stop-color="#4338ca"/></linearGradient><linearGradient id="rte-ai-bot-v4-visor" x1="7.8" y1="9" x2="16.2" y2="13.8" gradientUnits="userSpaceOnUse"><stop stop-color="#f8fafc"/><stop offset="1" stop-color="#bfdbfe"/></linearGradient></defs><path d="M12 2.6v2.3" stroke="#f59e0b" stroke-width="1.7" stroke-linecap="round"/><circle cx="12" cy="2.6" r=".9" fill="#fbbf24"/><path d="M4.9 12.2h-1a1.4 1.4 0 010-2.8h1M19.1 9.4h1a1.4 1.4 0 010 2.8h-1" stroke="#2563eb" stroke-width="1.25" stroke-linecap="round"/><rect x="5.2" y="5.9" width="13.6" height="12.2" rx="4" fill="url(#rte-ai-bot-v4-shell)" stroke="#1e40af" stroke-width="1.15"/><rect x="7.6" y="8.8" width="8.8" height="5.2" rx="2.6" fill="url(#rte-ai-bot-v4-visor)" opacity=".98"/><circle cx="10.2" cy="11.4" r=".9" fill="#0f172a"/><circle cx="13.8" cy="11.4" r=".9" fill="#0f172a"/><path d="M9.5 15.3c.78.52 1.6.78 2.5.78s1.72-.26 2.5-.78" stroke="#eff6ff" stroke-width="1.35" stroke-linecap="round"/><path d="M7.7 20.2l1.15-2.15M16.3 20.2l-1.15-2.15" stroke="#2563eb" stroke-width="1.45" stroke-linecap="round"/><path d="M18.6 5.1l.45-.95.45.95.95.45-.95.45-.45.95-.45-.95-.95-.45z" fill="#fde68a"/></svg>';
+    RTE_DefaultConfig.svgCode_aiassist = '<svg viewBox="1.78 0.3 21.8 21.8" width="20" height="20" fill="none" aria-hidden="true"><defs><linearGradient id="rte-ai-bot-v5-shell" x1="3" y1="5" x2="21" y2="20" gradientUnits="userSpaceOnUse"><stop stop-color="#22d3ee"/><stop offset=".52" stop-color="#2563eb"/><stop offset="1" stop-color="#4338ca"/></linearGradient><linearGradient id="rte-ai-bot-v5-visor" x1="7" y1="8" x2="17" y2="15" gradientUnits="userSpaceOnUse"><stop stop-color="#f8fafc"/><stop offset="1" stop-color="#bfdbfe"/></linearGradient></defs><rect x="2.6" y="5.2" width="16.4" height="16" rx="4.8" fill="url(#rte-ai-bot-v5-shell)" stroke="#1e40af" stroke-width="1.6"/><rect x="5.9" y="9.1" width="9.8" height="6.8" rx="3.4" fill="url(#rte-ai-bot-v5-visor)"/><circle cx="8.6" cy="12.5" r="1.35" fill="#0f172a"/><circle cx="13" cy="12.5" r="1.35" fill="#0f172a"/><path d="M8.3 18.2c.9.7 1.8 1 2.5 1s1.6-.3 2.5-1" stroke="#eff6ff" stroke-width="1.7" stroke-linecap="round"/><path d="M19.6 .4l1.25 2.7 2.7 1.25-2.7 1.25-1.25 2.7-1.25-2.7-2.7-1.25 2.7-1.25z" fill="#fbbf24"/></svg>';
 }
 
 if (!RTE_DefaultConfig.svgCode_aiassist_open_dialog) {
@@ -27519,6 +27704,372 @@ function RTE_Plugin_FormattingMarks() {
 
 if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
 
+// 2026-08-15 Gap cursor — reach the unreachable places in a document.
+//
+// A document that ENDS with a table cannot be added to. The caret goes into the
+// last cell and stays there: ArrowDown, ArrowRight and End all leave it where it
+// was, because there is no node after the table to put it in. Same story for a
+// document that STARTS with a table, and for two adjacent tables with no
+// paragraph between them — there is no caret position in the gap, so the author
+// cannot type there at all. Verified on the running editor before writing this:
+// the caret stayed at TABLE>TBODY>TR>TD through every key.
+//
+// This is the single most-reported "the editor is broken" issue in every
+// WYSIWYG that lacks it. Froala ships it as `lineBreaker`, Tiptap as
+// `gapcursor`, and ProseMirror has it in core. We had it under no name.
+//
+// Design notes:
+//   - ON DEMAND, never eager. The obvious fix — always append a trailing empty
+//     paragraph — mutates every document that ends in a table, so getHTMLCode()
+//     starts returning markup the author did not write and a round-trip through
+//     the editor is no longer lossless. A paragraph is created only when the
+//     author actually asks for one by pressing a key or clicking the gap.
+//   - Clicking the blank space below the content is the gesture people already
+//     have from Google Docs and Notion, and it needs no overlay DOM: a click
+//     that lands on the editable ITSELF (rather than on a child) is by
+//     definition a click in a gap. The child list then says which gap.
+//   - Only TRAPPING blocks count. A trailing <p> is already reachable, so
+//     offering to add another one after it would just spam empty paragraphs.
+//   - The inserted paragraph carries a <br> filler. An empty <p> has zero
+//     height in most engines, so without it the caret lands somewhere invisible
+//     and the author thinks nothing happened.
+RTE_DefaultConfig.plugin_gapcursor = RTE_Plugin_GapCursor;
+
+// Click the empty space below/around content to create a paragraph there.
+if (typeof RTE_DefaultConfig.gapCursorClick === "undefined") RTE_DefaultConfig.gapCursorClick = true;
+// Arrow/Home/End keys escape a trapping block at the document edge.
+if (typeof RTE_DefaultConfig.gapCursorKeys === "undefined") RTE_DefaultConfig.gapCursorKeys = true;
+// Show a thin insertion hint when hovering a gap between two trapping blocks.
+if (typeof RTE_DefaultConfig.gapCursorHint === "undefined") RTE_DefaultConfig.gapCursorHint = true;
+
+function RTE_Plugin_GapCursor() {
+    var obj = this;
+    var config, editor;
+    var boundDoc = null;
+
+    obj.PluginName = "GapCursor";
+
+    // Blocks that cannot host a caret directly beside them. A caret can always
+    // be placed inside a paragraph or heading, so those are never "trapping".
+    var TRAPPING = {
+        TABLE: 1, HR: 1, IMG: 1, FIGURE: 1, IFRAME: 1, VIDEO: 1, AUDIO: 1,
+        OBJECT: 1, EMBED: 1, CANVAS: 1, SVG: 1, PRE: 1
+    };
+
+    obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+
+        bind();
+        try { editor.attachEvent("ready", bind); } catch (e) {}
+        try { editor.attachEvent("aftersethtml", bind); } catch (e) {}
+        setTimeout(bind, 0);
+
+        // Public API.
+        editor.insertParagraphAt = function (index) { return insertAt(index); };
+        editor.insertParagraphAfter = function (el) { return insertAround(el, true); };
+        editor.insertParagraphBefore = function (el) { return insertAround(el, false); };
+        editor.getGapPositions = function () { return gaps(); };
+    };
+
+    function getDoc() { try { return editor.getDocument(); } catch (e) { return null; } }
+    function getEditable() { try { return editor.getEditable(); } catch (e) { return null; } }
+
+    function bind() {
+        var doc = getDoc();
+        var ed = getEditable();
+        if (!doc || !ed || doc === boundDoc) return;
+        boundDoc = doc;
+        injectStyles(doc);
+
+        if (config.gapCursorKeys !== false) ed.addEventListener("keydown", onKeyDown, true);
+        if (config.gapCursorClick !== false) ed.addEventListener("click", onClick, true);
+        if (config.gapCursorHint !== false) ed.addEventListener("mousemove", onMove, true);
+    }
+
+    function isTrapping(el) {
+        return !!(el && el.nodeType === 1 && TRAPPING[el.nodeName]);
+    }
+
+    function isHint(el) {
+        return !!(el && el.nodeType === 1 && el.className === "rte-gap-hint");
+    }
+
+    // The editable's real children, with the hover hint filtered out.
+    //
+    // The hint is itself a child of the editable, so any code that reasons about
+    // positions via ed.children sees it as a block: it shifts every index after
+    // it, and because a <div> is not "trapping" its presence as the last child
+    // made the trailing gap disappear entirely — hovering below a table removed
+    // the very gap the hover was advertising, and the click then did nothing.
+    function blocks() {
+        var ed = getEditable();
+        var out = [];
+        if (!ed) return out;
+        for (var i = 0; i < ed.children.length; i++) {
+            if (!isHint(ed.children[i])) out.push(ed.children[i]);
+        }
+        return out;
+    }
+
+    // Every index where a paragraph could usefully be inserted: before a leading
+    // trapping block, after a trailing one, and between two adjacent ones.
+    function gaps() {
+        var out = [];
+        var kids = blocks();
+        if (!kids.length) return out;
+        if (isTrapping(kids[0])) out.push(0);
+        for (var i = 0; i < kids.length - 1; i++) {
+            if (isTrapping(kids[i]) && isTrapping(kids[i + 1])) out.push(i + 1);
+        }
+        if (isTrapping(kids[kids.length - 1])) out.push(kids.length);
+        return out;
+    }
+
+    // ---- insertion -------------------------------------------------------
+
+    function makeParagraph(doc) {
+        var p = doc.createElement("p");
+        // An empty <p> collapses to zero height, so the caret would land
+        // somewhere the author cannot see.
+        p.appendChild(doc.createElement("br"));
+        return p;
+    }
+
+    function insertAt(index) {
+        var ed = getEditable();
+        var doc = getDoc();
+        if (!ed || !doc) return null;
+        // Resolve against the hint-free list, then insert relative to that node.
+        hideHint();
+        var p = makeParagraph(doc);
+        var before = blocks()[index] || null;
+        ed.insertBefore(p, before);
+        focusParagraph(p);
+        fireChange();
+        return p;
+    }
+
+    function insertAround(el, after) {
+        var ed = getEditable();
+        var doc = getDoc();
+        if (!ed || !doc || !el) return null;
+        var p = makeParagraph(doc);
+        if (after) el.parentNode.insertBefore(p, el.nextSibling);
+        else el.parentNode.insertBefore(p, el);
+        focusParagraph(p);
+        fireChange();
+        return p;
+    }
+
+    function focusParagraph(p) {
+        try {
+            var doc = p.ownerDocument;
+            var r = doc.createRange();
+            r.setStart(p, 0);
+            r.collapse(true);
+            var sel = editor.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(r);
+            editor.focus();
+        } catch (e) {}
+    }
+
+    // ---- keyboard --------------------------------------------------------
+
+    // The top-level child of the editable that contains this node.
+    function topBlockOf(node) {
+        var ed = getEditable();
+        var n = (node && node.nodeType === 3) ? node.parentNode : node;
+        while (n && n.parentNode && n.parentNode !== ed) n = n.parentNode;
+        return (n && n.parentNode === ed) ? n : null;
+    }
+
+    function onKeyDown(e) {
+        var key = e.key;
+        var forward = (key === "ArrowDown" || key === "ArrowRight" || key === "End" || key === "PageDown");
+        var back = (key === "ArrowUp" || key === "ArrowLeft" || key === "Home" || key === "PageUp");
+        if (!forward && !back) return;
+
+        var ed = getEditable();
+        if (!ed || !ed.children.length) return;
+
+        var sel = editor.getSelection();
+        if (!sel || !sel.rangeCount) return;
+        var block = topBlockOf(sel.getRangeAt(0).startContainer);
+        if (!isTrapping(block)) return;
+
+        var kids = blocks();
+        var index = kids.indexOf(block);
+        if (index < 0) return;
+
+        if (forward) {
+            var next = kids[index + 1];
+            // Escape only where the author is genuinely stuck: nothing after the
+            // block, or another trapping block immediately after it.
+            if (next && !isTrapping(next)) return;
+            e.preventDefault();
+            e.stopPropagation();
+            insertAt(index + 1);
+        } else {
+            var prev = kids[index - 1];
+            if (prev && !isTrapping(prev)) return;
+            e.preventDefault();
+            e.stopPropagation();
+            insertAt(index);
+        }
+    }
+
+    // ---- click in a gap --------------------------------------------------
+
+    // A click that lands on the editable itself, not on any child, is a click in
+    // the space between or after blocks.
+    function onClick(e) {
+        var ed = getEditable();
+        if (!ed || e.target !== ed) return;
+        // Measure the gaps as they are without the hint, or the hint's own box
+        // shifts the geometry the click is being resolved against.
+        hideHint();
+        var index = gapIndexAt(e.clientY);
+        if (index === null) return;
+        e.preventDefault();
+        e.stopPropagation();
+        insertAt(index);
+    }
+
+    // Which gap does this viewport Y fall in? Below every block means the end.
+    function gapIndexAt(clientY) {
+        var kids = blocks();
+        if (!kids.length) return null;
+        var available = gaps();
+        if (!available.length) return null;
+
+        for (var i = 0; i < kids.length; i++) {
+            var rect = kids[i].getBoundingClientRect();
+            if (clientY < rect.top) return allowed(available, i);
+            if (clientY <= rect.bottom) return null;      // on the block itself
+        }
+        return allowed(available, kids.length);
+    }
+
+    function allowed(available, index) {
+        return available.indexOf(index) >= 0 ? index : null;
+    }
+
+    // ---- hover hint ------------------------------------------------------
+
+    var hint = null;
+    var hintIndex = null;
+
+    // How close to a block boundary counts as "aiming at the gap".
+    var EDGE_TOLERANCE = 10;
+
+    function onMove(e) {
+        var ed = getEditable();
+        if (!ed) return;
+        if (isHint(e.target)) return;              // already on the hint; leave it alone
+
+        // Blank space below/around the content: the click will land on the
+        // editable itself and the geometry alone is enough.
+        if (e.target === ed) {
+            var index = gapIndexAt(e.clientY);
+            if (index === null) { hideHint(); return; }
+            showHint(index);
+            return;
+        }
+
+        // Two adjacent tables have ZERO pixels between them, so a click there
+        // can never reach the editable — it always lands on one of the tables.
+        // The gap is unreachable by mouse unless we put something in it, so
+        // hovering near the boundary materialises the hint and the hint itself
+        // becomes the click target.
+        var near = gapNearEdge(e.clientY);
+        if (near === null) { hideHint(); return; }
+        showHint(near);
+    }
+
+    // A gap whose boundary is within EDGE_TOLERANCE of this Y.
+    function gapNearEdge(clientY) {
+        var kids = blocks();
+        var available = gaps();
+        for (var g = 0; g < available.length; g++) {
+            var i = available[g];
+            var edge;
+            if (i === 0) edge = kids[0].getBoundingClientRect().top;
+            else edge = kids[i - 1].getBoundingClientRect().bottom;
+            if (Math.abs(clientY - edge) <= EDGE_TOLERANCE) return i;
+        }
+        return null;
+    }
+
+    function showHint(index) {
+        var ed = getEditable();
+        var doc = getDoc();
+        if (!ed || !doc) return;
+        if (!hint) {
+            hint = doc.createElement("div");
+            hint.className = "rte-gap-hint";
+            hint.setAttribute("contenteditable", "false");
+            hint.setAttribute("aria-hidden", "true");
+            // The hint is the only clickable thing in a zero-height gap.
+            hint.addEventListener("mousedown", function (ev) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                if (hintIndex !== null) insertAt(hintIndex);
+            }, true);
+        }
+        var before = blocks()[index] || null;
+        // Re-inserting in place would thrash the DOM on every mousemove.
+        if (hint.parentNode === ed && hint.nextSibling === before) { hintIndex = index; return; }
+        ed.insertBefore(hint, before);
+        hintIndex = index;
+    }
+
+    function hideHint() {
+        if (hint && hint.parentNode) hint.parentNode.removeChild(hint);
+        hintIndex = null;
+    }
+
+    function fireChange() {
+        // The hint is decoration; it must never be in the document when the
+        // content is read.
+        hideHint();
+        try { if (typeof editor.updateDesign === "function") editor.updateDesign(); } catch (e) {}
+        try { if (typeof editor.fireChange === "function") editor.fireChange(); } catch (e) {}
+    }
+
+    // ---- styles ----------------------------------------------------------
+
+    function css() {
+        // A real hit area, not just a line: in a zero-height gap between two
+        // tables this element IS the click target, so it needs height.
+        return ".rte-gap-hint{height:6px;margin:1px 0;position:relative;cursor:text;" +
+               "pointer-events:auto;background:transparent;}" +
+               ".rte-gap-hint::before{content:'';position:absolute;left:0;right:0;top:2px;" +
+               "border-top:2px solid #2563eb;opacity:.65;}" +
+               ".rte-gap-hint::after{content:'';position:absolute;left:-3px;top:0;width:6px;height:6px;" +
+               "border-radius:50%;background:#2563eb;}";
+    }
+
+    function injectStyles(doc) {
+        if (!doc) return;
+        var text = css();
+        var existing = doc.getElementById("rte-gapcursor-styles");
+        if (existing) {
+            if (existing.getAttribute("data-css") === text) return;
+            existing.parentNode && existing.parentNode.removeChild(existing);
+        }
+        var st = doc.createElement("style");
+        st.id = "rte-gapcursor-styles";
+        st.setAttribute("data-css", text);
+        st.appendChild(doc.createTextNode(text));
+        (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+    }
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
 // 2026-06-06 AI ghost-text autocomplete. GitHub-Copilot / Notion-AI-style inline
 // completion: after you pause typing, a greyed suggestion appears after the caret
 // continuing your sentence; press Tab to accept it, Esc (or just keep typing) to
@@ -28295,6 +28846,319 @@ function RTE_Plugin_ImageEditor() {
 
 
 
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
+// 2026-08-15 Import styles from the page's own stylesheets.
+//
+// The four Quick Styles dropdowns (inlineStyles / paragraphStyles / imageStyles
+// / linkStyles) have always been hand-configured, and the shipped defaults are
+// placeholders — "my-cls-mark", "my-cls-quote" — that mean nothing in a real
+// integration. Every team wiring this editor into an existing design system
+// therefore retypes their own class list into config before the dropdowns are
+// worth opening. TinyMCE removes that step with `importcss`; this is our
+// equivalent.
+//
+// Design notes:
+//   - OPT-IN (`importStyles = true`). Silently rewriting the Styles menu out of
+//     whatever CSS happens to be on the page would be a surprising default, and
+//     on a utility-CSS site it would be a catastrophic one.
+//   - The ELEMENT QUALIFIER decides the bucket: `img.hero` is an image style,
+//     `a.cta` a link style, `p.lede` a paragraph style. An unqualified `.foo`
+//     cannot be placed, so it goes in both the inline and paragraph menus —
+//     the author picks by what they have selected.
+//   - Cross-origin stylesheets throw a SecurityError on `.cssRules`, and it is
+//     thrown on ACCESS, not returned as null. One un-caught sheet from a CDN
+//     kills the whole scan, which is the classic way this feature fails.
+//   - `@media` / `@supports` blocks hold their own `cssRules`; a design system's
+//     responsive variants live in there, so the walk recurses.
+//   - There is a HARD CAP. A Tailwind or Bootstrap page exposes thousands of
+//     atomic classes, and a dropdown with 4,000 entries is not a feature. When
+//     the cap truncates, it says so via console + `getImportedStyles().truncated`
+//     rather than quietly showing the first hundred as if that were all of them.
+RTE_DefaultConfig.plugin_importstyles = RTE_Plugin_ImportStyles;
+
+// Master switch.
+if (typeof RTE_DefaultConfig.importStyles === "undefined") RTE_DefaultConfig.importStyles = false;
+
+// Which stylesheets to read. null = all readable ones. A string/RegExp is
+// matched against the sheet's href ("site.css", /theme/), a function gets the
+// CSSStyleSheet.
+if (typeof RTE_DefaultConfig.importStylesSheets === "undefined") RTE_DefaultConfig.importStylesSheets = null;
+
+// Classes never imported: the editor's own chrome, and the other editors'
+// (a page migrating from CKEditor/TinyMCE still has their CSS loaded).
+if (typeof RTE_DefaultConfig.importStylesExclude === "undefined") {
+    RTE_DefaultConfig.importStylesExclude = /^(rte[-_]|ck[-_]|cke[-_]|mce[-_]|tox[-_]|js[-_]|is[-_]|has[-_])/i;
+}
+
+// Per-class predicate. Return false to skip, a string to override the label.
+// function (className, selectorText, bucket) {}
+if (typeof RTE_DefaultConfig.importStylesFilter === "undefined") RTE_DefaultConfig.importStylesFilter = null;
+
+// Replace the configured styles instead of appending to them.
+if (typeof RTE_DefaultConfig.importStylesReplace === "undefined") RTE_DefaultConfig.importStylesReplace = false;
+
+// Ceiling per dropdown.
+if (typeof RTE_DefaultConfig.importStylesLimit === "undefined") RTE_DefaultConfig.importStylesLimit = 100;
+
+function RTE_Plugin_ImportStyles() {
+    var obj = this;
+    var config, editor;
+    var imported = null;
+    var scannedDocs = [];
+
+    obj.PluginName = "ImportStyles";
+
+    obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+
+        // Public API — usable even with importStyles off, so an integrator can
+        // inspect what WOULD be imported before switching it on.
+        editor.importStyles = function (options) { return run(options || {}); };
+        editor.getImportedStyles = function () { return imported; };
+        editor.scanStylesheetClasses = function (options) {
+            activeOptions = options || {};
+            try { return collect(); } finally { activeOptions = {}; }
+        };
+
+        if (!config.importStyles) return;
+
+        // The host document's sheets are ready now; the editing document's are
+        // not, so scan again once it exists. The dropdown panels read config
+        // when they OPEN, so a later scan still lands.
+        run({});
+        try { editor.attachEvent("ready", function () { run({}); }); } catch (e) {}
+        setTimeout(function () { run({}); }, 0);
+    };
+
+    // ---- buckets ---------------------------------------------------------
+
+    var IMAGE_TAGS = { img: 1, figure: 1, picture: 1 };
+    var LINK_TAGS = { a: 1 };
+    var INLINE_TAGS = { span: 1, strong: 1, b: 1, em: 1, i: 1, code: 1, mark: 1, small: 1, sub: 1, sup: 1, abbr: 1, q: 1, cite: 1 };
+    var BLOCK_TAGS = { p: 1, div: 1, h1: 1, h2: 1, h3: 1, h4: 1, h5: 1, h6: 1, blockquote: 1, li: 1, ul: 1, ol: 1, pre: 1, section: 1, article: 1, aside: 1, figcaption: 1, td: 1, th: 1, table: 1 };
+
+    var TARGETS = [
+        { key: "imageStyles", tags: IMAGE_TAGS },
+        { key: "linkStyles", tags: LINK_TAGS },
+        { key: "inlineStyles", tags: INLINE_TAGS },
+        { key: "paragraphStyles", tags: BLOCK_TAGS }
+    ];
+
+    // The last class in the selector is the one the author would apply; the
+    // element qualifier immediately before it says what it applies TO.
+    // "article .card p.lede:hover" -> tag "p", class "lede".
+    var SELECTOR_RE = /^([a-zA-Z][\w-]*)?\.([\w-]+)$/;
+
+    function parseSelector(selector) {
+        // Only the rightmost compound matters; strip pseudo-classes/elements
+        // and attribute filters, which are states of a class, not new classes.
+        var simple = String(selector)
+            .replace(/\[[^\]]*\]/g, "")
+            .replace(/::?[\w-]+(\([^)]*\))?/g, "")
+            .trim();
+        var parts = simple.split(/[\s>+~]+/);
+        var last = parts[parts.length - 1] || "";
+        // A compound like "p.lede.wide" has no single applicable class.
+        if ((last.match(/\./g) || []).length !== 1) return null;
+        var m = last.match(SELECTOR_RE);
+        if (!m) return null;
+        return { tag: (m[1] || "").toLowerCase(), cls: m[2] };
+    }
+
+    function bucketsFor(tag) {
+        if (!tag) return ["inlineStyles", "paragraphStyles"];   // unqualified: offer both
+        for (var i = 0; i < TARGETS.length; i++) if (TARGETS[i].tags[tag]) return [TARGETS[i].key];
+        return [];
+    }
+
+    // ---- stylesheet walk -------------------------------------------------
+
+    // The editor's own CSS must never reach the Styles menu, and the reliable
+    // axis for that is ORIGIN, not class name. A first cut filtered by class
+    // prefix and imported 77 classes — the theme's `richtexteditor`/`colordiv`,
+    // and 1,788 rules of `aitoolkit.css` — because plugin CSS does not agree on
+    // one prefix. Where a sheet came from is unambiguous:
+    //   - anything served out of the editor's own asset folder,
+    //   - any <style> the editor injected (its nodes carry rte-/__rte ids),
+    //   - any anonymous <style> inside the EDITING document, which is only ever
+    //     editor-injected — a site's content CSS arrives there via contentCssUrl
+    //     and therefore has an href.
+    function isEditorSheet(sheet, isEditingDoc) {
+        var href = sheet.href || "";
+        if (/\/richtexteditor\//i.test(href)) return true;
+        var node = sheet.ownerNode;
+        var id = (node && node.id) || "";
+        if (/^(rte[-_]|__rte)/i.test(id)) return true;
+        if (isEditingDoc && !href) return true;
+        return false;
+    }
+
+    // Options passed to editor.importStyles() win over config. The editor copies
+    // config at construction time, so mutating the caller's config object later
+    // does NOT reach this plugin — an API that quietly ignored its arguments
+    // would be worse than no API at all.
+    var activeOptions = {};
+    function setting(name) {
+        return (activeOptions && name in activeOptions) ? activeOptions[name] : config["importStyles" + name.charAt(0).toUpperCase() + name.slice(1)];
+    }
+
+    function wantSheet(sheet, isEditingDoc) {
+        if (isEditorSheet(sheet, isEditingDoc)) return false;
+        var want = setting("sheets");
+        if (!want) return true;
+        var href = sheet.href || "";
+        if (typeof want === "function") return !!want(sheet);
+        if (want instanceof RegExp) return want.test(href);
+        return href.indexOf(String(want)) >= 0;
+    }
+
+    function excluded(cls) {
+        var ex = setting("exclude");
+        if (!ex) return false;
+        if (ex instanceof RegExp) return ex.test(cls);
+        if (typeof ex === "function") return !!ex(cls);
+        return cls.indexOf(String(ex)) === 0;
+    }
+
+    function walkRules(rules, out) {
+        if (!rules) return;
+        for (var i = 0; i < rules.length; i++) {
+            var rule = rules[i];
+            // @media / @supports carry their own rule list.
+            if (rule.cssRules && !rule.selectorText) { walkRules(rule.cssRules, out); continue; }
+            if (!rule.selectorText) continue;
+            var selectors = rule.selectorText.split(",");
+            for (var s = 0; s < selectors.length; s++) {
+                var parsed = parseSelector(selectors[s]);
+                if (!parsed || excluded(parsed.cls)) continue;
+                out.push({ cls: parsed.cls, tag: parsed.tag, selector: selectors[s].trim() });
+            }
+        }
+    }
+
+    function documents() {
+        var docs = [];
+        if (typeof document !== "undefined") docs.push({ doc: document, editing: false });
+        try {
+            var d = editor.getDocument && editor.getDocument();
+            if (d && d !== document) docs.push({ doc: d, editing: true });
+        } catch (e) {}
+        return docs;
+    }
+
+    function collect() {
+        var found = [];
+        var unreadable = 0;
+        var docs = documents();
+        for (var d = 0; d < docs.length; d++) {
+            var sheets = docs[d].doc.styleSheets || [];
+            for (var i = 0; i < sheets.length; i++) {
+                var sheet = sheets[i];
+                if (!wantSheet(sheet, docs[d].editing)) continue;
+                var rules = null;
+                try {
+                    // Throws SecurityError for a cross-origin sheet. This must
+                    // not abort the scan — a single CDN font sheet would
+                    // otherwise silently empty the whole Styles menu.
+                    rules = sheet.cssRules || sheet.rules;
+                } catch (e) { unreadable++; continue; }
+                walkRules(rules, found);
+            }
+        }
+        return { classes: found, unreadableSheets: unreadable, documents: docs.length };
+    }
+
+    // "my-cls-large-center" -> "Large Center"; "lede" -> "Lede".
+    function humanize(cls) {
+        var text = String(cls).replace(/^(my[-_]cls[-_]|u[-_]|c[-_])/i, "").replace(/[-_]+/g, " ").trim();
+        if (!text) text = cls;
+        return text.replace(/\b\w/g, function (ch) { return ch.toUpperCase(); });
+    }
+
+    function alreadyListed(list, value) {
+        for (var i = 0; i < list.length; i++) if (list[i] && list[i][1] === value) return true;
+        return false;
+    }
+
+    // ---- apply -----------------------------------------------------------
+
+    function run(options) {
+        activeOptions = options || {};
+        var scan = collect();
+        var limit = Math.max(0, parseInt(setting("limit"), 10) || 0) || Infinity;
+        var replace = !!setting("replace");
+        var filter = setting("filter");
+
+        var buckets = {};
+        var truncated = {};
+        for (var t = 0; t < TARGETS.length; t++) buckets[TARGETS[t].key] = [];
+
+        var seen = {};
+        for (var i = 0; i < scan.classes.length; i++) {
+            var item = scan.classes[i];
+            var targets = bucketsFor(item.tag);
+            for (var b = 0; b < targets.length; b++) {
+                var key = targets[b];
+                var dedupeKey = key + "|" + item.cls;
+                if (seen[dedupeKey]) continue;
+
+                var label = humanize(item.cls);
+                if (typeof filter === "function") {
+                    var verdict = filter(item.cls, item.selector, key);
+                    if (verdict === false) continue;
+                    if (typeof verdict === "string" && verdict) label = verdict;
+                }
+
+                seen[dedupeKey] = true;
+                if (buckets[key].length >= limit) { truncated[key] = (truncated[key] || 0) + 1; continue; }
+                // Two-element form = apply as a class (the three-element form is
+                // for inline CSS); this is what the dropdowns already expect.
+                buckets[key].push([label, item.cls]);
+            }
+        }
+
+        var applied = {};
+        for (var k = 0; k < TARGETS.length; k++) {
+            var name = TARGETS[k].key;
+            var incoming = buckets[name];
+            if (replace) {
+                config[name] = incoming;
+            } else {
+                if (!config[name]) config[name] = [];
+                for (var j = 0; j < incoming.length; j++) {
+                    if (!alreadyListed(config[name], incoming[j][1])) config[name].push(incoming[j]);
+                }
+            }
+            applied[name] = incoming.length;
+        }
+
+        // A cap that hides work is a lie about coverage. Say what was dropped.
+        var dropped = 0;
+        for (var key2 in truncated) if (truncated.hasOwnProperty(key2)) dropped += truncated[key2];
+        if (dropped) {
+            try {
+                console.warn("[RichTextEditor] importStyles: " + dropped + " class(es) omitted — " +
+                    "importStylesLimit is " + limit + " per dropdown. Raise the limit or narrow " +
+                    "importStylesSheets / importStylesFilter.");
+            } catch (e) {}
+        }
+
+        imported = {
+            applied: applied,
+            truncated: truncated,
+            droppedCount: dropped,
+            unreadableSheets: scan.unreadableSheets,
+            documentsScanned: scan.documents,
+            replaced: !!replace
+        };
+        activeOptions = {};
+        return imported;
+    }
+}
+
 
 if (!RTE_DefaultConfig.svgCode_insertcode) {
 	RTE_DefaultConfig.svgCode_insertcode = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="8 7 3 12 8 17"/><polyline points="16 7 21 12 16 17"/><line x1="14" y1="5" x2="10" y2="19"/></svg>';
@@ -28568,6 +29432,49 @@ function RTE_Plugin_InsertCode() {
 			} catch (e) { return false; }
 		}
 
+		// A <div class="dp-highlighter"> dropped at a caret INSIDE a <p> is
+		// invalid nesting. It looks right in the live DOM, but the moment the
+		// saved HTML is parsed again the browser hoists the div out and tears the
+		// paragraph in two -- 3 blocks become 5, so the document a customer
+		// reloads is not the one they saved. Split the paragraph ourselves and
+		// place the block between the halves, which round-trips byte-stable.
+		function insertCodeBlock(html) {
+			if (!restoreCaret()) return false;
+			var edoc = editor.getDocument();
+			var esel = edoc.defaultView.getSelection();
+			if (!esel || !esel.rangeCount) return false;
+			var range = esel.getRangeAt(0);
+			var n = range.startContainer, block = null;
+			while (n && n !== edoc.body) {
+				if (n.nodeType === 1 && /^(P|H[1-6]|LI|TD|TH|DIV|BLOCKQUOTE)$/.test(n.tagName)) { block = n; break; }
+				n = n.parentNode;
+			}
+			var holder = edoc.createElement("div");
+			holder.innerHTML = html;
+			var node = holder.firstChild;
+			if (!node) return false;
+			// DIV/LI/TD/BLOCKQUOTE may legally contain the block: insert in place.
+			if (!block || !/^(P|H[1-6])$/.test(block.tagName)) {
+				range.deleteContents();
+				range.insertNode(node);
+				return true;
+			}
+			range.deleteContents();
+			var tail = range.cloneRange();
+			tail.setEndAfter(block.lastChild || block);
+			var tailFrag = tail.extractContents();
+			block.parentNode.insertBefore(node, block.nextSibling);
+			var tailBlock = edoc.createElement(block.tagName);
+			tailBlock.appendChild(tailFrag);
+			if (tailBlock.textContent.replace(/^\s+|\s+$/g, "") !== "" || tailBlock.querySelector("*")) {
+				block.parentNode.insertBefore(tailBlock, node.nextSibling);
+			}
+			if (block.textContent.replace(/^\s+|\s+$/g, "") === "" && !block.querySelector("img,table")) {
+				block.parentNode.removeChild(block);
+			}
+			return true;
+		}
+
 		var dialoginner = editor.createDialog(editor.getLangText("insertcode"), "rte-dialog-insertcode");
 
 		var div2 = __Append(dialoginner, "div", "position:relative;text-align:center;");
@@ -28623,8 +29530,8 @@ function RTE_Plugin_InsertCode() {
 				// insertHTML honours the caret; insertRootParagraph always
 				// appended at document level, which is why the block never
 				// landed at the focus position.
-				if (restoreCaret()) {
-					editor.insertHTML('<div class="dp-highlighter">' + tag.innerHTML + "</div>");
+				if (insertCodeBlock('<div class="dp-highlighter">' + tag.innerHTML + "</div>")) {
+					// placed at the caret, at block level
 				} else {
 					var p = editor.insertRootParagraph();
 					p.innerHTML = '<div class="dp-highlighter">' + tag.innerHTML + "</div>";
@@ -28729,6 +29636,79 @@ function RTE_Plugin_InsertEmoji() {
 					}
 				}
 
+				// Keyboard access for the emoji grid.
+				//
+				// The grid is <gspan> cells, which no browser makes focusable and
+				// which the editor's own keyboard layer does not recognise (it
+				// finds menu items by tag name, and these are not on that list).
+				// Until the cells were given a role and a tab stop, the only
+				// keyboard-reachable thing in this whole panel was the search box:
+				// the picker announced itself as a menu and then could not be
+				// operated without a mouse.
+				function cells() {
+					var visible = resultpanel.style.display !== "none" ? resultpanel : grouppanel;
+					return [].slice.call(visible.querySelectorAll("gspan"));
+				}
+
+				// The grid wraps, so "up" and "down" mean the nearest cell on the
+				// adjacent visual row — computed from geometry rather than assuming
+				// a fixed column count, which changes with the panel width.
+				function step(list, from, dir) {
+					var here = from.getBoundingClientRect();
+					var candidates = list.filter(function (c) {
+						var r = c.getBoundingClientRect();
+						return dir < 0 ? r.bottom <= here.top + 1 : r.top >= here.bottom - 1;
+					});
+					if (!candidates.length) return null;
+					var rowEdge = null;
+					candidates.forEach(function (c) {
+						var r = c.getBoundingClientRect();
+						if (rowEdge === null) rowEdge = r.top;
+						else if (dir < 0 ? r.top > rowEdge : r.top < rowEdge) rowEdge = r.top;
+					});
+					var row = candidates.filter(function (c) {
+						return Math.abs(c.getBoundingClientRect().top - rowEdge) < 2;
+					});
+					var best = row[0], bestDx = Infinity;
+					row.forEach(function (c) {
+						var dx = Math.abs(c.getBoundingClientRect().left - here.left);
+						if (dx < bestDx) { bestDx = dx; best = c; }
+					});
+					return best;
+				}
+
+				panel.addEventListener("keydown", function (e) {
+					var target = e.target;
+					if (!target || target.nodeName !== "GSPAN") return;
+					var list = cells();
+					var at = list.indexOf(target);
+					var next = null;
+
+					if (e.key === "ArrowRight") next = list[at + 1];
+					else if (e.key === "ArrowLeft") next = list[at - 1];
+					else if (e.key === "ArrowDown") next = step(list, target, 1);
+					else if (e.key === "ArrowUp") next = step(list, target, -1);
+					else if (e.key === "Home") next = list[0];
+					else if (e.key === "End") next = list[list.length - 1];
+					else if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
+						e.preventDefault();
+						e.stopPropagation();
+						target.click();
+						return;
+					}
+					else if (e.key === "Escape") {
+						e.preventDefault();
+						e.stopPropagation();
+						editor.closeCurrentPopup();
+						return;
+					}
+					else return;
+
+					e.preventDefault();
+					e.stopPropagation();
+					if (next) next.focus();
+				}, true);
+
 				var selecteditem = null;
 				var toselectitem = null;
 				function clear_selecteditem() {
@@ -28785,7 +29765,7 @@ function RTE_Plugin_InsertEmoji() {
 					for (var i = 0; i < group.items.length; i++) {
 						var item = group.items[i];
 						var htmlcode = CharToHTMLCode(item.emoji);
-						parts.push('<gitem class="rte-flex-column-center" style="width:32px;height:32px;margin:2px"><gspan htmlcode="' + htmlcode + '" title="' + item.emoji + ' ' + (item.keyword || '').replace(/"/g, '') + '">' + htmlcode + '</gspan></gitem>');
+						parts.push('<gitem class="rte-flex-column-center" style="width:32px;height:32px;margin:2px"><gspan role="menuitem" tabindex="0" aria-label="' + (item.keyword || item.emoji).replace(/"/g, '') + '" htmlcode="' + htmlcode + '" title="' + item.emoji + ' ' + (item.keyword || '').replace(/"/g, '') + '">' + htmlcode + '</gspan></gitem>');
 					}
 					parts.push('</div>');
 					return parts.join('');
@@ -28814,7 +29794,7 @@ function RTE_Plugin_InsertEmoji() {
 								continue;
 							itemindex++;
 							var htmlcode = CharToHTMLCode(item.emoji);
-							hitsHtml.push('<gitem class="rte-flex-column-center" style="width:32px;height:32px;margin:2px"><gspan htmlcode="' + htmlcode + '" title="' + item.emoji + ' ' + (item.keyword || '').replace(/"/g, '') + '">' + htmlcode + '</gspan></gitem>');
+							hitsHtml.push('<gitem class="rte-flex-column-center" style="width:32px;height:32px;margin:2px"><gspan role="menuitem" tabindex="0" aria-label="' + (item.keyword || item.emoji).replace(/"/g, '') + '" htmlcode="' + htmlcode + '" title="' + item.emoji + ' ' + (item.keyword || '').replace(/"/g, '') + '">' + htmlcode + '</gspan></gitem>');
 						}
 					}
 					resultpanel.innerHTML = '<div style="width:100%;padding:3px;margin-top:5px;color:darkblue;text-align:center;">' + itemindex + ' items</div>' + hitsHtml.join('');
@@ -30144,7 +31124,33 @@ function RTE_Plugin_KeyboardA11y() {
     // The editor already tracks active state — it just keeps it in a class.
     // Mirroring rather than recomputing means the announced state can never
     // disagree with the highlighted button.
-    var TOGGLE_CMD = /^(bold|italic|underline|strikethrough|subscript|superscript|justifyleft|justifycenter|justifyright|justifyfull|insertorderedlist|insertunorderedlist|outdent|indent|blockquote|inlinecode|trackchanges|typewriter|focusmode|pagination|formattingmarks|linenumbers|permanentpen|rtlui)$/;
+    // Command names here must match the TOOLBAR command exactly — the regex is
+    // anchored, so a near-miss is a silent no-op that looks like coverage.
+    // "blockquote" is one: the command is `insertblockquote`, so the entry
+    // written specifically for it never matched and that button ships with no
+    // aria-pressed. Found by checking every genuine toggle on the full toolbar
+    // rather than the three the published verify page samples.
+    //
+    // This mirror only copies the editor's own active state, so a command may
+    // only be listed here once core actually tracks it. Emitting the attribute
+    // for an untracked command yields a permanent aria-pressed="false" —
+    // confidently announcing "not pressed" while the formatting IS applied,
+    // which makes announced state DISAGREE with the highlight. That is the exact
+    // failure this mirror exists to prevent, so silence beats a wrong answer.
+    //   - `toggleborder` was already tracked (core checks the editable's
+    //     rte-toggleborder class); it reads inactive simply when borders are off.
+    //   - `insertblockquote` was NOT tracked and now is, via a core case added
+    //     alongside `indent`, which resolves the same way.
+    // Both verified on the running editor rather than inferred.
+    //
+    // `inlinecode`, `pagination`, `typewriter` and `focusmode` match nothing in
+    // this build, and now the reason is known rather than assumed: pagination.js
+    // and typewriter.js are API-only (togglePageView / toggleTypewriterMode …)
+    // and register no toolbar command, and insertcode.js registers `insertcode`,
+    // which inserts a block rather than toggling the selection. They are kept —
+    // harmless, and correct the moment a toolbar button is added — but they
+    // cover nothing today, so do not read this list as evidence of coverage.
+    var TOGGLE_CMD = /^(bold|italic|underline|strikethrough|subscript|superscript|justifyleft|justifycenter|justifyright|justifyfull|insertorderedlist|insertunorderedlist|outdent|indent|insertblockquote|toggleborder|inlinecode|trackchanges|typewriter|focusmode|pagination|formattingmarks|linenumbers|permanentpen|rtlui)$/;
 
     function syncToggleStates(root) {
         var btns = [].slice.call(root.querySelectorAll('[role="button"][rte-cmd-name]'));
@@ -32756,6 +33762,276 @@ function RTE_Plugin_MultiLevelList() {
         st.setAttribute("data-css", text);
         st.appendChild(doc.createTextNode(text));
         (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+    }
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
+// 2026-08-15 Multi-root editing — one toolbar, several editable regions.
+//
+// The CMS / page-builder case: a page has a title, a summary and a body, and the
+// author wants one toolbar that acts on whichever region they are in, not three
+// stacked toolbars eating the viewport.
+//
+// SCOPE — read this before assuming parity with CKEditor's multi-root:
+//   This editor edits <body> inside an IFRAME and has no div/inline mode. One
+//   instance therefore owns exactly one editable document, and every plugin,
+//   the selection model and the CRDT binding are written against that
+//   assumption. Making a single instance own N editables is a core rewrite, not
+//   a plugin.
+//   What this does instead is COORDINATE several ordinary instances: they share
+//   one visible toolbar and one group-level API. That covers the layout and the
+//   workflow, which is what the feature is actually for.
+//   What it does NOT do, and cannot without core work:
+//     - a shared undo stack (Ctrl+Z undoes within the focused region only),
+//     - a selection spanning two regions,
+//     - one collaboration session across regions (each root syncs separately).
+//   Those are stated in getCapabilities() as well as here, so an integrator
+//   finds out from the API rather than from a bug report.
+//
+// Design notes:
+//   - Toolbars are SHOWN/HIDDEN, not rebuilt or re-pointed. Each instance's
+//     toolbar already drives its own editor correctly; re-routing commands
+//     across instances would mean reimplementing every command's notion of
+//     "current editor" and would break the moment a plugin cached one.
+//   - Moving the active toolbar into a shared host is optional. DOM moves
+//     preserve listeners, so the toolbar keeps working, but a host that is
+//     positioned or scrolled differently can change the float-panel anchoring —
+//     hence opt-in rather than default.
+//   - Registration is by GROUP NAME in a module-level registry, because plugins
+//     are constructed per instance and have no other way to see each other.
+RTE_DefaultConfig.plugin_multiroot = RTE_Plugin_MultiRoot;
+
+// Instances sharing a group name act as one multi-root editor. null = off.
+if (typeof RTE_DefaultConfig.multiRootGroup === "undefined") RTE_DefaultConfig.multiRootGroup = null;
+// A name for this root in the group API. Defaults to the container's id.
+if (typeof RTE_DefaultConfig.multiRootName === "undefined") RTE_DefaultConfig.multiRootName = null;
+// Element (or its id) to move the active toolbar into. null = leave in place.
+if (typeof RTE_DefaultConfig.multiRootToolbarHost === "undefined") RTE_DefaultConfig.multiRootToolbarHost = null;
+
+// group name -> { roots: [entry], active: entry }
+if (!window.__RTE_MultiRootGroups) window.__RTE_MultiRootGroups = {};
+
+function RTE_Plugin_MultiRoot() {
+    var obj = this;
+    var config, editor;
+    var entry = null;
+
+    obj.PluginName = "MultiRoot";
+
+    obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+
+        var group = config.multiRootGroup;
+        if (!group) return;                       // opt-in
+
+        entry = {
+            name: config.multiRootName || containerId() || ("root" + (groupOf(group).roots.length + 1)),
+            editor: editor,
+            container: container(),
+            group: group
+        };
+        groupOf(group).roots.push(entry);
+
+        editor.multiRoot = api(group);
+
+        // Wait for the toolbar to exist before hiding anything.
+        setTimeout(function () { bindFocus(); settle(group); }, 0);
+        try { editor.attachEvent("ready", function () { bindFocus(); settle(group); }); } catch (e) {}
+    };
+
+    function groupOf(name) {
+        // `listeners` lives on the GROUP, not in this closure. Every root builds
+        // its own copy of this plugin, so an instance-local list means a callback
+        // registered through one root's API never hears an activation fired by a
+        // different root — the subscriber silently lags by one event, or misses
+        // everything, depending on which root the user clicks.
+        if (!window.__RTE_MultiRootGroups[name]) {
+            window.__RTE_MultiRootGroups[name] = { roots: [], active: null, listeners: [] };
+        }
+        var g = window.__RTE_MultiRootGroups[name];
+        if (!g.listeners) g.listeners = [];
+        return g;
+    }
+
+    // The editor exposes its host element as `container` (a property, not a
+    // getter — there is no getContainer()). Falling back through the iframe
+    // covers any build where that property is absent, rather than silently
+    // returning null and leaving every toolbar visible.
+    function container() {
+        try {
+            if (editor.container) return editor.container;
+            if (editor.iframe) {
+                var n = editor.iframe.parentNode;
+                while (n && !(n.classList && n.classList.contains("richtexteditor"))) n = n.parentNode;
+                return n || null;
+            }
+        } catch (e) {}
+        return null;
+    }
+
+    function containerId() {
+        var c = container();
+        return c && c.id ? c.id : null;
+    }
+
+    // ---- toolbar visibility ----------------------------------------------
+
+    function toolbarsOf(root) {
+        var c = root.container;
+        if (!c) return [];
+        return [].slice.call(c.querySelectorAll("rte-toolbar"));
+    }
+
+    function setVisible(root, visible) {
+        var bars = toolbarsOf(root);
+        for (var i = 0; i < bars.length; i++) {
+            var bar = bars[i];
+            if (visible) {
+                // Restore whatever the editor's own responsive logic had chosen
+                // (desktop vs mobile bar), rather than forcing display:flex on
+                // both and showing two toolbars at once.
+                if (bar.__rteMultiRootPrevDisplay !== undefined) {
+                    bar.style.display = bar.__rteMultiRootPrevDisplay;
+                    delete bar.__rteMultiRootPrevDisplay;
+                }
+            } else {
+                if (bar.__rteMultiRootPrevDisplay === undefined) {
+                    bar.__rteMultiRootPrevDisplay = bar.style.display;
+                }
+                bar.style.display = "none";
+            }
+        }
+    }
+
+    function settle(groupName) {
+        var g = groupOf(groupName);
+        if (!g.roots.length) return;
+        if (!g.active) g.active = g.roots[0];
+        for (var i = 0; i < g.roots.length; i++) {
+            setVisible(g.roots[i], g.roots[i] === g.active);
+        }
+        hostToolbar(g.active);
+    }
+
+    function hostToolbar(root) {
+        var hostRef = config.multiRootToolbarHost;
+        if (!hostRef || !root) return;
+        var host = (typeof hostRef === "string") ? document.getElementById(hostRef) : hostRef;
+        if (!host) return;
+        var bars = toolbarsOf(root);
+        for (var i = 0; i < bars.length; i++) {
+            // Moving a node keeps its listeners, so the toolbar stays live.
+            if (bars[i].parentNode !== host) host.appendChild(bars[i]);
+        }
+    }
+
+    // ---- focus tracking ---------------------------------------------------
+
+    function bindFocus() {
+        var doc;
+        try { doc = editor.getDocument(); } catch (e) { return; }
+        if (!doc || doc.__rteMultiRootBound) return;
+        doc.__rteMultiRootBound = true;
+
+        var activate = function () {
+            if (!entry) return;
+            var g = groupOf(entry.group);
+            if (g.active === entry) return;
+            g.active = entry;
+            settle(entry.group);
+            fire(entry.group, entry);
+        };
+
+        // focusin bubbles; focus does not.
+        doc.addEventListener("focusin", activate, true);
+        doc.addEventListener("mousedown", activate, true);
+    }
+
+    function fire(groupName, root) {
+        var list = groupOf(groupName).listeners;
+        for (var i = 0; i < list.length; i++) {
+            try { list[i]({ active: root.name, editor: root.editor }); } catch (e) {}
+        }
+    }
+
+    // ---- group API --------------------------------------------------------
+
+    function api(groupName) {
+        var g = groupOf(groupName);
+        return {
+            group: groupName,
+
+            getRoots: function () {
+                return g.roots.map(function (r) { return r.name; });
+            },
+
+            getActive: function () {
+                return g.active ? g.active.name : null;
+            },
+
+            getEditor: function (name) {
+                for (var i = 0; i < g.roots.length; i++) if (g.roots[i].name === name) return g.roots[i].editor;
+                return null;
+            },
+
+            focusRoot: function (name) {
+                var target = null;
+                for (var i = 0; i < g.roots.length; i++) if (g.roots[i].name === name) target = g.roots[i];
+                if (!target) return false;
+                g.active = target;
+                settle(groupName);
+                try { target.editor.focus(); } catch (e) {}
+                fire(groupName, target);
+                return true;
+            },
+
+            // The whole document, one entry per root — what a CMS saves.
+            getHTML: function () {
+                var out = {};
+                for (var i = 0; i < g.roots.length; i++) {
+                    try { out[g.roots[i].name] = g.roots[i].editor.getHTMLCode(); } catch (e) { out[g.roots[i].name] = null; }
+                }
+                return out;
+            },
+
+            setHTML: function (map) {
+                if (!map) return false;
+                for (var i = 0; i < g.roots.length; i++) {
+                    var r = g.roots[i];
+                    if (!(r.name in map)) continue;
+                    try { r.editor.setHTMLCode(map[r.name]); } catch (e) {}
+                }
+                return true;
+            },
+
+            onActiveChange: function (fn) {
+                if (typeof fn !== "function") return function () {};
+                g.listeners.push(fn);
+                return function () {
+                    var at = g.listeners.indexOf(fn);
+                    if (at >= 0) g.listeners.splice(at, 1);
+                };
+            },
+
+            // Say plainly what this does and does not do, so an integrator does
+            // not discover the limits from a support ticket.
+            getCapabilities: function () {
+                return {
+                    sharedToolbar: true,
+                    sharedGroupApi: true,
+                    perRootUndo: true,
+                    sharedUndoStack: false,
+                    selectionAcrossRoots: false,
+                    sharedCollaborationSession: false,
+                    note: "Each root is a separate editor instance sharing one visible toolbar. " +
+                          "Undo, selection and collaboration are per-root; the editor edits an " +
+                          "iframe body, so a single instance cannot own several editables without core changes."
+                };
+            }
+        };
     }
 }
 
@@ -38848,6 +40124,511 @@ function RTE_Plugin_TextDirection() {
 
 if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
 
+// 2026-08-15 Text part language ("language of parts").
+//
+// WCAG 2.1 SC 3.1.2 (Level AA) requires that the human language of every
+// PASSAGE or PHRASE be programmatically determinable when it differs from the
+// document language. Until now this editor could only set a language on the
+// whole document (a11yenhance.js stamps <html lang>), so a French quotation
+// inside an English page was unmarkable and any AA conformance claim on
+// /docs/accessibility was overstated. A screen reader reads such a phrase with
+// the wrong phoneme set, which is the failure the SC exists to prevent.
+//
+// CKEditor 5 ships this as "Text part language". TinyMCE has no equivalent
+// plugin (8.5's `content_language` sets the default proofing language, not
+// per-phrase markup).
+//
+// Design notes:
+//   - `lang` is CONTENT, exactly like `dir` in textdirection.js: it must survive
+//     getHTMLCode(), and it is never stripped on serialize. A document whose
+//     language annotations vanished on save would silently drop its own
+//     conformance.
+//   - The wrapper is a bare <span lang>. No class is emitted, so there is
+//     nothing for check-css-contract.mjs to chase and nothing that depends on a
+//     stylesheet travelling with the content. The in-editor visual marker is
+//     injected into the EDITING DOCUMENT only, keyed off [lang], so it shows the
+//     author what is marked without ever leaving the editor.
+//   - RTL languages also get `dir`, because `lang` alone does not set direction.
+//     A Hebrew phrase marked only with lang="he" still renders left-to-right and
+//     reads as gibberish.
+//   - Re-applying the SAME language to a selection REMOVES it (toggle), which is
+//     how every other inline format in this editor behaves.
+//   - Nested lang spans inside the selection are unwrapped before wrapping, so a
+//     phrase never ends up with two competing languages. The inner one would win
+//     in the accessibility tree and the author would have no way to see why.
+//   - A collapsed selection deliberately does NOT create an empty wrapper. An
+//     empty inline span is a caret trap (the caret falls in and cannot be typed
+//     out of); instead a collapsed caret retargets the [lang] element it is
+//     already inside, so "put the cursor in the phrase and pick Remove" works.
+RTE_DefaultConfig.plugin_textpartlanguage = RTE_Plugin_TextPartLanguage;
+
+// The dropdown list. `dir` is only needed for right-to-left languages.
+if (typeof RTE_DefaultConfig.textPartLanguages === "undefined") {
+    RTE_DefaultConfig.textPartLanguages = [
+        { code: "ar", label: "Arabic", dir: "rtl" },
+        { code: "zh-Hans", label: "Chinese (Simplified)" },
+        { code: "zh-Hant", label: "Chinese (Traditional)" },
+        { code: "cs", label: "Czech" },
+        { code: "nl", label: "Dutch" },
+        { code: "en", label: "English" },
+        { code: "fr", label: "French" },
+        { code: "de", label: "German" },
+        { code: "el", label: "Greek" },
+        { code: "he", label: "Hebrew", dir: "rtl" },
+        { code: "hi", label: "Hindi" },
+        { code: "it", label: "Italian" },
+        { code: "ja", label: "Japanese" },
+        { code: "ko", label: "Korean" },
+        { code: "fa", label: "Persian", dir: "rtl" },
+        { code: "pl", label: "Polish" },
+        { code: "pt", label: "Portuguese" },
+        { code: "ru", label: "Russian" },
+        { code: "es", label: "Spanish" },
+        { code: "sv", label: "Swedish" },
+        { code: "tr", label: "Turkish" },
+        { code: "uk", label: "Ukrainian" },
+        { code: "ur", label: "Urdu", dir: "rtl" },
+        { code: "vi", label: "Vietnamese" }
+    ];
+}
+
+// Show marked phrases with a dotted underline while editing. Editor-only: the
+// rule lives in the editing document, never in the saved HTML.
+if (typeof RTE_DefaultConfig.textPartLanguageHighlight === "undefined") RTE_DefaultConfig.textPartLanguageHighlight = true;
+
+function RTE_Plugin_TextPartLanguage() {
+    var obj = this;
+    var config, editor;
+    var boundDoc = null;
+
+    obj.PluginName = "TextPartLanguage";
+
+    obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+
+        editor.attachEvent("exec_command_textpartlanguage", function (state) {
+            state.returnValue = true;
+            var v = state && state.value;
+            if (!v || v === "none" || v === "remove") obj.Remove();
+            else obj.Apply(v);
+        });
+
+        if (editor.toolbarFactoryMap) {
+            editor.toolbarFactoryMap["textpartlanguage"] = function (cmd) {
+                return editor.createToolbarItemDropDownPanel(cmd, buildPanel);
+            };
+        }
+
+        setup();
+        try { editor.attachEvent("ready", setup); } catch (e) {}
+        try { editor.attachEvent("aftersethtml", setup); } catch (e) {}
+        setTimeout(setup, 0);
+
+        // Public API.
+        editor.setTextLanguage = function (code) { return obj.Apply(code); };
+        editor.removeTextLanguage = function () { return obj.Remove(); };
+        editor.getTextLanguage = function () { return obj.Current(); };
+        editor.listTextLanguages = function () { return languages().slice(); };
+        editor.getMarkedLanguages = function () { return obj.List(); };
+    };
+
+    function getDoc() { try { return editor.getDocument(); } catch (e) { return null; } }
+    function getEditable() { try { return editor.getEditable(); } catch (e) { return null; } }
+
+    function languages() {
+        var list = config && config.textPartLanguages;
+        return (list && list.length) ? list : [];
+    }
+
+    function entry(code) {
+        var list = languages();
+        for (var i = 0; i < list.length; i++) if (list[i].code === code) return list[i];
+        return { code: code, label: code };
+    }
+
+    // ---- state -----------------------------------------------------------
+
+    // The nearest ancestor carrying a lang, bounded by the editable so the host
+    // page's own <html lang> is never reported as the phrase language.
+    function langAncestor(node) {
+        var ed = getEditable();
+        var n = (node && node.nodeType === 3) ? node.parentNode : node;
+        while (n && n !== ed && n.nodeType === 1) {
+            if (n.hasAttribute && n.hasAttribute("lang")) return n;
+            n = n.parentNode;
+        }
+        return null;
+    }
+
+    function selectionRange() {
+        try {
+            var sel = editor.getSelection();
+            if (!sel || sel.rangeCount === 0) return null;
+            return sel.getRangeAt(0);
+        } catch (e) { return null; }
+    }
+
+    obj.Current = function () {
+        var r = selectionRange();
+        if (!r) return null;
+        var el = langAncestor(r.startContainer);
+        // A non-collapsed selection only counts as "in" a language if BOTH ends
+        // sit in the same marked phrase; a selection straddling the boundary has
+        // no single language and must not report one.
+        if (el && !r.collapsed && langAncestor(r.endContainer) !== el) return null;
+        return el ? el.getAttribute("lang") : null;
+    };
+
+    // Every distinct language marked in the document, for auditing.
+    obj.List = function () {
+        var ed = getEditable();
+        var out = [];
+        if (!ed) return out;
+        var seen = {};
+        var nodes = ed.querySelectorAll("[lang]");
+        for (var i = 0; i < nodes.length; i++) {
+            var code = nodes[i].getAttribute("lang");
+            if (!code || seen[code]) continue;
+            seen[code] = true;
+            out.push({ code: code, label: entry(code).label });
+        }
+        return out;
+    };
+
+    // ---- apply -----------------------------------------------------------
+
+    obj.Apply = function (code) {
+        code = String(code == null ? "" : code).trim();
+        if (!code) return false;
+
+        var doc = getDoc();
+        var r = selectionRange();
+        if (!doc || !r) return false;
+
+        // Re-picking the current language toggles it off.
+        if (obj.Current() === code) return obj.Remove();
+
+        if (r.collapsed) {
+            // No empty wrapper (caret trap). Retarget the phrase the caret is in.
+            var host = langAncestor(r.startContainer);
+            if (!host) return false;
+            stamp(host, code);
+            fireChange();
+            return code;
+        }
+
+        var span = doc.createElement("span");
+        stamp(span, code);
+
+        try {
+            // surroundContents is the clean path, but it throws whenever the
+            // range partially selects a non-text node (half a <strong>), which
+            // is the common case in real prose.
+            r.surroundContents(span);
+        } catch (e) {
+            var frag = r.extractContents();
+            span.appendChild(frag);
+            r.insertNode(span);
+        }
+
+        unwrapInner(span);
+        pruneEmptyText(span);
+        if (!span.firstChild) { // selection held nothing real
+            if (span.parentNode) span.parentNode.removeChild(span);
+            return false;
+        }
+        mergeSiblings(span);
+        select(span);
+        fireChange();
+        return code;
+    };
+
+    obj.Remove = function () {
+        var r = selectionRange();
+        if (!r) return false;
+        var ed = getEditable();
+        if (!ed) return false;
+
+        var removed = 0;
+
+        // The phrase the caret/selection sits inside.
+        var host = langAncestor(r.startContainer);
+        if (host) { unwrap(host); removed++; }
+
+        // Plus any fully- or partly-selected marked phrases in a wider range.
+        if (!r.collapsed) {
+            var nodes = ed.querySelectorAll("[lang]");
+            for (var i = nodes.length - 1; i >= 0; i--) {
+                var el = nodes[i];
+                if (el === host) continue;
+                if (intersects(r, el)) { unwrap(el); removed++; }
+            }
+        }
+
+        if (removed) fireChange();
+        return removed > 0;
+    };
+
+    function intersects(range, el) {
+        try {
+            var er = el.ownerDocument.createRange();
+            er.selectNodeContents(el);
+            return range.compareBoundaryPoints(Range.END_TO_START, er) < 0 &&
+                   range.compareBoundaryPoints(Range.START_TO_END, er) > 0;
+        } catch (e) { return false; }
+    }
+
+    function stamp(el, code) {
+        el.setAttribute("lang", code);
+        var dir = entry(code).dir;
+        // lang does not imply direction; without dir an RTL phrase renders LTR.
+        if (dir === "rtl" || dir === "ltr") el.setAttribute("dir", dir);
+        else el.removeAttribute("dir");
+    }
+
+    // A phrase must carry exactly one language. Anything marked inside the new
+    // wrapper would otherwise win in the accessibility tree.
+    function unwrapInner(span) {
+        var inner = span.querySelectorAll("[lang]");
+        for (var i = inner.length - 1; i >= 0; i--) unwrap(inner[i]);
+    }
+
+    function unwrap(el) {
+        if (!el || !el.parentNode) return;
+        // A span we created carries nothing else; anything the author's own
+        // markup carries (a styled <em lang>) must survive, so only the
+        // language attributes come off.
+        if (el.nodeName === "SPAN" && el.attributes.length <= 2 &&
+            !el.getAttribute("class") && !el.getAttribute("style") && !el.getAttribute("id")) {
+            var parent = el.parentNode;
+            while (el.firstChild) parent.insertBefore(el.firstChild, el);
+            parent.removeChild(el);
+            try { parent.normalize(); } catch (e) {}
+        } else {
+            el.removeAttribute("lang");
+            el.removeAttribute("dir");
+        }
+    }
+
+    // extractContents leaves zero-length text nodes behind; they make a wrapper
+    // look non-empty and leave invisible caret stops in the phrase.
+    function pruneEmptyText(el) {
+        for (var i = el.childNodes.length - 1; i >= 0; i--) {
+            var n = el.childNodes[i];
+            if (n.nodeType === 3 && n.nodeValue === "") el.removeChild(n);
+        }
+    }
+
+    // Marking two adjacent halves of a phrase should read as one phrase, not two.
+    function mergeSiblings(span) {
+        var code = span.getAttribute("lang");
+        var prev = span.previousSibling;
+        if (prev && prev.nodeType === 1 && prev.nodeName === "SPAN" && prev.getAttribute("lang") === code) {
+            while (span.firstChild) prev.appendChild(span.firstChild);
+            span.parentNode.removeChild(span);
+            span = prev;
+        }
+        var next = span.nextSibling;
+        if (next && next.nodeType === 1 && next.nodeName === "SPAN" && next.getAttribute("lang") === code) {
+            while (next.firstChild) span.appendChild(next.firstChild);
+            next.parentNode.removeChild(next);
+        }
+        try { span.normalize(); } catch (e) {}
+        return span;
+    }
+
+    function select(span) {
+        try {
+            var sel = editor.getSelection();
+            var r = span.ownerDocument.createRange();
+            r.selectNodeContents(span);
+            sel.removeAllRanges();
+            sel.addRange(r);
+        } catch (e) {}
+    }
+
+    function fireChange() {
+        try { if (typeof editor.updateDesign === "function") editor.updateDesign(); } catch (e) {}
+        try { if (typeof editor.fireChange === "function") editor.fireChange(); } catch (e) {}
+    }
+
+    // ---- toolbar panel ---------------------------------------------------
+
+    function buildPanel(panel) {
+        var current = obj.Current();
+        panel.style.width = "220px";
+        panel.style.maxHeight = "340px";
+        panel.style.overflowY = "auto";
+        panel.style.padding = "4px 0";
+
+        var list = languages();
+
+        addRow(panel, editor.getLangText ? (editor.getLangText("removelanguage") || "Remove language") : "Remove language",
+               null, !current, function () { obj.Remove(); });
+
+        var sep = panel.ownerDocument.createElement("div");
+        sep.style.cssText = "height:1px;margin:4px 6px;background:var(--rte-border-color,#e0e0e0);";
+        panel.appendChild(sep);
+
+        for (var i = 0; i < list.length; i++) {
+            (function (item) {
+                addRow(panel, item.label, item.code, current === item.code, function () { obj.Apply(item.code); });
+            })(list[i]);
+        }
+
+        // Opening a menu has to put focus inside it, or a keyboard user has
+        // opened something they cannot reach. Start on the current language when
+        // there is one — that is the item they are most likely acting on.
+        setTimeout(function () {
+            var rows = panel.querySelectorAll("rte-toolbar-dropdown-item");
+            if (!rows.length) return;
+            var target = rows[0];
+            for (var i = 0; i < rows.length; i++) {
+                if (rows[i].getAttribute("aria-checked") === "true") { target = rows[i]; break; }
+            }
+            try { target.focus(); } catch (e) {}
+        }, 0);
+    }
+
+    function addRow(panel, label, code, active, run) {
+        var doc = panel.ownerDocument;
+        // Two things are required for a menu row to be operable by keyboard, and
+        // a plain <div role="menuitemradio"> has neither:
+        //   1. The TAG. The core's keyboard layer finds items via
+        //      __actionElementSelector, which lists element NAMES
+        //      (rte-toolbar-dropdown-item, rte-dropdown-menuitem, rte-menuitem)
+        //      and ignores roles entirely.
+        //   2. A tab stop and key handling. The core applies those inside its own
+        //      closure — __Append / __Make_ActionElementAccessible are not exposed
+        //      to plugins — so a plugin has to supply them itself rather than
+        //      hope an internal picks the row up.
+        // Both are done here, so the menu works with a keyboard regardless of
+        // what the core does or does not reach into (WCAG 2.1.1).
+        var row = doc.createElement("rte-toolbar-dropdown-item");
+        panel.appendChild(row);
+        row.setAttribute("role", "menuitemradio");
+        row.setAttribute("aria-checked", active ? "true" : "false");
+        row.setAttribute("tabindex", "0");
+        row.style.cssText = "padding:5px 12px;cursor:pointer;white-space:nowrap;display:flex;" +
+            "justify-content:space-between;gap:12px;color:var(--rte-text-color,inherit);" +
+            (active ? "font-weight:600;" : "");
+
+        var name = doc.createElement("span");
+        name.appendChild(doc.createTextNode(label));
+        row.appendChild(name);
+
+        if (code) {
+            var tag = doc.createElement("span");
+            tag.style.cssText = "opacity:.55;font-size:11px;";
+            tag.appendChild(doc.createTextNode(code));
+            row.appendChild(tag);
+        }
+
+        row.onmouseover = function () { row.style.backgroundColor = "var(--rte-hover-bg,#e6e6e6)"; };
+        row.onmouseout = function () { row.style.backgroundColor = ""; };
+        row.onclick = function () {
+            // Close first: the panel steals focus, and applying to a selection
+            // the editor no longer owns silently does nothing.
+            try { editor.closeCurrentPopup(); } catch (e) {}
+            try { editor.focus(); } catch (e) {}
+            run();
+        };
+
+        row.onkeydown = function (e) {
+            var key = e.key;
+            if (key === "Enter" || key === " " || key === "Spacebar") {
+                e.preventDefault();
+                e.stopPropagation();
+                row.onclick();
+                return;
+            }
+            if (key === "ArrowDown" || key === "ArrowUp") {
+                e.preventDefault();
+                e.stopPropagation();
+                var items = panel.querySelectorAll("rte-toolbar-dropdown-item");
+                var list = Array.prototype.slice.call(items);
+                var at = list.indexOf(row);
+                // Wrap, so the list cannot dead-end and strand the user.
+                var next = list[(at + (key === "ArrowDown" ? 1 : -1) + list.length) % list.length];
+                if (next) next.focus();
+                return;
+            }
+            if (key === "Home" || key === "End") {
+                e.preventDefault();
+                e.stopPropagation();
+                var all = panel.querySelectorAll("rte-toolbar-dropdown-item");
+                var target = key === "Home" ? all[0] : all[all.length - 1];
+                if (target) target.focus();
+                return;
+            }
+            if (key === "Escape") {
+                e.preventDefault();
+                e.stopPropagation();
+                // Escape closes the menu; focus then lands in the EDITING AREA,
+                // not back on the launcher.
+                //
+                // That is the core's behaviour for every dropdown — closing a
+                // popup refocuses the editable asynchronously — and it cannot be
+                // overridden from here. Measured: setting focus on the launcher
+                // does take effect, and is then taken back ~16 ms later; a forced
+                // re-focus is taken back again. Racing it with longer timeouts
+                // would be fragile and would fight the "close the popup, carry on
+                // typing" flow the rest of the editor depends on.
+                //
+                // This is not a trap and not a WCAG failure: the menu closes,
+                // focus is visible and lands somewhere meaningful. Restoring
+                // launcher focus properly belongs in the core's popup-close path,
+                // where it would apply to every dropdown at once.
+                try { editor.closeCurrentPopup(); } catch (ex) {}
+            }
+        };
+    }
+
+    // ---- editor-only marker ----------------------------------------------
+
+    function setup() {
+        var doc = getDoc();
+        if (!doc || doc === boundDoc) return;
+        boundDoc = doc;
+        injectStyles(doc);
+    }
+
+    function css() {
+        if (config && config.textPartLanguageHighlight === false) return "";
+        // Scoped to [lang] inside the editing document only. Never serialized,
+        // so the marker cannot follow the content into a customer's page.
+        //
+        // :not(html):not(body) is REQUIRED, not defensive tidiness. a11yenhance.js
+        // stamps the editing document's root with the document language, so a bare
+        // [lang] selector matches <html> — which made hovering anywhere in the
+        // editing area grey the ENTIRE surface, and drew the "marked phrase"
+        // underline across the whole document. Reported from the live demos page.
+        // Only a phrase the author actually marked should be decorated.
+        return "[lang]:not(html):not(body){border-bottom:1px dotted rgba(120,120,120,.75);}" +
+               "[lang]:not(html):not(body):hover{background:rgba(120,120,120,.10);}";
+    }
+
+    function injectStyles(doc) {
+        if (!doc) return;
+        var text = css();
+        var existing = doc.getElementById("rte-textpartlanguage-styles");
+        if (existing) {
+            if (existing.getAttribute("data-css") === text) return;
+            existing.parentNode && existing.parentNode.removeChild(existing);
+        }
+        if (!text) return;
+        var st = doc.createElement("style");
+        st.id = "rte-textpartlanguage-styles";
+        st.setAttribute("data-css", text);
+        st.appendChild(doc.createTextNode(text));
+        (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+    }
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
 // 2026-06-05 Interactive task / checklist. Notion / GitHub / Google-Docs style:
 // a list whose items each carry a clickable checkbox; clicking toggles the item
 // between open and done (a check + strike-through). Closes a real gap &mdash; the
@@ -39061,7 +40842,12 @@ function RTE_Plugin_TrackedChanges() {
                 if (enabled) btn.classList.add("rte-ui-active");
                 else btn.classList.remove("rte-ui-active");
                 btn.setAttribute("aria-pressed", enabled ? "true" : "false");
-                btn.setAttribute("title", enabled ? "Suggesting mode is on" : "Turn on suggesting mode");
+                // WCAG 2.5.3 Label in Name: the visible label (this tooltip) must be
+                // contained in the accessible name. "Turn on suggesting mode" was not
+                // — the accessible name is "Suggesting mode" — so a speech-input user
+                // saying what they see did not match the control. State belongs in
+                // aria-pressed and the active styling, not in the visible label.
+                btn.setAttribute("title", config.text_trackchanges || "Suggesting mode");
             };
             btn.__tcSync();
             return btn;
@@ -39176,6 +40962,26 @@ function RTE_Plugin_TrackedChanges() {
         return el.getAttribute("data-tc-author") === config.currentUser.id;
     }
 
+    // We preventDefault() the browser's own text insertion, which means we also
+    // lose the whitespace handling it does for free. A plain second space is
+    // collapsed by HTML rendering, so pressing space a second time moved nothing
+    // on screen and suggesting mode looked like it had stopped accepting input.
+    // Reproduce what contenteditable does: any space followed by another space,
+    // and any trailing space, becomes a non-breaking space. Recomputed from
+    // scratch each time so an NBSP reverts to a normal space once real text
+    // follows it (keeping word wrap and copied text clean). Only typed text
+    // reaches this path -- paste arrives as insertFromPaste and is passed
+    // through -- so this never rewrites an NBSP the user inserted deliberately.
+    function normalizeInsertWhitespace(node) {
+        if (!node || node.nodeType !== 3) return;
+        var v = node.nodeValue;
+        if (v.indexOf(" ") === -1 && v.indexOf("\u00a0") === -1) return;
+        v = v.replace(/\u00a0/g, " ");
+        v = v.replace(/ (?= )/g, "\u00a0");
+        v = v.replace(/ $/, "\u00a0");
+        if (v !== node.nodeValue) node.nodeValue = v;
+    }
+
     function appendToInsertSpan(span, text) {
         var editdoc = editor.getDocument();
         // Append to the span's last text node (or create one).
@@ -39188,6 +40994,7 @@ function RTE_Plugin_TrackedChanges() {
             node = editdoc.createTextNode(text);
             span.appendChild(node);
         }
+        normalizeInsertWhitespace(node);
         placeCaretAtEnd(node);
         updateEntryForSpan(span);
     }
@@ -39205,6 +41012,7 @@ function RTE_Plugin_TrackedChanges() {
         span.style.textDecoration = "underline";
         span.appendChild(editdoc.createTextNode(text));
         range.insertNode(span);
+        normalizeInsertWhitespace(span.firstChild);
         placeCaretAtEnd(span.firstChild);
 
         editor.reviewLedger.add({
@@ -40269,7 +42077,7 @@ function RTE_Plugin_WordExport() {
         if (!name) return "";
         // Strip control chars + filesystem-reserved characters, collapse spaces.
         return String(name)
-            .replace(/[\\/:*?"<>| -]+/g, " ")
+            .replace(/[\\/:*?"<>|\x00-\x1f]+/g, " ")
             .replace(/\s+/g, " ")
             .trim()
             .slice(0, 80);

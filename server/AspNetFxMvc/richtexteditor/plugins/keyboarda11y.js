@@ -227,7 +227,33 @@ function RTE_Plugin_KeyboardA11y() {
     // The editor already tracks active state — it just keeps it in a class.
     // Mirroring rather than recomputing means the announced state can never
     // disagree with the highlighted button.
-    var TOGGLE_CMD = /^(bold|italic|underline|strikethrough|subscript|superscript|justifyleft|justifycenter|justifyright|justifyfull|insertorderedlist|insertunorderedlist|outdent|indent|blockquote|inlinecode|trackchanges|typewriter|focusmode|pagination|formattingmarks|linenumbers|permanentpen|rtlui)$/;
+    // Command names here must match the TOOLBAR command exactly — the regex is
+    // anchored, so a near-miss is a silent no-op that looks like coverage.
+    // "blockquote" is one: the command is `insertblockquote`, so the entry
+    // written specifically for it never matched and that button ships with no
+    // aria-pressed. Found by checking every genuine toggle on the full toolbar
+    // rather than the three the published verify page samples.
+    //
+    // This mirror only copies the editor's own active state, so a command may
+    // only be listed here once core actually tracks it. Emitting the attribute
+    // for an untracked command yields a permanent aria-pressed="false" —
+    // confidently announcing "not pressed" while the formatting IS applied,
+    // which makes announced state DISAGREE with the highlight. That is the exact
+    // failure this mirror exists to prevent, so silence beats a wrong answer.
+    //   - `toggleborder` was already tracked (core checks the editable's
+    //     rte-toggleborder class); it reads inactive simply when borders are off.
+    //   - `insertblockquote` was NOT tracked and now is, via a core case added
+    //     alongside `indent`, which resolves the same way.
+    // Both verified on the running editor rather than inferred.
+    //
+    // `inlinecode`, `pagination`, `typewriter` and `focusmode` match nothing in
+    // this build, and now the reason is known rather than assumed: pagination.js
+    // and typewriter.js are API-only (togglePageView / toggleTypewriterMode …)
+    // and register no toolbar command, and insertcode.js registers `insertcode`,
+    // which inserts a block rather than toggling the selection. They are kept —
+    // harmless, and correct the moment a toolbar button is added — but they
+    // cover nothing today, so do not read this list as evidence of coverage.
+    var TOGGLE_CMD = /^(bold|italic|underline|strikethrough|subscript|superscript|justifyleft|justifycenter|justifyright|justifyfull|insertorderedlist|insertunorderedlist|outdent|indent|insertblockquote|toggleborder|inlinecode|trackchanges|typewriter|focusmode|pagination|formattingmarks|linenumbers|permanentpen|rtlui)$/;
 
     function syncToggleStates(root) {
         var btns = [].slice.call(root.querySelectorAll('[role="button"][rte-cmd-name]'));

@@ -43,7 +43,22 @@ function RTE_Plugin_ImageEditor() {
 		return tag;
 	}
 	
-	function dataURLToBlob(dataurl) {
+	var MIME_EXTENSION = {
+		"image/png": ".png",
+		"image/jpeg": ".jpg",
+		"image/jpg": ".jpg",
+		"image/webp": ".webp",
+		"image/gif": ".gif",
+		"image/bmp": ".bmp",
+		"image/avif": ".avif"
+	};
+
+	// Returns a File, not a bare Blob. Upload handlers identify the file by its
+	// .name - a Blob has none, so the edited image was posted with an undefined
+	// name and every server rejected it ("Invalid file extension"), surfacing as
+	// "Upload failed. Check your connection and try again." when the network was
+	// perfectly fine.
+	function dataURLToBlob(dataurl, filename) {
 		var arr = dataurl.split(',');
 		var mime = arr[0].match(/:(.*?);/)[1];
 		var bstr = atob(arr[1]);
@@ -52,7 +67,16 @@ function RTE_Plugin_ImageEditor() {
 		while (n--) {
 			u8arr[n] = bstr.charCodeAt(n);
 		}
-		return new Blob([u8arr], { type: mime });
+		var name = filename || ("image-" + new Date().getTime() + (MIME_EXTENSION[mime] || ".png"));
+		try {
+			return new File([u8arr], name, { type: mime });
+		} catch (e) {
+			// Very old browsers have no File constructor. Keep the name reachable
+			// so a handler reading file.name still works.
+			var blob = new Blob([u8arr], { type: mime });
+			blob.name = name;
+			return blob;
+		}
 	}
 
 	obj.DoImageEditor = function () {
@@ -159,8 +183,11 @@ function RTE_Plugin_ImageEditor() {
 					}
 					savebtn.disabled = false;
 					savebtn.innerText = "Save";
+					// Show what the server actually said. Blaming the connection sent
+					// people chasing a network problem when the real answer was a
+					// rejected file type or a size limit.
 					status.innerText = error
-						? "Upload failed. Check your connection and try again."
+						? ("Upload failed: " + error)
 						: "The upload did not return a file URL. Please try again.";
 				});
 

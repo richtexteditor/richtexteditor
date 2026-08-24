@@ -174,7 +174,7 @@ function RTE_Plugin_WordExport() {
         if (!name) return "";
         // Strip control chars + filesystem-reserved characters, collapse spaces.
         return String(name)
-            .replace(/[\\/:*?"<>| -]+/g, " ")
+            .replace(/[\\/:*?"<>|\x00-\x1f]+/g, " ")
             .replace(/\s+/g, " ")
             .trim()
             .slice(0, 80);

@@ -141,6 +141,17 @@ function RTE_Plugin_Sanitizer() {
         var v = String(value == null ? "" : value).replace(/[\u0000-\u0020\u007F-\u00A0]+/g, "").trim();
         if (!v) return false;
 
+        // <use> resolves its reference by FETCHING it. The only legitimate form
+        // in editor content is a same-document fragment (#icon-id) pointing at a
+        // <symbol>/<defs> in the same markup — nobody authoring a document means
+        // to reference a remote SVG. Left unrestricted it is a beacon that fires
+        // in every reader's browser for content one author saved, which is the
+        // same class of problem as an embedded remote logo or analytics pixel
+        // (see the no-external-calls hardening). Browsers additionally refuse
+        // cross-origin <use>, but relying on that is relying on someone else's
+        // policy to enforce ours.
+        if (tag === "use") return v.charAt(0) === "#";
+
         // Fragments, absolute paths and query-only URLs carry no scheme.
         if (/^[#?/]/.test(v)) return true;
 
@@ -243,6 +254,19 @@ function RTE_Plugin_Sanitizer() {
                 // This is the construct that actually executed downstream.
                 if (el.hasAttribute("srcdoc")) { note(report.removedAttributes, "iframe[srcdoc]"); el.removeAttribute("srcdoc"); }
                 if (!iframeAllowed(el)) { note(report.removedTags, "iframe"); el.parentNode.removeChild(el); continue; }
+            } else if (tag === "title" || tag === "desc") {
+                // Legal inside <svg> (they supply its accessible name), which is
+                // why they are in ALLOWED_TAGS. But the allowance was
+                // unqualified, so a document-level <title> from a pasted or
+                // set full HTML document survived into SAVED content while
+                // <style>/<meta>/<link> beside it were stripped. Head-level
+                // markup has no business in body content; keep these only where
+                // they are actually valid.
+                if (!el.closest || !el.closest("svg")) {
+                    note(report.removedTags, tag);
+                    el.parentNode.removeChild(el);
+                    continue;
+                }
             } else if (DROP_WHOLE[tag]) {
                 note(report.removedTags, tag);
                 el.parentNode.removeChild(el);

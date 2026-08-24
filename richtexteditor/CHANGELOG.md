@@ -1,5 +1,370 @@
 # RichTextEditor Changelog
 
+## Version 2.5.0 — Language of parts, stylesheet-driven styles (Pass 66)
+
+Two new plugins and two bug fixes, from a full cross-map of the **complete**
+published feature lists of CKEditor 5 and TinyMCE 8 (~90 features) against this
+product. Only three real gaps survived that comparison; two are closed here.
+Eleven apparent gaps were false alarms already shipping — the write-up in
+[`docs/competitive-gaps-2026-08-15.md`](../docs/competitive-gaps-2026-08-15.md)
+lists them so they are not "closed" a second time.
+
+### Accessibility
+- **Image quick bar is now dismissible (WCAG 2.2 SC 1.4.13 Content on Hover).**
+  The hover toolbar over images could be hovered and persisted, but had no
+  keyboard dismissal — a magnified user could not clear it off the content it
+  covered. `Escape` now hides it (bound on both the editing document and the
+  host page) without moving the pointer; it re-shows on the next hover.
+- **Toolbar tooltips match accessible names (SC 2.5.3 Label in Name).** Swept
+  all 51 command buttons; the one mismatch ("Turn on suggesting mode" vs the
+  accessible name "Suggesting mode") is fixed so speech-input users can
+  activate the control by its visible label. State stays in `aria-pressed`.
+- **Dropdown-panel commands registered `control: undefined`.** In the
+  dropdown/panel item factory the command-to-control map entry was written
+  *above* the `var span = ...` assignment; `var` hoisting made it legal and it
+  silently stored `undefined` for every dropdown-panel command — the long-standing
+  "intermittent dialog display failure" on `menu_controlsize`. Registration now
+  follows the assignment.
+- **AI toolbar icon redesigned (v5).** Enlarged and simplified to 6 shapes with a
+  minimum 1.6 stroke so it reads at the 18px render size (ink 17×17px, on par
+  with TinyMCE/CKEditor at 20×18 / 19.5×19); the previous 10-shape icon turned
+  to mush. Gradient ids renamed `rte-ai-bot-v4-*` → `rte-ai-bot-v5-*`.
+- **`plugins/textpartlanguage.js`** — mark the language of a phrase. WCAG 2.1
+  **SC 3.1.2 is Level AA**, and we could only set a language on the whole
+  document, so a French quotation inside an English page was unmarkable while
+  `/docs/accessibility` already claimed AA. CKEditor ships this; TinyMCE has no
+  equivalent (`content_language` sets the default *proofing* language, not
+  per-phrase markup). Toolbar dropdown over 24 configurable BCP-47 languages,
+  `dir="rtl"` applied alongside `lang` (which does not imply direction), toggles
+  off on re-pick, collapses nested languages, merges adjacent same-language
+  spans, and refuses to create an empty wrapper on a collapsed caret — an empty
+  inline span is a caret trap. API: `setTextLanguage` / `removeTextLanguage` /
+  `getTextLanguage` / `listTextLanguages` / `getMarkedLanguages`.
+- **`plugins/accessibilitychecker.js`** — new `language-of-parts` rule with
+  one-click repair. Identifying "French inside English" is a language-ID problem
+  we do not pretend to solve; a different **writing system** is deterministic and
+  covers the cases that break speech synthesis outright. The repair wraps only
+  the foreign-script runs, never the surrounding sentence.
+  - Fixed: the rule's first cut compared the **dominant** script of a paragraph.
+    A foreign phrase is by definition the minority of its paragraph, so it found
+    the document's own language and reported nothing — Hebrew inside English was
+    silently missed.
+  - Fixed (pre-existing, affected **every** DOM repair): `repairIssue` routed
+    DOM-sourced issues to the structured-content repairer whenever
+    `RichTextEditor.repairAccessibilityIssue` existed. That repairer cannot
+    resolve a DOM `_target`, so it returned the document unchanged — no error,
+    no fix, no warning. Now routed by `_target`.
+
+### Authoring
+- **`plugins/importstyles.js`** — populate the four Quick Styles dropdowns from
+  the classes already in the page's own stylesheets (TinyMCE's `importcss`).
+  Opt-in via `importStyles = true`; the shipped style defaults were placeholders
+  (`my-cls-mark`, `my-cls-quote`) that every integration had to retype. The
+  element qualifier picks the bucket — `img.hero` → image, `a.cta` → link,
+  `p.lede` → paragraph, unqualified `.foo` → both inline and paragraph. Recurses
+  into `@media`/`@supports`, skips pseudo-class states and multi-class compounds,
+  and catches the SecurityError a cross-origin sheet throws on `.cssRules`
+  access — uncaught, one CDN sheet empties the entire menu.
+  - The editor's own CSS is excluded by **origin**, not class prefix: filtering
+    by prefix imported 77 unwanted classes, because plugin CSS shares no common
+    prefix.
+  - `importStylesLimit` (default 100/dropdown) stops a utility-CSS page dumping
+    thousands of atomic classes into a menu, and **reports what it dropped**
+    rather than showing the first hundred as if that were all of them.
+  - Fixed: `importStyles(options)` accepted an options object and honoured only
+    `replace`, reading the rest from config — which the editor copies at
+    construction, so `limit` and `filter` silently did nothing at runtime.
+
+### Editing
+- **`plugins/gapcursor.js`** — reach the places a caret could not go. A document
+  that **ended with a table could not be added to**: the caret entered the last
+  cell and stayed there through ArrowDown, ArrowRight and End, because there was
+  no node after the table to hold it. Same for a document starting with a table,
+  and for two adjacent tables — no caret position existed in the gap, so the
+  author could not type between them at all. Froala ships this as `lineBreaker`,
+  Tiptap as `gapcursor`, ProseMirror has it in core; we had it under no name.
+  - Arrow/Home/End/PageUp/PageDown escape a trapping block at a document edge.
+  - Clicking the blank space below the content inserts a paragraph there.
+  - Hovering a **zero-height** boundary (two adjacent tables have no gap pixels,
+    so a click can never reach the editable) materialises a hint that is itself
+    the click target.
+  - **On demand, never eager.** Always appending a trailing paragraph would
+    mutate every document ending in a table and make an editor round-trip lossy.
+    The escape paragraph is created only when asked for, and while still empty it
+    does not appear in `getHTMLCode()` — it persists the moment the author types.
+  - API: `insertParagraphAt` / `insertParagraphAfter` / `insertParagraphBefore` /
+    `getGapPositions`.
+  - Fixed during development: the hover hint is itself a child of the editable,
+    so it shifted every gap index and — being a non-trapping `<div>` — removed
+    the trailing gap it was advertising. Hovering below a table destroyed the gap
+    the hover was pointing at. All geometry now runs against a hint-free view.
+
+### Accessibility — toolbar dropdowns (core `rte.js`)
+Found by auditing this release's own new dropdown against the claims on
+`/docs/accessibility`, and it turned out not to be limited to the new one.
+
+- **Only 8 of 71 toolbar items declared `aria-haspopup`**, and all 8 were core
+  dropdowns. Every **plugin-built** dropdown — `insertemoji`, `inlinestyle`,
+  `paragraphstyle`, `lineheight`, `insertchars`, `inserttable`, `insertlink`,
+  `insertimage`, `insertvideo`, `insertdocument`, `find`, `paste`, `aiassist`,
+  and the new `textpartlanguage` — was announced as a plain button. A screen
+  reader gave no warning that activating it opened a menu (**WCAG 4.1.2**), and
+  because `keyboarda11y.js` only decorates `[aria-haspopup]` elements, those
+  buttons were skipped by the keyboard layer entirely: no `aria-expanded`, no
+  open/close tracking (**WCAG 2.1.1**).
+  Fixed in the two shared factories in `rte.js`, so it covers every dropdown at
+  once: `aria-haspopup="menu"` for panel dropdowns, `"dialog"` for the titled
+  variant. **8 → 22 items** now declare a popup and all 22 pick up
+  `aria-expanded`. *Core change — reaches customers on the next obfuscation build.*
+- **`plugins/textpartlanguage.js`** — the Language menu's rows were `<div>`s.
+  The core finds menu items by TAG NAME (`__actionElementSelector` lists
+  `rte-toolbar-dropdown-item`, `rte-dropdown-menuitem`, …) and ignores roles, so
+  a `<div role="menuitemradio">` got no tab stop, no activation and no
+  navigation — the menu could not be operated without a mouse. Rows are now real
+  `rte-toolbar-dropdown-item` elements with an explicit keyboard contract:
+  opening moves focus into the menu (onto the current language), Arrow keys wrap,
+  Home/End jump, Enter/Space apply, Escape closes.
+  - Known and documented: Escape leaves focus in the **editing area**, not on the
+    launcher. Closing a popup refocuses the editable asynchronously in the core
+    and takes focus back ~16 ms later — measured, including against a forced
+    re-focus. Restoring launcher focus belongs in the core's popup-close path
+    where it would fix every dropdown at once, not in one plugin racing it.
+
+- **`plugins/insertemoji.js`** — the emoji picker could not be used without a
+  mouse. Its grid is `<gspan>` cells, which no browser makes focusable and which
+  the editor's keyboard layer does not recognise; the only keyboard-reachable
+  element in the whole panel was the search box. This was pre-existing, but the
+  `aria-haspopup` fix above made it *worse* before it made it better — the picker
+  began announcing a menu it still could not operate. Cells are now
+  `role="menuitem"`, focusable, and named with the emoji's description (a screen
+  reader says "grinning face" rather than reading an unlabelled glyph), with
+  arrow navigation in both axes, Home/End, Enter/Space to insert and Escape to
+  close. Up/Down resolve the adjacent visual row **geometrically**, because the
+  grid reflows with the panel width and a fixed column count would be wrong at
+  most sizes.
+
+### Multi-root (scoped)
+- **`plugins/multiroot.js`** — one toolbar, several editable regions. Instances
+  sharing a `multiRootGroup` act as one editor: a single visible toolbar that
+  follows the focused region, plus a group API (`getRoots`, `getActive`,
+  `focusRoot`, `getHTML`, `setHTML`, `onActiveChange`). Opt-in.
+  - **Deliberately not full multi-root parity.** This editor edits an iframe
+    `<body>` and has no div/inline mode, so one instance owns exactly one
+    editable document — the selection model, every plugin's `getEditable()` and
+    the CRDT binding all assume it. This coordinates several ordinary instances
+    rather than rewriting that. **No shared undo stack, no selection across
+    regions, no single collaboration session**; `getCapabilities()` reports each
+    of those as `false` so an integrator learns it from the API, not a support
+    ticket.
+  - Toolbars are shown/hidden, never re-pointed: re-routing commands across
+    instances would mean reimplementing every command's notion of "the current
+    editor" and would break the moment a plugin cached one.
+  - Fixed during development: the active-change listener list lived in the
+    plugin's own closure, but each root builds its own copy of the plugin — so a
+    callback registered through one root never heard activations fired by
+    another and lagged an event behind. It now lives on the shared group.
+
+- **`rte.js` + `plugins/keyboarda11y.js`** — blockquote had **no active state at
+  all**: with the caret inside a `<blockquote>` the toolbar button stayed
+  inactive, so the formatting was never shown as applied and there was nothing
+  for `aria-pressed` to mirror. Core now resolves it the same way `indent`
+  already did. `toggleborder` was already tracked and is now listed too, so the
+  toggle set is complete for this toolbar.
+  - The published verify page only ever sampled `bold`, `italic` and `underline`,
+    which is why this stayed hidden.
+  - Guard added: the regression test asserts the attribute **flips** with the
+    caret and **agrees with the visible highlight**, not merely that it exists.
+    Asserting existence alone produced a false green twice during development —
+    an untracked command emits a permanent `aria-pressed="false"`, confidently
+    announcing "not pressed" while the formatting is applied.
+
+- **`rte.js`** — `pmore` and `paragraphop` build their button straight from
+  `__Default_ToolbarItemFactory`, bypassing the dropdown factory that now stamps
+  `aria-haspopup`, so they opened a paragraph menu while announcing themselves as
+  plain buttons. `pmore` was the last undeclared menu button on the live site
+  once the rest were fixed. Both now declare a popup.
+
+### Reflow (WCAG 1.4.10, AA) — a live failure
+`rte-bottom`, the editor footer (word count, tag list, "powered by", resize grip),
+was a `flex-wrap: nowrap` row whose children refuse to shrink. Measured on the
+live home page at a 320px viewport: the row ran past both the editor and the
+viewport, giving the document a `scrollWidth` of **349** against a 320 viewport.
+Horizontal scrolling at 320px is exactly what 1.4.10 prohibits, and the
+conformance report claimed "Supports".
+
+Fixed by letting the row wrap (`flex-wrap: wrap`, plus `min-width: 0` on the
+children, whose default `min-width: auto` is what pushed the row wide). Verified
+at 320px: `scrollWidth` 320, zero overflowing elements, all six footer controls
+still present and reachable. Desktop unchanged — footer stays 35px on one row.
+
+Applied to 23 live tier themes by **appending** a self-contained rule rather than
+merging into the existing one: tier themes have genuinely diverged (133KB–165KB)
+and a surgical edit risks deleting shipped rules.
+
+Not fixed and not claimed: a third-party chat widget on the marketing site also
+overflows at 320px. That is site furniture, not the editor.
+
+### Cache-busting — today's fixes were on the server but not in browsers
+`RTE_ASSET_VERSION` still read `20260815-v243b`, so the site requested
+`rte.js?v=…v243b` and returning visitors kept a 2.4.3-era file from cache while
+the server held the 2.5.0 build. Confirmed by fetching the asset directly: the
+server returned exactly **558,916 bytes**, byte-identical to the local protected
+build, while the page was pinned to the old query string.
+
+Nothing automated caught this — the tier audit was green, 46/46 site contract
+suites passed, and the FTP deploys reported 0 failures. It only surfaced from
+reading the live DOM for an attribute that should have been there. **Bump
+`RTE_ASSET_VERSION` on every editor runtime change**; a successful deploy is not
+evidence that anyone is running the new code.
+
+### Contrast (WCAG 1.4.3, AA) — a missed sibling
+The "richtexteditor" link in the status bar rendered at **#999999 on near-white =
+2.78:1**, against a 4.5:1 requirement. Measured on the live site.
+
+The theme already styles those links correctly (`rte-bottom a` → `#52657E`), and
+the identical `#999999` had already been fixed on the neighbouring
+`rte-textcounter` — with a comment recording the 2.85:1 failure. This one was
+missed because the colour lives in **JavaScript**, not the stylesheet: an inline
+`color:#999999!important` in `rte.js` overrode the theme rule, so the theme fix
+could never take effect here.
+
+Now `#52657E` (**5.81:1**), and `!important` dropped for colour only — the layout
+properties keep it, since those defend against host-page CSS — so the theme and
+any customer skin stay in control of the colour.
+
+Worth noting for future contrast work: a stylesheet audit alone would never have
+found this. The failing value was in JS, and it was winning on `!important`.
+
+### Published claims corrected
+Found by testing the conformance report's own rows against the running editor.
+- **2.5.8 Target Size** said *"Mobile mode provides 44 by 44 pixel controls."*
+  Measured at a 375px viewport, all 22 mobile controls are 28×28 (colour pickers
+  24×24) — **nothing reaches 44×44**. The claim was wrong in both directions at
+  once: 44×44 is SC **2.5.5 Target Size (Enhanced), AAA**, while 2.5.8 requires
+  **24×24**, which every control does meet. The row now reports the measured
+  sizes and the correct threshold.
+- Verified and left alone: **2.4.7 Focus Visible** (the theme ships a real
+  `:focus-visible` treatment for toolbar buttons, dropdown items and dialog
+  buttons) and **1.4.11 Non-text Contrast** (focus border #2563eb measures
+  4.68:1 against its own fill and 5.17:1 against the toolbar, against a 3:1
+  threshold).
+
+### Note on 2.4.1 – 2.4.3
+Those three patch releases shipped without changelog entries. This entry does
+not attempt to reconstruct them.
+
+## Version 2.4.0 — Long-document authoring, real document export, security and accessibility (Pass 65)
+
+Twenty-nine plugins, no `rte.js` core changes. The theme of the release is
+closing the gaps that competitors gate behind paid tiers, and fixing three
+things about our own product that were not true.
+
+### Security (three real holes, found by testing rather than by review)
+- **`plugins/sanitizer.js`** — allowlist content filter on input, output **and
+  the live DOM**. Unknown elements are unwrapped rather than deleted, so a
+  user's words are never silently lost. Parses with `DOMParser` (never
+  `innerHTML` on a live node, which fires `<img onerror>` before the filter
+  runs) and re-parses until stable to defeat mutation XSS.
+  - **Stored XSS:** `<iframe srcdoc="<script>…">` survived the core filter into
+    saved HTML and executed when that HTML was rendered downstream. "Nothing
+    executes in the editor" was the wrong bar.
+  - **Transient XSS:** the first version cleaned up *after* the paste — measured
+    execution at +70 ms. Paste is now intercepted in the capture phase and only
+    when the clipboard HTML actually executes on insertion, so ordinary Word
+    pastes still reach the editor's own Word cleanup untouched.
+  - **Collaborator XSS:** a CRDT applies remote edits by writing nodes straight
+    into the live document, bypassing both paste and `setHTMLCode`. Any
+    participant could run script in every other participant's browser, and the
+    payload replicated onward. Closed by a live-DOM guard
+    (`sanitizerGuardLiveDom`, on by default) that only engages when an inserted
+    node or attribute is executable, so typing costs nothing.
+- **`plugins/restrictedediting.js`** — Word-style protected documents: content
+  is read-only except regions tagged `data-rte-editable="true"`.
+
+### Accessibility
+- **`plugins/keyboarda11y.js`** — an audit of the running editor found four open
+  issues, three of them WCAG Level A: a **keyboard trap** (focus could enter the
+  editing area and never leave), `aria-pressed` missing on every toggle button,
+  `aria-expanded` missing on every menu button, and 53 toolbar tab stops.
+  `Escape` now leaves the editing area (Tab keeps its editing meaning), toggle
+  state is mirrored from the existing active class so announced state cannot
+  disagree with the highlight, and each toolbar has a single roving tab stop.
+- **`plugins/accessibilitychecker.js`** — flags and one-click repairs missing
+  alt text, missing table headers, empty or non-descriptive links, and skipped
+  heading levels. Header repair emits `<th scope="col">`, which is what the
+  tagged PDF and .docx exports then consume.
+
+### Document export and import
+- **`plugins/pdfexport.js`** — PDF written by hand, with **selectable text** and
+  a full accessibility tag tree (H1–H6, P, L/LI, Table/TH/TD, Figure; decoration
+  emitted as artifacts), so the output passes a Section 508 / EN 301 549 review
+  rather than only a copy-paste test. The raster html2pdf path is kept for cases
+  where pixel fidelity matters more.
+- **`plugins/docxexport.js`** — a genuine OOXML package built in the browser via
+  `CompressionStream`: no library, no server, no upload. Emits exactly what
+  `documentimport.js` reads, so HTML → .docx → HTML round-trips.
+- **`plugins/documentimport.js`** — .docx import completeness: text boxes,
+  endnotes as well as footnotes, equations (OMML ↔ LaTeX), SmartArt diagrams and
+  WMF placeholders. Nothing is dropped silently; what HTML cannot represent
+  degrades visibly.
+- **`plugins/wordexport.js`** — Word-compatible HTML export (library-free).
+
+### Long-document authoring
+- **`plugins/pagination.js`** — print-layout page view. CKEditor and Tiptap both
+  sell this as a paid add-on.
+- **`plugins/multilevellist.js`** — legal numbering (1, 1.1, 1.1.1) via CSS
+  counters.
+- **`plugins/footnotes.js`** — inline markers with an auto-renumbering notes
+  section.
+- **`plugins/crossreference.js`** — references that keep pointing at the right
+  target after the document is edited around them.
+- **`plugins/tableofcontents.js`** — self-updating contents block from the
+  document's headings. Premium in both majors.
+- **`plugins/linenumbers.js`** — margin line numbers for pleadings, statutes and
+  transcripts.
+- **`plugins/documentoutline.js`**, **`plugins/contentminimap.js`** — navigation
+  for long documents.
+- **`plugins/watermark.js`** — DRAFT / CONFIDENTIAL marking behind the content.
+
+### Editing and productivity
+- **`plugins/formatpainter.js`** — the clipboard-brush interaction, premium in
+  both majors.
+- **`plugins/changecase.js`** — UPPERCASE / lowercase / Title / Sentence /
+  tOGGLE. CKEditor gates this behind a plan.
+- **`plugins/autocorrect.js`** — typo fixes, sentence capitalisation, smart
+  quotes and dashes as you type.
+- **`plugins/permanentpen.js`** — a fixed format applied to everything typed
+  until switched off.
+- **`plugins/draghandle.js`** — grab a block by its grip and drop it elsewhere.
+- **`plugins/tabletools.js`** — column sorting and row numbering; TinyMCE sells
+  both as premium "Enhanced Tables".
+- **`plugins/mergefields.js`** — placeholders that turn a document into a
+  template for mail merge and invoice runs.
+- **`plugins/linkchecker.js`** — finds broken, unsafe, misleading, or
+  assistive-technology-unreachable links, with a host-supplied resolver so no
+  vendor infrastructure is required. TinyMCE's equivalent is premium *and*
+  requires their service.
+- **`plugins/formattingmarks.js`** — Word's ¶ button, including the invisible
+  non-breaking and zero-width characters that cause mysterious layout bugs.
+- **`plugins/charlimit.js`** — enforces a maximum (the built-in statistics
+  readout only displays counts).
+- **`plugins/readabilitystats.js`** — local Flesch / Flesch-Kincaid readout, no
+  API call.
+
+### Right-to-left
+- **`plugins/textdirection.js`** — direction commands, toolbar items and
+  language strings for Arabic, Hebrew, Persian and Urdu, which the editor
+  previously had no way to express at all.
+- **`plugins/rtlui.js`** — flips the editor chrome (toolbar, dropdowns, menus,
+  dialogs) so an RTL user is not typing right-to-left inside a left-to-right
+  frame.
+
+### Build
+- `build-bundle.ps1` now searches several locations for esbuild and fails hard
+  when it finds none. It previously looked at one hardcoded path and, when that
+  path was pruned, silently skipped minification while still exiting 0 — so a
+  stale `all_plugins.min.js` was mirrored to every tier for several builds.
+
 ## Version 2.3.0 — Block types, equation editor, bookmark cards, spell check, drag-handles, smart chips, email export, inline Markdown, Mermaid diagrams, read-aloud, emoji autocomplete, task lists, auto-embed, foldable headings, typewriter & focus modes, Markdown export, local-draft recovery, AI ghost-text autocomplete (Pass 64)
 
 **New plugin: `plugins/ghostcomplete.js` — AI ghost-text autocomplete**

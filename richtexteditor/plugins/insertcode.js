@@ -271,6 +271,49 @@ function RTE_Plugin_InsertCode() {
 			} catch (e) { return false; }
 		}
 
+		// A <div class="dp-highlighter"> dropped at a caret INSIDE a <p> is
+		// invalid nesting. It looks right in the live DOM, but the moment the
+		// saved HTML is parsed again the browser hoists the div out and tears the
+		// paragraph in two -- 3 blocks become 5, so the document a customer
+		// reloads is not the one they saved. Split the paragraph ourselves and
+		// place the block between the halves, which round-trips byte-stable.
+		function insertCodeBlock(html) {
+			if (!restoreCaret()) return false;
+			var edoc = editor.getDocument();
+			var esel = edoc.defaultView.getSelection();
+			if (!esel || !esel.rangeCount) return false;
+			var range = esel.getRangeAt(0);
+			var n = range.startContainer, block = null;
+			while (n && n !== edoc.body) {
+				if (n.nodeType === 1 && /^(P|H[1-6]|LI|TD|TH|DIV|BLOCKQUOTE)$/.test(n.tagName)) { block = n; break; }
+				n = n.parentNode;
+			}
+			var holder = edoc.createElement("div");
+			holder.innerHTML = html;
+			var node = holder.firstChild;
+			if (!node) return false;
+			// DIV/LI/TD/BLOCKQUOTE may legally contain the block: insert in place.
+			if (!block || !/^(P|H[1-6])$/.test(block.tagName)) {
+				range.deleteContents();
+				range.insertNode(node);
+				return true;
+			}
+			range.deleteContents();
+			var tail = range.cloneRange();
+			tail.setEndAfter(block.lastChild || block);
+			var tailFrag = tail.extractContents();
+			block.parentNode.insertBefore(node, block.nextSibling);
+			var tailBlock = edoc.createElement(block.tagName);
+			tailBlock.appendChild(tailFrag);
+			if (tailBlock.textContent.replace(/^\s+|\s+$/g, "") !== "" || tailBlock.querySelector("*")) {
+				block.parentNode.insertBefore(tailBlock, node.nextSibling);
+			}
+			if (block.textContent.replace(/^\s+|\s+$/g, "") === "" && !block.querySelector("img,table")) {
+				block.parentNode.removeChild(block);
+			}
+			return true;
+		}
+
 		var dialoginner = editor.createDialog(editor.getLangText("insertcode"), "rte-dialog-insertcode");
 
 		var div2 = __Append(dialoginner, "div", "position:relative;text-align:center;");
@@ -326,8 +369,8 @@ function RTE_Plugin_InsertCode() {
 				// insertHTML honours the caret; insertRootParagraph always
 				// appended at document level, which is why the block never
 				// landed at the focus position.
-				if (restoreCaret()) {
-					editor.insertHTML('<div class="dp-highlighter">' + tag.innerHTML + "</div>");
+				if (insertCodeBlock('<div class="dp-highlighter">' + tag.innerHTML + "</div>")) {
+					// placed at the caret, at block level
 				} else {
 					var p = editor.insertRootParagraph();
 					p.innerHTML = '<div class="dp-highlighter">' + tag.innerHTML + "</div>";

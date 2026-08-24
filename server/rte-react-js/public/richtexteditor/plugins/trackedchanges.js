@@ -75,7 +75,12 @@ function RTE_Plugin_TrackedChanges() {
                 if (enabled) btn.classList.add("rte-ui-active");
                 else btn.classList.remove("rte-ui-active");
                 btn.setAttribute("aria-pressed", enabled ? "true" : "false");
-                btn.setAttribute("title", enabled ? "Suggesting mode is on" : "Turn on suggesting mode");
+                // WCAG 2.5.3 Label in Name: the visible label (this tooltip) must be
+                // contained in the accessible name. "Turn on suggesting mode" was not
+                // — the accessible name is "Suggesting mode" — so a speech-input user
+                // saying what they see did not match the control. State belongs in
+                // aria-pressed and the active styling, not in the visible label.
+                btn.setAttribute("title", config.text_trackchanges || "Suggesting mode");
             };
             btn.__tcSync();
             return btn;
@@ -190,6 +195,26 @@ function RTE_Plugin_TrackedChanges() {
         return el.getAttribute("data-tc-author") === config.currentUser.id;
     }
 
+    // We preventDefault() the browser's own text insertion, which means we also
+    // lose the whitespace handling it does for free. A plain second space is
+    // collapsed by HTML rendering, so pressing space a second time moved nothing
+    // on screen and suggesting mode looked like it had stopped accepting input.
+    // Reproduce what contenteditable does: any space followed by another space,
+    // and any trailing space, becomes a non-breaking space. Recomputed from
+    // scratch each time so an NBSP reverts to a normal space once real text
+    // follows it (keeping word wrap and copied text clean). Only typed text
+    // reaches this path -- paste arrives as insertFromPaste and is passed
+    // through -- so this never rewrites an NBSP the user inserted deliberately.
+    function normalizeInsertWhitespace(node) {
+        if (!node || node.nodeType !== 3) return;
+        var v = node.nodeValue;
+        if (v.indexOf(" ") === -1 && v.indexOf("\u00a0") === -1) return;
+        v = v.replace(/\u00a0/g, " ");
+        v = v.replace(/ (?= )/g, "\u00a0");
+        v = v.replace(/ $/, "\u00a0");
+        if (v !== node.nodeValue) node.nodeValue = v;
+    }
+
     function appendToInsertSpan(span, text) {
         var editdoc = editor.getDocument();
         // Append to the span's last text node (or create one).
@@ -202,6 +227,7 @@ function RTE_Plugin_TrackedChanges() {
             node = editdoc.createTextNode(text);
             span.appendChild(node);
         }
+        normalizeInsertWhitespace(node);
         placeCaretAtEnd(node);
         updateEntryForSpan(span);
     }
@@ -219,6 +245,7 @@ function RTE_Plugin_TrackedChanges() {
         span.style.textDecoration = "underline";
         span.appendChild(editdoc.createTextNode(text));
         range.insertNode(span);
+        normalizeInsertWhitespace(span.firstChild);
         placeCaretAtEnd(span.firstChild);
 
         editor.reviewLedger.add({

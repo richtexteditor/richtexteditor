@@ -78,6 +78,79 @@ function RTE_Plugin_InsertEmoji() {
 					}
 				}
 
+				// Keyboard access for the emoji grid.
+				//
+				// The grid is <gspan> cells, which no browser makes focusable and
+				// which the editor's own keyboard layer does not recognise (it
+				// finds menu items by tag name, and these are not on that list).
+				// Until the cells were given a role and a tab stop, the only
+				// keyboard-reachable thing in this whole panel was the search box:
+				// the picker announced itself as a menu and then could not be
+				// operated without a mouse.
+				function cells() {
+					var visible = resultpanel.style.display !== "none" ? resultpanel : grouppanel;
+					return [].slice.call(visible.querySelectorAll("gspan"));
+				}
+
+				// The grid wraps, so "up" and "down" mean the nearest cell on the
+				// adjacent visual row — computed from geometry rather than assuming
+				// a fixed column count, which changes with the panel width.
+				function step(list, from, dir) {
+					var here = from.getBoundingClientRect();
+					var candidates = list.filter(function (c) {
+						var r = c.getBoundingClientRect();
+						return dir < 0 ? r.bottom <= here.top + 1 : r.top >= here.bottom - 1;
+					});
+					if (!candidates.length) return null;
+					var rowEdge = null;
+					candidates.forEach(function (c) {
+						var r = c.getBoundingClientRect();
+						if (rowEdge === null) rowEdge = r.top;
+						else if (dir < 0 ? r.top > rowEdge : r.top < rowEdge) rowEdge = r.top;
+					});
+					var row = candidates.filter(function (c) {
+						return Math.abs(c.getBoundingClientRect().top - rowEdge) < 2;
+					});
+					var best = row[0], bestDx = Infinity;
+					row.forEach(function (c) {
+						var dx = Math.abs(c.getBoundingClientRect().left - here.left);
+						if (dx < bestDx) { bestDx = dx; best = c; }
+					});
+					return best;
+				}
+
+				panel.addEventListener("keydown", function (e) {
+					var target = e.target;
+					if (!target || target.nodeName !== "GSPAN") return;
+					var list = cells();
+					var at = list.indexOf(target);
+					var next = null;
+
+					if (e.key === "ArrowRight") next = list[at + 1];
+					else if (e.key === "ArrowLeft") next = list[at - 1];
+					else if (e.key === "ArrowDown") next = step(list, target, 1);
+					else if (e.key === "ArrowUp") next = step(list, target, -1);
+					else if (e.key === "Home") next = list[0];
+					else if (e.key === "End") next = list[list.length - 1];
+					else if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
+						e.preventDefault();
+						e.stopPropagation();
+						target.click();
+						return;
+					}
+					else if (e.key === "Escape") {
+						e.preventDefault();
+						e.stopPropagation();
+						editor.closeCurrentPopup();
+						return;
+					}
+					else return;
+
+					e.preventDefault();
+					e.stopPropagation();
+					if (next) next.focus();
+				}, true);
+
 				var selecteditem = null;
 				var toselectitem = null;
 				function clear_selecteditem() {
@@ -134,7 +207,7 @@ function RTE_Plugin_InsertEmoji() {
 					for (var i = 0; i < group.items.length; i++) {
 						var item = group.items[i];
 						var htmlcode = CharToHTMLCode(item.emoji);
-						parts.push('<gitem class="rte-flex-column-center" style="width:32px;height:32px;margin:2px"><gspan htmlcode="' + htmlcode + '" title="' + item.emoji + ' ' + (item.keyword || '').replace(/"/g, '') + '">' + htmlcode + '</gspan></gitem>');
+						parts.push('<gitem class="rte-flex-column-center" style="width:32px;height:32px;margin:2px"><gspan role="menuitem" tabindex="0" aria-label="' + (item.keyword || item.emoji).replace(/"/g, '') + '" htmlcode="' + htmlcode + '" title="' + item.emoji + ' ' + (item.keyword || '').replace(/"/g, '') + '">' + htmlcode + '</gspan></gitem>');
 					}
 					parts.push('</div>');
 					return parts.join('');
@@ -163,7 +236,7 @@ function RTE_Plugin_InsertEmoji() {
 								continue;
 							itemindex++;
 							var htmlcode = CharToHTMLCode(item.emoji);
-							hitsHtml.push('<gitem class="rte-flex-column-center" style="width:32px;height:32px;margin:2px"><gspan htmlcode="' + htmlcode + '" title="' + item.emoji + ' ' + (item.keyword || '').replace(/"/g, '') + '">' + htmlcode + '</gspan></gitem>');
+							hitsHtml.push('<gitem class="rte-flex-column-center" style="width:32px;height:32px;margin:2px"><gspan role="menuitem" tabindex="0" aria-label="' + (item.keyword || item.emoji).replace(/"/g, '') + '" htmlcode="' + htmlcode + '" title="' + item.emoji + ' ' + (item.keyword || '').replace(/"/g, '') + '">' + htmlcode + '</gspan></gitem>');
 						}
 					}
 					resultpanel.innerHTML = '<div style="width:100%;padding:3px;margin-top:5px;color:darkblue;text-align:center;">' + itemindex + ' items</div>' + hitsHtml.join('');

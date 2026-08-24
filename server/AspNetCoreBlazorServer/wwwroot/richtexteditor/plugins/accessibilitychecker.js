@@ -232,7 +232,14 @@ function RTE_Plugin_AccessibilityChecker() {
     function repairIssue(issueIndex, options) {
         if (!lastResult || !lastResult.issues || !lastResult.issues[issueIndex]) return runAudit();
         var ctor = window.RichTextEditor;
-        if (!ctor || typeof ctor.repairAccessibilityIssue !== "function") return repairDomIssue(lastResult.issues[issueIndex], options || {});
+        // An issue carrying `_target` came from the DOM audit and is addressed
+        // by a DOM node, not by a JSON path. Handing it to the structured-content
+        // repairer looks like it works — no error, a document comes back — but
+        // that repairer cannot resolve the node and returns the input unchanged,
+        // so the fix silently does nothing.
+        var issue = lastResult.issues[issueIndex];
+        if (issue._target || lastResult.source === "dom") return repairDomIssue(issue, options || {});
+        if (!ctor || typeof ctor.repairAccessibilityIssue !== "function") return repairDomIssue(issue, options || {});
         var nextDocument = ctor.repairAccessibilityIssue(editor.getJSON(), lastResult.issues[issueIndex], options || {});
         editor.setJSON(nextDocument);
         selectedIssueIndex = issueIndex;
@@ -262,6 +269,101 @@ function RTE_Plugin_AccessibilityChecker() {
             target.scrollIntoView({ behavior: "smooth", block: "center" });
         }
         editor.focus();
+    }
+
+    // ---- WCAG 3.1.2 Language of Parts -----------------------------------
+    //
+    // A passage in a language other than the document's must be marked, or a
+    // screen reader pronounces it with the wrong phoneme set. Detecting
+    // "French inside English" is a language-identification problem we are not
+    // going to pretend to solve; detecting a different WRITING SYSTEM is
+    // deterministic, and it catches the cases that actually break speech
+    // synthesis outright (Hebrew, Arabic, Greek, Cyrillic, CJK in a Latin
+    // document, and the reverse). We flag only what we can be certain of —
+    // a checker that cries wolf gets switched off.
+    var SCRIPTS = [
+        { name: "Hebrew",   lang: "he", re: /[֐-׿]/g },
+        { name: "Arabic",   lang: "ar", re: /[؀-ۿݐ-ݿﭐ-﷿ﹰ-﻿]/g },
+        { name: "Greek",    lang: "el", re: /[Ͱ-Ͽἀ-῿]/g },
+        { name: "Cyrillic", lang: "ru", re: /[Ѐ-ӿ]/g },
+        { name: "Han",      lang: "zh", re: /[㐀-䶿一-鿿]/g },
+        { name: "Kana",     lang: "ja", re: /[぀-ゟ゠-ヿ]/g },
+        { name: "Hangul",   lang: "ko", re: /[가-힯ᄀ-ᇿ]/g },
+        { name: "Devanagari", lang: "hi", re: /[ऀ-ॿ]/g },
+        { name: "Thai",     lang: "th", re: /[฀-๿]/g },
+        { name: "Latin",    lang: "en", re: /[A-Za-zÀ-ɏ]/g }
+    ];
+
+    // Below this, a "run" is more likely a stray glyph, a maths symbol or a
+    // single borrowed character than a passage worth annotating.
+    var MIN_SCRIPT_RUN = 4;
+
+    // Every script present in the text with enough characters to be a passage.
+    //
+    // Deliberately NOT "the dominant script": a foreign phrase is by definition
+    // the minority of its paragraph, so picking the most common script finds
+    // the document's own language and reports nothing. "A Hebrew proverb,
+    // שלום עליכם, appears mid-sentence" is 40 Latin characters and 9 Hebrew —
+    // the 9 are the entire point.
+    function scriptsIn(text) {
+        var found = [];
+        for (var i = 0; i < SCRIPTS.length; i++) {
+            var m = String(text).match(SCRIPTS[i].re);
+            if (m && m.length >= MIN_SCRIPT_RUN) found.push(SCRIPTS[i]);
+        }
+        return found;
+    }
+
+    function documentScript() {
+        var editable = editor.getEditable ? editor.getEditable() : null;
+        var code = (editable && editable.getAttribute("lang")) ||
+                   (typeof document !== "undefined" && document.documentElement.getAttribute("lang")) || "en";
+        code = String(code).toLowerCase().split("-")[0];
+        for (var i = 0; i < SCRIPTS.length; i++) if (SCRIPTS[i].lang === code) return SCRIPTS[i];
+        // An unlisted language tag (nl, pt, sv…) is Latin-script; defaulting to
+        // Latin keeps us from flagging every English word in a Dutch document.
+        return SCRIPTS[SCRIPTS.length - 1];
+    }
+
+    function hasLangAncestor(node, editable) {
+        var n = (node && node.nodeType === 3) ? node.parentNode : node;
+        while (n && n !== editable && n.nodeType === 1) {
+            if (n.hasAttribute && n.hasAttribute("lang")) return true;
+            n = n.parentNode;
+        }
+        return false;
+    }
+
+    function collectUnmarkedLanguageRuns(block, editable, path, issues) {
+        var docScript = documentScript();
+        var doc = block.ownerDocument;
+        if (!doc || !doc.createTreeWalker) return;
+        var walker = doc.createTreeWalker(block, 4 /* SHOW_TEXT */, null, false);
+        var textNode, seen = {};
+        while ((textNode = walker.nextNode())) {
+            var value = textNode.nodeValue || "";
+            if (!value.replace(/\s+/g, "")) continue;
+            if (hasLangAncestor(textNode, editable)) continue;
+            var scripts = scriptsIn(value);
+            for (var s = 0; s < scripts.length; s++) {
+                var script = scripts[s];
+                if (script === docScript) continue;
+                // One issue per script per block: a paragraph with six Hebrew
+                // words is one thing to fix, not six.
+                if (seen[script.name]) continue;
+                seen[script.name] = true;
+                issues.push({
+                    code: "language-of-parts",
+                    severity: "warning",
+                    message: script.name + " text is not marked with a language. Select the phrase and set its " +
+                             "language so assistive technology pronounces it correctly (WCAG 3.1.2).",
+                    path: path + ".lang",
+                    _target: block,
+                    _lang: script.lang,
+                    _script: script.name
+                });
+            }
+        }
     }
 
     function auditDomAccessibility() {
@@ -333,6 +435,8 @@ function RTE_Plugin_AccessibilityChecker() {
                     });
                 }
             }
+
+            collectUnmarkedLanguageRuns(node, editable, path, issues);
         }
 
         return { document: null, issues: issues, valid: !issues.length, source: "dom" };
@@ -358,10 +462,72 @@ function RTE_Plugin_AccessibilityChecker() {
         else if (issue.code === "table-missing-header") {
             promoteFirstTableRow(target);
         }
+        else if (issue.code === "language-of-parts") {
+            markLanguageRuns(target, options && options.lang ? options.lang : issue._lang, issue._script);
+        }
 
         selectedIssueIndex = 0;
         scheduleEditorChange();
         return runAudit();
+    }
+
+    // Wrap the offending script's runs in <span lang> — the same markup
+    // textpartlanguage.js produces, so the two features agree on one shape and
+    // the author can retarget the result from the Language dropdown afterwards.
+    //
+    // Only the matching characters (plus the spaces and punctuation BETWEEN
+    // them) are wrapped: wrapping the whole text node would relabel the
+    // surrounding English as Hebrew, which is a worse lie than leaving it
+    // unmarked.
+    function markLanguageRuns(block, lang, scriptName) {
+        if (!block || !lang) return;
+        var script = null;
+        for (var i = 0; i < SCRIPTS.length; i++) if (SCRIPTS[i].name === scriptName) script = SCRIPTS[i];
+        if (!script) return;
+        var doc = block.ownerDocument;
+        var editable = editor.getEditable ? editor.getEditable() : null;
+        var rtl = (lang === "he" || lang === "ar" || lang === "fa" || lang === "ur");
+
+        var walker = doc.createTreeWalker(block, 4 /* SHOW_TEXT */, null, false);
+        var pending = [], n;
+        while ((n = walker.nextNode())) {
+            if (hasLangAncestor(n, editable)) continue;
+            pending.push(n);
+        }
+
+        for (var t = 0; t < pending.length; t++) {
+            var node = pending[t];
+            var value = node.nodeValue || "";
+            // Character classes are per-char; build a run matcher that also
+            // absorbs the neutral characters sitting inside a passage.
+            var runRe = new RegExp("(?:" + script.re.source + "|[\\s.,;:!?'\"()\\u2010-\\u2027\\u00AB\\u00BB\\u201C\\u201D])*" +
+                                   script.re.source +
+                                   "(?:" + script.re.source + "|[\\s.,;:!?'\"()\\u2010-\\u2027\\u00AB\\u00BB\\u201C\\u201D])*", "g");
+            var frag = doc.createDocumentFragment();
+            var last = 0, m, wrapped = false;
+            while ((m = runRe.exec(value))) {
+                var text = m[0];
+                // Trim the neutrals the greedy match pulled in at the edges;
+                // they belong to the surrounding sentence, not the phrase.
+                var lead = text.length - text.replace(/^[\s.,;:!?'"()‐-‧«»“”]+/, "").length;
+                var trail = text.length - text.replace(/[\s.,;:!?'"()‐-‧«»“”]+$/, "").length;
+                var start = m.index + lead;
+                var end = m.index + text.length - trail;
+                if (end - start < MIN_SCRIPT_RUN) continue;
+                if (start > last) frag.appendChild(doc.createTextNode(value.slice(last, start)));
+                var span = doc.createElement("span");
+                span.setAttribute("lang", lang);
+                if (rtl) span.setAttribute("dir", "rtl");
+                span.appendChild(doc.createTextNode(value.slice(start, end)));
+                frag.appendChild(span);
+                last = end;
+                wrapped = true;
+                if (runRe.lastIndex === m.index) runRe.lastIndex++; // zero-width guard
+            }
+            if (!wrapped) continue;
+            if (last < value.length) frag.appendChild(doc.createTextNode(value.slice(last)));
+            node.parentNode.replaceChild(frag, node);
+        }
     }
 
     function promoteFirstTableRow(table) {
@@ -509,6 +675,25 @@ function RTE_Plugin_AccessibilityChecker() {
             actionRow.appendChild(promote);
             actionRow.appendChild(review);
             detail.appendChild(actionRow);
+            return;
+        }
+
+        if (issue.code === "language-of-parts") {
+            var langRow = detail.ownerDocument.createElement("div");
+            langRow.className = "rte-a11y-row";
+            var mark = detail.ownerDocument.createElement("button");
+            mark.type = "button";
+            mark.className = "rte-a11y-button";
+            mark.innerText = "Mark as " + issue._script;
+            mark.onclick = function () { repairIssue(selectedIssueIndex, { lang: issue._lang }); };
+            var look = detail.ownerDocument.createElement("button");
+            look.type = "button";
+            look.className = "rte-a11y-button rte-a11y-button-secondary";
+            look.innerText = "Focus issue";
+            look.onclick = function () { focusIssue(issue); };
+            langRow.appendChild(mark);
+            langRow.appendChild(look);
+            detail.appendChild(langRow);
             return;
         }
 
