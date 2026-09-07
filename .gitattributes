@@ -1,0 +1,3 @@
+# core.autocrlf=true would otherwise commit shell scripts with CRLF, which
+# breaks the shebang on Linux and macOS.
+*.sh text eol=lf

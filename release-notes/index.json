@@ -1,0 +1,135 @@
+[
+ {
+  "tag": "v2.7.0",
+  "name": "RichTextEditor 2.7.0",
+  "slug": "2.7.0",
+  "iso": "2026-09-04",
+  "file": "v2.7.0.md"
+ },
+ {
+  "tag": "v2.6.4",
+  "name": "RichTextEditor 2.6.4",
+  "slug": "2.6.4",
+  "iso": "2026-09-03",
+  "file": "v2.6.4.md"
+ },
+ {
+  "tag": "v2.6.3",
+  "name": "RichTextEditor 2.6.3",
+  "slug": "2.6.3",
+  "iso": "2026-09-02",
+  "file": "v2.6.3.md"
+ },
+ {
+  "tag": "v2.6.2",
+  "name": "RichTextEditor 2.6.2",
+  "slug": "2.6.2",
+  "iso": "2026-09-02",
+  "file": "v2.6.2.md"
+ },
+ {
+  "tag": "v2.6.0",
+  "name": "RichTextEditor 2.6.0",
+  "slug": "2.6.0",
+  "iso": "2026-08-31",
+  "file": "v2.6.0.md"
+ },
+ {
+  "tag": "v2.5.4",
+  "name": "RichTextEditor 2.5.4",
+  "slug": "2.5.4",
+  "iso": "2026-08-29",
+  "file": "v2.5.4.md"
+ },
+ {
+  "tag": "v2.5.3",
+  "name": "RichTextEditor 2.5.3",
+  "slug": "2.5.3",
+  "iso": "2026-08-26",
+  "file": "v2.5.3.md"
+ },
+ {
+  "tag": "v2.5.2",
+  "name": "RichTextEditor 2.5.2",
+  "slug": "2.5.2",
+  "iso": "2026-08-26",
+  "file": "v2.5.2.md"
+ },
+ {
+  "tag": "v2.5.1",
+  "name": "RichTextEditor 2.5.1",
+  "slug": "2.5.1",
+  "iso": "2026-08-26",
+  "file": "v2.5.1.md"
+ },
+ {
+  "tag": "v2.5.0",
+  "name": "RichTextEditor 2.5.0",
+  "slug": "2.5.0",
+  "iso": "2026-08-23",
+  "file": "v2.5.0.md"
+ },
+ {
+  "tag": "v2.4.0",
+  "name": "RichTextEditor 2.4.0",
+  "slug": "2.4.0",
+  "iso": "2026-08-04",
+  "file": "v2.4.0.md"
+ },
+ {
+  "tag": "v2.3.0",
+  "name": "RichTextEditor npm 2.3.0",
+  "slug": "2.3.0",
+  "iso": "2026-06-05",
+  "file": "v2.3.0.md"
+ },
+ {
+  "tag": "v2.2.3",
+  "name": "RichTextEditor npm 2.2.3",
+  "slug": "2.2.3",
+  "iso": "2026-05-19",
+  "file": "v2.2.3.md"
+ },
+ {
+  "tag": "v2.2.0",
+  "name": "RichTextEditor npm 2.2.0",
+  "slug": "2.2.0",
+  "iso": "2026-04-29",
+  "file": "v2.2.0.md"
+ },
+ {
+  "tag": "v2.0.6",
+  "name": "RichTextEditor npm 2.0.6",
+  "slug": "2.0.6",
+  "iso": "2026-04-24",
+  "file": "v2.0.6.md"
+ },
+ {
+  "tag": "v2.0.5",
+  "name": "RichTextEditor npm 2.0.5",
+  "slug": "2.0.5",
+  "iso": "2026-04-24",
+  "file": "v2.0.5.md"
+ },
+ {
+  "tag": "v2.0.4",
+  "name": "RichTextEditor npm 2.0.4",
+  "slug": "2.0.4",
+  "iso": "2026-04-23",
+  "file": "v2.0.4.md"
+ },
+ {
+  "tag": "v2.0.3",
+  "name": "RichTextEditor npm 2.0.3",
+  "slug": "2.0.3",
+  "iso": "2026-04-22",
+  "file": "v2.0.3.md"
+ },
+ {
+  "tag": "v2.0.0",
+  "name": "RichTextEditor npm 2.0.0\u20132.0.2",
+  "slug": "2.0.0",
+  "iso": "2026-04-22",
+  "file": "v2.0.0.md"
+ }
+]
