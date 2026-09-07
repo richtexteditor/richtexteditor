@@ -140,9 +140,42 @@ function RTE_Plugin_YjsCollab() {
         // and the review ledger bridge.
         if (session.textSyncMode === "crdt") {
             try {
+                // 2026-09-02: the engine bundles its OWN Yjs and builds nodes with it.
+                // A doc built by the host's Yjs (npm/esm "yjs" + y-websocket - the
+                // documented path) is a FOREIGN instance: inserting engine-built nodes
+                // into it throws "Unexpected content type in insert operation" and text
+                // never syncs, while presence still works and the status still said
+                // "crdt". Yjs updates are instance-independent bytes, so bind the
+                // engine to an inner doc built with ITS Yjs and bridge updates both
+                // ways: host->inner with the engine's applyUpdate, inner->host with the
+                // host's module (options.Y or window.Y). Without the host module the
+                // outbound leg cannot be applied safely, so fail LOUDLY instead.
+                var engineY = window.RichTextEditorCrdt.Y || null;
+                var hostY = options.Y || (typeof window !== "undefined" ? window.Y : null) || null;
+                var bindDoc = doc;
+                var foreign = !!(engineY && engineY.Doc && !(doc instanceof engineY.Doc));
+                if (foreign) {
+                    if (!hostY || typeof hostY.applyUpdate !== "function" || typeof hostY.encodeStateAsUpdate !== "function") {
+                        throw new Error("yjscollab: the Y.Doc was created by a different Yjs instance than crdt-engine.js bundles. Pass your Yjs module to attach({ Y }) (or build the doc with window.RichTextEditorCrdt.Y) so text can be bridged.");
+                    }
+                    var BRIDGE = { bridge: "rte-yjs-bridge" };
+                    var inner = new engineY.Doc();
+                    engineY.applyUpdate(inner, hostY.encodeStateAsUpdate(doc), BRIDGE);
+                    var LOCAL = window.RichTextEditorCrdt.LOCAL_ORIGIN;
+                    // A host-doc write the plugin tagged as LOCAL (ledger entries) must not
+                    // make the engine re-render the editable (see flush race in the engine).
+                    var hostToInner = function (update, origin) { if (origin === BRIDGE) return; try { engineY.applyUpdate(inner, update, (LOCAL && origin === LOCAL) ? LOCAL : BRIDGE); } catch (e) { if (window.console) console.error("yjscollab bridge host->inner:", e); } };
+                    var innerToHost = function (update, origin) { if (origin === BRIDGE) return; try { hostY.applyUpdate(doc, update, BRIDGE); } catch (e) { if (window.console) console.error("yjscollab bridge inner->host:", e); } };
+                    doc.on("update", hostToInner);
+                    inner.on("update", innerToHost);
+                    session.cleanup.push(function () { try { doc.off("update", hostToInner); } catch (e) { } try { inner.off("update", innerToHost); } catch (e) { } try { inner.destroy(); } catch (e) { } });
+                    session.yjsBridge = true;
+                    bindDoc = inner;
+                    if (window.console && console.info) console.info("yjscollab: bridging a foreign Yjs doc into the CRDT engine (updates relayed both ways).");
+                }
                 session.crdtBinding = window.RichTextEditorCrdt.attachCrdtBinding({
                     editable: editor.getEditable(),
-                    ydoc: doc,
+                    ydoc: bindDoc,
                     provider: provider,
                     awareness: provider.awareness,
                     fragmentName: options.fragmentName || "default",
@@ -155,6 +188,24 @@ function RTE_Plugin_YjsCollab() {
                     try { session.crdtBinding && session.crdtBinding.dispose(); }
                     catch (ignore) { }
                 });
+                // Per-author undo. The engine ships a Y.UndoManager scoped to LOCAL_ORIGIN
+                // (undo.ts) but nothing attached it, so Ctrl+Z ran the core DOM-snapshot
+                // undo and reverted OTHER people's edits on every peer (2026-09-02). Route
+                // undo/redo to the engine while crdt mode is active.
+                try {
+                    if (typeof window.RichTextEditorCrdt.attachUndoManager === "function" && session.crdtBinding && session.crdtBinding.fragment) {
+                        session.undoManager = window.RichTextEditorCrdt.attachUndoManager({ fragment: session.crdtBinding.fragment });
+                        var undoHook = function (state) { if (!session || !session.undoManager) return; state.returnValue = true; state.stopBubble = true; try { session.undoManager.undo(); } catch (e) { } };
+                        var redoHook = function (state) { if (!session || !session.undoManager) return; state.returnValue = true; state.stopBubble = true; try { session.undoManager.redo(); } catch (e) { } };
+                        editor.attachEvent("exec_command_undo", undoHook);
+                        editor.attachEvent("exec_command_redo", redoHook);
+                        session.cleanup.push(function () {
+                            try { if (typeof editor.detachEvent === "function") { editor.detachEvent("exec_command_undo", undoHook); editor.detachEvent("exec_command_redo", redoHook); } } catch (e) { }
+                            try { session.undoManager && session.undoManager.destroy(); } catch (e) { }
+                            session.undoManager = null;
+                        });
+                    }
+                } catch (undoErr) { if (window.console) console.warn("yjscollab: undo manager not attached:", undoErr); }
             } catch (err) {
                 session.fallbackReason = "crdt-attach-failed";
                 session.crdtError = err;
@@ -187,7 +238,7 @@ function RTE_Plugin_YjsCollab() {
         }
         return {
             attached: true,
-            textSyncMode: session.textSyncMode,
+            textSyncMode: session.textSyncMode, yjsBridge: !!session.yjsBridge,
             requestedTextSync: session.requestedTextSync,
             fallbackReason: session.fallbackReason || null,
             peerCount: getRemotePeers().length
@@ -432,6 +483,52 @@ function RTE_Plugin_YjsCollab() {
             lastKnownHtml = localInitial;
         }
 
+        // --- IME composition gate (legacy snapshot mode) ---------------------
+        // setEditorHtml() replaces the whole document. Doing that while an IME
+        // is composing swaps the live text node out from under it, so the
+        // commit lands at a stale offset and the raw buffer survives: composing
+        // "shi" and committing a character while a collaborator typed produced
+        // "Xbasesh<char>i" on BOTH peers (2026-09-03 — the same corruption the
+        // crdt binding had, on the deprecated-but-supported path v2.0 customers
+        // still run). Hold the repaint until the composition commits.
+        var composing = false;
+        var pendingRemoteHtml = null;
+        var compositionDoc = (editor.getDocument && editor.getDocument()) || null;
+        if (compositionDoc) {
+            var onCompStart = function () { composing = true; };
+            var onCompEnd = function () {
+                if (!composing) return;
+                composing = false;
+                setTimeout(function () {
+                    if (pendingRemoteHtml !== null) {
+                    // Deliberately NOT repainting: that would discard the
+                    // character the IME just committed. Adopt the remote text as
+                    // the diff baseline instead, so the local push that follows
+                    // is computed against what the peers actually hold. Legacy
+                    // mode is documented last-write-wins on same-paragraph
+                    // conflicts, so the local commit winning is correct here —
+                    // corrupted text was not.
+                        lastKnownHtml = pendingRemoteHtml;
+                        pendingRemoteHtml = null;
+                    }
+                    // Push explicitly. The commit's DOM mutation is delivered to
+                    // the MutationObserver BEFORE compositionend fires, so it was
+                    // dropped by the `composing` guard — without this the
+                    // committed character never reaches the peers at all
+                    // (measured: A "base<char>", B "base").
+                    onEditorMutation();
+                }, 0);
+            };
+            // Bound on the DOCUMENT, not the body: some skins remount the body
+            // (see attachMutationObserver below) and composition events bubble.
+            compositionDoc.addEventListener("compositionstart", onCompStart, true);
+            compositionDoc.addEventListener("compositionend", onCompEnd, true);
+            session.cleanup.push(function () {
+                compositionDoc.removeEventListener("compositionstart", onCompStart, true);
+                compositionDoc.removeEventListener("compositionend", onCompEnd, true);
+            });
+        }
+
         // Y.Text → editor.
         var onTextChange = function (event, transaction) {
             if (pushing) return;
@@ -439,6 +536,7 @@ function RTE_Plugin_YjsCollab() {
             if (transaction && transaction.local) return;
             var fresh = session.textMap.toString();
             if (fresh === lastKnownHtml) return;
+            if (composing) { pendingRemoteHtml = fresh; return; }
             setEditorHtml(fresh);
             lastKnownHtml = fresh;
             // 2026-05-28 setEditorHtml writes into editable.innerHTML; if that
@@ -453,6 +551,9 @@ function RTE_Plugin_YjsCollab() {
         // Editor DOM → Y.Text. Debounced so bursts collapse to one CRDT diff.
         var onEditorMutation = function () {
             if (applying) return;
+            // Intermediate IME buffers are not real edits; the commit fires its
+            // own mutation. Pushing them also races the composition gate above.
+            if (composing) return;
             if (pendingPushTimer) return;
             // 2026-05-28 Re-attach observer if the body was remounted since last
             // mutation. Cheap no-op when body is unchanged.
@@ -540,17 +641,17 @@ function RTE_Plugin_YjsCollab() {
 
         ledger.add = function (entry) {
             var result = originalAdd.call(ledger, entry);
-            if (result && !echoGuard) session.ledgerMap.set(result.id, cloneEntry(result));
+            if (result && !echoGuard) ledgerWrite(function () { session.ledgerMap.set(result.id, cloneEntry(result)); });
             return result;
         };
         ledger.update = function (id, patch) {
             var result = originalUpdate.call(ledger, id, patch);
-            if (result && !echoGuard) session.ledgerMap.set(result.id, cloneEntry(result));
+            if (result && !echoGuard) ledgerWrite(function () { session.ledgerMap.set(result.id, cloneEntry(result)); });
             return result;
         };
         ledger.remove = function (id) {
             var result = originalRemove.call(ledger, id);
-            if (result && !echoGuard) session.ledgerMap.delete(id);
+            if (result && !echoGuard) ledgerWrite(function () { session.ledgerMap.delete(id); });
             return result;
         };
 
@@ -584,6 +685,16 @@ function RTE_Plugin_YjsCollab() {
         });
     }
 
+    // Ledger writes are the plugin's own (non-text) Y.Doc transactions. In crdt
+    // mode they are tagged with the engine's LOCAL_ORIGIN so the engine does not
+    // re-render the editable for them - a re-render between a DOM mutation and
+    // the observer flush discarded that mutation (2026-09-02: comment anchors
+    // vanished the instant the ledger entry was written).
+    function ledgerWrite(fn) {
+        var origin = (session && session.textSyncMode === "crdt" && window.RichTextEditorCrdt) ? window.RichTextEditorCrdt.LOCAL_ORIGIN : null;
+        if (origin && session && session.doc && typeof session.doc.transact === "function") { session.doc.transact(fn, origin); }
+        else { fn(); }
+    }
     function seedLedgerFromRemote() {
         if (!editor.reviewLedger || !session.ledgerMap) return;
         echoGuard = true;

@@ -82,9 +82,24 @@ function RTE_Plugin_DialogA11y() {
         }
     }
 
+    // 2026-09-05 Widened. The original selector only matched
+    // <rte-dropdown-panel>/.rte-panel-general, but Find&Replace, Insert Link and
+    // their siblings render as <rte-dialog-float class="rte-panel-find"> wrapping
+    // an <rte-dialog-inner role="dialog">. Those carry EXACTLY the markup this
+    // plugin consumes - an <rte-dialog-header> and <rte-dialog-line-X> field
+    // wrappers - and were simply never visited, so the plugin reported nothing
+    // and covered nothing. Measured before the change: calling
+    // editor.applyDialogAccessibility() with the find dialog open labelled 0 of
+    // its 4 inputs, leaving "Find" and "Replace" announced as bare "edit"
+    // (WCAG 1.3.1 / 3.3.2 / 4.1.2) while the two checkboxes were fine because
+    // the core happens to wrap those in <label>.
+    //
+    // Widening is safe because enhancePanel() still requires an
+    // <rte-dialog-header>, which is what keeps colour/font dropdowns out.
     function isPanel(el) {
         return el && el.nodeType === 1 &&
-            (el.tagName === "RTE-DROPDOWN-PANEL" || /rte-panel-general/.test(el.className || ""));
+            (el.tagName === "RTE-DROPDOWN-PANEL" || el.tagName === "RTE-DIALOG-FLOAT" ||
+             /rte-panel-general/.test(el.className || ""));
     }
 
     function schedule(panel) {
@@ -104,7 +119,7 @@ function RTE_Plugin_DialogA11y() {
 
     function enhanceAll(host) {
         if (!host || !host.querySelectorAll) return;
-        var ps = host.querySelectorAll("rte-dropdown-panel,[class*='rte-panel-general']");
+        var ps = host.querySelectorAll("rte-dropdown-panel,rte-dialog-float,[class*='rte-panel-general']");
         for (var i = 0; i < ps.length; i++) enhancePanel(ps[i]);
     }
 
@@ -116,12 +131,22 @@ function RTE_Plugin_DialogA11y() {
         var name = (headerEl.textContent || "").trim()
             .replace(/\s*\((?:Ctrl|Cmd|Alt|Shift|⌘|⇧|⌥)[^)]*\)\s*$/i, "").trim();
 
+        // Name the element that IS the dialog. The float-style panels already
+        // carry role="dialog" on an inner <rte-dialog-inner>; adding a second
+        // role="dialog" to the wrapper would announce two nested dialogs, so
+        // when an inner one exists it is the target and the wrapper is left
+        // alone. When there is none (the original dropdown-panel shape) this
+        // resolves to the panel itself and behaves exactly as before.
+        var dialogEl = panel.getAttribute("role") === "dialog"
+            ? panel
+            : (panel.querySelector('[role="dialog"]') || panel);
+
         // A titled, form-bearing popup is a dialog, not a menu — override the
         // core's default role="menu" (a menu must not contain text fields).
-        var role = panel.getAttribute("role");
-        if (!role || role === "menu") panel.setAttribute("role", "dialog");
-        if (name && !panel.getAttribute("aria-label") && !panel.getAttribute("aria-labelledby")) {
-            panel.setAttribute("aria-label", name);
+        var role = dialogEl.getAttribute("role");
+        if (!role || role === "menu") dialogEl.setAttribute("role", "dialog");
+        if (name && !dialogEl.getAttribute("aria-label") && !dialogEl.getAttribute("aria-labelledby")) {
+            dialogEl.setAttribute("aria-label", name);
         }
 
         var fields = panel.querySelectorAll("input,select,textarea");
@@ -136,6 +161,25 @@ function RTE_Plugin_DialogA11y() {
     }
 
     function fieldLabel(f, dialogName) {
+        // 0) THE VISIBLE LABEL WINS. 2026-09-05: deriving the name from the
+        // <rte-dialog-line-X> suffix alone produced "Keyword" for a field whose
+        // visible label reads "Find". That fails WCAG 2.5.3 Label in Name, and
+        // it breaks speech input concretely: a user says "Find" and nothing
+        // matches, because the accessible name does not contain the words they
+        // can see. The markup already carries the right text in a sibling
+        // <rte-dialog-input-label>, so prefer it and keep the suffix as the
+        // fallback for fields that have no visible label.
+        var lineEl = f.parentElement;
+        for (var d = 0; d < 8 && lineEl; d++) {
+            if (/^RTE-DIALOG-LINE-/.test(lineEl.tagName || "")) break;
+            lineEl = lineEl.parentElement;
+        }
+        if (lineEl && lineEl.querySelector) {
+            var visEl = lineEl.querySelector("rte-dialog-input-label");
+            var vis = visEl ? (visEl.textContent || "").replace(/^\s+|\s+$/g, "").replace(/[:：]\s*$/, "") : "";
+            if (vis) return vis;
+        }
+
         // 1) nearest <rte-dialog-line-X> ancestor — the suffix is the field meaning
         var n = f.parentElement;
         for (var i = 0; i < 8 && n; i++) {

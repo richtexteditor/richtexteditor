@@ -408,7 +408,13 @@ function RTE_Plugin_AccessibilityChecker() {
                 if (headingText) previousHeadingLevel = level;
             }
 
-            var images = node.querySelectorAll ? node.querySelectorAll("img") : [];
+            // querySelectorAll only returns DESCENDANTS, so an image that is
+            // itself a top-level block — which is exactly where a pasted or
+            // dropped image lands in an empty editor — was never checked, and
+            // missing alt text went unreported. The table rule below already
+            // guards this case; the image rule did not. Measured 2026-08-27:
+            // bare top-level img => 0 issues, the same img inside a <p> => 1.
+            var images = tag === "img" ? [node] : (node.querySelectorAll ? node.querySelectorAll("img") : []);
             for (var imageIndex = 0; imageIndex < images.length; imageIndex++) {
                 var image = images[imageIndex];
                 if (!String(image.getAttribute("alt") || "").replace(/^\s+|\s+$/g, "")) {
@@ -422,17 +428,97 @@ function RTE_Plugin_AccessibilityChecker() {
                 }
             }
 
+            // 2026-09-04 A link with no accessible name is announced as just
+            // "link", giving a keyboard or screen-reader user nothing to decide
+            // on (WCAG 2.4.4 / 4.1.2). Reached the editor easily: an image-only
+            // link whose <img> has empty alt, or a link left empty after its
+            // text was deleted.
+            //
+            // Only elements with href are links. A bare <a name="x"> or an <a>
+            // with no href is an anchor TARGET and has no name to announce, so
+            // flagging it would be an error with no valid fix.
+            var links = tag === "a" ? [node] : (node.querySelectorAll ? node.querySelectorAll("a") : []);
+            for (var linkIndex = 0; linkIndex < links.length; linkIndex++) {
+                var link = links[linkIndex];
+                if (!link.getAttribute || link.getAttribute("href") === null) continue;
+                if (accessibleNameOf(link)) continue;
+                issues.push({
+                    code: "link-empty",
+                    severity: "error",
+                    message: "Link has no text, so it is announced only as \"link\". Add link text, an aria-label, or alt text on the image inside it.",
+                    path: path + ".link[" + linkIndex + "]",
+                    _target: link
+                });
+            }
+
             var tables = tag === "table" ? [node] : (node.querySelectorAll ? node.querySelectorAll("table") : []);
             for (var tableIndex = 0; tableIndex < tables.length; tableIndex++) {
                 var table = tables[tableIndex];
-                if (!table.querySelector("th")) {
+                var tableRole = String(table.getAttribute("role") || "").toLowerCase();
+                var isLayoutTable = (tableRole === "presentation" || tableRole === "none");
+
+                // 2026-08-30 A layout table MUST NOT have headers, so demanding
+                // them here produced an error the author could never clear —
+                // which is how a checker teaches people to ignore it. Presentation
+                // tables are held to the opposite rule instead: they must not
+                // carry data-table semantics, because <th>/scope/<caption> make a
+                // screen reader announce relationships that do not exist
+                // (WCAG 1.3.1). See layouttable.js.
+                if (isLayoutTable) {
+                    var semantic = table.querySelector("th, [scope], caption") || table.getAttribute("summary");
+                    if (semantic) {
+                        issues.push({
+                            code: "layout-table-semantics",
+                            severity: "error",
+                            message: "Layout table still carries data-table markup (header cells, scope or a caption). A screen reader will announce relationships this table does not have.",
+                            path: path + ".table[" + tableIndex + "]",
+                            _target: table
+                        });
+                    }
+                }
+                else if (!table.querySelector("th")) {
                     issues.push({
                         code: "table-missing-header",
                         severity: "warning",
-                        message: "Table has no header cells. Promote the first row to headers when it describes the columns.",
+                        message: "Table has no header cells. Promote the first row to headers, or mark it as a layout table when it only positions content.",
                         path: path + ".table[" + tableIndex + "]",
                         _target: table
                     });
+                }
+                else {
+                    // 2026-09-04 A table can HAVE headers and still be unusable if
+                    // one is blank: the screen reader announces the column's name as
+                    // an empty string, which is worse than no header at all because
+                    // the relationship exists and says nothing (WCAG 1.3.1).
+                    // `table-missing-header` above only fires when there is not a
+                    // single <th>, so this case reported valid. Found by testing
+                    // CKEditor issue #19204 against this checker.
+                    //
+                    // THE CORNER CELL IS EXEMPT. In a cross-tab - column headers
+                    // across the top, row headers down the side - the top-left cell
+                    // is conventionally and correctly empty; it names neither axis.
+                    // Flagging it would be an error the author can only clear by
+                    // inventing a word, which is how a checker teaches people to
+                    // ignore it. Same reasoning that exempts layout tables above.
+                    var headerCells = table.querySelectorAll("th");
+                    var hasRowHeaders = false;
+                    for (var probeIndex = 0; probeIndex < headerCells.length; probeIndex++) {
+                        var probeRow = headerCells[probeIndex].parentNode;
+                        if (probeRow && probeRow.rowIndex > 0) { hasRowHeaders = true; break; }
+                    }
+                    for (var headerIndex = 0; headerIndex < headerCells.length; headerIndex++) {
+                        var headerCell = headerCells[headerIndex];
+                        if (accessibleNameOf(headerCell)) continue;
+                        var ownerRow = headerCell.parentNode;
+                        if (hasRowHeaders && ownerRow && ownerRow.rowIndex === 0 && headerCell.cellIndex === 0) continue;
+                        issues.push({
+                            code: "table-header-empty",
+                            severity: "error",
+                            message: "Header cell is empty, so the column or row it labels is announced with no name. Give it text, or make it a normal cell if it labels nothing.",
+                            path: path + ".table[" + tableIndex + "].th[" + headerIndex + "]",
+                            _target: headerCell
+                        });
+                    }
                 }
             }
 
@@ -460,7 +546,36 @@ function RTE_Plugin_AccessibilityChecker() {
             target.parentNode.replaceChild(replacement, target);
         }
         else if (issue.code === "table-missing-header") {
-            promoteFirstTableRow(target);
+            // Two valid outcomes, and only the author knows which: the table
+            // describes data (give it headers) or only positions it (say so).
+            if (options && options.markLayout) markTableAsLayout(target);
+            else promoteFirstTableRow(target);
+        }
+        else if (issue.code === "layout-table-semantics") {
+            markTableAsLayout(target);
+        }
+        else if (issue.code === "table-header-empty") {
+            // Two valid outcomes and only the author knows which: the cell labels
+            // something (give it text) or it labels nothing (it is not a header).
+            var headerText = String((options && options.headerText) || "").replace(/^\s+|\s+$/g, "");
+            if (headerText) target.textContent = headerText;
+            else if (options && options.demoteToCell) {
+                var cell = target.ownerDocument.createElement("td");
+                while (target.firstChild) cell.appendChild(target.firstChild);
+                copyAttributes(target, cell);
+                cell.removeAttribute("scope");
+                target.parentNode.replaceChild(cell, target);
+            }
+        }
+        else if (issue.code === "link-empty") {
+            // Prefer real text: an aria-label is invisible, so a sighted editor
+            // cannot see what the link says and it drifts out of date.
+            var linkText = String((options && options.linkText) || "").replace(/^\s+|\s+$/g, "");
+            if (linkText) target.textContent = linkText;
+            else {
+                var linkLabel = String((options && options.linkLabel) || "").replace(/^\s+|\s+$/g, "");
+                if (linkLabel) target.setAttribute("aria-label", linkLabel);
+            }
         }
         else if (issue.code === "language-of-parts") {
             markLanguageRuns(target, options && options.lang ? options.lang : issue._lang, issue._script);
@@ -542,6 +657,59 @@ function RTE_Plugin_AccessibilityChecker() {
             copyAttributes(cell, header);
             header.setAttribute("scope", "col");
             firstRow.replaceChild(header, cell);
+        }
+    }
+
+    // Delegates to layouttable.js when it is loaded so there is ONE definition of
+    // what "layout table" means; the fallback keeps the repair working in builds
+    // where that plugin was left out of the bundle.
+    // The accessible name of an element, as a screen reader would compute it:
+    // aria-label wins, then visible text, then title, then the alt text of an
+    // image standing in for the text. Empty string means "announced as nothing".
+    // Deliberately NOT aria-labelledby - resolving it needs the whole document
+    // and a wrong answer here would produce an error the author cannot clear.
+    function accessibleNameOf(element) {
+        if (!element) return "";
+        var trim = function (v) { return String(v || "").replace(/^\s+|\s+$/g, ""); };
+        var label = trim(element.getAttribute && element.getAttribute("aria-label"));
+        if (label) return label;
+        var text = trim(element.textContent);
+        if (text) return text;
+        var title = trim(element.getAttribute && element.getAttribute("title"));
+        if (title) return title;
+        if (element.querySelectorAll) {
+            var imgs = element.querySelectorAll("img");
+            for (var i = 0; i < imgs.length; i++) {
+                var alt = trim(imgs[i].getAttribute("alt"));
+                if (alt) return alt;
+            }
+        }
+        return "";
+    }
+
+    function markTableAsLayout(table) {
+        if (!table) return;
+        if (editor && typeof editor.setTableLayoutMode === "function") {
+            try { editor.setTableLayoutMode("layout", table); return; } catch (e) {}
+        }
+        table.setAttribute("role", "presentation");
+        table.removeAttribute("summary");
+        var caption = table.querySelector("caption");
+        if (caption && caption.parentNode === table) caption.parentNode.removeChild(caption);
+        var cells = table.querySelectorAll("th,[scope]");
+        for (var i = 0; i < cells.length; i++) {
+            var cell = cells[i];
+            // Tables nest — do not strip the headers of a data table that
+            // happens to sit inside a cell of this one.
+            if (cell.closest && cell.closest("table") !== table) continue;
+            cell.removeAttribute("scope");
+            cell.removeAttribute("headers");
+            if (String(cell.nodeName || "").toLowerCase() !== "th") continue;
+            var td = table.ownerDocument.createElement("td");
+            while (cell.firstChild) td.appendChild(cell.firstChild);
+            copyAttributes(cell, td);
+            td.removeAttribute("scope");
+            cell.parentNode.replaceChild(td, cell);
         }
     }
 

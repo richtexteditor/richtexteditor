@@ -12,7 +12,9 @@ if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
     var existing = document.querySelectorAll("link[rel=stylesheet]");
     for (var i = 0; i < existing.length; i++) {
         var href = existing[i].getAttribute("href") || "";
-        if (/(?:^|\/)aitoolkit\.css(?:\?.*)?$/i.test(href)) return;
+        // Matches the minified variant too - a host page that links either one
+        // must not get a second copy injected.
+        if (/(?:^|\/)aitoolkit(?:\.min)?\.css(?:\?.*)?$/i.test(href)) return;
     }
     // Locate our own script tag (aitoolkit.js or all_plugins.js) so we
     // can resolve aitoolkit.css next to it. Matches a custom mount path.
@@ -26,14 +28,30 @@ if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
         }
     }
     var srcAttr = ourScript ? ourScript.getAttribute("src") : "";
-    var cssHref = srcAttr
-        ? srcAttr.replace(/[^/]+$/, "aitoolkit.css")
-        : (((window.RTE_DefaultConfig && window.RTE_DefaultConfig.url_base) || "/richtexteditor") + "/plugins/aitoolkit.css");
-    if (cssHref.indexOf("?") < 0) cssHref += "?v=20260703a";
+    // Prefer the minified stylesheet. aitoolkit.css is 537 KB unminified - larger
+    // than the obfuscated rte.js - and every page that loads the AI toolkit was
+    // paying for it. The readable .css is still shipped and still the one to edit
+    // or override; this only changes what gets fetched by default.
+    function resolve(name) {
+        return srcAttr
+            ? srcAttr.replace(/[^/]+$/, name)
+            : (((window.RTE_DefaultConfig && window.RTE_DefaultConfig.url_base) || "/richtexteditor") + "/plugins/" + name);
+    }
+    function bust(href) { return href.indexOf("?") < 0 ? href + "?v=20260830a" : href; }
+
     var link = document.createElement("link");
     link.rel = "stylesheet";
-    link.href = cssHref;
+    link.href = bust(resolve("aitoolkit.min.css"));
     link.setAttribute("data-rte-auto-injected", "aitoolkit");
+    // .min.css is newer than .css. An install that predates it - an unpacked older
+    // zip, a tier the mirror missed - would otherwise lose ALL AI toolkit styling
+    // silently, which is a far worse failure than shipping the larger file. Fall
+    // back to the readable stylesheet if the minified one is not there.
+    link.onerror = function () {
+        if (link.getAttribute("data-rte-css-fallback")) return;
+        link.setAttribute("data-rte-css-fallback", "1");
+        link.href = bust(resolve("aitoolkit.css"));
+    };
     (document.head || document.documentElement).appendChild(link);
 })();
 

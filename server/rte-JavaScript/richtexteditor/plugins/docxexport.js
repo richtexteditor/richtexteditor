@@ -612,6 +612,31 @@ function RTE_Plugin_DocxExport() {
         var revSeq = { n: 1 };
         var base = { bold: false, italic: false, underline: false, strike: false, sizeHalfPoints: 0, color: null, highlight: null, vertAlign: null, mono: false };
 
+
+        // A block indented in the editor carries margin-left (or padding-left,
+        // per indentUseMargin). Word expresses the same thing as w:ind, in
+        // TWIPS. Before 2026-09-04 indentation reached Word only when it was
+        // spelled <blockquote>, which dragged the Quote style along with it -
+        // so indented body text arrived italic and accent-coloured.
+        // 1px = 0.75pt and 1pt = 20 twips, hence px * 15.
+        function indentTwips(node) {
+            if (!node || !node.style) return 0;
+            var raw = node.style.marginLeft || node.style.paddingLeft || "";
+            var m = /^\s*(-?[\d.]+)\s*([a-z%]*)\s*$/i.exec(raw);
+            if (!m) return 0;
+            var n = parseFloat(m[1]);
+            if (!n || n <= 0) return 0;
+            var unit = (m[2] || "px").toLowerCase();
+            var px = unit === "px" ? n
+                : unit === "pt" ? n * (4 / 3)
+                : unit === "in" ? n * 96
+                : unit === "cm" ? n * 37.795
+                : unit === "mm" ? n * 3.7795
+                : (unit === "em" || unit === "rem") ? n * 16
+                : 0;
+            return Math.round(px * 15);
+        }
+
         function para(node, style, opts) {
             opts = opts || {};
             var pr = "";
@@ -620,6 +645,12 @@ function RTE_Plugin_DocxExport() {
             if (opts.pre) pr += '<w:pStyle w:val="Code"/>';
             if (opts.numId) pr += "<w:numPr><w:ilvl w:val=\"" + (opts.level || 0) + "\"/><w:numId w:val=\"" + opts.numId + "\"/></w:numPr>";
             if (opts.pageBreakBefore) pr += "<w:pageBreakBefore/>";
+            // Independent of the Quote style: a real blockquote already got
+            // its w:ind above, so only emit this for everything else.
+            if (!opts.quote) {
+                var indTw = indentTwips(node);
+                if (indTw > 0) pr += '<w:ind w:left="' + indTw + '"/>';
+            }
             var align = node && node.style ? node.style.textAlign : "";
             if (align === "center" || align === "right") pr += '<w:jc w:val="' + align + '"/>';
             else if (align === "justify") pr += '<w:jc w:val="both"/>';

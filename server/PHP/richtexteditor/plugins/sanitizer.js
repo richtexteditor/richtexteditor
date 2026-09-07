@@ -33,8 +33,9 @@ if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
 //   config.sanitizerAllowStyleTags = true    // keep <style> in content
 //   config.sanitizerAllowIframes = false     // drop <iframe> outright
 //   config.sanitizerAllowedIframeHosts = ["www.youtube.com"]
-//   config.sanitizerAllowTags = ["custom-el"]
-//   config.sanitizerAllowAttributes = ["my-attr"]
+//   config.sanitizerAllowTags = ["custom-el", "x-*", /^ui-/]
+//   config.sanitizerAllowAttributes = ["my-attr", "data-cms-*"]
+//        exact names, "*" wildcards, or RegExp -- see buildMatcher()
 RTE_DefaultConfig.plugin_sanitizer = RTE_Plugin_Sanitizer;
 if (typeof RTE_DefaultConfig.contentSanitizer === "undefined") RTE_DefaultConfig.contentSanitizer = true;
 
@@ -221,12 +222,63 @@ function RTE_Plugin_Sanitizer() {
         return false;
     }
 
+    // Build a name matcher from a config list. Entries may be:
+    //   "my-widget"   an exact name
+    //   "my-*"        a wildcard, where * matches any run of characters
+    //   /^my-/        a RegExp
+    // The wildcard form is what makes this a workable answer to CKEditor's General
+    // HTML Support: without it an integrator has to enumerate every tag and
+    // attribute a CMS might emit, by name, which nobody does -- so the content gets
+    // unwrapped instead and the integrator concludes the editor destroys it.
+    //
+    // A pattern widens what is KEPT, never what is executed: on* handlers,
+    // javascript: URLs, <script> and iframe[srcdoc] are all handled before this is
+    // consulted, so allowing a tag or attribute by pattern cannot re-open those.
+    //
+    // Wildcards are matched by hand rather than compiled to a RegExp, so a config
+    // value can never be a regex-injection vector and no escaping table has to be
+    // kept correct.
+    function buildMatcher(list) {
+        var literal = {};
+        var globs = [];
+        var regexps = [];
+        (list || []).forEach(function (entry) {
+            if (entry instanceof RegExp) { regexps.push(entry); return; }
+            var t = String(entry).toLowerCase();
+            if (t.indexOf("*") === -1) { literal[t] = true; return; }
+            globs.push(t.split("*"));
+        });
+        function globMatches(parts, name) {
+            // parts came from splitting on "*": they must appear in order, the first
+            // anchored at the start and the last at the end.
+            var first = parts[0];
+            if (name.lastIndexOf(first, 0) !== 0) return false;
+            var last = parts[parts.length - 1];
+            if (last) {
+                if (name.length < last.length) return false;
+                if (name.indexOf(last, name.length - last.length) === -1) return false;
+            }
+            var pos = first.length;
+            for (var i = 1; i < parts.length; i++) {
+                if (!parts[i]) continue;
+                var at = name.indexOf(parts[i], pos);
+                if (at === -1) return false;
+                pos = at + parts[i].length;
+            }
+            return true;
+        }
+        return function (name) {
+            if (literal[name]) return true;
+            for (var i = 0; i < globs.length; i++) if (globMatches(globs[i], name)) return true;
+            for (var j = 0; j < regexps.length; j++) if (regexps[j].test(name)) return true;
+            return false;
+        };
+    }
+
     // --------------------------------------------------------------- engine
     function sanitizeNode(root, report) {
-        var allowExtra = {};
-        (config.sanitizerAllowTags || []).forEach(function (t) { allowExtra[String(t).toLowerCase()] = true; });
-        var attrExtra = {};
-        (config.sanitizerAllowAttributes || []).forEach(function (a) { attrExtra[String(a).toLowerCase()] = true; });
+        var allowExtra = buildMatcher(config.sanitizerAllowTags);
+        var attrExtra = buildMatcher(config.sanitizerAllowAttributes);
         var allowStyleTag = config.sanitizerAllowStyleTags === true;
 
         // Collect first: removing nodes while walking a live list skips siblings.
@@ -235,7 +287,7 @@ function RTE_Plugin_Sanitizer() {
             for (var i = 0; i < n.childNodes.length; i++) {
                 var c = n.childNodes[i];
                 if (c.nodeType === 1) { all.push(c); collect(c); }
-                else if (c.nodeType === 8) all.push(c);   // comments can hide markup
+                else if (c.nodeType === 8) all.push(c);   // checked, see commentEscapes()
             }
         })(root);
 
@@ -243,7 +295,33 @@ function RTE_Plugin_Sanitizer() {
             var el = all[i];
             if (!el.parentNode) continue;                 // already removed with an ancestor
 
-            if (el.nodeType === 8) { el.parentNode.removeChild(el); continue; }
+            if (el.nodeType === 8) {
+                // Comments used to be removed wholesale, on the stated grounds that
+                // "comments can hide markup". That reason does not survive testing:
+                // serialise <!--<script>alert(1)</script>--> and re-parse it and the
+                // script is inert -- a well-formed comment is just text.
+                //
+                // What IS unsafe is a narrow, enumerable set of comment DATA that
+                // cannot survive serialisation, because the serialiser writes the
+                // data verbatim between <!-- and -->. Re-parsing then ends the
+                // comment early and the remainder becomes live markup:
+                //
+                //   "--> <img src=x onerror=...>"  -> <!----> <img ...>-->   ESCAPES
+                //   "--!> <img ...>"               -> <!----!> <img ...>-->  ESCAPES
+                //   "> <img ...>"                  -> <!--> <img ...>-->     ESCAPES
+                //   "-> <img ...>"                 -> <!---> <img ...>-->    ESCAPES
+                //
+                // That is the WHATWG serialisation constraint, not a heuristic, so
+                // it can be enumerated rather than guessed at. Everything else is
+                // kept, which is what lets a CMS round-trip its own markers and lets
+                // an email template keep its Outlook conditional comments -- the
+                // mechanism emailtoolkit.js needs and could not previously rely on.
+                if (commentEscapes(el.data)) {
+                    note(report.removedTags, "#comment");
+                    el.parentNode.removeChild(el);
+                }
+                continue;
+            }
 
             var tag = (el.localName || el.nodeName || "").toLowerCase();
 
@@ -271,7 +349,7 @@ function RTE_Plugin_Sanitizer() {
                 note(report.removedTags, tag);
                 el.parentNode.removeChild(el);
                 continue;
-            } else if (!ALLOWED_TAGS[tag] && !allowExtra[tag]) {
+            } else if (!ALLOWED_TAGS[tag] && !allowExtra(tag)) {
                 // Unknown element: unwrap rather than delete, so the words a
                 // user typed inside a stray tag are not silently lost.
                 note(report.removedTags, tag);
@@ -300,7 +378,7 @@ function RTE_Plugin_Sanitizer() {
                     if (!isSafeUrl(value, tag, name)) { note(report.removedAttributes, tag + "[" + name + "]"); el.removeAttribute(attrs[k].name); }
                     continue;
                 }
-                if (!ALLOWED_ATTRS[name] && !attrExtra[name]) {
+                if (!ALLOWED_ATTRS[name] && !attrExtra(name)) {
                     note(report.removedAttributes, name);
                     el.removeAttribute(attrs[k].name);
                 }
@@ -413,6 +491,44 @@ function RTE_Plugin_Sanitizer() {
     // Measured: the payload ran locally AND replicated to the peer with its
     // onerror attribute intact.
     //
+    // THREAT MODEL -- read this before tightening or loosening the rule below.
+    //
+    // An escaping comment CANNOT BE AUTHORED AS AN HTML STRING. Feed
+    // `<!--x--> <img src=q onerror=...>-->` to setHTMLCode and the parser yields
+    // comment("x") + text + a normal <img> element, which the element/attribute
+    // filters already handle. The ONLY way to obtain a comment node whose data
+    // escapes is programmatic DOM construction -- document.createComment(), or a
+    // sync layer building nodes directly.
+    //
+    // That is why the guard lives on the DOM-level paths (the sanitise pass and the
+    // live-DOM MutationObserver) and why the string paths need nothing extra. Both
+    // string directions were measured: sender getHTMLCode, receiver setHTMLCode, and
+    // the receiver's live DOM all yield zero executable attributes, because
+    // wrapSerializers() and wrapSetters() filter on the way out and on the way in.
+    //
+    // The previous rule here deleted EVERY comment, justified only by the remark
+    // "comments can hide markup". That is false -- serialise
+    // <!--<script>alert(1)</script>--> and re-parse it and the script is inert -- and
+    // it cost the product CMS round-tripping and Outlook conditional comments (the
+    // mechanism emailtoolkit.js needs) for as long as nobody re-checked it. An
+    // unexplained restriction outlives its reason, so this one is written down.
+    //
+    // A comment's data is written verbatim between <!-- and -->, so data that
+    // contains a terminator (or opens with one) breaks out of the comment when the
+    // serialised output is re-parsed, turning the remainder into live markup.
+    // Module scope on purpose: both the sanitiser pass and the live-DOM
+    // MutationObserver below need it, and they must agree exactly on what is unsafe.
+    // Deliberately conservative -- it rejects rather than rewrites, because silently
+    // editing someone's comment text is its own kind of surprise.
+    function commentEscapes(data) {
+        var d = String(data == null ? "" : data);
+        if (d.indexOf("-->") !== -1) return true;
+        if (d.indexOf("--!>") !== -1) return true;
+        if (d.charAt(0) === ">") return true;
+        if (d.charAt(0) === "-" && d.charAt(1) === ">") return true;
+        return false;
+    }
+
     // A MutationObserver is the only place to catch every arrival path — sync,
     // drop, a third-party plugin, host-page code. It is honest to say this
     // narrows the window rather than closing it completely: the observer runs
@@ -463,6 +579,16 @@ function RTE_Plugin_Sanitizer() {
                 }
                 for (var a = 0; a < rec.addedNodes.length; a++) {
                     var node = rec.addedNodes[a];
+                    // Comments are preserved now, so an injected comment whose data
+                    // escapes on re-parse has to wake the sanitiser. This loop used
+                    // to skip every non-element node, which was safe only while
+                    // comments were being deleted unconditionally. The CRDT sync
+                    // path is exactly how a node arrives here without passing the
+                    // input filter -- that is the path that produced the stored XSS.
+                    if (node.nodeType === 8) {
+                        if (commentEscapes(node.data)) { suspect = true; break; }
+                        continue;
+                    }
                     if (node.nodeType !== 1) continue;      // typing inserts text: free
                     if (looksDangerous(node)) { suspect = true; break; }
                 }

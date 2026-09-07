@@ -146,7 +146,9 @@ function RTE_Plugin_WordExport() {
             "table { border-collapse: collapse; }\r\n" +
             "td, th { border: 1px solid #999; padding: 4px 8px; }\r\n" +
             "img { max-width: 100%; height: auto; }\r\n" +
-            "blockquote { border-left: 3px solid #ccc; margin-left: 0; padding-left: 12px; color: #444; }\r\n" +
+            // margin-left was zeroed here, which also flattened any indentation
+            // expressed as a margin. Keep the quote bar, keep the offset.
+            "blockquote { border-left: 3px solid #ccc; padding-left: 12px; color: #444; }\r\n" +
             "pre { font-family: Consolas, 'Courier New', monospace; background: #f4f4f4; padding: 8px; }\r\n" +
             "</style>\r\n" +
             "</head>\r\n" +

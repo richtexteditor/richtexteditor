@@ -65,17 +65,12 @@ function RTE_Plugin_DocumentImport() {
             openPicker({});
         });
 
-        if (editor.slashCommands && typeof editor.slashCommands.register === "function") {
-            try {
-                editor.slashCommands.register({
-                    id: "import-document",
-                    title: "Import document",
-                    description: "Open a Markdown, HTML, text, or Word (.doc) file into the editor",
-                    keywords: ["import", "open", "file", "word", "markdown", "upload"],
-                    action: function () { openPicker({}); }
-                });
-            } catch (e) {}
-        }
+        // NOTE: do NOT call editor.slashCommands.register() from here. Plugins
+        // initialise in bundle (alphabetical) order and this file sorts before
+        // "slashcommand", so editor.slashCommands does not exist yet and the guarded
+        // call silently did nothing - the "import-document" slash entry never appeared for any
+        // customer until 2026-09-02. The entry now lives in slashcommand.js, gated on
+        // typeof editor.openImportDialog === "function" (same pattern as exportToPdf).
     };
 
     function kindFromName(name) {
@@ -1120,7 +1115,15 @@ function RTE_Plugin_DocumentImport() {
             var ppr = firstChildEl(p, "pPr"); if (!ppr) return {};
             var info = {};
             var ps = firstChildEl(ppr, "pStyle");
-            if (ps) { var v = ps.getAttributeNS(W, "val") || ps.getAttribute("w:val") || ""; var m = /heading(\d)/i.exec(v); if (m) info.heading = Math.min(6, parseInt(m[1], 10)); }
+            if (ps) {
+                var v = ps.getAttributeNS(W, "val") || ps.getAttribute("w:val") || "";
+                var m = /heading(\d)/i.exec(v);
+                if (m) info.heading = Math.min(6, parseInt(m[1], 10));
+                // docxexport.js writes blockquotes as the "Quote" paragraph style;
+                // without this they came back as plain <p> and the round-trip lost
+                // every blockquote. Match Quote / IntenseQuote / BlockQuote.
+                else if (/^(intense)?quote$|blockquote/i.test(v.replace(/\s+/g, ""))) info.quote = true;
+            }
             var numPr = firstChildEl(ppr, "numPr");
             if (numPr) {
                 info.list = true;
@@ -1134,6 +1137,19 @@ function RTE_Plugin_DocumentImport() {
                 // ordered list. Defaulting to bullet when numbering.xml is absent
                 // matches the old behaviour rather than inventing <ol>s.
                 info.ordered = !!fmt && fmt !== "bullet" && fmt !== "none";
+            }
+            // Word paragraph indentation. Nothing read this before 2026-09-04,
+            // so every indented paragraph in every imported .docx arrived
+            // flush left and the indentation was lost silently.
+            // w:left is in twips; 15 twips = 1px.
+            var ind = firstChildEl(ppr, "ind");
+            if (ind) {
+                var lft = ind.getAttributeNS(W, "left") || ind.getAttribute("w:left") || "";
+                var tw = parseInt(lft, 10);
+                // 720 twips alongside the Quote style is the blockquote's own
+                // indent, already carried by the blockquote element itself.
+                if (tw > 0 && !(info.quote && tw === 720))
+                    info.indentPx = Math.round(tw / 15);
             }
             var jc = firstChildEl(ppr, "jc");
             if (jc) {
@@ -1201,9 +1217,20 @@ function RTE_Plugin_DocumentImport() {
                     continue;
                 }
                 closeListsTo(0);
-                if (st.heading) out.push("<h" + st.heading + ">" + (inner || "") + "</h" + st.heading + ">");
+                if (st.heading) {
+                    // Headings carry w:ind too; without this an indented
+                    // heading imported flush left.
+                    var hs = st.indentPx ? ' style="margin-left:' + st.indentPx + 'px"' : "";
+                    out.push("<h" + st.heading + hs + ">" + (inner || "") + "</h" + st.heading + ">");
+                }
+                else if (st.quote) out.push("<blockquote>" + (inner || "<br>") + "</blockquote>");
                 else {
-                    var style = st.align ? ' style="text-align:' + st.align + '"' : "";
+                    var decl = [];
+                    if (st.align) decl.push("text-align:" + st.align);
+                    // indentUseMargin defaults to margin, and margin is what
+                    // w:ind means, so import writes margin-left to match.
+                    if (st.indentPx) decl.push("margin-left:" + st.indentPx + "px");
+                    var style = decl.length ? ' style="' + decl.join(";") + '"' : "";
                     // A paragraph that contained ONLY a text box has no text of
                     // its own; emitting an empty <p> before the box adds a blank
                     // line that was never in the document.
@@ -1231,6 +1258,13 @@ function RTE_Plugin_DocumentImport() {
             for (var i = 0; i < kids.length; i++) {
                 var tr = kids[i];
                 if (tr.nodeType !== 1 || tr.localName !== "tr") continue;
+                // docxexport.js marks a header row with <w:trPr><w:tblHeader/>.
+                // Without honouring it, every cell imported as <td> and the table
+                // lost its header semantics on round-trip - which then fails the
+                // accessibility checker's table-missing-header rule.
+                var trPr = firstChildEl(tr, "trPr");
+                var isHeaderRow = !!(trPr && firstChildEl(trPr, "tblHeader"));
+                var cellTag = isHeaderRow ? "th" : "td";
                 var cells = [];
                 for (var j = 0; j < tr.childNodes.length; j++) {
                     var tc = tr.childNodes[j];
@@ -1239,7 +1273,7 @@ function RTE_Plugin_DocumentImport() {
                     for (var k = 0; k < tc.childNodes.length; k++) {
                         if (tc.childNodes[k].localName === "p") cellHtml += "<p>" + (paraInner(tc.childNodes[k]) || "<br>") + "</p>";
                     }
-                    cells.push("<td>" + cellHtml + "</td>");
+                    cells.push("<" + cellTag + ">" + cellHtml + "</" + cellTag + ">");
                 }
                 rows.push("<tr>" + cells.join("") + "</tr>");
             }

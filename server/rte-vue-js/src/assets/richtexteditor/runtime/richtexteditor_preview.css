@@ -1,14 +1,16 @@
 ﻿
 /* TODO: use @import for your css */
 
+/* Kept in step with the editing surface (runtime/richtexteditor_content.css) so
+   a previewed document looks like what was authored. */
 body, table, p, div {
-	font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
-	color: #414141;
-	font-size: 14px;
-	line-height: 1.6;
+	font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+	color: #1f2328;
+	font-size: 16px;
+	line-height: 1.7;
 }
 a {
-	color: #377dff;
+	color: #0969da;
 	text-decoration: none;
 	-webkit-transition: color 0.2s ease 0s, text-decoration 0.2s ease 0s;
 	-moz-transition: color 0.2s ease 0s, text-decoration 0.2s ease 0s;
@@ -299,4 +301,31 @@ thead {
 .dp-highlighter .preprocessor {
 	color: gray;
 	background-color: inherit;
+}
+
+
+/* Inline code (<code>). Added 2026-09-04 alongside plugins/inlinecode.js: the
+   element could already reach the document via markdown `x` autoformat and via
+   paste, but no stylesheet ever gave it a rule, so it rendered as bare browser
+   monospace and was easy to mistake for unstyled text. Deliberately a bare
+   element selector and no rte-* class, so authors can override it and so the
+   CSS contract check (which scans only the four theme sheets) is not involved.
+   `pre code` is reset because a code block already carries the styling. */
+code {
+	font-family: Consolas, "SF Mono", Menlo, Monaco, "Courier New", monospace;
+	font-size: 0.9em;
+	background: rgba(135, 131, 120, 0.15);
+	color: #c7254e;
+	padding: 0.15em 0.35em;
+	border-radius: 3px;
+	white-space: pre-wrap;
+	overflow-wrap: break-word;
+}
+
+pre code {
+	background: none;
+	color: inherit;
+	padding: 0;
+	border-radius: 0;
+	font-size: inherit;
 }

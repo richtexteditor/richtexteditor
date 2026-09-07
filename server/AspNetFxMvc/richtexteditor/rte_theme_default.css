@@ -8,10 +8,12 @@
     --rte-icon-color: #5F6368;       /* toolbar/dialog icon color       */
     --rte-surface: #ffffff;          /* editor + panel background       */
     --rte-surface-raised: #ffffff;   /* toolbar / status bar background */
-    --rte-border: #dddddd;           /* chrome borders                  */
+    --rte-border: #d0d7de;           /* chrome borders (cool gray, pairs with the content palette) */
     --rte-text: #333333;             /* chrome text                     */
     --rte-hover-bg: #f2f2f2;         /* button hover background         */
     --rte-accent: #1d67ba;           /* active/selected accent          */
+    --rte-shadow: 0 1px 2px rgba(16,24,40,.04), 0 2px 6px rgba(16,24,40,.06); /* container elevation */
+    --rte-focus-ring: 0 0 0 3px rgba(29,103,186,.14); /* focus halo            */
 }
 
 rte-toolbar-button, rte-toolbar-splitbutton, rte-toolbar-dropdown, rte-toolbar-arrowbutton, rte-toolbar-dropdown-input, rte-toolbar-dropdown-arrow {
@@ -23,16 +25,20 @@ rte-toolbar-button, rte-toolbar-splitbutton, rte-toolbar-dropdown, rte-toolbar-a
     flex-direction: column !important;
     position: relative !important;
     box-sizing: border-box !important;
-    border: 1px solid #ddd;
-    background-color: #fff;
+    border: 1px solid var(--rte-border, #d0d7de);
+    background-color: var(--rte-surface, #fff);
+    /* A flat hairline box reads as an unstyled control; a hint of elevation is
+       what separates it from the page it sits on. */
+    box-shadow: var(--rte-shadow, none);
+    transition: border-color .15s ease, box-shadow .15s ease;
     user-select: none;
     min-height: 200px;
     min-width: 200px;
-    font-family: -apple-system, Helvetica, Arial, sans-serif;
+    font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
 
 .richtexteditor, .rte-absolute, .rte-fixed, rte-dropdown-panel {
-    font-family: -apple-system, Helvetica, Arial, sans-serif;
+    font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     font-size: 14px;
 }
 
@@ -62,6 +68,32 @@ rte-toolbar-button, rte-toolbar-splitbutton, rte-toolbar-dropdown, rte-toolbar-a
         .richtexteditor.rte-fullpage rte-toolbar {
             border-radius: 0px !important;
         }
+
+/* ===== rte-square: opt-in square corners =====
+   Add `rte-square` to the editor's root element when it has to sit flush inside a
+   square-cornered container. The default 10px radius (.rte-modern) reads as a
+   floating card, which is wrong edge-to-edge in a panel that owns its own corners.
+
+   Squares the container AND its chrome together: rounding any one part alone
+   leaves a visible notch where the toolbar meets the container border.
+
+   `!important` is deliberate. On the shipped build rte-toolbar computes to
+   `9px 9px 0 0` while NO author rule in this file - or in any of the 14
+   stylesheets on the page - sets it; the origin was not identified. The modifier
+   has to win regardless of where that value comes from, so it does not rely on
+   out-specifying a rule nobody can point at. Measured before and after: container
+   10px -> 0, toolbar 9px 9px 0 0 -> 0.
+
+   This is the same approach the theme already takes for .rte-fullpage, which has
+   been square since it ships edge-to-edge by definition. */
+.richtexteditor.rte-square,
+.richtexteditor.rte-square rte-toolbar,
+.richtexteditor.rte-square rte-statusbar,
+.richtexteditor.rte-square rte-content,
+.richtexteditor.rte-square iframe.rte-editable {
+    border-radius: 0 !important;
+}
+
 
 .rte-absolute {
     box-sizing: border-box !important;
@@ -695,8 +727,12 @@ rte-toolbar-button {
 rte-toolbar-splitbutton {
     border: solid 1px transparent;
     padding: 1px;
+    /* 52 = 24 (direct) + 24 (dropdown) + 2 padding + 2 border. Both halves must be
+       >= 24px wide for WCAG 2.2 SC 2.5.8 (Level AA); at the old 42px the flex row
+       shrank them to 19px each instead, which fails the criterion just as the
+       original 14px arrow did -- widening one half alone is not enough. */
     margin: 4px 3px;
-    width: 42px;
+    width: 52px;
     height: 28px;
     outline: none;
 }
@@ -743,9 +779,15 @@ rte-toolbar-splitbutton-direct {
 
 rte-toolbar-splitbutton-dropdown {
     border-left: solid 1px transparent;
-    width: 14px;
+    /* WCAG 2.2 SC 2.5.8 Target Size (Minimum), Level AA: a pointer target must be
+       at least 24x24 CSS px. This half was 14x24 and failed. The "spacing"
+       exception cannot rescue it -- the two halves of a split button are adjacent
+       by construction, so a 24px circle centred on the arrow always intersects the
+       circle centred on its sibling. Widening the target is the only fix that
+       actually conforms. Costs 10px per split button (38px -> 48px total). */
+    width: 24px;
     height: 100%;
-    min-height: 18px;
+    min-height: 24px;
     background-image: url('data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0idXRmLTgiPz4NCjxzdmcgcm9sZT0iaW1nIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMjAgNTEyIiBjbGFzcz0ic3ZnLWlubGluZS0tZmEgZmEtYW5nbGUtZG93biBmYS13LTEwIj48cGF0aCBmaWxsPSJjdXJyZW50Q29sb3IiIGQ9Ik0xNDMgMzUyLjNMNyAyMTYuM2MtOS40LTkuNC05LjQtMjQuNiAwLTMzLjlsMjIuNi0yMi42YzkuNC05LjQgMjQuNi05LjQgMzMuOSAwbDk2LjQgOTYuNCA5Ni40LTk2LjRjOS40LTkuNCAyNC42LTkuNCAzMy45IDBsMjIuNiAyMi42YzkuNCA5LjQgOS40IDI0LjYgMCAzMy45bC0xMzYgMTM2Yy05LjIgOS40LTI0LjQgOS40LTMzLjggMHoiIGNsYXNzPSIiPjwvcGF0aD48L3N2Zz4=');
     background-position: 1px center;
     background-repeat: no-repeat;
@@ -1107,7 +1149,7 @@ rte-control-selected-corner {
 
 
 rte-dialog-float {
-    position: absolute;
+    position: fixed;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -4967,4 +5009,17 @@ rte-dialog-float rte-dialog-inner {
     top: max(80px, calc(var(--rte-dialog-effective-top-chrome) + 12px)) !important;
     max-height: calc(100vh - max(104px, calc(var(--rte-dialog-effective-top-chrome) + 32px)));
     overflow: auto;
+}
+
+/* Editor focus state. rte.js has always toggled .rte-is-focused/.rte-is-blurred
+   on the container, but nothing ever styled them, so focusing the editor gave no
+   visual feedback at all. The halo mirrors the focus treatment of the individual
+   controls, so the whole component behaves consistently. */
+.richtexteditor.rte-is-focused {
+    border-color: var(--rte-accent, #1d67ba);
+    box-shadow: var(--rte-shadow, none), var(--rte-focus-ring, none);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .richtexteditor { transition: none; }
 }

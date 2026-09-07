@@ -4,7 +4,7 @@
 
 
 //HomeController.cs 
-var uploadhandlerpath = "/Home/ImageUploadHandler";
+var uploadhandlerpath = "/RTEUpload/ImageUploadHandler";
 
 
 function rte_file_upload_handler(file, callback, optionalIndex, optionalFiles) {

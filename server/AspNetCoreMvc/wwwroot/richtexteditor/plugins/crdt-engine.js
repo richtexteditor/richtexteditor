@@ -29,9 +29,6 @@
     restoreSelection: () => restoreSelection
   });
 
-  // src/types.ts
-  var LOCAL_ORIGIN = /* @__PURE__ */ Symbol.for("rte.crdt.local");
-
   // node_modules/yjs/dist/yjs.mjs
   var yjs_exports = {};
   __export(yjs_exports, {
@@ -9716,6 +9713,9 @@ ${err.toString()}`);
   }
   glo[importIdentifier] = true;
 
+  // src/types.ts
+  var LOCAL_ORIGIN = /* @__PURE__ */ Symbol.for("rte.crdt.local");
+
   // src/schema.ts
   var BLOCK_TAGS = /* @__PURE__ */ new Set([
     "p",
@@ -9803,7 +9803,13 @@ ${err.toString()}`);
     "fontSize",
     "link",
     // value: href
-    "code"
+    "code",
+    // Passthrough for inline elements that are not a formatting mark: a JSON
+    // string {tag, attrs} (span.rte-comment[data-comment-id], span.rte-mention,
+    // span.rte-tc-insert, sup.rte-footnote-ref, ...). Without it these folded
+    // into the text run with NO mark, so peers never received comment anchors,
+    // mention chips or tracked-change spans (2026-09-02).
+    "inline"
   ];
 
   // src/render.ts
@@ -9871,31 +9877,72 @@ ${err.toString()}`);
     var _a;
     const frag = doc2.createDocumentFragment();
     const delta = ytext.toDelta();
+    let openInline = null;
     for (const op of delta) {
       if (typeof op.insert !== "string") continue;
       if (op.insert.length === 0) continue;
-      const marks = sortedMarks(op.attributes);
+      const attrs = (_a = op.attributes) != null ? _a : {};
+      const marks = sortedMarks(attrs);
+      const inlineKey = typeof attrs["inline"] === "string" ? attrs["inline"] : "";
       let target = doc2.createTextNode(op.insert);
       for (let i = marks.length - 1; i >= 0; i--) {
-        const wrapper = wrapForMark(marks[i], (_a = op.attributes) != null ? _a : {}, doc2);
+        if (marks[i] === "inline") continue;
+        const wrapper = wrapForMark(marks[i], attrs, doc2);
         wrapper.appendChild(target);
         target = wrapper;
       }
-      frag.appendChild(target);
+      if (inlineKey) {
+        if (!openInline || openInline.key !== inlineKey) {
+          openInline = { key: inlineKey, el: wrapForMark("inline", attrs, doc2) };
+          frag.appendChild(openInline.el);
+        }
+        openInline.el.appendChild(target);
+      } else {
+        openInline = null;
+        frag.appendChild(target);
+      }
     }
     return frag;
   }
-  var MARK_PRECEDENCE = ["link", "color", "backcolor", "fontFamily", "fontSize", "code", "underline", "strikethrough", "subscript", "superscript", "italic", "bold"];
+  var MARK_PRECEDENCE = ["inline", "link", "color", "backcolor", "fontFamily", "fontSize", "code", "underline", "strikethrough", "subscript", "superscript", "italic", "bold"];
   function sortedMarks(attrs) {
+    var _a;
     if (!attrs) return [];
     const present = [];
+    let inlineTag = "";
+    if (typeof attrs["inline"] === "string") {
+      try {
+        inlineTag = String((_a = JSON.parse(attrs["inline"]).tag) != null ? _a : "").toLowerCase();
+      } catch (e) {
+        inlineTag = "";
+      }
+    }
     for (const m of MARK_PRECEDENCE) {
-      if (m in attrs && attrs[m] != null && attrs[m] !== false) present.push(m);
+      if (!(m in attrs) || attrs[m] == null || attrs[m] === false) continue;
+      if (m === "superscript" && inlineTag === "sup" || m === "subscript" && inlineTag === "sub") continue;
+      present.push(m);
     }
     return present;
   }
   function wrapForMark(mark, attrs, doc2) {
     switch (mark) {
+      case "inline": {
+        let tag = "span";
+        let attrsMap = {};
+        try {
+          const parsed = JSON.parse(String(attrs["inline"]));
+          if (parsed.tag) tag = parsed.tag;
+          if (parsed.attrs) attrsMap = parsed.attrs;
+        } catch (e) {
+        }
+        if (!/^[a-z][a-z0-9-]*$/.test(tag)) tag = "span";
+        const el = doc2.createElementNS(HTML_NS, tag);
+        for (const k of Object.keys(attrsMap)) {
+          if (/^on/i.test(k) || k === "style") continue;
+          el.setAttribute(k, attrsMap[k]);
+        }
+        return el;
+      }
       case "bold":
         return doc2.createElementNS(HTML_NS, "strong");
       case "italic":
@@ -10029,11 +10076,13 @@ ${err.toString()}`);
     if (!win) {
       return { disconnect: () => {
       }, drainPending: () => {
+      }, flushPending: () => {
       } };
     }
     const MO = (_b = win.MutationObserver) != null ? _b : globalThis.MutationObserver;
     if (!MO) return { disconnect: () => {
     }, drainPending: () => {
+    }, flushPending: () => {
     } };
     const observer = new MO((mutations) => {
       var _a2;
@@ -10052,10 +10101,22 @@ ${err.toString()}`);
       attributes: true,
       attributeOldValue: true
     });
+    const process2 = (mutations) => {
+      var _a2;
+      if (!mutations.length || opts.isApplyingRemote()) return;
+      (_a2 = opts.fragment.doc) == null ? void 0 : _a2.transact(() => {
+        for (const m of mutations) {
+          handleMutation(m, opts);
+        }
+      }, LOCAL_ORIGIN);
+    };
     return {
       disconnect: () => observer.disconnect(),
       drainPending: () => {
         observer.takeRecords();
+      },
+      flushPending: () => {
+        process2(observer.takeRecords());
       }
     };
   }
@@ -10078,9 +10139,38 @@ ${err.toString()}`);
     const yNode = locateYNodeForText(target, opts);
     if (!yNode) return;
     const newText = target.data;
-    if (yNode.toString() === newText) return;
-    yNode.delete(0, yNode.length);
-    yNode.insert(0, newText);
+    applyTextDiff(yNode, newText);
+  }
+  function applyTextDiff(yNode, newText) {
+    const oldText = yNode.toString();
+    if (oldText === newText) return;
+    let prefix = 0;
+    const maxPrefix = Math.min(oldText.length, newText.length);
+    while (prefix < maxPrefix && oldText.charCodeAt(prefix) === newText.charCodeAt(prefix)) prefix++;
+    let suffix = 0;
+    const maxSuffix = Math.min(oldText.length, newText.length) - prefix;
+    while (suffix < maxSuffix && oldText.charCodeAt(oldText.length - 1 - suffix) === newText.charCodeAt(newText.length - 1 - suffix)) suffix++;
+    const removeLen = oldText.length - prefix - suffix;
+    const insertStr = newText.slice(prefix, newText.length - suffix);
+    if (removeLen > 0) yNode.delete(prefix, removeLen);
+    if (insertStr.length > 0) {
+      let attrs;
+      try {
+        const delta = yNode.toDelta();
+        let pos = 0;
+        for (const op of delta) {
+          const len = typeof op.insert === "string" ? op.insert.length : 1;
+          if (prefix > pos && prefix <= pos + len) {
+            attrs = op.attributes;
+            break;
+          }
+          pos += len;
+        }
+      } catch (e) {
+        attrs = void 0;
+      }
+      yNode.insert(prefix, insertStr, attrs);
+    }
   }
   function handleChildList(m, opts) {
     if (m.target === opts.editable) {
@@ -10091,13 +10181,51 @@ ${err.toString()}`);
     rebuildSubtreeAtElement(m.target, opts);
   }
   function rebuildSubtreeAtElement(domEl, opts) {
+    var _a;
     const yEl = locateYElement(domEl, opts);
     if (!yEl) {
       scheduleCoarseResync(opts);
       return;
     }
-    yEl.delete(0, yEl.length);
     const folded = foldInlineRunsToYChildren(Array.from(domEl.childNodes));
+    if (yEl.length === 1 && folded.children.length === 1) {
+      const existing = yEl.get(0);
+      const fresh = folded.children[0];
+      if (existing instanceof YXmlText && fresh instanceof YXmlText) {
+        const plan = folded.marked.find((m) => m.text === fresh);
+        const newText = (_a = domEl.textContent) != null ? _a : "";
+        applyTextDiff(existing, newText);
+        if (plan) {
+          const len = existing.length;
+          if (len > 0) {
+            const reset = {};
+            for (const m of SUPPORTED_MARKS) reset[m] = null;
+            const wanted = plan.ranges.map((r) => JSON.stringify([r.start, r.end, r.marks])).join("|");
+            const current = existing.toDelta();
+            let pos = 0;
+            const currentRanges = [];
+            for (const op of current) {
+              const l = typeof op.insert === "string" ? op.insert.length : 1;
+              if (op.attributes && Object.keys(op.attributes).length) currentRanges.push(JSON.stringify([pos, pos + l, op.attributes]));
+              pos += l;
+            }
+            if (currentRanges.join("|") !== wanted) {
+              existing.format(0, len, reset);
+              for (const r of plan.ranges) existing.format(r.start, r.end - r.start, r.marks);
+            }
+          }
+        } else if (existing.length > 0) {
+          const current = existing.toDelta();
+          if (current.some((op) => op.attributes && Object.keys(op.attributes).length)) {
+            const reset = {};
+            for (const m of SUPPORTED_MARKS) reset[m] = null;
+            existing.format(0, existing.length, reset);
+          }
+        }
+        return;
+      }
+    }
+    yEl.delete(0, yEl.length);
     if (folded.children.length > 0) {
       yEl.insert(0, folded.children);
       applyDeferredMarks(folded.marked);
@@ -10300,6 +10428,20 @@ ${err.toString()}`);
     applyDeferredMarks
   };
   function marksFromMarkElement(el) {
+    const base = baseMarksFromMarkElement(el);
+    const tag = el.tagName.toLowerCase();
+    if (tag === "a") return base;
+    const attrs = {};
+    let hasIdentity = false;
+    for (const attr of Array.from(el.attributes)) {
+      if (attr.name === "style") continue;
+      attrs[attr.name] = attr.value;
+      hasIdentity = true;
+    }
+    if (hasIdentity) base["inline"] = JSON.stringify({ tag, attrs });
+    return base;
+  }
+  function baseMarksFromMarkElement(el) {
     const tag = el.tagName.toLowerCase();
     switch (tag) {
       case "strong":
@@ -10376,10 +10518,12 @@ ${err.toString()}`);
     const fragment = options.ydoc.getXmlFragment(fragmentName);
     const awareness = (_c = options.awareness) != null ? _c : (_b = options.provider) == null ? void 0 : _b.awareness;
     let applyingRemote = false;
+    let composing = false;
     const observerHandle = startLocalObserver({
       editable: options.editable,
       fragment,
-      isApplyingRemote: () => applyingRemote
+      // `composing` also gates the observer: see the IME composition gate below.
+      isApplyingRemote: () => applyingRemote || composing
     });
     applyingRemote = true;
     try {
@@ -10388,8 +10532,8 @@ ${err.toString()}`);
       observerHandle.drainPending();
       applyingRemote = false;
     }
-    const onUpdate = (_update, origin) => {
-      if (origin === LOCAL_ORIGIN) return;
+    const renderRemote = () => {
+      observerHandle.flushPending();
       const captured = captureSelection(options.editable);
       applyingRemote = true;
       try {
@@ -10400,13 +10544,96 @@ ${err.toString()}`);
       }
       restoreSelection(options.editable, captured);
     };
+    let pendingRemoteRender = false;
+    let composeTarget = null;
+    const observerOpts = { editable: options.editable, fragment, isApplyingRemote: () => applyingRemote };
+    const resolveTextAnchor = (container, offset) => {
+      if (container.nodeType === 3) return { node: container, offset };
+      if (container.nodeType !== 1) return null;
+      const children = container.childNodes;
+      const before = offset > 0 ? children[offset - 1] : null;
+      if (before && before.nodeType === 3) {
+        const t = before;
+        return { node: t, offset: t.data.length };
+      }
+      const at = children[offset];
+      if (at && at.nodeType === 3) return { node: at, offset: 0 };
+      return null;
+    };
+    const onCompositionStart = () => {
+      var _a2;
+      composeTarget = null;
+      try {
+        const doc2 = options.editable.ownerDocument;
+        const sel = (_a2 = doc2 == null ? void 0 : doc2.defaultView) == null ? void 0 : _a2.getSelection();
+        const range = sel && sel.rangeCount ? sel.getRangeAt(0) : null;
+        const startAnchor = range ? resolveTextAnchor(range.startContainer, range.startOffset) : null;
+        const endAnchor = range ? resolveTextAnchor(range.endContainer, range.endOffset) : null;
+        if (startAnchor && endAnchor && startAnchor.node === endAnchor.node) {
+          const yText = locateYNodeForText(startAnchor.node, observerOpts);
+          if (yText) {
+            composeTarget = {
+              yText,
+              start: createRelativePositionFromTypeIndex(yText, startAnchor.offset),
+              end: createRelativePositionFromTypeIndex(yText, endAnchor.offset)
+            };
+          }
+        }
+      } catch (err) {
+        composeTarget = null;
+      }
+      composing = composeTarget !== null;
+    };
+    const endComposition = (event) => {
+      var _a2;
+      if (!composing) return;
+      composing = false;
+      const target = composeTarget;
+      composeTarget = null;
+      const data = (_a2 = event == null ? void 0 : event.data) != null ? _a2 : "";
+      observerHandle.drainPending();
+      try {
+        if (target) {
+          const start = createAbsolutePositionFromRelativePosition(target.start, options.ydoc);
+          const end = createAbsolutePositionFromRelativePosition(target.end, options.ydoc);
+          if (start && end && start.type === target.yText) {
+            const from2 = Math.min(start.index, end.index);
+            const to = Math.max(start.index, end.index);
+            options.ydoc.transact(() => {
+              if (to > from2) target.yText.delete(from2, to - from2);
+              if (data) target.yText.insert(from2, data);
+            }, LOCAL_ORIGIN);
+          }
+        }
+      } catch (err) {
+        console.error("[crdt-engine] composition commit failed:", err);
+      }
+      pendingRemoteRender = false;
+      renderRemote();
+    };
+    options.editable.addEventListener("compositionstart", onCompositionStart);
+    options.editable.addEventListener("compositionend", endComposition);
+    options.editable.addEventListener("blur", endComposition);
+    const unsubscribeComposition = () => {
+      options.editable.removeEventListener("compositionstart", onCompositionStart);
+      options.editable.removeEventListener("compositionend", endComposition);
+      options.editable.removeEventListener("blur", endComposition);
+    };
+    const onUpdate = (_update, origin) => {
+      if (origin === LOCAL_ORIGIN) return;
+      if (composing) {
+        pendingRemoteRender = true;
+        return;
+      }
+      renderRemote();
+    };
     options.ydoc.on("update", onUpdate);
     const unsubscribeRemote = () => {
       options.ydoc.off("update", onUpdate);
     };
     const unsubscribeLocal = () => observerHandle.disconnect();
     const unsubscribeAwareness = subscribeAwarenessStub(awareness, options.initialAwareness);
-    let cleanups = [unsubscribeRemote, unsubscribeLocal, unsubscribeAwareness];
+    let cleanups = [unsubscribeRemote, unsubscribeLocal, unsubscribeAwareness, unsubscribeComposition];
     return {
       ydoc: options.ydoc,
       fragment,

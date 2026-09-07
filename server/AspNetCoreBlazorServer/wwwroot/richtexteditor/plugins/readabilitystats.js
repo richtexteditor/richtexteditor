@@ -39,17 +39,12 @@ function RTE_Plugin_ReadabilityStats() {
             openDialog();
         });
 
-        if (editor.slashCommands && typeof editor.slashCommands.register === "function") {
-            try {
-                editor.slashCommands.register({
-                    id: "readability-stats",
-                    title: "Readability statistics",
-                    description: "Flesch reading ease, grade level, and reading time",
-                    keywords: ["readability", "flesch", "grade", "reading", "stats", "score"],
-                    action: function () { openDialog(); }
-                });
-            } catch (e) {}
-        }
+        // NOTE: do NOT call editor.slashCommands.register() from here. Plugins
+        // initialise in bundle (alphabetical) order and this file sorts before
+        // "slashcommand", so editor.slashCommands does not exist yet and the guarded
+        // call silently did nothing - the "readability-stats" slash entry never appeared for any
+        // customer until 2026-09-02. The entry now lives in slashcommand.js, gated on
+        // typeof editor.getReadabilityStats === "function" (same pattern as exportToPdf).
     };
 
     function currentText() {

@@ -330,7 +330,7 @@ function RTE_Plugin_InsertCode() {
 			sel_lang.options.add(new Option(aliases, brush));
 
 
-			var b = sessionStorage.getItem("rte-insertcode-lang")
+			var b = null; try { b = sessionStorage.getItem("rte-insertcode-lang"); } catch (e) { } // storage throws in sandboxed / opaque-origin embeds
 			if (b) sel_lang.value = b;
 		}
 
@@ -350,7 +350,7 @@ function RTE_Plugin_InsertCode() {
 		btn.onclick = function () {
 			dialoginner.close();
 
-			sessionStorage.setItem("rte-insertcode-lang", sel_lang.value)
+			try { sessionStorage.setItem("rte-insertcode-lang", sel_lang.value); } catch (e) { }
 
 			if (sel_lang.value != "") {
 				var b = dp.sh.Brushes[sel_lang.value];

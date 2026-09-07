@@ -230,7 +230,17 @@ function RTE_Plugin_Comments() {
 
         var id = "cmt-" + Date.now() + "-" + Math.floor(Math.random() * 10000);
         var user = getCurrentUser();
-        var anchor = options.anchor;
+        var anchor = options.anchor || options.range || null;
+        // Accept a plain DOM Range (or Range-like) as the anchor: it has the
+        // container/offset fields but no `.text`, so until 2026-09-02 the common
+        // call add({ anchor: range }) silently recorded the comment WITHOUT a
+        // highlight. Derive the text from the range instead.
+        if (anchor && anchor.startContainer && anchor.endContainer && !anchor.text) {
+            var derived = "";
+            try { derived = typeof anchor.toString === "function" ? String(anchor.toString()) : ""; } catch (e) { derived = ""; }
+            if (!derived) { try { derived = anchor.cloneContents ? (anchor.cloneContents().textContent || "") : ""; } catch (e2) { derived = ""; } }
+            anchor = { startContainer: anchor.startContainer, startOffset: anchor.startOffset, endContainer: anchor.endContainer, endOffset: anchor.endOffset, text: derived };
+        }
         var wrappedText = "";
 
         if (anchor && anchor.startContainer && anchor.endContainer && anchor.text) {

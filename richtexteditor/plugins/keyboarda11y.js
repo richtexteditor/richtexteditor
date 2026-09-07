@@ -34,6 +34,7 @@ if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
 // Config:
 //   config.keyboardA11y = false            // opt out entirely
 //   config.a11yEscapeHint = "..."          // wording appended to the editing area's name
+//   config.a11yEditorLabel = "..."        // accessible NAME of the editing area (default "Rich text editor")
 //   config.a11yRovingToolbar = false       // keep every button as a tab stop
 RTE_DefaultConfig.plugin_keyboarda11y = RTE_Plugin_KeyboardA11y;
 if (typeof RTE_DefaultConfig.keyboardA11y === "undefined") RTE_DefaultConfig.keyboardA11y = true;
@@ -54,6 +55,21 @@ function RTE_Plugin_KeyboardA11y() {
         if (config.keyboardA11y === false) return;
 
         editor.focusToolbar = function () { return focusFirstToolbarButton(); };
+        // Public so plugins can report their own outcomes -- find/replace match
+        // counts, what the paste filter removed, export completion.
+        editor.announce = function (text, opts) { return announce(text, opts); };
+        // setReadOnly() lives in the core and cannot call into a plugin, so wrap
+        // it here rather than leaving the two states to drift apart.
+        if (typeof editor.setReadOnly === "function" && !editor.setReadOnly.__a11yWrapped) {
+            var origSetReadOnly = editor.setReadOnly;
+            var wrapped = function (v) {
+                var r = origSetReadOnly.apply(editor, arguments);
+                try { syncReadOnlyState(); } catch (e) { }
+                return r;
+            };
+            wrapped.__a11yWrapped = true;
+            editor.setReadOnly = wrapped;
+        }
 
         setup();
         try { editor.attachEvent("ready", setup); } catch (e) {}
@@ -77,11 +93,104 @@ function RTE_Plugin_KeyboardA11y() {
     function setup() {
         var root = shell();
         if (!root) return;
+        ensureLiveRegions();
+        syncReadOnlyState();
         bindEscapeHatch();
         applyRovingTabindex(root);
         syncToggleStates(root);
         trackPopups(root);
         watch(root);
+    }
+
+
+    // ------------------------------------------------- 4. status messages
+    //
+    // WCAG 4.1.3 Status Messages (Level AA): a change of state that is NOT
+    // given focus still has to reach assistive technology. Before this the
+    // editor had no live region at all -- not one aria-live node, in the page
+    // or in the iframe -- so a screen reader user got silence for every
+    // outcome the sighted user reads off the chrome: how many matches Find
+    // found, what the paste filter stripped, that the length limit was hit,
+    // that the document went read-only.
+    //
+    // Two regions, because politeness is not a detail: 'polite' waits for a
+    // pause in speech (counts, confirmations), 'assertive' interrupts (errors,
+    // refusals). aria-atomic="true" on both so the whole message is re-read
+    // rather than only the words that changed -- reading a diff aloud produces
+    // sentences that were never written.
+    //
+    // The region lives in the HOST document, not the editing iframe: a message
+    // announced from inside the document the user is editing would also become
+    // part of what they are editing.
+    var liveNodes = null;
+    function ensureLiveRegions() {
+        if (liveNodes && liveNodes.polite && liveNodes.polite.isConnected) return liveNodes;
+        var root = shell();
+        if (!root) return null;
+        function mk(politeness) {
+            var el = root.querySelector('[data-rte-live="' + politeness + '"]');
+            if (el) return el;
+            el = document.createElement("div");
+            el.setAttribute("data-rte-live", politeness);
+            el.setAttribute("aria-live", politeness);
+            el.setAttribute("aria-atomic", "true");
+            el.setAttribute("role", politeness === "assertive" ? "alert" : "status");
+            // Visually hidden but still rendered: display:none and
+            // visibility:hidden remove the node from the accessibility tree,
+            // which silences it. Clip is the technique that does not.
+            el.style.cssText = "position:absolute;width:1px;height:1px;margin:-1px;" +
+                "padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0;";
+            root.appendChild(el);
+            return el;
+        }
+        liveNodes = { polite: mk("polite"), assertive: mk("assertive") };
+        return liveNodes;
+    }
+
+    // editor.announce(text, {assertive}) -- also used by plugins.
+    function announce(text, opts) {
+        var msg = String(text == null ? "" : text).trim();
+        if (!msg) return false;
+        var nodes = ensureLiveRegions();
+        if (!nodes) return false;
+        var el = (opts && opts.assertive) ? nodes.assertive : nodes.polite;
+        // Re-announcing the SAME string is a no-op for most screen readers
+        // unless the node is cleared first, so "3 results" after "3 results"
+        // would be silent. Clear, then set on the next frame.
+        el.textContent = "";
+        setTimeout(function () { el.textContent = msg; }, 30);
+        return true;
+    }
+
+    // ------------------------------------------------- 5. read-only state
+    //
+    // setReadOnly() flips designMode, which genuinely blocks editing -- but
+    // designMode is invisible to assistive technology. The toolbar already
+    // marks its buttons aria-disabled; the editing region itself said nothing,
+    // so a screen reader user entered a field described as a rich text editor,
+    // typed, and got no response and no explanation. aria-readonly is the
+    // attribute that carries this, and the accessible name says it too because
+    // a name is what gets announced on entry.
+    var lastReadOnly = null;
+    function syncReadOnlyState() {
+        var ed;
+        try { ed = editor.getEditable(); } catch (e) { return; }
+        if (!ed) return;
+        var ro = false;
+        try { ro = !!(editor.getReadOnly ? editor.getReadOnly() : editor.isReadOnly && editor.isReadOnly()); } catch (e) { }
+        ed.setAttribute("aria-readonly", ro ? "true" : "false");
+        var suffix = config.a11yReadOnlySuffix || "Read only.";
+        // Plain string trimming rather than a built regex: the suffix is
+        // config-supplied and would otherwise need escaping to be safe.
+        var label = (ed.getAttribute("aria-label") || "");
+        if (label.length >= suffix.length && label.slice(-suffix.length) === suffix) {
+            label = label.slice(0, -suffix.length).replace(/\s+$/, "");
+        }
+        ed.setAttribute("aria-label", ro ? (label + " " + suffix) : label);
+        if (lastReadOnly !== null && lastReadOnly !== ro) {
+            announce(ro ? suffix : (config.a11yEditableAgain || "Editing enabled."));
+        }
+        lastReadOnly = ro;
     }
 
     // ---------------------------------------------------- 1. keyboard trap
@@ -94,19 +203,37 @@ function RTE_Plugin_KeyboardA11y() {
     // Escape is only intercepted when nothing is open — a dialog or dropdown
     // must still get its own Escape first, or closing a colour picker would
     // throw the user out of the editor.
+    // Bound on the DOCUMENT rather than on the body element. Escape bubbles, so
+    // one listener at document level covers the editing area no matter how the
+    // surface is re-created, and it does not depend on a marker flag pinned to a
+    // particular element surviving. Defensive only: no shipped operation is known
+    // to replace the editing body — setHTML, htmlview, fullscreen, readingmode,
+    // preview and toggleborder all preserve its identity (measured 2026-08-27).
+    // Keeping the binding here costs nothing and removes an assumption, but it
+    // fixes no known live defect; do not describe it as a bug fix.
     function bindEscapeHatch() {
-        var ed;
-        try { ed = editor.getEditable(); } catch (e) { return; }
-        if (!ed || ed.__rteEscapeHatch) return;
-        ed.__rteEscapeHatch = true;
+        var ed, doc;
+        try { ed = editor.getEditable(); doc = ed && ed.ownerDocument; } catch (e) { return; }
+        if (!ed || !doc) return;
 
-        ed.addEventListener("keydown", function (e) {
-            if (e.key !== "Escape" && e.keyCode !== 27) return;
-            if (anythingOpen()) return;           // let the panel close itself
-            e.preventDefault();
-            e.stopPropagation();
-            if (!focusFirstToolbarButton()) focusAfterEditor();
-        }, false);
+        if (!doc.__rteEscapeHatch) {
+            doc.__rteEscapeHatch = true;
+            doc.addEventListener("keydown", function (e) {
+                if (e.key !== "Escape" && e.keyCode !== 27) return;
+                if (anythingOpen()) return;           // let the panel close itself
+                e.preventDefault();
+                e.stopPropagation();
+                if (!focusFirstToolbarButton()) focusAfterEditor();
+            }, false);
+
+            // Deliberately not re-asserting the body's aria-label here. An
+            // earlier version did, on the theory that the editing body could be
+            // replaced underneath us; that mechanism was retracted 2026-08-27
+            // after it turned out to be an instrumentation artefact, and
+            // editor.getEditable() is verified to return the live, connected
+            // body on every shipped path. announceEscape() at the end of this
+            // function is sufficient.
+        }
 
         announceEscape(ed);
     }
@@ -125,12 +252,21 @@ function RTE_Plugin_KeyboardA11y() {
     // The way out has to be discoverable, or it may as well not exist. The
     // editing region's accessible name is the one thing a screen reader always
     // announces on entry, so the hint goes there rather than into the content.
+    //
+    // But an instruction is not a NAME. When the host page had not labelled the
+    // editing area, appending the hint to an empty label left the region's
+    // accessible name as nothing but "Press Escape to leave the editing area." —
+    // a screen reader then told the user how to LEAVE a field without ever
+    // saying what it was, and two editors on one page were indistinguishable.
+    // So: a host-supplied label still wins as the name; otherwise we supply a
+    // real one and the hint follows it.
     function announceEscape(ed) {
         var hint = config.a11yEscapeHint ||
             "Press Escape to leave the editing area.";
         var label = ed.getAttribute("aria-label") || "";
         if (label.indexOf(hint) >= 0) return;
-        ed.setAttribute("aria-label", (label ? label.replace(/\s*$/, " ") : "") + hint);
+        var name = label || config.a11yEditorLabel || "Rich text editor";
+        ed.setAttribute("aria-label", name.replace(/\s*$/, "") + " " + hint);
     }
 
     function focusAfterEditor() {

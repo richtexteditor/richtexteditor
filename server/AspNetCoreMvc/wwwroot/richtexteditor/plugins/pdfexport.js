@@ -393,6 +393,28 @@ function RTE_Plugin_PdfExport() {
         var self = this;
         var base = { bold: false, italic: false, underline: false, strike: false, size: this.baseSize, color: [0, 0, 0], mono: false, link: null };
 
+    // A block indented in the editor carries margin-left (or padding-left, per
+    // indentUseMargin). Before 2026-09-04 the PDF honoured an indent only when
+    // it was spelled <blockquote>, because that was the only way the editor
+    // could express one. Points, since that is the PDF's unit: 1px = 0.75pt.
+    function cssIndentPt(node) {
+        if (!node || !node.style) return 0;
+        var raw = node.style.marginLeft || node.style.paddingLeft || "";
+        var m = /^\s*(-?[\d.]+)\s*([a-z%]*)\s*$/i.exec(raw);
+        if (!m) return 0;
+        var n = parseFloat(m[1]);
+        if (!n || n <= 0) return 0;
+        var unit = (m[2] || "px").toLowerCase();
+        var px = unit === "px" ? n
+            : unit === "pt" ? n * (4 / 3)
+            : unit === "in" ? n * 96
+            : unit === "cm" ? n * 37.795
+            : unit === "mm" ? n * 3.7795
+            : (unit === "em" || unit === "rem") ? n * 16
+            : 0;
+        return px * 0.75;
+    }
+
         function block(node, style, indent, listMarker, listId, listOrdered) {
             var tag = node.tagName.toLowerCase();
             var s = styleOf(node, style);
@@ -465,8 +487,9 @@ function RTE_Plugin_PdfExport() {
                     continue;
                 }
                 if (isBlockTag(tag)) {
-                    if (hasBlockChildren(c)) { walk(c, styleOf(c, style), indent + (tag === "blockquote" ? self.baseSize * 1.5 : 0)); continue; }
-                    block(c, style, indent + (tag === "blockquote" ? self.baseSize * 1.5 : 0), null);
+                    var own = (tag === "blockquote" ? self.baseSize * 1.5 : 0) + cssIndentPt(c);
+                    if (hasBlockChildren(c)) { walk(c, styleOf(c, style), indent + own); continue; }
+                    block(c, style, indent + own, null);
                     continue;
                 }
                 // Inline content sitting directly under a container.

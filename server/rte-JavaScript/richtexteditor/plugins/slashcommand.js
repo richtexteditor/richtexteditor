@@ -35,7 +35,7 @@ function RTE_Plugin_SlashCommand() {
         editor.slashCommands = {
             register: registerCommand,
             remove: removeCommand,
-            list: function () { return commands.slice(); },
+            list: function () { refreshDefaults(); return commands.slice(); },
             open: function () { openPopup(true); },
             close: closePopup,
             isOpen: function () { return !!popupEl; }
@@ -47,6 +47,15 @@ function RTE_Plugin_SlashCommand() {
                 registerCommand(config.slashCommands[i]);
             }
         }
+        // Plugins initialise synchronously in bundle (alphabetical) order, so at
+        // this point every plugin sorting AFTER "slashcommand" (tabletools,
+        // textdirection, watermark, tableofcontents, typewriter, ...) has not
+        // defined its editor.* API yet and the typeof gates in
+        // buildDefaultCommands() were false: nine entries (sort asc/desc, rtl/
+        // ltr/autodir, watermark, toc, typewriter, focusmode) were missing for
+        // every customer until 2026-09-02. Rebuild once the constructor has
+        // finished (setTimeout 0 runs after all plugin inits) and again on open.
+        setTimeout(refreshDefaults, 0);
 
         injectStyles();
 
@@ -69,7 +78,26 @@ function RTE_Plugin_SlashCommand() {
         else commands.push(normalizeCommand(def));
     }
 
+    var removedIds = {};
+    // Rebuild the gated default entries (their typeof checks may only be true
+    // now) while keeping every custom registration and honouring remove().
+    function refreshDefaults() {
+        if (!editor) return;
+        var custom = [];
+        for (var i = 0; i < commands.length; i++) if (!commands[i]._default) custom.push(commands[i]);
+        var defaults = buildDefaultCommands();
+        var next = [];
+        for (var d = 0; d < defaults.length; d++) {
+            var id = defaults[d].id;
+            if (removedIds[id]) continue;
+            var overridden = false;
+            for (var c = 0; c < custom.length; c++) if (custom[c].id === id) { overridden = true; break; }
+            if (!overridden) next.push(defaults[d]);
+        }
+        commands = next.concat(custom);
+    }
     function removeCommand(id) {
+        removedIds[id] = true;
         var idx = findCommandIndex(id);
         if (idx >= 0) commands.splice(idx, 1);
     }
@@ -79,12 +107,25 @@ function RTE_Plugin_SlashCommand() {
         return -1;
     }
 
+    // Localization with an English fallback for EVERY entry (defaults, plugin
+    // register() calls, AI actions, config.slashCommands): the lang packs set
+    // config.text_<key>; __GetLangText returns the raw KEY when one is missing,
+    // so resolve only when a translation exists. Keys: text_slash_<id> (title),
+    // text_slash_<id>_desc (description), text_slash_section_<section>.
+    function L(key, fallback) {
+        try {
+            var k = String(key).toLowerCase().replace(/[^a-z0-9_]/g, "_");
+            if (config && config["text_" + k] && editor && typeof editor.getLangText === "function") return editor.getLangText(k);
+        } catch (e) { }
+        return fallback;
+    }
     function normalizeCommand(def) {
+        var section = def.section || "Blocks";
         return {
             id: def.id,
-            section: def.section || "Blocks",
-            title: def.title || def.id,
-            description: def.description || "",
+            section: L("slash_section_" + section, section),
+            title: L("slash_" + def.id, def.title || def.id),
+            description: L("slash_" + def.id + "_desc", def.description || ""),
             keywords: (def.keywords || []).slice(),
             icon: def.icon || "",
             iconSvg: def.iconSvg || "",
@@ -135,11 +176,13 @@ function RTE_Plugin_SlashCommand() {
         var list = [];
 
         function push(section, id, title, description, keywords, iconSvg, run) {
-            list.push(normalizeCommand({
+            var cmd = normalizeCommand({ // normalizeCommand localizes title/description/section
                 id: id, section: section, title: title,
                 description: description, keywords: keywords,
                 iconSvg: iconSvg, run: run
-            }));
+            });
+            cmd._default = true;
+            list.push(cmd);
         }
 
         push("Blocks", "heading1", "Heading 1", "Large section heading", ["h1", "title"], iconHeading("1"),
@@ -245,6 +288,14 @@ function RTE_Plugin_SlashCommand() {
             push("Tools", "tablerownumbers", "Number table rows", "Add or remove an automatic row-numbering column", ["number", "rows", "table", "count", "index"], iconSort(),
                 function () { editor.execCommand("tablerownumbers"); });
         }
+        if (typeof editor.setTableLayoutMode === "function") {
+            push("Insert", "layouttable", "Layout table", "Insert a borderless table for positioning content (role=presentation)", ["layout", "table", "grid", "email", "columns", "presentation"], iconTable(),
+                function () { editor.insertLayoutTable(2, 2); });
+            push("Tools", "tablelayoutmode", "Mark table as layout", "This table only positions content — stop screen readers announcing it as data", ["layout", "table", "presentation", "accessibility", "screen reader"], iconTable(),
+                function () { editor.setTableLayoutMode("layout"); });
+            push("Tools", "tabledatamode", "Mark table as data", "This table states relationships — restore its header cells", ["data", "table", "header", "accessibility"], iconTable(),
+                function () { editor.setTableLayoutMode("data", null, { promoteFirstRow: true }); });
+        }
         if (typeof editor.moveBlockUp === "function") {
             push("Tools", "moveblockup", "Move block up", "Move this paragraph or block above the previous one (Alt+Shift+Up)", ["move", "block", "up", "reorder", "drag"], iconMoveBlock(),
                 function () { editor.moveBlockUp(); });
@@ -347,7 +398,8 @@ function RTE_Plugin_SlashCommand() {
         // Gated on the API rather than registered by the plugin itself: plugins
         // initialise in bundle order, so anything sorting before "slashcommand"
         // would call slashCommands.register() before it exists and vanish from
-        // this menu without any error. This check runs when the menu opens.
+        // this menu without any error. These checks are re-run by refreshDefaults()
+        // after all plugins have initialised and again each time the menu opens.
         if (typeof editor.exportToPdf === "function") {
             push("Tools", "exportpdf", "Export to PDF", "Real text, not a screenshot — selectable, searchable and screen-reader friendly", ["pdf", "export", "download", "save", "print", "text", "accessible", "searchable"], iconPdfText(),
                 function () { editor.exportToPdf(); });
@@ -355,6 +407,32 @@ function RTE_Plugin_SlashCommand() {
         if (typeof editor.exportToDocx === "function") {
             push("Tools", "exportdocx", "Export to Word (.docx)", "A real OOXML document, built in the browser with no upload", ["word", "docx", "ooxml", "export", "download", "save", "office"], iconWordFile(),
                 function () { editor.exportToDocx(); });
+        }
+        // documentimport.js and readabilitystats.js sort before this file, so they
+        // cannot register at init (editor.slashCommands does not exist yet); their
+        // guarded calls silently did nothing and these two entries were missing for
+        // every customer until 2026-09-02. Declared here, gated on the plugin API.
+        if (typeof editor.openImportDialog === "function") {
+            push("Tools", "import-document", "Import document", "Open a Markdown, HTML, text, or Word file into the editor", ["import", "open", "file", "word", "docx", "markdown", "upload"], iconWordFile(),
+                function () { editor.openImportDialog({}); });
+        }
+        if (typeof editor.getReadabilityStats === "function") {
+            push("Tools", "readability-stats", "Readability statistics", "Flesch reading ease, grade level, and reading time", ["readability", "flesch", "grade", "reading", "stats", "score"], iconSpell(),
+                function () { editor.execCommand("readability"); });
+        }
+        // Marketed features that had NO toolbar button and NO slash entry (reachable
+        // only via the API) until 2026-09-02. All gated on the owning plugin.
+        if (typeof editor.insertCrossReference === "function") {
+            push("Insert", "crossreference", "Cross-reference", "Insert a live reference to a heading, figure, table, or bookmark", ["cross", "reference", "xref", "see", "figure", "heading"], iconXref(),
+                function () { editor.execCommand("insertcrossreference"); });
+        }
+        if (editor.restrictedEditing) {
+            push("Tools", "restrictedediting", "Restricted editing", "Lock the document and mark only the regions others may edit", ["restrict", "lock", "protect", "editable", "region", "permission"], iconPen(),
+                function () { editor.execCommand("restrictedediting"); });
+        }
+        if (editor.dictation) {
+            push("Tools", "dictation", "Dictation", "Speak and have your words typed into the document", ["dictate", "speech", "voice", "microphone", "talk"], iconReadAloud(),
+                function () { editor.execCommand("dictation"); });
         }
         if (typeof editor.copyAsMarkdown === "function") {
             push("Tools", "copymarkdown", "Copy as Markdown", "Copy the whole document to the clipboard as Markdown", ["markdown", "md", "copy", "clipboard", "export"], iconMarkdown(),
@@ -487,6 +565,7 @@ function RTE_Plugin_SlashCommand() {
     }
 
     function openPopup(manual) {
+        refreshDefaults();
         closePopup();
         var sel = editor.getSelection();
         if (!sel || sel.rangeCount === 0) return;

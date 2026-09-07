@@ -499,7 +499,13 @@ function RTE_Plugin_AccessibilityChecker() {
                 if (headingText) previousHeadingLevel = level;
             }
 
-            var images = node.querySelectorAll ? node.querySelectorAll("img") : [];
+            // querySelectorAll only returns DESCENDANTS, so an image that is
+            // itself a top-level block — which is exactly where a pasted or
+            // dropped image lands in an empty editor — was never checked, and
+            // missing alt text went unreported. The table rule below already
+            // guards this case; the image rule did not. Measured 2026-08-27:
+            // bare top-level img => 0 issues, the same img inside a <p> => 1.
+            var images = tag === "img" ? [node] : (node.querySelectorAll ? node.querySelectorAll("img") : []);
             for (var imageIndex = 0; imageIndex < images.length; imageIndex++) {
                 var image = images[imageIndex];
                 if (!String(image.getAttribute("alt") || "").replace(/^\s+|\s+$/g, "")) {
@@ -513,17 +519,97 @@ function RTE_Plugin_AccessibilityChecker() {
                 }
             }
 
+            // 2026-09-04 A link with no accessible name is announced as just
+            // "link", giving a keyboard or screen-reader user nothing to decide
+            // on (WCAG 2.4.4 / 4.1.2). Reached the editor easily: an image-only
+            // link whose <img> has empty alt, or a link left empty after its
+            // text was deleted.
+            //
+            // Only elements with href are links. A bare <a name="x"> or an <a>
+            // with no href is an anchor TARGET and has no name to announce, so
+            // flagging it would be an error with no valid fix.
+            var links = tag === "a" ? [node] : (node.querySelectorAll ? node.querySelectorAll("a") : []);
+            for (var linkIndex = 0; linkIndex < links.length; linkIndex++) {
+                var link = links[linkIndex];
+                if (!link.getAttribute || link.getAttribute("href") === null) continue;
+                if (accessibleNameOf(link)) continue;
+                issues.push({
+                    code: "link-empty",
+                    severity: "error",
+                    message: "Link has no text, so it is announced only as \"link\". Add link text, an aria-label, or alt text on the image inside it.",
+                    path: path + ".link[" + linkIndex + "]",
+                    _target: link
+                });
+            }
+
             var tables = tag === "table" ? [node] : (node.querySelectorAll ? node.querySelectorAll("table") : []);
             for (var tableIndex = 0; tableIndex < tables.length; tableIndex++) {
                 var table = tables[tableIndex];
-                if (!table.querySelector("th")) {
+                var tableRole = String(table.getAttribute("role") || "").toLowerCase();
+                var isLayoutTable = (tableRole === "presentation" || tableRole === "none");
+
+                // 2026-08-30 A layout table MUST NOT have headers, so demanding
+                // them here produced an error the author could never clear —
+                // which is how a checker teaches people to ignore it. Presentation
+                // tables are held to the opposite rule instead: they must not
+                // carry data-table semantics, because <th>/scope/<caption> make a
+                // screen reader announce relationships that do not exist
+                // (WCAG 1.3.1). See layouttable.js.
+                if (isLayoutTable) {
+                    var semantic = table.querySelector("th, [scope], caption") || table.getAttribute("summary");
+                    if (semantic) {
+                        issues.push({
+                            code: "layout-table-semantics",
+                            severity: "error",
+                            message: "Layout table still carries data-table markup (header cells, scope or a caption). A screen reader will announce relationships this table does not have.",
+                            path: path + ".table[" + tableIndex + "]",
+                            _target: table
+                        });
+                    }
+                }
+                else if (!table.querySelector("th")) {
                     issues.push({
                         code: "table-missing-header",
                         severity: "warning",
-                        message: "Table has no header cells. Promote the first row to headers when it describes the columns.",
+                        message: "Table has no header cells. Promote the first row to headers, or mark it as a layout table when it only positions content.",
                         path: path + ".table[" + tableIndex + "]",
                         _target: table
                     });
+                }
+                else {
+                    // 2026-09-04 A table can HAVE headers and still be unusable if
+                    // one is blank: the screen reader announces the column's name as
+                    // an empty string, which is worse than no header at all because
+                    // the relationship exists and says nothing (WCAG 1.3.1).
+                    // `table-missing-header` above only fires when there is not a
+                    // single <th>, so this case reported valid. Found by testing
+                    // CKEditor issue #19204 against this checker.
+                    //
+                    // THE CORNER CELL IS EXEMPT. In a cross-tab - column headers
+                    // across the top, row headers down the side - the top-left cell
+                    // is conventionally and correctly empty; it names neither axis.
+                    // Flagging it would be an error the author can only clear by
+                    // inventing a word, which is how a checker teaches people to
+                    // ignore it. Same reasoning that exempts layout tables above.
+                    var headerCells = table.querySelectorAll("th");
+                    var hasRowHeaders = false;
+                    for (var probeIndex = 0; probeIndex < headerCells.length; probeIndex++) {
+                        var probeRow = headerCells[probeIndex].parentNode;
+                        if (probeRow && probeRow.rowIndex > 0) { hasRowHeaders = true; break; }
+                    }
+                    for (var headerIndex = 0; headerIndex < headerCells.length; headerIndex++) {
+                        var headerCell = headerCells[headerIndex];
+                        if (accessibleNameOf(headerCell)) continue;
+                        var ownerRow = headerCell.parentNode;
+                        if (hasRowHeaders && ownerRow && ownerRow.rowIndex === 0 && headerCell.cellIndex === 0) continue;
+                        issues.push({
+                            code: "table-header-empty",
+                            severity: "error",
+                            message: "Header cell is empty, so the column or row it labels is announced with no name. Give it text, or make it a normal cell if it labels nothing.",
+                            path: path + ".table[" + tableIndex + "].th[" + headerIndex + "]",
+                            _target: headerCell
+                        });
+                    }
                 }
             }
 
@@ -551,7 +637,36 @@ function RTE_Plugin_AccessibilityChecker() {
             target.parentNode.replaceChild(replacement, target);
         }
         else if (issue.code === "table-missing-header") {
-            promoteFirstTableRow(target);
+            // Two valid outcomes, and only the author knows which: the table
+            // describes data (give it headers) or only positions it (say so).
+            if (options && options.markLayout) markTableAsLayout(target);
+            else promoteFirstTableRow(target);
+        }
+        else if (issue.code === "layout-table-semantics") {
+            markTableAsLayout(target);
+        }
+        else if (issue.code === "table-header-empty") {
+            // Two valid outcomes and only the author knows which: the cell labels
+            // something (give it text) or it labels nothing (it is not a header).
+            var headerText = String((options && options.headerText) || "").replace(/^\s+|\s+$/g, "");
+            if (headerText) target.textContent = headerText;
+            else if (options && options.demoteToCell) {
+                var cell = target.ownerDocument.createElement("td");
+                while (target.firstChild) cell.appendChild(target.firstChild);
+                copyAttributes(target, cell);
+                cell.removeAttribute("scope");
+                target.parentNode.replaceChild(cell, target);
+            }
+        }
+        else if (issue.code === "link-empty") {
+            // Prefer real text: an aria-label is invisible, so a sighted editor
+            // cannot see what the link says and it drifts out of date.
+            var linkText = String((options && options.linkText) || "").replace(/^\s+|\s+$/g, "");
+            if (linkText) target.textContent = linkText;
+            else {
+                var linkLabel = String((options && options.linkLabel) || "").replace(/^\s+|\s+$/g, "");
+                if (linkLabel) target.setAttribute("aria-label", linkLabel);
+            }
         }
         else if (issue.code === "language-of-parts") {
             markLanguageRuns(target, options && options.lang ? options.lang : issue._lang, issue._script);
@@ -633,6 +748,59 @@ function RTE_Plugin_AccessibilityChecker() {
             copyAttributes(cell, header);
             header.setAttribute("scope", "col");
             firstRow.replaceChild(header, cell);
+        }
+    }
+
+    // Delegates to layouttable.js when it is loaded so there is ONE definition of
+    // what "layout table" means; the fallback keeps the repair working in builds
+    // where that plugin was left out of the bundle.
+    // The accessible name of an element, as a screen reader would compute it:
+    // aria-label wins, then visible text, then title, then the alt text of an
+    // image standing in for the text. Empty string means "announced as nothing".
+    // Deliberately NOT aria-labelledby - resolving it needs the whole document
+    // and a wrong answer here would produce an error the author cannot clear.
+    function accessibleNameOf(element) {
+        if (!element) return "";
+        var trim = function (v) { return String(v || "").replace(/^\s+|\s+$/g, ""); };
+        var label = trim(element.getAttribute && element.getAttribute("aria-label"));
+        if (label) return label;
+        var text = trim(element.textContent);
+        if (text) return text;
+        var title = trim(element.getAttribute && element.getAttribute("title"));
+        if (title) return title;
+        if (element.querySelectorAll) {
+            var imgs = element.querySelectorAll("img");
+            for (var i = 0; i < imgs.length; i++) {
+                var alt = trim(imgs[i].getAttribute("alt"));
+                if (alt) return alt;
+            }
+        }
+        return "";
+    }
+
+    function markTableAsLayout(table) {
+        if (!table) return;
+        if (editor && typeof editor.setTableLayoutMode === "function") {
+            try { editor.setTableLayoutMode("layout", table); return; } catch (e) {}
+        }
+        table.setAttribute("role", "presentation");
+        table.removeAttribute("summary");
+        var caption = table.querySelector("caption");
+        if (caption && caption.parentNode === table) caption.parentNode.removeChild(caption);
+        var cells = table.querySelectorAll("th,[scope]");
+        for (var i = 0; i < cells.length; i++) {
+            var cell = cells[i];
+            // Tables nest — do not strip the headers of a data table that
+            // happens to sit inside a cell of this one.
+            if (cell.closest && cell.closest("table") !== table) continue;
+            cell.removeAttribute("scope");
+            cell.removeAttribute("headers");
+            if (String(cell.nodeName || "").toLowerCase() !== "th") continue;
+            var td = table.ownerDocument.createElement("td");
+            while (cell.firstChild) td.appendChild(cell.firstChild);
+            copyAttributes(cell, td);
+            td.removeAttribute("scope");
+            cell.parentNode.replaceChild(td, cell);
         }
     }
 
@@ -869,7 +1037,9 @@ if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
     var existing = document.querySelectorAll("link[rel=stylesheet]");
     for (var i = 0; i < existing.length; i++) {
         var href = existing[i].getAttribute("href") || "";
-        if (/(?:^|\/)aitoolkit\.css(?:\?.*)?$/i.test(href)) return;
+        // Matches the minified variant too - a host page that links either one
+        // must not get a second copy injected.
+        if (/(?:^|\/)aitoolkit(?:\.min)?\.css(?:\?.*)?$/i.test(href)) return;
     }
     // Locate our own script tag (aitoolkit.js or all_plugins.js) so we
     // can resolve aitoolkit.css next to it. Matches a custom mount path.
@@ -883,14 +1053,30 @@ if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
         }
     }
     var srcAttr = ourScript ? ourScript.getAttribute("src") : "";
-    var cssHref = srcAttr
-        ? srcAttr.replace(/[^/]+$/, "aitoolkit.css")
-        : (((window.RTE_DefaultConfig && window.RTE_DefaultConfig.url_base) || "/richtexteditor") + "/plugins/aitoolkit.css");
-    if (cssHref.indexOf("?") < 0) cssHref += "?v=20260703a";
+    // Prefer the minified stylesheet. aitoolkit.css is 537 KB unminified - larger
+    // than the obfuscated rte.js - and every page that loads the AI toolkit was
+    // paying for it. The readable .css is still shipped and still the one to edit
+    // or override; this only changes what gets fetched by default.
+    function resolve(name) {
+        return srcAttr
+            ? srcAttr.replace(/[^/]+$/, name)
+            : (((window.RTE_DefaultConfig && window.RTE_DefaultConfig.url_base) || "/richtexteditor") + "/plugins/" + name);
+    }
+    function bust(href) { return href.indexOf("?") < 0 ? href + "?v=20260830a" : href; }
+
     var link = document.createElement("link");
     link.rel = "stylesheet";
-    link.href = cssHref;
+    link.href = bust(resolve("aitoolkit.min.css"));
     link.setAttribute("data-rte-auto-injected", "aitoolkit");
+    // .min.css is newer than .css. An install that predates it - an unpacked older
+    // zip, a tier the mirror missed - would otherwise lose ALL AI toolkit styling
+    // silently, which is a far worse failure than shipping the larger file. Fall
+    // back to the readable stylesheet if the minified one is not there.
+    link.onerror = function () {
+        if (link.getAttribute("data-rte-css-fallback")) return;
+        link.setAttribute("data-rte-css-fallback", "1");
+        link.href = bust(resolve("aitoolkit.css"));
+    };
     (document.head || document.documentElement).appendChild(link);
 })();
 
@@ -21637,7 +21823,17 @@ function RTE_Plugin_Comments() {
 
         var id = "cmt-" + Date.now() + "-" + Math.floor(Math.random() * 10000);
         var user = getCurrentUser();
-        var anchor = options.anchor;
+        var anchor = options.anchor || options.range || null;
+        // Accept a plain DOM Range (or Range-like) as the anchor: it has the
+        // container/offset fields but no `.text`, so until 2026-09-02 the common
+        // call add({ anchor: range }) silently recorded the comment WITHOUT a
+        // highlight. Derive the text from the range instead.
+        if (anchor && anchor.startContainer && anchor.endContainer && !anchor.text) {
+            var derived = "";
+            try { derived = typeof anchor.toString === "function" ? String(anchor.toString()) : ""; } catch (e) { derived = ""; }
+            if (!derived) { try { derived = anchor.cloneContents ? (anchor.cloneContents().textContent || "") : ""; } catch (e2) { derived = ""; } }
+            anchor = { startContainer: anchor.startContainer, startOffset: anchor.startOffset, endContainer: anchor.endContainer, endOffset: anchor.endOffset, text: derived };
+        }
         var wrappedText = "";
 
         if (anchor && anchor.startContainer && anchor.endContainer && anchor.text) {
@@ -22929,9 +23125,24 @@ function RTE_Plugin_DialogA11y() {
         }
     }
 
+    // 2026-09-05 Widened. The original selector only matched
+    // <rte-dropdown-panel>/.rte-panel-general, but Find&Replace, Insert Link and
+    // their siblings render as <rte-dialog-float class="rte-panel-find"> wrapping
+    // an <rte-dialog-inner role="dialog">. Those carry EXACTLY the markup this
+    // plugin consumes - an <rte-dialog-header> and <rte-dialog-line-X> field
+    // wrappers - and were simply never visited, so the plugin reported nothing
+    // and covered nothing. Measured before the change: calling
+    // editor.applyDialogAccessibility() with the find dialog open labelled 0 of
+    // its 4 inputs, leaving "Find" and "Replace" announced as bare "edit"
+    // (WCAG 1.3.1 / 3.3.2 / 4.1.2) while the two checkboxes were fine because
+    // the core happens to wrap those in <label>.
+    //
+    // Widening is safe because enhancePanel() still requires an
+    // <rte-dialog-header>, which is what keeps colour/font dropdowns out.
     function isPanel(el) {
         return el && el.nodeType === 1 &&
-            (el.tagName === "RTE-DROPDOWN-PANEL" || /rte-panel-general/.test(el.className || ""));
+            (el.tagName === "RTE-DROPDOWN-PANEL" || el.tagName === "RTE-DIALOG-FLOAT" ||
+             /rte-panel-general/.test(el.className || ""));
     }
 
     function schedule(panel) {
@@ -22951,7 +23162,7 @@ function RTE_Plugin_DialogA11y() {
 
     function enhanceAll(host) {
         if (!host || !host.querySelectorAll) return;
-        var ps = host.querySelectorAll("rte-dropdown-panel,[class*='rte-panel-general']");
+        var ps = host.querySelectorAll("rte-dropdown-panel,rte-dialog-float,[class*='rte-panel-general']");
         for (var i = 0; i < ps.length; i++) enhancePanel(ps[i]);
     }
 
@@ -22963,12 +23174,22 @@ function RTE_Plugin_DialogA11y() {
         var name = (headerEl.textContent || "").trim()
             .replace(/\s*\((?:Ctrl|Cmd|Alt|Shift|⌘|⇧|⌥)[^)]*\)\s*$/i, "").trim();
 
+        // Name the element that IS the dialog. The float-style panels already
+        // carry role="dialog" on an inner <rte-dialog-inner>; adding a second
+        // role="dialog" to the wrapper would announce two nested dialogs, so
+        // when an inner one exists it is the target and the wrapper is left
+        // alone. When there is none (the original dropdown-panel shape) this
+        // resolves to the panel itself and behaves exactly as before.
+        var dialogEl = panel.getAttribute("role") === "dialog"
+            ? panel
+            : (panel.querySelector('[role="dialog"]') || panel);
+
         // A titled, form-bearing popup is a dialog, not a menu — override the
         // core's default role="menu" (a menu must not contain text fields).
-        var role = panel.getAttribute("role");
-        if (!role || role === "menu") panel.setAttribute("role", "dialog");
-        if (name && !panel.getAttribute("aria-label") && !panel.getAttribute("aria-labelledby")) {
-            panel.setAttribute("aria-label", name);
+        var role = dialogEl.getAttribute("role");
+        if (!role || role === "menu") dialogEl.setAttribute("role", "dialog");
+        if (name && !dialogEl.getAttribute("aria-label") && !dialogEl.getAttribute("aria-labelledby")) {
+            dialogEl.setAttribute("aria-label", name);
         }
 
         var fields = panel.querySelectorAll("input,select,textarea");
@@ -22983,6 +23204,25 @@ function RTE_Plugin_DialogA11y() {
     }
 
     function fieldLabel(f, dialogName) {
+        // 0) THE VISIBLE LABEL WINS. 2026-09-05: deriving the name from the
+        // <rte-dialog-line-X> suffix alone produced "Keyword" for a field whose
+        // visible label reads "Find". That fails WCAG 2.5.3 Label in Name, and
+        // it breaks speech input concretely: a user says "Find" and nothing
+        // matches, because the accessible name does not contain the words they
+        // can see. The markup already carries the right text in a sibling
+        // <rte-dialog-input-label>, so prefer it and keep the suffix as the
+        // fallback for fields that have no visible label.
+        var lineEl = f.parentElement;
+        for (var d = 0; d < 8 && lineEl; d++) {
+            if (/^RTE-DIALOG-LINE-/.test(lineEl.tagName || "")) break;
+            lineEl = lineEl.parentElement;
+        }
+        if (lineEl && lineEl.querySelector) {
+            var visEl = lineEl.querySelector("rte-dialog-input-label");
+            var vis = visEl ? (visEl.textContent || "").replace(/^\s+|\s+$/g, "").replace(/[:：]\s*$/, "") : "";
+            if (vis) return vis;
+        }
+
         // 1) nearest <rte-dialog-line-X> ancestor — the suffix is the field meaning
         var n = f.parentElement;
         for (var i = 0; i < 8 && n; i++) {
@@ -23356,17 +23596,12 @@ function RTE_Plugin_DocumentImport() {
             openPicker({});
         });
 
-        if (editor.slashCommands && typeof editor.slashCommands.register === "function") {
-            try {
-                editor.slashCommands.register({
-                    id: "import-document",
-                    title: "Import document",
-                    description: "Open a Markdown, HTML, text, or Word (.doc) file into the editor",
-                    keywords: ["import", "open", "file", "word", "markdown", "upload"],
-                    action: function () { openPicker({}); }
-                });
-            } catch (e) {}
-        }
+        // NOTE: do NOT call editor.slashCommands.register() from here. Plugins
+        // initialise in bundle (alphabetical) order and this file sorts before
+        // "slashcommand", so editor.slashCommands does not exist yet and the guarded
+        // call silently did nothing - the "import-document" slash entry never appeared for any
+        // customer until 2026-09-02. The entry now lives in slashcommand.js, gated on
+        // typeof editor.openImportDialog === "function" (same pattern as exportToPdf).
     };
 
     function kindFromName(name) {
@@ -24247,6 +24482,25 @@ function RTE_Plugin_DocumentImport() {
                     var hv = hl.getAttributeNS(W, "val") || hl.getAttribute("w:val") || "";
                     if (hv && hv !== "none") css += "background-color:" + hv + ";";
                 }
+                // w:shd is the OTHER way Word carries a background, and it is the
+                // one our own exporter writes (w:highlight only accepts a fixed
+                // set of colour NAMES, shd takes any hex). Reading only
+                // w:highlight meant every highlight we exported came back
+                // unhighlighted - the two sides used different vocabulary for the
+                // same thing.
+                var shd = firstChildEl(rpr, "shd");
+                if (shd) {
+                    var fill = shd.getAttributeNS(W, "fill") || shd.getAttribute("w:fill") || "";
+                    if (fill && /^[0-9A-Fa-f]{6}$/.test(fill)) css += "background-color:#" + fill + ";";
+                }
+                // Monospace run -> inline code. Our exporter marks <code>/<kbd>/
+                // <samp>/<pre> with w:rFonts Consolas; nothing read it back.
+                var rf = firstChildEl(rpr, "rFonts");
+                if (rf) {
+                    var asc = rf.getAttributeNS(W, "ascii") || rf.getAttribute("w:ascii") || "";
+                    if (/consolas|courier|monospace|mono$/i.test(asc)) txt = "<code>" + txt + "</code>";
+                    else if (asc) css += "font-family:" + asc.replace(/[<>"]/g, "") + ";";
+                }
                 var sz = firstChildEl(rpr, "sz");
                 if (sz) {
                     var sv = parseInt(sz.getAttributeNS(W, "val") || sz.getAttribute("w:val") || "", 10);
@@ -24411,7 +24665,24 @@ function RTE_Plugin_DocumentImport() {
             var ppr = firstChildEl(p, "pPr"); if (!ppr) return {};
             var info = {};
             var ps = firstChildEl(ppr, "pStyle");
-            if (ps) { var v = ps.getAttributeNS(W, "val") || ps.getAttribute("w:val") || ""; var m = /heading(\d)/i.exec(v); if (m) info.heading = Math.min(6, parseInt(m[1], 10)); }
+            if (ps) {
+                var v = ps.getAttributeNS(W, "val") || ps.getAttribute("w:val") || "";
+                var m = /heading(\d)/i.exec(v);
+                if (m) info.heading = Math.min(6, parseInt(m[1], 10));
+                // docxexport.js writes blockquotes as the "Quote" paragraph style;
+                // without this they came back as plain <p> and the round-trip lost
+                // every blockquote. Match Quote / IntenseQuote / BlockQuote.
+                else if (/^(intense)?quote$|blockquote/i.test(v.replace(/\s+/g, ""))) info.quote = true;
+                // docxexport.js writes <w:pStyle w:val="Code"/> for <pre>; without
+                // this a code block came back as an ordinary paragraph and lost
+                // both its monospace and its whitespace.
+                else if (/^(code|sourcecode|htmlpre|preformatted)$/i.test(v.replace(/\s+/g, ""))) info.pre = true;
+            }
+            // A horizontal rule is exported as an EMPTY paragraph carrying a
+            // bottom border - Word has no <hr>. Nothing read it back, so every
+            // rule became a stray blank paragraph on import.
+            var pbdr = firstChildEl(ppr, "pBdr");
+            if (pbdr && firstChildEl(pbdr, "bottom")) info.rule = true;
             var numPr = firstChildEl(ppr, "numPr");
             if (numPr) {
                 info.list = true;
@@ -24425,6 +24696,19 @@ function RTE_Plugin_DocumentImport() {
                 // ordered list. Defaulting to bullet when numbering.xml is absent
                 // matches the old behaviour rather than inventing <ol>s.
                 info.ordered = !!fmt && fmt !== "bullet" && fmt !== "none";
+            }
+            // Word paragraph indentation. Nothing read this before 2026-09-04,
+            // so every indented paragraph in every imported .docx arrived
+            // flush left and the indentation was lost silently.
+            // w:left is in twips; 15 twips = 1px.
+            var ind = firstChildEl(ppr, "ind");
+            if (ind) {
+                var lft = ind.getAttributeNS(W, "left") || ind.getAttribute("w:left") || "";
+                var tw = parseInt(lft, 10);
+                // 720 twips alongside the Quote style is the blockquote's own
+                // indent, already carried by the blockquote element itself.
+                if (tw > 0 && !(info.quote && tw === 720))
+                    info.indentPx = Math.round(tw / 15);
             }
             var jc = firstChildEl(ppr, "jc");
             if (jc) {
@@ -24492,9 +24776,26 @@ function RTE_Plugin_DocumentImport() {
                     continue;
                 }
                 closeListsTo(0);
-                if (st.heading) out.push("<h" + st.heading + ">" + (inner || "") + "</h" + st.heading + ">");
+                // Only a rule when the paragraph carries no text of its own -
+                // a bordered paragraph WITH content is a real bordered paragraph.
+                if (st.rule && !(inner || "").replace(/<[^>]*>/g, "").trim()) {
+                    closeListsTo(0); out.push("<hr>"); continue;
+                }
+                if (st.pre) { out.push("<pre>" + (inner || "<br>") + "</pre>"); continue; }
+                if (st.heading) {
+                    // Headings carry w:ind too; without this an indented
+                    // heading imported flush left.
+                    var hs = st.indentPx ? ' style="margin-left:' + st.indentPx + 'px"' : "";
+                    out.push("<h" + st.heading + hs + ">" + (inner || "") + "</h" + st.heading + ">");
+                }
+                else if (st.quote) out.push("<blockquote>" + (inner || "<br>") + "</blockquote>");
                 else {
-                    var style = st.align ? ' style="text-align:' + st.align + '"' : "";
+                    var decl = [];
+                    if (st.align) decl.push("text-align:" + st.align);
+                    // indentUseMargin defaults to margin, and margin is what
+                    // w:ind means, so import writes margin-left to match.
+                    if (st.indentPx) decl.push("margin-left:" + st.indentPx + "px");
+                    var style = decl.length ? ' style="' + decl.join(";") + '"' : "";
                     // A paragraph that contained ONLY a text box has no text of
                     // its own; emitting an empty <p> before the box adds a blank
                     // line that was never in the document.
@@ -24522,6 +24823,13 @@ function RTE_Plugin_DocumentImport() {
             for (var i = 0; i < kids.length; i++) {
                 var tr = kids[i];
                 if (tr.nodeType !== 1 || tr.localName !== "tr") continue;
+                // docxexport.js marks a header row with <w:trPr><w:tblHeader/>.
+                // Without honouring it, every cell imported as <td> and the table
+                // lost its header semantics on round-trip - which then fails the
+                // accessibility checker's table-missing-header rule.
+                var trPr = firstChildEl(tr, "trPr");
+                var isHeaderRow = !!(trPr && firstChildEl(trPr, "tblHeader"));
+                var cellTag = isHeaderRow ? "th" : "td";
                 var cells = [];
                 for (var j = 0; j < tr.childNodes.length; j++) {
                     var tc = tr.childNodes[j];
@@ -24530,7 +24838,7 @@ function RTE_Plugin_DocumentImport() {
                     for (var k = 0; k < tc.childNodes.length; k++) {
                         if (tc.childNodes[k].localName === "p") cellHtml += "<p>" + (paraInner(tc.childNodes[k]) || "<br>") + "</p>";
                     }
-                    cells.push("<td>" + cellHtml + "</td>");
+                    cells.push("<" + cellTag + ">" + cellHtml + "</" + cellTag + ">");
                 }
                 rows.push("<tr>" + cells.join("") + "</tr>");
             }
@@ -25092,7 +25400,7 @@ function RTE_Plugin_DocxExport() {
             bold: inherited.bold, italic: inherited.italic, underline: inherited.underline,
             strike: inherited.strike, sizeHalfPoints: inherited.sizeHalfPoints,
             color: inherited.color, highlight: inherited.highlight, vertAlign: inherited.vertAlign,
-            mono: inherited.mono
+            mono: inherited.mono, font: inherited.font
         };
         var tag = node.tagName ? node.tagName.toLowerCase() : "";
         if (tag === "b" || tag === "strong") s.bold = true;
@@ -25102,6 +25410,10 @@ function RTE_Plugin_DocxExport() {
         if (tag === "sup") s.vertAlign = "superscript";
         if (tag === "sub") s.vertAlign = "subscript";
         if (tag === "code" || tag === "kbd" || tag === "samp" || tag === "pre") s.mono = true;
+        // <mark> carries no inline style, so the CSS branch below never sees it
+        // and highlighted text was dropped entirely on export. Word's own
+        // default highlight is yellow.
+        if (tag === "mark") s.highlight = s.highlight || "FFFF00";
 
         var css = node.style;
         if (css) {
@@ -25112,6 +25424,12 @@ function RTE_Plugin_DocxExport() {
             if (deco.indexOf("line-through") >= 0) s.strike = true;
             if (css.color) { var c = hexColor(css.color); if (c) s.color = c; }
             if (css.backgroundColor) { var h = hexColor(css.backgroundColor); if (h) s.highlight = h; }
+            // Font family was read by nothing, so an exported document lost every
+            // typeface choice. Word wants ONE family name, not a CSS stack.
+            if (css.fontFamily) {
+                var fam = String(css.fontFamily).split(",")[0].replace(/^\s*['"]?|['"]?\s*$/g, "");
+                if (fam) s.font = fam;
+            }
             if (css.fontSize) {
                 var pt = cssToPoints(css.fontSize);
                 // w:sz is in HALF-POINTS. Writing points here makes every
@@ -25148,7 +25466,10 @@ function RTE_Plugin_DocxExport() {
 
     function runProps(s) {
         var p = "";
-        if (s.mono) p += '<w:rFonts w:ascii="Consolas" w:hAnsi="Consolas"/>';
+        // One rFonts element only: mono wins, because <code> inside a styled span
+        // should still read as code.
+        var fontName = s.mono ? "Consolas" : (s.font || "");
+        if (fontName) p += '<w:rFonts w:ascii="' + esc(fontName) + '" w:hAnsi="' + esc(fontName) + '"/>';
         if (s.bold) p += "<w:b/>";
         if (s.italic) p += "<w:i/>";
         if (s.underline) p += '<w:u w:val="single"/>';
@@ -25510,6 +25831,31 @@ function RTE_Plugin_DocxExport() {
         var revSeq = { n: 1 };
         var base = { bold: false, italic: false, underline: false, strike: false, sizeHalfPoints: 0, color: null, highlight: null, vertAlign: null, mono: false };
 
+
+        // A block indented in the editor carries margin-left (or padding-left,
+        // per indentUseMargin). Word expresses the same thing as w:ind, in
+        // TWIPS. Before 2026-09-04 indentation reached Word only when it was
+        // spelled <blockquote>, which dragged the Quote style along with it -
+        // so indented body text arrived italic and accent-coloured.
+        // 1px = 0.75pt and 1pt = 20 twips, hence px * 15.
+        function indentTwips(node) {
+            if (!node || !node.style) return 0;
+            var raw = node.style.marginLeft || node.style.paddingLeft || "";
+            var m = /^\s*(-?[\d.]+)\s*([a-z%]*)\s*$/i.exec(raw);
+            if (!m) return 0;
+            var n = parseFloat(m[1]);
+            if (!n || n <= 0) return 0;
+            var unit = (m[2] || "px").toLowerCase();
+            var px = unit === "px" ? n
+                : unit === "pt" ? n * (4 / 3)
+                : unit === "in" ? n * 96
+                : unit === "cm" ? n * 37.795
+                : unit === "mm" ? n * 3.7795
+                : (unit === "em" || unit === "rem") ? n * 16
+                : 0;
+            return Math.round(px * 15);
+        }
+
         function para(node, style, opts) {
             opts = opts || {};
             var pr = "";
@@ -25518,6 +25864,12 @@ function RTE_Plugin_DocxExport() {
             if (opts.pre) pr += '<w:pStyle w:val="Code"/>';
             if (opts.numId) pr += "<w:numPr><w:ilvl w:val=\"" + (opts.level || 0) + "\"/><w:numId w:val=\"" + opts.numId + "\"/></w:numPr>";
             if (opts.pageBreakBefore) pr += "<w:pageBreakBefore/>";
+            // Independent of the Quote style: a real blockquote already got
+            // its w:ind above, so only emit this for everything else.
+            if (!opts.quote) {
+                var indTw = indentTwips(node);
+                if (indTw > 0) pr += '<w:ind w:left="' + indTw + '"/>';
+            }
             var align = node && node.style ? node.style.textAlign : "";
             if (align === "center" || align === "right") pr += '<w:jc w:val="' + align + '"/>';
             else if (align === "justify") pr += '<w:jc w:val="both"/>';
@@ -25535,7 +25887,17 @@ function RTE_Plugin_DocxExport() {
             for (var i = 0; i < node.childNodes.length; i++) {
                 var li = node.childNodes[i];
                 if (li.nodeType !== 1 || li.tagName.toLowerCase() !== "li") continue;
-                xml += para(li, styleFrom(li, style), { numId: numId, level: level, pageBreakBefore: pendingBreak });
+                // Serialise the item's OWN content only. para() walks every
+                // descendant, so passing the whole <li> emitted the nested list's
+                // text here AND again as its own items below - a round trip turned
+                // "xx" with a child "yy" into "xxyy". Content duplication, not loss.
+                var own = li.ownerDocument.createElement("li");
+                for (var k = 0; k < li.childNodes.length; k++) {
+                    var ch = li.childNodes[k];
+                    if (ch.nodeType === 1 && /^(ul|ol)$/.test(ch.tagName.toLowerCase())) continue;
+                    own.appendChild(ch.cloneNode(true));
+                }
+                xml += para(own, styleFrom(li, style), { numId: numId, level: level, pageBreakBefore: pendingBreak });
                 pendingBreak = false;
                 for (var j = 0; j < li.childNodes.length; j++) {
                     var sub = li.childNodes[j];
@@ -29159,6 +29521,277 @@ function RTE_Plugin_ImportStyles() {
     }
 }
 
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
+// 2026-09-04 Inline code — CKEditor 5's "Code" feature (`<code>`), the one
+// basic-style it ships that this editor had no command for. Markdown `x` was
+// the only way to produce inline code here, which meant there was no way to
+// REMOVE it and no toolbar affordance at all.
+//
+// The command is "inlinecode", NOT "code". "code" is already taken by the
+// HTML-source-view toggle in the core (__Is_Cmd_Active case "code" ->
+// ___Is_CodeMode()), so registering "code" here would have collided with source
+// view. keyboarda11y.js has carried "inlinecode" in its TOGGLE_CMD list all
+// along, with a comment that it matched nothing in this build; a core
+// __Is_Cmd_Active case added alongside this plugin is what makes it match, so
+// the button reports aria-pressed and not just a highlight.
+//
+// Design notes:
+//   - Toggling is done by SPLITTING the <code> element around the selection
+//     rather than by lifting text nodes out of it. Splitting preserves nested
+//     inline markup: un-coding the middle of <code>a <em>b</em> c</code> keeps
+//     the <em>. Lifting text nodes would have dropped it.
+//   - A collapsed selection acts on the word under the caret. That is the same
+//     choice changecase.js makes, and for the same reason: it makes the command
+//     usable from a keyboard shortcut without selecting first. The alternative -
+//     inserting an empty <code> and putting the caret inside - is the caret trap
+//     documented in the footnotes work, so it is deliberately not done.
+//   - Never nests inside <pre> or an existing <code>: both already mean
+//     "preformatted", and nesting produces markup no serializer round-trips.
+//   - Emits a bare <code> element and no rte-* class. That keeps the styling in
+//     the content stylesheet where authors can override it, and keeps the plugin
+//     out of check-css-contract.mjs, which only scans the four theme sheets.
+RTE_DefaultConfig.plugin_inlinecode = RTE_Plugin_InlineCode;
+
+if (!RTE_DefaultConfig.text_inlinecode) RTE_DefaultConfig.text_inlinecode = "Inline code";
+
+if (!RTE_DefaultConfig.svgCode_inlinecode) {
+    RTE_DefaultConfig.svgCode_inlinecode = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="7 8 3 12 7 16"/><polyline points="17 8 21 12 17 16"/></svg>';
+}
+
+function RTE_Plugin_InlineCode() {
+    var obj = this;
+    var config, editor;
+
+    obj.PluginName = "InlineCode";
+
+    obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+
+        editor.attachEvent("exec_command_inlinecode", function (state) {
+            state.returnValue = true;
+            obj.Toggle();
+        });
+
+        // Public API, matching the shape the other toggle plugins expose.
+        editor.toggleInlineCode = function () { return obj.Toggle(); };
+        editor.isInlineCode = function () { return obj.IsActive(); };
+    };
+
+    function getDoc() { try { return editor.getDocument(); } catch (e) { return null; } }
+    function getEditable() { try { return editor.getEditable(); } catch (e) { return null; } }
+
+    function getRange(doc) {
+        var sel = doc && doc.getSelection ? doc.getSelection() : null;
+        if (!sel || !sel.rangeCount) return null;
+        return sel.getRangeAt(0);
+    }
+
+    // Nearest <code> ancestor that is still inside the editable area.
+    function codeAncestor(node, editable) {
+        while (node && node !== editable) {
+            if (node.nodeType === 1 && node.nodeName === "CODE") return node;
+            node = node.parentNode;
+        }
+        return null;
+    }
+
+    function inPre(node, editable) {
+        while (node && node !== editable) {
+            if (node.nodeType === 1 && node.nodeName === "PRE") return true;
+            node = node.parentNode;
+        }
+        return false;
+    }
+
+    obj.IsActive = function () {
+        var doc = getDoc(), editable = getEditable();
+        if (!doc || !editable) return false;
+        var range = getRange(doc);
+        if (!range) return false;
+        return !!codeAncestor(range.startContainer, editable);
+    };
+
+    // ---- selection helpers -----------------------------------------------
+
+    // Expand a collapsed caret to the word under it. Returns false when the
+    // caret is not sitting in a word, in which case the command does nothing
+    // rather than creating an empty element.
+    function expandToWord(range) {
+        var node = range.startContainer;
+        if (!node || node.nodeType !== 3) return false;
+        var text = node.data || "";
+        var offset = range.startOffset;
+        var start = offset, end = offset;
+        while (start > 0 && /\S/.test(text.charAt(start - 1))) start--;
+        while (end < text.length && /\S/.test(text.charAt(end))) end++;
+        if (start === end) return false;
+        range.setStart(node, start);
+        range.setEnd(node, end);
+        return true;
+    }
+
+    // Every text node the range actually covers. Boundary text nodes are split
+    // first so a partially-selected node is not treated as fully selected.
+    function selectedTextNodes(doc, range, editable) {
+        if (range.startContainer.nodeType === 3 && range.startOffset > 0) {
+            var s = range.startContainer;
+            if (range.startOffset < s.data.length) {
+                var rest = s.splitText(range.startOffset);
+                var endSame = (range.endContainer === s);
+                var endOff = range.endOffset;
+                range.setStart(rest, 0);
+                if (endSame) range.setEnd(rest, endOff - s.data.length);
+            }
+        }
+        if (range.endContainer.nodeType === 3 && range.endOffset < range.endContainer.data.length && range.endOffset > 0) {
+            range.endContainer.splitText(range.endOffset);
+        }
+
+        var out = [];
+        var walker = doc.createTreeWalker(editable, 4 /* SHOW_TEXT */, null, false);
+        var n;
+        while ((n = walker.nextNode())) {
+            if (!n.data) continue;
+            if (range.intersectsNode ? range.intersectsNode(n) : true) {
+                // intersectsNode is true for merely-touching nodes, so confirm
+                // the node is genuinely within the boundaries.
+                var r = doc.createRange();
+                r.selectNodeContents(n);
+                if (range.compareBoundaryPoints(Range.END_TO_START, r) < 0 &&
+                    range.compareBoundaryPoints(Range.START_TO_END, r) > 0) {
+                    out.push(n);
+                }
+            }
+        }
+        return out;
+    }
+
+    // ---- apply / remove ---------------------------------------------------
+
+    // Split `code` around the selection and unwrap only the overlapping part,
+    // so partial removal keeps the untouched halves coded.
+    function unwrapPart(doc, code, range) {
+        var parent = code.parentNode;
+        if (!parent) return;
+
+        var startsInside = code.contains(range.startContainer);
+        var endsInside = code.contains(range.endContainer);
+
+        // Tail first: extracting it cannot disturb the head's boundaries.
+        var after = doc.createRange();
+        if (endsInside) after.setStart(range.endContainer, range.endOffset);
+        else after.setStart(code, code.childNodes.length);
+        after.setEnd(code, code.childNodes.length);
+        var afterFrag = after.extractContents();
+
+        var before = doc.createRange();
+        before.setStart(code, 0);
+        if (startsInside) before.setEnd(range.startContainer, range.startOffset);
+        else before.setEnd(code, 0);
+        var beforeFrag = before.extractContents();
+
+        if (beforeFrag && beforeFrag.textContent !== "") {
+            var head = doc.createElement("code");
+            head.appendChild(beforeFrag);
+            parent.insertBefore(head, code);
+        }
+
+        // What is left in `code` is exactly the selected part: unwrap it.
+        while (code.firstChild) parent.insertBefore(code.firstChild, code);
+
+        if (afterFrag && afterFrag.textContent !== "") {
+            var tail = doc.createElement("code");
+            tail.appendChild(afterFrag);
+            parent.insertBefore(tail, code);
+        }
+
+        parent.removeChild(code);
+    }
+
+    function wrapNodes(doc, nodes, editable) {
+        // Group contiguous siblings so a run of text under one parent becomes a
+        // single <code>, not one per text node.
+        var group = [], groups = [];
+        for (var i = 0; i < nodes.length; i++) {
+            var n = nodes[i];
+            if (inPre(n, editable) || codeAncestor(n, editable)) continue;
+            if (group.length && group[group.length - 1].parentNode === n.parentNode &&
+                group[group.length - 1].nextSibling === n) {
+                group.push(n);
+            } else {
+                if (group.length) groups.push(group);
+                group = [n];
+            }
+        }
+        if (group.length) groups.push(group);
+
+        for (var g = 0; g < groups.length; g++) {
+            var run = groups[g];
+            // Whitespace-only runs would produce a <code> containing nothing but
+            // a space, which is invisible formatting debris.
+            var joined = "";
+            for (var k = 0; k < run.length; k++) joined += run[k].data;
+            if (!/\S/.test(joined)) continue;
+
+            var code = doc.createElement("code");
+            run[0].parentNode.insertBefore(code, run[0]);
+            for (var j = 0; j < run.length; j++) code.appendChild(run[j]);
+        }
+    }
+
+    // Adjacent <code><code> pairs read as one to the user but serialize as two.
+    function mergeAdjacent(editable) {
+        var all = editable.querySelectorAll("code");
+        for (var i = 0; i < all.length; i++) {
+            var code = all[i];
+            var next = code.nextSibling;
+            while (next && next.nodeType === 1 && next.nodeName === "CODE") {
+                while (next.firstChild) code.appendChild(next.firstChild);
+                next.parentNode.removeChild(next);
+                next = code.nextSibling;
+            }
+        }
+    }
+
+    obj.Toggle = function () {
+        var doc = getDoc(), editable = getEditable();
+        if (!doc || !editable) return false;
+        var range = getRange(doc);
+        if (!range) return false;
+        if (!editable.contains(range.startContainer)) return false;
+
+        if (range.collapsed && !expandToWord(range)) return false;
+
+        var nodes = selectedTextNodes(doc, range, editable);
+        if (!nodes.length) return false;
+
+        // Remove when every selected text node is already coded; otherwise apply.
+        var allCoded = true;
+        for (var i = 0; i < nodes.length; i++) {
+            if (!/\S/.test(nodes[i].data)) continue;
+            if (!codeAncestor(nodes[i], editable)) { allCoded = false; break; }
+        }
+
+        if (allCoded) {
+            var codes = [], seen = [];
+            for (var n = 0; n < nodes.length; n++) {
+                var c = codeAncestor(nodes[n], editable);
+                if (c && seen.indexOf(c) < 0) { seen.push(c); codes.push(c); }
+            }
+            for (var x = 0; x < codes.length; x++) unwrapPart(doc, codes[x], range);
+        } else {
+            wrapNodes(doc, nodes, editable);
+            mergeAdjacent(editable);
+        }
+
+        try { editor.updateToolbarStatus && editor.updateToolbarStatus(); } catch (e) { }
+        return true;
+    };
+}
+
 
 if (!RTE_DefaultConfig.svgCode_insertcode) {
 	RTE_DefaultConfig.svgCode_insertcode = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="8 7 3 12 8 17"/><polyline points="16 7 21 12 16 17"/><line x1="14" y1="5" x2="10" y2="19"/></svg>';
@@ -29491,7 +30124,7 @@ function RTE_Plugin_InsertCode() {
 			sel_lang.options.add(new Option(aliases, brush));
 
 
-			var b = sessionStorage.getItem("rte-insertcode-lang")
+			var b = null; try { b = sessionStorage.getItem("rte-insertcode-lang"); } catch (e) { } // storage throws in sandboxed / opaque-origin embeds
 			if (b) sel_lang.value = b;
 		}
 
@@ -29511,7 +30144,7 @@ function RTE_Plugin_InsertCode() {
 		btn.onclick = function () {
 			dialoginner.close();
 
-			sessionStorage.setItem("rte-insertcode-lang", sel_lang.value)
+			try { sessionStorage.setItem("rte-insertcode-lang", sel_lang.value); } catch (e) { }
 
 			if (sel_lang.value != "") {
 				var b = dp.sh.Brushes[sel_lang.value];
@@ -30931,6 +31564,7 @@ if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
 // Config:
 //   config.keyboardA11y = false            // opt out entirely
 //   config.a11yEscapeHint = "..."          // wording appended to the editing area's name
+//   config.a11yEditorLabel = "..."        // accessible NAME of the editing area (default "Rich text editor")
 //   config.a11yRovingToolbar = false       // keep every button as a tab stop
 RTE_DefaultConfig.plugin_keyboarda11y = RTE_Plugin_KeyboardA11y;
 if (typeof RTE_DefaultConfig.keyboardA11y === "undefined") RTE_DefaultConfig.keyboardA11y = true;
@@ -30951,6 +31585,21 @@ function RTE_Plugin_KeyboardA11y() {
         if (config.keyboardA11y === false) return;
 
         editor.focusToolbar = function () { return focusFirstToolbarButton(); };
+        // Public so plugins can report their own outcomes -- find/replace match
+        // counts, what the paste filter removed, export completion.
+        editor.announce = function (text, opts) { return announce(text, opts); };
+        // setReadOnly() lives in the core and cannot call into a plugin, so wrap
+        // it here rather than leaving the two states to drift apart.
+        if (typeof editor.setReadOnly === "function" && !editor.setReadOnly.__a11yWrapped) {
+            var origSetReadOnly = editor.setReadOnly;
+            var wrapped = function (v) {
+                var r = origSetReadOnly.apply(editor, arguments);
+                try { syncReadOnlyState(); } catch (e) { }
+                return r;
+            };
+            wrapped.__a11yWrapped = true;
+            editor.setReadOnly = wrapped;
+        }
 
         setup();
         try { editor.attachEvent("ready", setup); } catch (e) {}
@@ -30974,11 +31623,104 @@ function RTE_Plugin_KeyboardA11y() {
     function setup() {
         var root = shell();
         if (!root) return;
+        ensureLiveRegions();
+        syncReadOnlyState();
         bindEscapeHatch();
         applyRovingTabindex(root);
         syncToggleStates(root);
         trackPopups(root);
         watch(root);
+    }
+
+
+    // ------------------------------------------------- 4. status messages
+    //
+    // WCAG 4.1.3 Status Messages (Level AA): a change of state that is NOT
+    // given focus still has to reach assistive technology. Before this the
+    // editor had no live region at all -- not one aria-live node, in the page
+    // or in the iframe -- so a screen reader user got silence for every
+    // outcome the sighted user reads off the chrome: how many matches Find
+    // found, what the paste filter stripped, that the length limit was hit,
+    // that the document went read-only.
+    //
+    // Two regions, because politeness is not a detail: 'polite' waits for a
+    // pause in speech (counts, confirmations), 'assertive' interrupts (errors,
+    // refusals). aria-atomic="true" on both so the whole message is re-read
+    // rather than only the words that changed -- reading a diff aloud produces
+    // sentences that were never written.
+    //
+    // The region lives in the HOST document, not the editing iframe: a message
+    // announced from inside the document the user is editing would also become
+    // part of what they are editing.
+    var liveNodes = null;
+    function ensureLiveRegions() {
+        if (liveNodes && liveNodes.polite && liveNodes.polite.isConnected) return liveNodes;
+        var root = shell();
+        if (!root) return null;
+        function mk(politeness) {
+            var el = root.querySelector('[data-rte-live="' + politeness + '"]');
+            if (el) return el;
+            el = document.createElement("div");
+            el.setAttribute("data-rte-live", politeness);
+            el.setAttribute("aria-live", politeness);
+            el.setAttribute("aria-atomic", "true");
+            el.setAttribute("role", politeness === "assertive" ? "alert" : "status");
+            // Visually hidden but still rendered: display:none and
+            // visibility:hidden remove the node from the accessibility tree,
+            // which silences it. Clip is the technique that does not.
+            el.style.cssText = "position:absolute;width:1px;height:1px;margin:-1px;" +
+                "padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0;";
+            root.appendChild(el);
+            return el;
+        }
+        liveNodes = { polite: mk("polite"), assertive: mk("assertive") };
+        return liveNodes;
+    }
+
+    // editor.announce(text, {assertive}) -- also used by plugins.
+    function announce(text, opts) {
+        var msg = String(text == null ? "" : text).trim();
+        if (!msg) return false;
+        var nodes = ensureLiveRegions();
+        if (!nodes) return false;
+        var el = (opts && opts.assertive) ? nodes.assertive : nodes.polite;
+        // Re-announcing the SAME string is a no-op for most screen readers
+        // unless the node is cleared first, so "3 results" after "3 results"
+        // would be silent. Clear, then set on the next frame.
+        el.textContent = "";
+        setTimeout(function () { el.textContent = msg; }, 30);
+        return true;
+    }
+
+    // ------------------------------------------------- 5. read-only state
+    //
+    // setReadOnly() flips designMode, which genuinely blocks editing -- but
+    // designMode is invisible to assistive technology. The toolbar already
+    // marks its buttons aria-disabled; the editing region itself said nothing,
+    // so a screen reader user entered a field described as a rich text editor,
+    // typed, and got no response and no explanation. aria-readonly is the
+    // attribute that carries this, and the accessible name says it too because
+    // a name is what gets announced on entry.
+    var lastReadOnly = null;
+    function syncReadOnlyState() {
+        var ed;
+        try { ed = editor.getEditable(); } catch (e) { return; }
+        if (!ed) return;
+        var ro = false;
+        try { ro = !!(editor.getReadOnly ? editor.getReadOnly() : editor.isReadOnly && editor.isReadOnly()); } catch (e) { }
+        ed.setAttribute("aria-readonly", ro ? "true" : "false");
+        var suffix = config.a11yReadOnlySuffix || "Read only.";
+        // Plain string trimming rather than a built regex: the suffix is
+        // config-supplied and would otherwise need escaping to be safe.
+        var label = (ed.getAttribute("aria-label") || "");
+        if (label.length >= suffix.length && label.slice(-suffix.length) === suffix) {
+            label = label.slice(0, -suffix.length).replace(/\s+$/, "");
+        }
+        ed.setAttribute("aria-label", ro ? (label + " " + suffix) : label);
+        if (lastReadOnly !== null && lastReadOnly !== ro) {
+            announce(ro ? suffix : (config.a11yEditableAgain || "Editing enabled."));
+        }
+        lastReadOnly = ro;
     }
 
     // ---------------------------------------------------- 1. keyboard trap
@@ -30991,19 +31733,37 @@ function RTE_Plugin_KeyboardA11y() {
     // Escape is only intercepted when nothing is open — a dialog or dropdown
     // must still get its own Escape first, or closing a colour picker would
     // throw the user out of the editor.
+    // Bound on the DOCUMENT rather than on the body element. Escape bubbles, so
+    // one listener at document level covers the editing area no matter how the
+    // surface is re-created, and it does not depend on a marker flag pinned to a
+    // particular element surviving. Defensive only: no shipped operation is known
+    // to replace the editing body — setHTML, htmlview, fullscreen, readingmode,
+    // preview and toggleborder all preserve its identity (measured 2026-08-27).
+    // Keeping the binding here costs nothing and removes an assumption, but it
+    // fixes no known live defect; do not describe it as a bug fix.
     function bindEscapeHatch() {
-        var ed;
-        try { ed = editor.getEditable(); } catch (e) { return; }
-        if (!ed || ed.__rteEscapeHatch) return;
-        ed.__rteEscapeHatch = true;
+        var ed, doc;
+        try { ed = editor.getEditable(); doc = ed && ed.ownerDocument; } catch (e) { return; }
+        if (!ed || !doc) return;
 
-        ed.addEventListener("keydown", function (e) {
-            if (e.key !== "Escape" && e.keyCode !== 27) return;
-            if (anythingOpen()) return;           // let the panel close itself
-            e.preventDefault();
-            e.stopPropagation();
-            if (!focusFirstToolbarButton()) focusAfterEditor();
-        }, false);
+        if (!doc.__rteEscapeHatch) {
+            doc.__rteEscapeHatch = true;
+            doc.addEventListener("keydown", function (e) {
+                if (e.key !== "Escape" && e.keyCode !== 27) return;
+                if (anythingOpen()) return;           // let the panel close itself
+                e.preventDefault();
+                e.stopPropagation();
+                if (!focusFirstToolbarButton()) focusAfterEditor();
+            }, false);
+
+            // Deliberately not re-asserting the body's aria-label here. An
+            // earlier version did, on the theory that the editing body could be
+            // replaced underneath us; that mechanism was retracted 2026-08-27
+            // after it turned out to be an instrumentation artefact, and
+            // editor.getEditable() is verified to return the live, connected
+            // body on every shipped path. announceEscape() at the end of this
+            // function is sufficient.
+        }
 
         announceEscape(ed);
     }
@@ -31022,12 +31782,21 @@ function RTE_Plugin_KeyboardA11y() {
     // The way out has to be discoverable, or it may as well not exist. The
     // editing region's accessible name is the one thing a screen reader always
     // announces on entry, so the hint goes there rather than into the content.
+    //
+    // But an instruction is not a NAME. When the host page had not labelled the
+    // editing area, appending the hint to an empty label left the region's
+    // accessible name as nothing but "Press Escape to leave the editing area." —
+    // a screen reader then told the user how to LEAVE a field without ever
+    // saying what it was, and two editors on one page were indistinguishable.
+    // So: a host-supplied label still wins as the name; otherwise we supply a
+    // real one and the hint follows it.
     function announceEscape(ed) {
         var hint = config.a11yEscapeHint ||
             "Press Escape to leave the editing area.";
         var label = ed.getAttribute("aria-label") || "";
         if (label.indexOf(hint) >= 0) return;
-        ed.setAttribute("aria-label", (label ? label.replace(/\s*$/, " ") : "") + hint);
+        var name = label || config.a11yEditorLabel || "Rich text editor";
+        ed.setAttribute("aria-label", name.replace(/\s*$/, "") + " " + hint);
     }
 
     function focusAfterEditor() {
@@ -31235,6 +32004,390 @@ function RTE_Plugin_KeyboardA11y() {
         });
         mo.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ["class", "aria-disabled"] });
         observers.push(mo);
+    }
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
+// 2026-08-30 Layout tables — say whether a table carries data or only geometry.
+//
+// Found by re-sweeping CKEditor 5's feature pages (they ship `layout-tables`);
+// TinyMCE has no equivalent. Every other editor treats <table> as one thing.
+// It is two:
+//
+//   * a DATA table states relationships — this cell is described by that header —
+//     and a screen reader announces them on every cell;
+//   * a LAYOUT table states nothing. Newsletters, signatures and pre-CSS page
+//     furniture use it purely for geometry, and the correct markup is
+//     role="presentation", which tells assistive technology to read the cells as
+//     plain flow content instead of narrating a fake grid.
+//
+// Using one where the other is meant is a real WCAG 1.3.1 failure, not a style
+// preference: a layout table with <th>/scope/<caption> makes a screen reader
+// announce column headers that describe nothing.
+//
+// It also fixes a false alarm we were shipping. `accessibilitychecker.js` raised
+// `table-missing-header` on EVERY table without a <th>, so an email layout — which
+// must not have one — produced a permanent error the author could never clear. A
+// checker that cannot be satisfied teaches people to ignore it, so the rule now
+// skips presentation tables and instead flags the genuine fault: a layout table
+// that still carries data-table semantics.
+//
+// Design notes:
+//   - role="presentation" is the whole marker. No vendor class is added, so the
+//     exported HTML gains nothing this editor has to own; `role=none` is the ARIA
+//     synonym and is accepted on read, though we always write "presentation"
+//     because Outlook-era mail clients are more likely to have heard of it.
+//   - The dashed outline is injected into the EDITING document only (a <style> in
+//     the iframe head, like formattingmarks.js), never into the content. A layout
+//     table is invisible by design; without an affordance the author cannot see
+//     the thing they are editing.
+//   - Tables nest. Marking the outer table layout must not strip the headers of a
+//     data table sitting inside one of its cells, so every walk is restricted to
+//     cells whose nearest ancestor table is this one.
+//   - Converting <th> to <td> loses information. Which cells were headers is
+//     remembered per table in a WeakMap so an accidental toggle is reversible in
+//     the session, and that memory is deliberately NOT written into the markup —
+//     restoring it is a convenience, not a document property. Reloaded documents
+//     therefore restore nothing; `promoteFirstRow` is offered for that case.
+RTE_DefaultConfig.plugin_layouttable = RTE_Plugin_LayoutTable;
+
+// Show a dashed outline around layout tables while editing.
+if (typeof RTE_DefaultConfig.layoutTableOutline === "undefined") RTE_DefaultConfig.layoutTableOutline = true;
+
+function RTE_Plugin_LayoutTable() {
+    var obj = this;
+    var config, editor;
+    var headerMemory = (typeof WeakMap === "function") ? new WeakMap() : null;
+
+    obj.PluginName = "LayoutTable";
+
+    obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+
+        editor.attachEvent("exec_command_tablelayoutmode", function (state) {
+            state.returnValue = true;
+            obj.SetMode(tableAtCaret(), "layout");
+        });
+        editor.attachEvent("exec_command_tabledatamode", function (state) {
+            state.returnValue = true;
+            obj.SetMode(tableAtCaret(), "data");
+        });
+        editor.attachEvent("exec_command_toggletablelayout", function (state) {
+            state.returnValue = true;
+            obj.Toggle();
+        });
+        editor.attachEvent("exec_command_insertlayouttable", function (state) {
+            state.returnValue = true;
+            obj.InsertLayoutTable();
+        });
+
+        // Public API.
+        editor.setTableLayoutMode = function (mode, table, options) {
+            return obj.SetMode(table || tableAtCaret(), mode, options);
+        };
+        editor.getTableLayoutMode = function (table) {
+            var t = table || tableAtCaret();
+            return t ? (isLayout(t) ? "layout" : "data") : null;
+        };
+        editor.isLayoutTable = function (table) { return isLayout(table || tableAtCaret()); };
+        editor.toggleTableLayoutMode = function () { return obj.Toggle(); };
+        editor.insertLayoutTable = function (rows, cols, options) {
+            return obj.InsertLayoutTable(rows, cols, options);
+        };
+        editor.listLayoutTables = function () {
+            var ed = getEditable();
+            if (!ed) return [];
+            var out = [], all = ed.getElementsByTagName("table");
+            for (var i = 0; i < all.length; i++) if (isLayout(all[i])) out.push(all[i]);
+            return out;
+        };
+        editor.showLayoutTableOutlines = function (on) {
+            outlineOn = (on !== false);
+            injectStyles(editableDoc());
+            return outlineOn;
+        };
+
+        try {
+            if (config && typeof config.layoutTableOutline !== "undefined") outlineOn = !!config.layoutTableOutline;
+        } catch (e) {}
+        injectStyles(editableDoc());
+        try {
+            editor.attachEvent("editor_ready", function () { injectStyles(editableDoc()); });
+            editor.attachEvent("update_design", function () { injectStyles(editableDoc()); });
+        } catch (e) {}
+    };
+
+    var outlineOn = true;
+
+    // ---------------------------------------------------------------- commands
+
+    obj.SetMode = function (table, mode, options) {
+        if (!table) return null;
+        if (String(mode).toLowerCase() === "layout") return toLayout(table);
+        return toData(table, options);
+    };
+
+    obj.Toggle = function () {
+        var t = tableAtCaret();
+        if (!t) return null;
+        return isLayout(t) ? toData(t) : toLayout(t);
+    };
+
+    obj.InsertLayoutTable = function (rows, cols, options) {
+        var doc = editableDoc();
+        if (!doc) return null;
+        rows = Math.max(1, parseInt(rows, 10) || 2);
+        cols = Math.max(1, parseInt(cols, 10) || 2);
+        options = options || {};
+
+        var table = doc.createElement("table");
+        table.setAttribute("role", "presentation");
+        // The three attributes every email layout table needs; without
+        // border-collapse the cells show a 2px gap in Outlook.
+        table.setAttribute("cellpadding", "0");
+        table.setAttribute("cellspacing", "0");
+        table.style.width = options.width || "100%";
+        table.style.borderCollapse = "collapse";
+
+        var tbody = doc.createElement("tbody");
+        for (var r = 0; r < rows; r++) {
+            var tr = doc.createElement("tr");
+            for (var c = 0; c < cols; c++) {
+                var td = doc.createElement("td");
+                td.style.verticalAlign = "top";
+                td.appendChild(doc.createElement("br"));
+                tr.appendChild(td);
+            }
+            tbody.appendChild(tr);
+        }
+        table.appendChild(tbody);
+
+        insertAtCaret(table, doc);
+        injectStyles(doc);
+        fireChange();
+        return table;
+    };
+
+    // ------------------------------------------------------------- conversions
+
+    function toLayout(table) {
+        table.setAttribute("role", "presentation");
+
+        // A caption is announced as the table's name; a layout table has no name
+        // to announce. Keep the text — it is content the author typed — by moving
+        // it out into a paragraph before the table rather than deleting it.
+        var caption = firstOwnChild(table, "caption");
+        if (caption) {
+            var text = String(caption.textContent || "").replace(/^\s+|\s+$/g, "");
+            if (text) {
+                var p = table.ownerDocument.createElement("p");
+                while (caption.firstChild) p.appendChild(caption.firstChild);
+                if (table.parentNode) table.parentNode.insertBefore(p, table);
+            }
+            caption.parentNode.removeChild(caption);
+        }
+
+        table.removeAttribute("summary");
+
+        var cells = ownCells(table), converted = [];
+        for (var i = 0; i < cells.length; i++) {
+            var cell = cells[i];
+            cell.removeAttribute("scope");
+            cell.removeAttribute("headers");
+            cell.removeAttribute("abbr");
+            if (cell.nodeName === "TH") {
+                var td = rename(cell, "td");
+                converted.push(td);
+            }
+        }
+        if (headerMemory && converted.length) headerMemory.set(table, converted);
+
+        // <thead> on a layout table is harmless to AT once role=presentation is
+        // set, but it makes the markup lie to the next human who reads it.
+        var thead = firstOwnChild(table, "thead");
+        if (thead) unwrapSection(table, thead);
+
+        fireChange();
+        return table;
+    }
+
+    function toData(table, options) {
+        table.removeAttribute("role");
+
+        var restored = headerMemory ? headerMemory.get(table) : null;
+        var promoted = false;
+        if (restored && restored.length) {
+            for (var i = 0; i < restored.length; i++) {
+                var cell = restored[i];
+                // The cell may have been deleted, or the whole table replaced,
+                // since it was remembered.
+                if (cell && cell.parentNode && contains(table, cell)) {
+                    rename(cell, "th");
+                    promoted = true;
+                }
+            }
+            headerMemory["delete"](table);
+        }
+        if (!promoted && options && options.promoteFirstRow) promoteFirstRow(table);
+
+        fireChange();
+        return table;
+    }
+
+    function promoteFirstRow(table) {
+        var rows = ownRows(table);
+        if (!rows.length) return;
+        var cells = rowCells(rows[0]);
+        for (var i = 0; i < cells.length; i++) {
+            var th = rename(cells[i], "th");
+            th.setAttribute("scope", "col");
+        }
+    }
+
+    // ------------------------------------------------------------------ helpers
+
+    function isLayout(table) {
+        if (!table || table.nodeName !== "TABLE") return false;
+        var role = String(table.getAttribute("role") || "").toLowerCase();
+        return role === "presentation" || role === "none";
+    }
+
+    // Tables nest: only touch nodes whose nearest ancestor table is this one.
+    function ownsNode(table, node) {
+        var n = node.parentNode;
+        while (n && n !== table) {
+            if (n.nodeName === "TABLE") return false;
+            n = n.parentNode;
+        }
+        return n === table;
+    }
+
+    function ownCells(table) {
+        var out = [], all = table.querySelectorAll ? table.querySelectorAll("th,td") : [];
+        for (var i = 0; i < all.length; i++) if (ownsNode(table, all[i])) out.push(all[i]);
+        return out;
+    }
+
+    function ownRows(table) {
+        var out = [], all = table.querySelectorAll ? table.querySelectorAll("tr") : [];
+        for (var i = 0; i < all.length; i++) if (ownsNode(table, all[i])) out.push(all[i]);
+        return out;
+    }
+
+    function rowCells(row) {
+        var out = [];
+        for (var n = row.firstChild; n; n = n.nextSibling) {
+            if (n.nodeName === "TH" || n.nodeName === "TD") out.push(n);
+        }
+        return out;
+    }
+
+    function firstOwnChild(table, name) {
+        name = name.toUpperCase();
+        for (var n = table.firstChild; n; n = n.nextSibling) if (n.nodeName === name) return n;
+        return null;
+    }
+
+    function contains(root, node) {
+        var n = node;
+        while (n) { if (n === root) return true; n = n.parentNode; }
+        return false;
+    }
+
+    // Move a <thead>'s rows into the table body and drop the section.
+    function unwrapSection(table, section) {
+        var body = firstOwnChild(table, "tbody");
+        if (!body) {
+            body = table.ownerDocument.createElement("tbody");
+            table.insertBefore(body, section.nextSibling);
+        }
+        while (section.firstChild) body.insertBefore(section.firstChild, body.firstChild);
+        section.parentNode.removeChild(section);
+    }
+
+    // Replace an element with the same content and attributes under a new tag.
+    // The caret may be inside it, so the range is restored afterwards.
+    function rename(el, tagName) {
+        var doc = el.ownerDocument;
+        var replacement = doc.createElement(tagName);
+        for (var i = 0; i < el.attributes.length; i++) {
+            var a = el.attributes[i];
+            try { replacement.setAttribute(a.name, a.value); } catch (e) {}
+        }
+        while (el.firstChild) replacement.appendChild(el.firstChild);
+        el.parentNode.replaceChild(replacement, el);
+        return replacement;
+    }
+
+    function tableAtCaret() {
+        var ed = getEditable();
+        if (!ed) return null;
+        var node = null;
+        try {
+            var sel = editor.getSelection();
+            if (sel && sel.rangeCount) node = sel.getRangeAt(0).startContainer;
+        } catch (e) {}
+        if (!node) return null;
+        if (node.nodeType === 3) node = node.parentNode;
+        while (node && node !== ed) {
+            if (node.nodeName === "TABLE") return node;
+            node = node.parentNode;
+        }
+        return null;
+    }
+
+    function insertAtCaret(node, doc) {
+        var inserted = false;
+        try {
+            var sel = editor.getSelection();
+            if (sel && sel.rangeCount) {
+                var range = sel.getRangeAt(0);
+                range.deleteContents();
+                range.insertNode(node);
+                inserted = true;
+            }
+        } catch (e) {}
+        if (!inserted) {
+            var ed = getEditable();
+            if (ed) { ed.appendChild(node); inserted = true; }
+        }
+        // A table at the very end of the document is a caret trap; gapcursor.js
+        // handles escaping it, so nothing is appended here.
+        return inserted;
+    }
+
+    function getEditable() { try { return editor.getEditable(); } catch (e) { return null; } }
+
+    function editableDoc() {
+        var ed = getEditable();
+        return ed ? ed.ownerDocument : null;
+    }
+
+    function injectStyles(doc) {
+        if (!doc) return;
+        var text = outlineOn
+            ? "table[role=presentation]{outline:1px dashed rgba(120,120,140,.55);outline-offset:1px;}" +
+              "table[role=presentation] td{outline:1px dashed rgba(120,120,140,.28);}"
+            : "";
+        var existing = doc.getElementById("rte-layout-table-styles");
+        if (existing) {
+            if (existing.getAttribute("data-css") === text) return;
+            existing.parentNode && existing.parentNode.removeChild(existing);
+        }
+        if (!text) return;
+        var st = doc.createElement("style");
+        st.id = "rte-layout-table-styles";
+        st.setAttribute("data-css", text);
+        st.appendChild(doc.createTextNode(text));
+        (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+    }
+
+    function fireChange() {
+        try { if (typeof editor.updateDesign === "function") editor.updateDesign(); } catch (e) {}
+        try { if (typeof editor.fireChange === "function") editor.fireChange(); } catch (e) {}
     }
 }
 
@@ -34936,6 +36089,28 @@ function RTE_Plugin_PdfExport() {
         var self = this;
         var base = { bold: false, italic: false, underline: false, strike: false, size: this.baseSize, color: [0, 0, 0], mono: false, link: null };
 
+    // A block indented in the editor carries margin-left (or padding-left, per
+    // indentUseMargin). Before 2026-09-04 the PDF honoured an indent only when
+    // it was spelled <blockquote>, because that was the only way the editor
+    // could express one. Points, since that is the PDF's unit: 1px = 0.75pt.
+    function cssIndentPt(node) {
+        if (!node || !node.style) return 0;
+        var raw = node.style.marginLeft || node.style.paddingLeft || "";
+        var m = /^\s*(-?[\d.]+)\s*([a-z%]*)\s*$/i.exec(raw);
+        if (!m) return 0;
+        var n = parseFloat(m[1]);
+        if (!n || n <= 0) return 0;
+        var unit = (m[2] || "px").toLowerCase();
+        var px = unit === "px" ? n
+            : unit === "pt" ? n * (4 / 3)
+            : unit === "in" ? n * 96
+            : unit === "cm" ? n * 37.795
+            : unit === "mm" ? n * 3.7795
+            : (unit === "em" || unit === "rem") ? n * 16
+            : 0;
+        return px * 0.75;
+    }
+
         function block(node, style, indent, listMarker, listId, listOrdered) {
             var tag = node.tagName.toLowerCase();
             var s = styleOf(node, style);
@@ -35008,8 +36183,9 @@ function RTE_Plugin_PdfExport() {
                     continue;
                 }
                 if (isBlockTag(tag)) {
-                    if (hasBlockChildren(c)) { walk(c, styleOf(c, style), indent + (tag === "blockquote" ? self.baseSize * 1.5 : 0)); continue; }
-                    block(c, style, indent + (tag === "blockquote" ? self.baseSize * 1.5 : 0), null);
+                    var own = (tag === "blockquote" ? self.baseSize * 1.5 : 0) + cssIndentPt(c);
+                    if (hasBlockChildren(c)) { walk(c, styleOf(c, style), indent + own); continue; }
+                    block(c, style, indent + own, null);
                     continue;
                 }
                 // Inline content sitting directly under a container.
@@ -35932,17 +37108,12 @@ function RTE_Plugin_ReadabilityStats() {
             openDialog();
         });
 
-        if (editor.slashCommands && typeof editor.slashCommands.register === "function") {
-            try {
-                editor.slashCommands.register({
-                    id: "readability-stats",
-                    title: "Readability statistics",
-                    description: "Flesch reading ease, grade level, and reading time",
-                    keywords: ["readability", "flesch", "grade", "reading", "stats", "score"],
-                    action: function () { openDialog(); }
-                });
-            } catch (e) {}
-        }
+        // NOTE: do NOT call editor.slashCommands.register() from here. Plugins
+        // initialise in bundle (alphabetical) order and this file sorts before
+        // "slashcommand", so editor.slashCommands does not exist yet and the guarded
+        // call silently did nothing - the "readability-stats" slash entry never appeared for any
+        // customer until 2026-09-02. The entry now lives in slashcommand.js, gated on
+        // typeof editor.getReadabilityStats === "function" (same pattern as exportToPdf).
     };
 
     function currentText() {
@@ -37368,8 +38539,9 @@ if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
 //   config.sanitizerAllowStyleTags = true    // keep <style> in content
 //   config.sanitizerAllowIframes = false     // drop <iframe> outright
 //   config.sanitizerAllowedIframeHosts = ["www.youtube.com"]
-//   config.sanitizerAllowTags = ["custom-el"]
-//   config.sanitizerAllowAttributes = ["my-attr"]
+//   config.sanitizerAllowTags = ["custom-el", "x-*", /^ui-/]
+//   config.sanitizerAllowAttributes = ["my-attr", "data-cms-*"]
+//        exact names, "*" wildcards, or RegExp -- see buildMatcher()
 RTE_DefaultConfig.plugin_sanitizer = RTE_Plugin_Sanitizer;
 if (typeof RTE_DefaultConfig.contentSanitizer === "undefined") RTE_DefaultConfig.contentSanitizer = true;
 
@@ -37556,12 +38728,63 @@ function RTE_Plugin_Sanitizer() {
         return false;
     }
 
+    // Build a name matcher from a config list. Entries may be:
+    //   "my-widget"   an exact name
+    //   "my-*"        a wildcard, where * matches any run of characters
+    //   /^my-/        a RegExp
+    // The wildcard form is what makes this a workable answer to CKEditor's General
+    // HTML Support: without it an integrator has to enumerate every tag and
+    // attribute a CMS might emit, by name, which nobody does -- so the content gets
+    // unwrapped instead and the integrator concludes the editor destroys it.
+    //
+    // A pattern widens what is KEPT, never what is executed: on* handlers,
+    // javascript: URLs, <script> and iframe[srcdoc] are all handled before this is
+    // consulted, so allowing a tag or attribute by pattern cannot re-open those.
+    //
+    // Wildcards are matched by hand rather than compiled to a RegExp, so a config
+    // value can never be a regex-injection vector and no escaping table has to be
+    // kept correct.
+    function buildMatcher(list) {
+        var literal = {};
+        var globs = [];
+        var regexps = [];
+        (list || []).forEach(function (entry) {
+            if (entry instanceof RegExp) { regexps.push(entry); return; }
+            var t = String(entry).toLowerCase();
+            if (t.indexOf("*") === -1) { literal[t] = true; return; }
+            globs.push(t.split("*"));
+        });
+        function globMatches(parts, name) {
+            // parts came from splitting on "*": they must appear in order, the first
+            // anchored at the start and the last at the end.
+            var first = parts[0];
+            if (name.lastIndexOf(first, 0) !== 0) return false;
+            var last = parts[parts.length - 1];
+            if (last) {
+                if (name.length < last.length) return false;
+                if (name.indexOf(last, name.length - last.length) === -1) return false;
+            }
+            var pos = first.length;
+            for (var i = 1; i < parts.length; i++) {
+                if (!parts[i]) continue;
+                var at = name.indexOf(parts[i], pos);
+                if (at === -1) return false;
+                pos = at + parts[i].length;
+            }
+            return true;
+        }
+        return function (name) {
+            if (literal[name]) return true;
+            for (var i = 0; i < globs.length; i++) if (globMatches(globs[i], name)) return true;
+            for (var j = 0; j < regexps.length; j++) if (regexps[j].test(name)) return true;
+            return false;
+        };
+    }
+
     // --------------------------------------------------------------- engine
     function sanitizeNode(root, report) {
-        var allowExtra = {};
-        (config.sanitizerAllowTags || []).forEach(function (t) { allowExtra[String(t).toLowerCase()] = true; });
-        var attrExtra = {};
-        (config.sanitizerAllowAttributes || []).forEach(function (a) { attrExtra[String(a).toLowerCase()] = true; });
+        var allowExtra = buildMatcher(config.sanitizerAllowTags);
+        var attrExtra = buildMatcher(config.sanitizerAllowAttributes);
         var allowStyleTag = config.sanitizerAllowStyleTags === true;
 
         // Collect first: removing nodes while walking a live list skips siblings.
@@ -37570,7 +38793,7 @@ function RTE_Plugin_Sanitizer() {
             for (var i = 0; i < n.childNodes.length; i++) {
                 var c = n.childNodes[i];
                 if (c.nodeType === 1) { all.push(c); collect(c); }
-                else if (c.nodeType === 8) all.push(c);   // comments can hide markup
+                else if (c.nodeType === 8) all.push(c);   // checked, see commentEscapes()
             }
         })(root);
 
@@ -37578,7 +38801,33 @@ function RTE_Plugin_Sanitizer() {
             var el = all[i];
             if (!el.parentNode) continue;                 // already removed with an ancestor
 
-            if (el.nodeType === 8) { el.parentNode.removeChild(el); continue; }
+            if (el.nodeType === 8) {
+                // Comments used to be removed wholesale, on the stated grounds that
+                // "comments can hide markup". That reason does not survive testing:
+                // serialise <!--<script>alert(1)</script>--> and re-parse it and the
+                // script is inert -- a well-formed comment is just text.
+                //
+                // What IS unsafe is a narrow, enumerable set of comment DATA that
+                // cannot survive serialisation, because the serialiser writes the
+                // data verbatim between <!-- and -->. Re-parsing then ends the
+                // comment early and the remainder becomes live markup:
+                //
+                //   "--> <img src=x onerror=...>"  -> <!----> <img ...>-->   ESCAPES
+                //   "--!> <img ...>"               -> <!----!> <img ...>-->  ESCAPES
+                //   "> <img ...>"                  -> <!--> <img ...>-->     ESCAPES
+                //   "-> <img ...>"                 -> <!---> <img ...>-->    ESCAPES
+                //
+                // That is the WHATWG serialisation constraint, not a heuristic, so
+                // it can be enumerated rather than guessed at. Everything else is
+                // kept, which is what lets a CMS round-trip its own markers and lets
+                // an email template keep its Outlook conditional comments -- the
+                // mechanism emailtoolkit.js needs and could not previously rely on.
+                if (commentEscapes(el.data)) {
+                    note(report.removedTags, "#comment");
+                    el.parentNode.removeChild(el);
+                }
+                continue;
+            }
 
             var tag = (el.localName || el.nodeName || "").toLowerCase();
 
@@ -37606,7 +38855,7 @@ function RTE_Plugin_Sanitizer() {
                 note(report.removedTags, tag);
                 el.parentNode.removeChild(el);
                 continue;
-            } else if (!ALLOWED_TAGS[tag] && !allowExtra[tag]) {
+            } else if (!ALLOWED_TAGS[tag] && !allowExtra(tag)) {
                 // Unknown element: unwrap rather than delete, so the words a
                 // user typed inside a stray tag are not silently lost.
                 note(report.removedTags, tag);
@@ -37635,7 +38884,7 @@ function RTE_Plugin_Sanitizer() {
                     if (!isSafeUrl(value, tag, name)) { note(report.removedAttributes, tag + "[" + name + "]"); el.removeAttribute(attrs[k].name); }
                     continue;
                 }
-                if (!ALLOWED_ATTRS[name] && !attrExtra[name]) {
+                if (!ALLOWED_ATTRS[name] && !attrExtra(name)) {
                     note(report.removedAttributes, name);
                     el.removeAttribute(attrs[k].name);
                 }
@@ -37748,6 +38997,44 @@ function RTE_Plugin_Sanitizer() {
     // Measured: the payload ran locally AND replicated to the peer with its
     // onerror attribute intact.
     //
+    // THREAT MODEL -- read this before tightening or loosening the rule below.
+    //
+    // An escaping comment CANNOT BE AUTHORED AS AN HTML STRING. Feed
+    // `<!--x--> <img src=q onerror=...>-->` to setHTMLCode and the parser yields
+    // comment("x") + text + a normal <img> element, which the element/attribute
+    // filters already handle. The ONLY way to obtain a comment node whose data
+    // escapes is programmatic DOM construction -- document.createComment(), or a
+    // sync layer building nodes directly.
+    //
+    // That is why the guard lives on the DOM-level paths (the sanitise pass and the
+    // live-DOM MutationObserver) and why the string paths need nothing extra. Both
+    // string directions were measured: sender getHTMLCode, receiver setHTMLCode, and
+    // the receiver's live DOM all yield zero executable attributes, because
+    // wrapSerializers() and wrapSetters() filter on the way out and on the way in.
+    //
+    // The previous rule here deleted EVERY comment, justified only by the remark
+    // "comments can hide markup". That is false -- serialise
+    // <!--<script>alert(1)</script>--> and re-parse it and the script is inert -- and
+    // it cost the product CMS round-tripping and Outlook conditional comments (the
+    // mechanism emailtoolkit.js needs) for as long as nobody re-checked it. An
+    // unexplained restriction outlives its reason, so this one is written down.
+    //
+    // A comment's data is written verbatim between <!-- and -->, so data that
+    // contains a terminator (or opens with one) breaks out of the comment when the
+    // serialised output is re-parsed, turning the remainder into live markup.
+    // Module scope on purpose: both the sanitiser pass and the live-DOM
+    // MutationObserver below need it, and they must agree exactly on what is unsafe.
+    // Deliberately conservative -- it rejects rather than rewrites, because silently
+    // editing someone's comment text is its own kind of surprise.
+    function commentEscapes(data) {
+        var d = String(data == null ? "" : data);
+        if (d.indexOf("-->") !== -1) return true;
+        if (d.indexOf("--!>") !== -1) return true;
+        if (d.charAt(0) === ">") return true;
+        if (d.charAt(0) === "-" && d.charAt(1) === ">") return true;
+        return false;
+    }
+
     // A MutationObserver is the only place to catch every arrival path — sync,
     // drop, a third-party plugin, host-page code. It is honest to say this
     // narrows the window rather than closing it completely: the observer runs
@@ -37798,6 +39085,16 @@ function RTE_Plugin_Sanitizer() {
                 }
                 for (var a = 0; a < rec.addedNodes.length; a++) {
                     var node = rec.addedNodes[a];
+                    // Comments are preserved now, so an injected comment whose data
+                    // escapes on re-parse has to wake the sanitiser. This loop used
+                    // to skip every non-element node, which was safe only while
+                    // comments were being deleted unconditionally. The CRDT sync
+                    // path is exactly how a node arrives here without passing the
+                    // input filter -- that is the path that produced the stored XSS.
+                    if (node.nodeType === 8) {
+                        if (commentEscapes(node.data)) { suspect = true; break; }
+                        continue;
+                    }
                     if (node.nodeType !== 1) continue;      // typing inserts text: free
                     if (looksDangerous(node)) { suspect = true; break; }
                 }
@@ -37846,6 +39143,269 @@ function RTE_Plugin_Sanitizer() {
 
 if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
 
+// 2026-08-30 Shadow DOM support — make the editor usable inside a shadow root.
+//
+// TinyMCE documents shadow-DOM support as a supported integration; we had none
+// under any name. Design systems, micro-frontends and anything built as a custom
+// element put their markup inside a shadow root, and that is where this editor
+// was quietly broken.
+//
+// Measured before writing a line of it, on a real instance in Chromium:
+//
+//   | mounted in            | toolbar height | font              |
+//   |-----------------------|----------------|-------------------|
+//   | the page (light DOM)  | 82 px          | system-ui         |
+//   | a shadow root         | 45,468 px      | Times New Roman   |
+//
+// So it is not "mostly fine". The editor CONSTRUCTS, the iframe appears, and
+// setHTMLCode/getHTMLCode round-trip correctly — which is exactly why this was
+// never noticed — but a style boundary is a wall: `<link rel=stylesheet>` in the
+// document head does not cross into a shadow root, so every rule in
+// rte_theme_default.css misses, and the toolbar renders as a 45,000-pixel column
+// of unstyled buttons.
+//
+// The fix is to put the editor's own stylesheets on the inside of the wall too.
+//
+// Design notes:
+//   - <link> clones, not fetch + CSSStyleSheet. Constructing a stylesheet means
+//     fetching the CSS with JS, which needs CORS on a CDN-hosted theme and fails
+//     closed — a cloned <link> hits the HTTP cache, needs no CORS, and works on
+//     every browser that has shadow DOM at all. adoptedStyleSheets is used only
+//     for sheets already adopted by the document, which have no URL to clone.
+//   - Only the EDITOR's stylesheets are copied. Cloning the whole head into a
+//     shadow root would undo the encapsulation the integrator chose it for. A
+//     sheet counts as ours by origin — served from the folder rte.js was loaded
+//     from — plus an `rte-`/`__rte` element id, the same origin-based test that
+//     importstyles.js had to arrive at after prefix matching failed.
+//   - A MutationObserver keeps watching the head. Plugins inject their styles
+//     lazily, when their panel first opens — the accessibility checker and the AI
+//     toolkit both do — so a one-shot copy at init produces a styled toolbar and
+//     an unstyled dialog half an hour later, which is a worse bug to diagnose
+//     than a wholly unstyled editor.
+//   - Nothing is copied when the editor is NOT in a shadow root, and the
+//     observer is not even created. This plugin must cost nothing for the 99%.
+RTE_DefaultConfig.plugin_shadowdom = RTE_Plugin_ShadowDom;
+
+// Copy the editor's stylesheets into the shadow root that contains it.
+if (typeof RTE_DefaultConfig.shadowStyleAdoption === "undefined") RTE_DefaultConfig.shadowStyleAdoption = true;
+// Extra stylesheet URLs to copy in as well (an integrator's own skin overrides).
+if (typeof RTE_DefaultConfig.shadowStyleSources === "undefined") RTE_DefaultConfig.shadowStyleSources = null;
+
+function RTE_Plugin_ShadowDom() {
+    var obj = this;
+    var config, editor;
+    var root = null;
+    var observer = null;
+    var copied = null;
+
+    obj.PluginName = "ShadowDom";
+
+    obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+
+        // Public API — useful even outside a shadow root, for a host page that
+        // wants to style a second root (a dialog portal, a preview pane).
+        editor.getShadowRoot = function () { return findRoot(); };
+        editor.isInShadowDom = function () { return !!findRoot(); };
+        editor.adoptEditorStyles = function (target) { return adopt(target || findRoot(), true); };
+        editor.getAdoptedStyleCount = function () { return copied ? copied.size : 0; };
+
+        if (config && config.shadowStyleAdoption === false) return;
+
+        // The chrome is built asynchronously; the container may not exist yet.
+        whenReady(function () {
+            root = findRoot();
+            if (!root) return;
+            copied = new (window.Set || Array)();
+            adopt(root, false);
+            watchHead(root);
+        });
+    };
+
+    obj.Destroy = function () {
+        if (observer) { try { observer.disconnect(); } catch (e) {} observer = null; }
+    };
+
+    // ------------------------------------------------------------------ lookup
+
+    // The editor's container is the element the integrator passed in; from the
+    // editing iframe it is the nearest ancestor carrying the editor's own class.
+    function container() {
+        try {
+            var editable = editor.getEditable();
+            var frame = editable && editable.ownerDocument && editable.ownerDocument.defaultView
+                ? editable.ownerDocument.defaultView.frameElement : null;
+            if (!frame) return null;
+            var node = frame;
+            while (node) {
+                if (node.classList && node.classList.contains("richtexteditor")) return node;
+                node = node.parentNode || node.host;
+            }
+            return frame;
+        }
+        catch (e) { return null; }
+    }
+
+    function findRoot() {
+        var el = container();
+        if (!el || typeof el.getRootNode !== "function") return null;
+        var r = el.getRootNode();
+        // A DocumentFragment with a `host` is a shadow root; a plain document is not.
+        return (r && r.host && r !== document) ? r : null;
+    }
+
+    function whenReady(callback) {
+        if (container()) { callback(); return; }
+        var tries = 0;
+        var timer = window.setInterval(function () {
+            if (container() || ++tries > 100) { window.clearInterval(timer); callback(); }
+        }, 50);
+    }
+
+    // ------------------------------------------------------------------ adopt
+
+    // Where rte.js itself was served from. Everything under that folder is ours.
+    function assetBase() {
+        try {
+            var scripts = document.getElementsByTagName("script");
+            for (var i = 0; i < scripts.length; i++) {
+                var src = scripts[i].src || "";
+                if (/(^|\/)rte(\.min)?\.js(\?|$)/.test(src)) return src.replace(/[^\/]*$/, "");
+            }
+        }
+        catch (e) {}
+        return null;
+    }
+
+    function isOurs(node) {
+        var id = String(node.id || "");
+        if (/^rte[-_]|^__rte/.test(id)) return true;
+        var href = node.href || "";
+        if (!href) {
+            // An inline <style> with no id and no href is what bundlers (Vite,
+            // webpack style-loader) inject for an imported theme. Recognise it by
+            // its content, or a shadow-root editor is unstyled (39,726 px toolbar,
+            // Times New Roman) exactly as before this plugin existed. 2026-09-02.
+            if (node.tagName === "STYLE") {
+                var css = node.textContent || "";
+                return /[.]richtexteditor|rte-toolbar|rte-editor|rte-dialog|[.]rte-a11y/.test(css);
+            }
+            return false;
+        }
+        var base = assetBase();
+        if (base && href.indexOf(base) === 0) return true;
+        // Fall back to the file names this product actually ships, so an
+        // integrator who renamed or re-hosted the folder still gets styled
+        // chrome rather than a silent 45,000-pixel toolbar.
+        return /rte_theme|rte_mobile|richtexteditor_content|richtexteditor_preview|aitoolkit/.test(href);
+    }
+
+    function extraSources() {
+        var list = (config && config.shadowStyleSources) || null;
+        if (!list) return [];
+        return typeof list === "string" ? [list] : list;
+    }
+
+    function key(node) {
+        return (node.href || "") + "|" + (node.id || "") + "|" + (node.textContent || "").length;
+    }
+
+    function has(k) {
+        return copied && (copied.has ? copied.has(k) : copied.indexOf(k) >= 0);
+    }
+
+    function remember(k) {
+        if (!copied) return;
+        if (copied.add) copied.add(k); else copied.push(k);
+    }
+
+    function adopt(target, force) {
+        if (!target) return 0;
+        if (!copied) copied = new (window.Set || Array)();
+        var added = 0;
+        var nodes = document.querySelectorAll("link[rel~=stylesheet],style");
+
+        for (var i = 0; i < nodes.length; i++) {
+            var node = nodes[i];
+            if (!isOurs(node)) continue;
+            var k = key(node);
+            if (!force && has(k)) continue;
+            if (has(k)) continue;
+            target.appendChild(cloneSheet(node, target));
+            remember(k);
+            added++;
+        }
+
+        var extras = extraSources();
+        for (var e = 0; e < extras.length; e++) {
+            var ek = "extra|" + extras[e];
+            if (has(ek)) continue;
+            var link = document.createElement("link");
+            link.rel = "stylesheet";
+            link.href = extras[e];
+            link.setAttribute("data-rte-adopted", "1");
+            target.appendChild(link);
+            remember(ek);
+            added++;
+        }
+
+        // Sheets the page adopted programmatically have no URL to clone, so they
+        // are re-adopted by reference where the browser supports it.
+        try {
+            if (target.adoptedStyleSheets && document.adoptedStyleSheets && document.adoptedStyleSheets.length) {
+                var merged = target.adoptedStyleSheets.slice();
+                for (var a = 0; a < document.adoptedStyleSheets.length; a++) {
+                    if (merged.indexOf(document.adoptedStyleSheets[a]) < 0) merged.push(document.adoptedStyleSheets[a]);
+                }
+                target.adoptedStyleSheets = merged;
+            }
+        }
+        catch (e2) {}
+
+        return added;
+    }
+
+    function cloneSheet(node, target) {
+        if (node.tagName === "LINK") {
+            var link = document.createElement("link");
+            link.rel = "stylesheet";
+            // Resolved (absolute) href — a relative one would resolve against the
+            // document anyway, but being explicit survives a <base> element.
+            link.href = node.href;
+            if (node.media) link.media = node.media;
+            link.setAttribute("data-rte-adopted", "1");
+            return link;
+        }
+        var style = document.createElement("style");
+        style.textContent = node.textContent;
+        if (node.id) style.setAttribute("data-rte-source-id", node.id);
+        style.setAttribute("data-rte-adopted", "1");
+        return style;
+    }
+
+    // A plugin's <style> arrives when its panel first opens, long after init.
+    function watchHead(target) {
+        if (!window.MutationObserver) return;
+        observer = new MutationObserver(function (records) {
+            var interesting = false;
+            for (var i = 0; i < records.length && !interesting; i++) {
+                var added = records[i].addedNodes || [];
+                for (var j = 0; j < added.length; j++) {
+                    var n = added[j];
+                    if (n.nodeType !== 1) continue;
+                    if ((n.tagName === "STYLE" || n.tagName === "LINK") && isOurs(n)) { interesting = true; break; }
+                }
+            }
+            if (interesting) adopt(target, false);
+        });
+        observer.observe(document.head || document.documentElement, { childList: true, subtree: true });
+    }
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
 RTE_DefaultConfig.plugin_slashcommand = RTE_Plugin_SlashCommand;
 
 function RTE_Plugin_SlashCommand() {
@@ -37881,7 +39441,7 @@ function RTE_Plugin_SlashCommand() {
         editor.slashCommands = {
             register: registerCommand,
             remove: removeCommand,
-            list: function () { return commands.slice(); },
+            list: function () { refreshDefaults(); return commands.slice(); },
             open: function () { openPopup(true); },
             close: closePopup,
             isOpen: function () { return !!popupEl; }
@@ -37893,6 +39453,15 @@ function RTE_Plugin_SlashCommand() {
                 registerCommand(config.slashCommands[i]);
             }
         }
+        // Plugins initialise synchronously in bundle (alphabetical) order, so at
+        // this point every plugin sorting AFTER "slashcommand" (tabletools,
+        // textdirection, watermark, tableofcontents, typewriter, ...) has not
+        // defined its editor.* API yet and the typeof gates in
+        // buildDefaultCommands() were false: nine entries (sort asc/desc, rtl/
+        // ltr/autodir, watermark, toc, typewriter, focusmode) were missing for
+        // every customer until 2026-09-02. Rebuild once the constructor has
+        // finished (setTimeout 0 runs after all plugin inits) and again on open.
+        setTimeout(refreshDefaults, 0);
 
         injectStyles();
 
@@ -37915,7 +39484,26 @@ function RTE_Plugin_SlashCommand() {
         else commands.push(normalizeCommand(def));
     }
 
+    var removedIds = {};
+    // Rebuild the gated default entries (their typeof checks may only be true
+    // now) while keeping every custom registration and honouring remove().
+    function refreshDefaults() {
+        if (!editor) return;
+        var custom = [];
+        for (var i = 0; i < commands.length; i++) if (!commands[i]._default) custom.push(commands[i]);
+        var defaults = buildDefaultCommands();
+        var next = [];
+        for (var d = 0; d < defaults.length; d++) {
+            var id = defaults[d].id;
+            if (removedIds[id]) continue;
+            var overridden = false;
+            for (var c = 0; c < custom.length; c++) if (custom[c].id === id) { overridden = true; break; }
+            if (!overridden) next.push(defaults[d]);
+        }
+        commands = next.concat(custom);
+    }
     function removeCommand(id) {
+        removedIds[id] = true;
         var idx = findCommandIndex(id);
         if (idx >= 0) commands.splice(idx, 1);
     }
@@ -37925,12 +39513,25 @@ function RTE_Plugin_SlashCommand() {
         return -1;
     }
 
+    // Localization with an English fallback for EVERY entry (defaults, plugin
+    // register() calls, AI actions, config.slashCommands): the lang packs set
+    // config.text_<key>; __GetLangText returns the raw KEY when one is missing,
+    // so resolve only when a translation exists. Keys: text_slash_<id> (title),
+    // text_slash_<id>_desc (description), text_slash_section_<section>.
+    function L(key, fallback) {
+        try {
+            var k = String(key).toLowerCase().replace(/[^a-z0-9_]/g, "_");
+            if (config && config["text_" + k] && editor && typeof editor.getLangText === "function") return editor.getLangText(k);
+        } catch (e) { }
+        return fallback;
+    }
     function normalizeCommand(def) {
+        var section = def.section || "Blocks";
         return {
             id: def.id,
-            section: def.section || "Blocks",
-            title: def.title || def.id,
-            description: def.description || "",
+            section: L("slash_section_" + section, section),
+            title: L("slash_" + def.id, def.title || def.id),
+            description: L("slash_" + def.id + "_desc", def.description || ""),
             keywords: (def.keywords || []).slice(),
             icon: def.icon || "",
             iconSvg: def.iconSvg || "",
@@ -37981,11 +39582,13 @@ function RTE_Plugin_SlashCommand() {
         var list = [];
 
         function push(section, id, title, description, keywords, iconSvg, run) {
-            list.push(normalizeCommand({
+            var cmd = normalizeCommand({ // normalizeCommand localizes title/description/section
                 id: id, section: section, title: title,
                 description: description, keywords: keywords,
                 iconSvg: iconSvg, run: run
-            }));
+            });
+            cmd._default = true;
+            list.push(cmd);
         }
 
         push("Blocks", "heading1", "Heading 1", "Large section heading", ["h1", "title"], iconHeading("1"),
@@ -38091,6 +39694,14 @@ function RTE_Plugin_SlashCommand() {
             push("Tools", "tablerownumbers", "Number table rows", "Add or remove an automatic row-numbering column", ["number", "rows", "table", "count", "index"], iconSort(),
                 function () { editor.execCommand("tablerownumbers"); });
         }
+        if (typeof editor.setTableLayoutMode === "function") {
+            push("Insert", "layouttable", "Layout table", "Insert a borderless table for positioning content (role=presentation)", ["layout", "table", "grid", "email", "columns", "presentation"], iconTable(),
+                function () { editor.insertLayoutTable(2, 2); });
+            push("Tools", "tablelayoutmode", "Mark table as layout", "This table only positions content — stop screen readers announcing it as data", ["layout", "table", "presentation", "accessibility", "screen reader"], iconTable(),
+                function () { editor.setTableLayoutMode("layout"); });
+            push("Tools", "tabledatamode", "Mark table as data", "This table states relationships — restore its header cells", ["data", "table", "header", "accessibility"], iconTable(),
+                function () { editor.setTableLayoutMode("data", null, { promoteFirstRow: true }); });
+        }
         if (typeof editor.moveBlockUp === "function") {
             push("Tools", "moveblockup", "Move block up", "Move this paragraph or block above the previous one (Alt+Shift+Up)", ["move", "block", "up", "reorder", "drag"], iconMoveBlock(),
                 function () { editor.moveBlockUp(); });
@@ -38193,7 +39804,8 @@ function RTE_Plugin_SlashCommand() {
         // Gated on the API rather than registered by the plugin itself: plugins
         // initialise in bundle order, so anything sorting before "slashcommand"
         // would call slashCommands.register() before it exists and vanish from
-        // this menu without any error. This check runs when the menu opens.
+        // this menu without any error. These checks are re-run by refreshDefaults()
+        // after all plugins have initialised and again each time the menu opens.
         if (typeof editor.exportToPdf === "function") {
             push("Tools", "exportpdf", "Export to PDF", "Real text, not a screenshot — selectable, searchable and screen-reader friendly", ["pdf", "export", "download", "save", "print", "text", "accessible", "searchable"], iconPdfText(),
                 function () { editor.exportToPdf(); });
@@ -38201,6 +39813,32 @@ function RTE_Plugin_SlashCommand() {
         if (typeof editor.exportToDocx === "function") {
             push("Tools", "exportdocx", "Export to Word (.docx)", "A real OOXML document, built in the browser with no upload", ["word", "docx", "ooxml", "export", "download", "save", "office"], iconWordFile(),
                 function () { editor.exportToDocx(); });
+        }
+        // documentimport.js and readabilitystats.js sort before this file, so they
+        // cannot register at init (editor.slashCommands does not exist yet); their
+        // guarded calls silently did nothing and these two entries were missing for
+        // every customer until 2026-09-02. Declared here, gated on the plugin API.
+        if (typeof editor.openImportDialog === "function") {
+            push("Tools", "import-document", "Import document", "Open a Markdown, HTML, text, or Word file into the editor", ["import", "open", "file", "word", "docx", "markdown", "upload"], iconWordFile(),
+                function () { editor.openImportDialog({}); });
+        }
+        if (typeof editor.getReadabilityStats === "function") {
+            push("Tools", "readability-stats", "Readability statistics", "Flesch reading ease, grade level, and reading time", ["readability", "flesch", "grade", "reading", "stats", "score"], iconSpell(),
+                function () { editor.execCommand("readability"); });
+        }
+        // Marketed features that had NO toolbar button and NO slash entry (reachable
+        // only via the API) until 2026-09-02. All gated on the owning plugin.
+        if (typeof editor.insertCrossReference === "function") {
+            push("Insert", "crossreference", "Cross-reference", "Insert a live reference to a heading, figure, table, or bookmark", ["cross", "reference", "xref", "see", "figure", "heading"], iconXref(),
+                function () { editor.execCommand("insertcrossreference"); });
+        }
+        if (editor.restrictedEditing) {
+            push("Tools", "restrictedediting", "Restricted editing", "Lock the document and mark only the regions others may edit", ["restrict", "lock", "protect", "editable", "region", "permission"], iconPen(),
+                function () { editor.execCommand("restrictedediting"); });
+        }
+        if (editor.dictation) {
+            push("Tools", "dictation", "Dictation", "Speak and have your words typed into the document", ["dictate", "speech", "voice", "microphone", "talk"], iconReadAloud(),
+                function () { editor.execCommand("dictation"); });
         }
         if (typeof editor.copyAsMarkdown === "function") {
             push("Tools", "copymarkdown", "Copy as Markdown", "Copy the whole document to the clipboard as Markdown", ["markdown", "md", "copy", "clipboard", "export"], iconMarkdown(),
@@ -38333,6 +39971,7 @@ function RTE_Plugin_SlashCommand() {
     }
 
     function openPopup(manual) {
+        refreshDefaults();
         closePopup();
         var sel = editor.getSelection();
         if (!sel || sel.rangeCount === 0) return;
@@ -42049,7 +43688,9 @@ function RTE_Plugin_WordExport() {
             "table { border-collapse: collapse; }\r\n" +
             "td, th { border: 1px solid #999; padding: 4px 8px; }\r\n" +
             "img { max-width: 100%; height: auto; }\r\n" +
-            "blockquote { border-left: 3px solid #ccc; margin-left: 0; padding-left: 12px; color: #444; }\r\n" +
+            // margin-left was zeroed here, which also flattened any indentation
+            // expressed as a margin. Keep the quote bar, keep the offset.
+            "blockquote { border-left: 3px solid #ccc; padding-left: 12px; color: #444; }\r\n" +
             "pre { font-family: Consolas, 'Courier New', monospace; background: #f4f4f4; padding: 8px; }\r\n" +
             "</style>\r\n" +
             "</head>\r\n" +
@@ -42248,9 +43889,42 @@ function RTE_Plugin_YjsCollab() {
         // and the review ledger bridge.
         if (session.textSyncMode === "crdt") {
             try {
+                // 2026-09-02: the engine bundles its OWN Yjs and builds nodes with it.
+                // A doc built by the host's Yjs (npm/esm "yjs" + y-websocket - the
+                // documented path) is a FOREIGN instance: inserting engine-built nodes
+                // into it throws "Unexpected content type in insert operation" and text
+                // never syncs, while presence still works and the status still said
+                // "crdt". Yjs updates are instance-independent bytes, so bind the
+                // engine to an inner doc built with ITS Yjs and bridge updates both
+                // ways: host->inner with the engine's applyUpdate, inner->host with the
+                // host's module (options.Y or window.Y). Without the host module the
+                // outbound leg cannot be applied safely, so fail LOUDLY instead.
+                var engineY = window.RichTextEditorCrdt.Y || null;
+                var hostY = options.Y || (typeof window !== "undefined" ? window.Y : null) || null;
+                var bindDoc = doc;
+                var foreign = !!(engineY && engineY.Doc && !(doc instanceof engineY.Doc));
+                if (foreign) {
+                    if (!hostY || typeof hostY.applyUpdate !== "function" || typeof hostY.encodeStateAsUpdate !== "function") {
+                        throw new Error("yjscollab: the Y.Doc was created by a different Yjs instance than crdt-engine.js bundles. Pass your Yjs module to attach({ Y }) (or build the doc with window.RichTextEditorCrdt.Y) so text can be bridged.");
+                    }
+                    var BRIDGE = { bridge: "rte-yjs-bridge" };
+                    var inner = new engineY.Doc();
+                    engineY.applyUpdate(inner, hostY.encodeStateAsUpdate(doc), BRIDGE);
+                    var LOCAL = window.RichTextEditorCrdt.LOCAL_ORIGIN;
+                    // A host-doc write the plugin tagged as LOCAL (ledger entries) must not
+                    // make the engine re-render the editable (see flush race in the engine).
+                    var hostToInner = function (update, origin) { if (origin === BRIDGE) return; try { engineY.applyUpdate(inner, update, (LOCAL && origin === LOCAL) ? LOCAL : BRIDGE); } catch (e) { if (window.console) console.error("yjscollab bridge host->inner:", e); } };
+                    var innerToHost = function (update, origin) { if (origin === BRIDGE) return; try { hostY.applyUpdate(doc, update, BRIDGE); } catch (e) { if (window.console) console.error("yjscollab bridge inner->host:", e); } };
+                    doc.on("update", hostToInner);
+                    inner.on("update", innerToHost);
+                    session.cleanup.push(function () { try { doc.off("update", hostToInner); } catch (e) { } try { inner.off("update", innerToHost); } catch (e) { } try { inner.destroy(); } catch (e) { } });
+                    session.yjsBridge = true;
+                    bindDoc = inner;
+                    if (window.console && console.info) console.info("yjscollab: bridging a foreign Yjs doc into the CRDT engine (updates relayed both ways).");
+                }
                 session.crdtBinding = window.RichTextEditorCrdt.attachCrdtBinding({
                     editable: editor.getEditable(),
-                    ydoc: doc,
+                    ydoc: bindDoc,
                     provider: provider,
                     awareness: provider.awareness,
                     fragmentName: options.fragmentName || "default",
@@ -42263,6 +43937,24 @@ function RTE_Plugin_YjsCollab() {
                     try { session.crdtBinding && session.crdtBinding.dispose(); }
                     catch (ignore) { }
                 });
+                // Per-author undo. The engine ships a Y.UndoManager scoped to LOCAL_ORIGIN
+                // (undo.ts) but nothing attached it, so Ctrl+Z ran the core DOM-snapshot
+                // undo and reverted OTHER people's edits on every peer (2026-09-02). Route
+                // undo/redo to the engine while crdt mode is active.
+                try {
+                    if (typeof window.RichTextEditorCrdt.attachUndoManager === "function" && session.crdtBinding && session.crdtBinding.fragment) {
+                        session.undoManager = window.RichTextEditorCrdt.attachUndoManager({ fragment: session.crdtBinding.fragment });
+                        var undoHook = function (state) { if (!session || !session.undoManager) return; state.returnValue = true; state.stopBubble = true; try { session.undoManager.undo(); } catch (e) { } };
+                        var redoHook = function (state) { if (!session || !session.undoManager) return; state.returnValue = true; state.stopBubble = true; try { session.undoManager.redo(); } catch (e) { } };
+                        editor.attachEvent("exec_command_undo", undoHook);
+                        editor.attachEvent("exec_command_redo", redoHook);
+                        session.cleanup.push(function () {
+                            try { if (typeof editor.detachEvent === "function") { editor.detachEvent("exec_command_undo", undoHook); editor.detachEvent("exec_command_redo", redoHook); } } catch (e) { }
+                            try { session.undoManager && session.undoManager.destroy(); } catch (e) { }
+                            session.undoManager = null;
+                        });
+                    }
+                } catch (undoErr) { if (window.console) console.warn("yjscollab: undo manager not attached:", undoErr); }
             } catch (err) {
                 session.fallbackReason = "crdt-attach-failed";
                 session.crdtError = err;
@@ -42295,7 +43987,7 @@ function RTE_Plugin_YjsCollab() {
         }
         return {
             attached: true,
-            textSyncMode: session.textSyncMode,
+            textSyncMode: session.textSyncMode, yjsBridge: !!session.yjsBridge,
             requestedTextSync: session.requestedTextSync,
             fallbackReason: session.fallbackReason || null,
             peerCount: getRemotePeers().length
@@ -42540,6 +44232,52 @@ function RTE_Plugin_YjsCollab() {
             lastKnownHtml = localInitial;
         }
 
+        // --- IME composition gate (legacy snapshot mode) ---------------------
+        // setEditorHtml() replaces the whole document. Doing that while an IME
+        // is composing swaps the live text node out from under it, so the
+        // commit lands at a stale offset and the raw buffer survives: composing
+        // "shi" and committing a character while a collaborator typed produced
+        // "Xbasesh<char>i" on BOTH peers (2026-09-03 — the same corruption the
+        // crdt binding had, on the deprecated-but-supported path v2.0 customers
+        // still run). Hold the repaint until the composition commits.
+        var composing = false;
+        var pendingRemoteHtml = null;
+        var compositionDoc = (editor.getDocument && editor.getDocument()) || null;
+        if (compositionDoc) {
+            var onCompStart = function () { composing = true; };
+            var onCompEnd = function () {
+                if (!composing) return;
+                composing = false;
+                setTimeout(function () {
+                    if (pendingRemoteHtml !== null) {
+                    // Deliberately NOT repainting: that would discard the
+                    // character the IME just committed. Adopt the remote text as
+                    // the diff baseline instead, so the local push that follows
+                    // is computed against what the peers actually hold. Legacy
+                    // mode is documented last-write-wins on same-paragraph
+                    // conflicts, so the local commit winning is correct here —
+                    // corrupted text was not.
+                        lastKnownHtml = pendingRemoteHtml;
+                        pendingRemoteHtml = null;
+                    }
+                    // Push explicitly. The commit's DOM mutation is delivered to
+                    // the MutationObserver BEFORE compositionend fires, so it was
+                    // dropped by the `composing` guard — without this the
+                    // committed character never reaches the peers at all
+                    // (measured: A "base<char>", B "base").
+                    onEditorMutation();
+                }, 0);
+            };
+            // Bound on the DOCUMENT, not the body: some skins remount the body
+            // (see attachMutationObserver below) and composition events bubble.
+            compositionDoc.addEventListener("compositionstart", onCompStart, true);
+            compositionDoc.addEventListener("compositionend", onCompEnd, true);
+            session.cleanup.push(function () {
+                compositionDoc.removeEventListener("compositionstart", onCompStart, true);
+                compositionDoc.removeEventListener("compositionend", onCompEnd, true);
+            });
+        }
+
         // Y.Text → editor.
         var onTextChange = function (event, transaction) {
             if (pushing) return;
@@ -42547,6 +44285,7 @@ function RTE_Plugin_YjsCollab() {
             if (transaction && transaction.local) return;
             var fresh = session.textMap.toString();
             if (fresh === lastKnownHtml) return;
+            if (composing) { pendingRemoteHtml = fresh; return; }
             setEditorHtml(fresh);
             lastKnownHtml = fresh;
             // 2026-05-28 setEditorHtml writes into editable.innerHTML; if that
@@ -42561,6 +44300,9 @@ function RTE_Plugin_YjsCollab() {
         // Editor DOM → Y.Text. Debounced so bursts collapse to one CRDT diff.
         var onEditorMutation = function () {
             if (applying) return;
+            // Intermediate IME buffers are not real edits; the commit fires its
+            // own mutation. Pushing them also races the composition gate above.
+            if (composing) return;
             if (pendingPushTimer) return;
             // 2026-05-28 Re-attach observer if the body was remounted since last
             // mutation. Cheap no-op when body is unchanged.
@@ -42648,17 +44390,17 @@ function RTE_Plugin_YjsCollab() {
 
         ledger.add = function (entry) {
             var result = originalAdd.call(ledger, entry);
-            if (result && !echoGuard) session.ledgerMap.set(result.id, cloneEntry(result));
+            if (result && !echoGuard) ledgerWrite(function () { session.ledgerMap.set(result.id, cloneEntry(result)); });
             return result;
         };
         ledger.update = function (id, patch) {
             var result = originalUpdate.call(ledger, id, patch);
-            if (result && !echoGuard) session.ledgerMap.set(result.id, cloneEntry(result));
+            if (result && !echoGuard) ledgerWrite(function () { session.ledgerMap.set(result.id, cloneEntry(result)); });
             return result;
         };
         ledger.remove = function (id) {
             var result = originalRemove.call(ledger, id);
-            if (result && !echoGuard) session.ledgerMap.delete(id);
+            if (result && !echoGuard) ledgerWrite(function () { session.ledgerMap.delete(id); });
             return result;
         };
 
@@ -42692,6 +44434,16 @@ function RTE_Plugin_YjsCollab() {
         });
     }
 
+    // Ledger writes are the plugin's own (non-text) Y.Doc transactions. In crdt
+    // mode they are tagged with the engine's LOCAL_ORIGIN so the engine does not
+    // re-render the editable for them - a re-render between a DOM mutation and
+    // the observer flush discarded that mutation (2026-09-02: comment anchors
+    // vanished the instant the ledger entry was written).
+    function ledgerWrite(fn) {
+        var origin = (session && session.textSyncMode === "crdt" && window.RichTextEditorCrdt) ? window.RichTextEditorCrdt.LOCAL_ORIGIN : null;
+        if (origin && session && session.doc && typeof session.doc.transact === "function") { session.doc.transact(fn, origin); }
+        else { fn(); }
+    }
     function seedLedgerFromRemote() {
         if (!editor.reviewLedger || !session.ledgerMap) return;
         echoGuard = true;
