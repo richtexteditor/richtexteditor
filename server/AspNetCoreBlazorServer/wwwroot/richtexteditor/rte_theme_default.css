@@ -2245,6 +2245,29 @@ rte-floatpanel.rte-floatpanel-paragraphop {
         }
 
 
+/* Group heading inside a Quick Styles dropdown. Visual only - the element
+   carries role="presentation" and aria-hidden, so it labels the items beneath
+   it without becoming a fake choice a screen-reader user can land on. */
+.rte-dropdown-heading {
+    padding: 6px 10px 2px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #6b7280;
+    cursor: default;
+    user-select: none;
+}
+.rte-dropdown-heading:not(:first-child) {
+    margin-top: 4px;
+    border-top: 1px solid #e5e7eb;
+    padding-top: 8px;
+}
+/* Items belonging to a group. Indent only - not a flyout submenu. */
+.rte-dropdown-item-nested {
+    padding-left: 22px;
+}
+
 .rte-current-item {
     background-color: #eef2f7;
 }

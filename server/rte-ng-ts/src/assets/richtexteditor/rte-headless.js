@@ -10,6 +10,7 @@
  *   - a chrome-less editing surface (toolbar / sub-toolbar / status bar hidden)
  *   - run(command, value)         -> dispatch any RTE command
  *   - isActive(name) / state()    -> query active formatting for your buttons
+ *   - onFormatChange(cmds, cb)   -> subscribe to state changes; returns unsubscribe
  *   - can(command)                -> queryCommandEnabled (undo/redo/...)
  *   - on("update" | "change" | "selectionchange" | "focus" | "blur", cb)
  *   - getHTML / setHTML / getText / setText / getMarkdown / setMarkdown / getJSON
@@ -266,6 +267,36 @@
         return String(this.getText() || "").replace(/\s+/g, "").length === 0;
     };
 
+    // Subscribe to formatting-state changes instead of polling isActive() on a
+    // timer or on every keystroke. This is the piece a bring-your-own-UI
+    // consumer actually needs: without it, a custom toolbar has to guess when to
+    // re-read state, which is why TinyMCE exposes formatChanged().
+    //
+    // Returns an unsubscribe function. Call it when your component unmounts - a
+    // framework component that leaks the callback keeps firing into a dead tree.
+    HeadlessController.prototype.onFormatChange = function (commands, callback) {
+        var noop = function () { };
+        if (typeof callback !== "function") return noop;
+        // Fall back to the destroy-aware no-op rather than throwing when the
+        // core predates this API, so a consumer on an older rte.js degrades to
+        // "no live updates" instead of a crash on construction.
+        if (!this.editor || typeof this.editor.formatChanged !== "function") return noop;
+        var self = this;
+        var off = this.editor.formatChanged(commands, function (state, info) {
+            if (self._destroyed) return;
+            callback(state, info);
+        });
+        this._formatOffs = this._formatOffs || [];
+        this._formatOffs.push(off);
+        return function () {
+            try { off(); } catch (e) { /* ignore */ }
+            if (self._formatOffs) {
+                var ix = self._formatOffs.indexOf(off);
+                if (ix !== -1) self._formatOffs.splice(ix, 1);
+            }
+        };
+    };
+
     HeadlessController.prototype.focus = function () {
         try { this.editor.focus(); } catch (e) { /* ignore */ }
         return this;
@@ -274,6 +305,15 @@
     HeadlessController.prototype.destroy = function () {
         this._destroyed = true;
         this._handlers = {};
+        // Drop format subscriptions here too: _destroyed alone only silences the
+        // callback, it does not stop the core from evaluating the commands on
+        // every toolbar refresh for a controller nobody is using any more.
+        if (this._formatOffs) {
+            for (var fi = 0; fi < this._formatOffs.length; fi++) {
+                try { this._formatOffs[fi](); } catch (e) { /* ignore */ }
+            }
+            this._formatOffs = null;
+        }
         if (this._boundDoc && this._docListeners) {
             for (var i = 0; i < this._docListeners.length; i++) {
                 try { this._boundDoc.removeEventListener(this._docListeners[i][0], this._docListeners[i][1], true); } catch (e) {}

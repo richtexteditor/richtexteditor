@@ -951,6 +951,25 @@ function RTE_Plugin_DocumentImport() {
                     var hv = hl.getAttributeNS(W, "val") || hl.getAttribute("w:val") || "";
                     if (hv && hv !== "none") css += "background-color:" + hv + ";";
                 }
+                // w:shd is the OTHER way Word carries a background, and it is the
+                // one our own exporter writes (w:highlight only accepts a fixed
+                // set of colour NAMES, shd takes any hex). Reading only
+                // w:highlight meant every highlight we exported came back
+                // unhighlighted - the two sides used different vocabulary for the
+                // same thing.
+                var shd = firstChildEl(rpr, "shd");
+                if (shd) {
+                    var fill = shd.getAttributeNS(W, "fill") || shd.getAttribute("w:fill") || "";
+                    if (fill && /^[0-9A-Fa-f]{6}$/.test(fill)) css += "background-color:#" + fill + ";";
+                }
+                // Monospace run -> inline code. Our exporter marks <code>/<kbd>/
+                // <samp>/<pre> with w:rFonts Consolas; nothing read it back.
+                var rf = firstChildEl(rpr, "rFonts");
+                if (rf) {
+                    var asc = rf.getAttributeNS(W, "ascii") || rf.getAttribute("w:ascii") || "";
+                    if (/consolas|courier|monospace|mono$/i.test(asc)) txt = "<code>" + txt + "</code>";
+                    else if (asc) css += "font-family:" + asc.replace(/[<>"]/g, "") + ";";
+                }
                 var sz = firstChildEl(rpr, "sz");
                 if (sz) {
                     var sv = parseInt(sz.getAttributeNS(W, "val") || sz.getAttribute("w:val") || "", 10);
@@ -1123,7 +1142,16 @@ function RTE_Plugin_DocumentImport() {
                 // without this they came back as plain <p> and the round-trip lost
                 // every blockquote. Match Quote / IntenseQuote / BlockQuote.
                 else if (/^(intense)?quote$|blockquote/i.test(v.replace(/\s+/g, ""))) info.quote = true;
+                // docxexport.js writes <w:pStyle w:val="Code"/> for <pre>; without
+                // this a code block came back as an ordinary paragraph and lost
+                // both its monospace and its whitespace.
+                else if (/^(code|sourcecode|htmlpre|preformatted)$/i.test(v.replace(/\s+/g, ""))) info.pre = true;
             }
+            // A horizontal rule is exported as an EMPTY paragraph carrying a
+            // bottom border - Word has no <hr>. Nothing read it back, so every
+            // rule became a stray blank paragraph on import.
+            var pbdr = firstChildEl(ppr, "pBdr");
+            if (pbdr && firstChildEl(pbdr, "bottom")) info.rule = true;
             var numPr = firstChildEl(ppr, "numPr");
             if (numPr) {
                 info.list = true;
@@ -1217,6 +1245,12 @@ function RTE_Plugin_DocumentImport() {
                     continue;
                 }
                 closeListsTo(0);
+                // Only a rule when the paragraph carries no text of its own -
+                // a bordered paragraph WITH content is a real bordered paragraph.
+                if (st.rule && !(inner || "").replace(/<[^>]*>/g, "").trim()) {
+                    closeListsTo(0); out.push("<hr>"); continue;
+                }
+                if (st.pre) { out.push("<pre>" + (inner || "<br>") + "</pre>"); continue; }
                 if (st.heading) {
                     // Headings carry w:ind too; without this an indented
                     // heading imported flush left.

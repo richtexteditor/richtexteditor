@@ -194,7 +194,7 @@ function RTE_Plugin_DocxExport() {
             bold: inherited.bold, italic: inherited.italic, underline: inherited.underline,
             strike: inherited.strike, sizeHalfPoints: inherited.sizeHalfPoints,
             color: inherited.color, highlight: inherited.highlight, vertAlign: inherited.vertAlign,
-            mono: inherited.mono
+            mono: inherited.mono, font: inherited.font
         };
         var tag = node.tagName ? node.tagName.toLowerCase() : "";
         if (tag === "b" || tag === "strong") s.bold = true;
@@ -204,6 +204,10 @@ function RTE_Plugin_DocxExport() {
         if (tag === "sup") s.vertAlign = "superscript";
         if (tag === "sub") s.vertAlign = "subscript";
         if (tag === "code" || tag === "kbd" || tag === "samp" || tag === "pre") s.mono = true;
+        // <mark> carries no inline style, so the CSS branch below never sees it
+        // and highlighted text was dropped entirely on export. Word's own
+        // default highlight is yellow.
+        if (tag === "mark") s.highlight = s.highlight || "FFFF00";
 
         var css = node.style;
         if (css) {
@@ -214,6 +218,12 @@ function RTE_Plugin_DocxExport() {
             if (deco.indexOf("line-through") >= 0) s.strike = true;
             if (css.color) { var c = hexColor(css.color); if (c) s.color = c; }
             if (css.backgroundColor) { var h = hexColor(css.backgroundColor); if (h) s.highlight = h; }
+            // Font family was read by nothing, so an exported document lost every
+            // typeface choice. Word wants ONE family name, not a CSS stack.
+            if (css.fontFamily) {
+                var fam = String(css.fontFamily).split(",")[0].replace(/^\s*['"]?|['"]?\s*$/g, "");
+                if (fam) s.font = fam;
+            }
             if (css.fontSize) {
                 var pt = cssToPoints(css.fontSize);
                 // w:sz is in HALF-POINTS. Writing points here makes every
@@ -250,7 +260,10 @@ function RTE_Plugin_DocxExport() {
 
     function runProps(s) {
         var p = "";
-        if (s.mono) p += '<w:rFonts w:ascii="Consolas" w:hAnsi="Consolas"/>';
+        // One rFonts element only: mono wins, because <code> inside a styled span
+        // should still read as code.
+        var fontName = s.mono ? "Consolas" : (s.font || "");
+        if (fontName) p += '<w:rFonts w:ascii="' + esc(fontName) + '" w:hAnsi="' + esc(fontName) + '"/>';
         if (s.bold) p += "<w:b/>";
         if (s.italic) p += "<w:i/>";
         if (s.underline) p += '<w:u w:val="single"/>';
@@ -668,7 +681,17 @@ function RTE_Plugin_DocxExport() {
             for (var i = 0; i < node.childNodes.length; i++) {
                 var li = node.childNodes[i];
                 if (li.nodeType !== 1 || li.tagName.toLowerCase() !== "li") continue;
-                xml += para(li, styleFrom(li, style), { numId: numId, level: level, pageBreakBefore: pendingBreak });
+                // Serialise the item's OWN content only. para() walks every
+                // descendant, so passing the whole <li> emitted the nested list's
+                // text here AND again as its own items below - a round trip turned
+                // "xx" with a child "yy" into "xxyy". Content duplication, not loss.
+                var own = li.ownerDocument.createElement("li");
+                for (var k = 0; k < li.childNodes.length; k++) {
+                    var ch = li.childNodes[k];
+                    if (ch.nodeType === 1 && /^(ul|ol)$/.test(ch.tagName.toLowerCase())) continue;
+                    own.appendChild(ch.cloneNode(true));
+                }
+                xml += para(own, styleFrom(li, style), { numId: numId, level: level, pageBreakBefore: pendingBreak });
                 pendingBreak = false;
                 for (var j = 0; j < li.childNodes.length; j++) {
                     var sub = li.childNodes[j];
