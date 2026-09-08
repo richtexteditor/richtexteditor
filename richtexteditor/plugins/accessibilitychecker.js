@@ -522,7 +522,129 @@ function RTE_Plugin_AccessibilityChecker() {
                 }
             }
 
+
+            // 2026-09-07 COLOUR CONTRAST (WCAG 1.4.3). The most-cited criterion in
+            // any accessibility audit and the checker had no rule for it -- and
+            // our own comparison page once claimed one, which had to be retracted.
+            //
+            // Only INLINE colour is judged. Contrast against a stylesheet the
+            // editor cannot see would be a guess, and a checker that guesses
+            // teaches people to ignore it. Where no background is declared on the
+            // element or an ancestor, white is assumed and stated in the message,
+            // because that is the editing surface's own ground.
+            var coloured = node.querySelectorAll ? node.querySelectorAll("[style*='color']") : [];
+            var colouredList = (node.getAttribute && /(^|;)\s*color\s*:/i.test(node.getAttribute("style") || ""))
+                ? [node].concat(Array.prototype.slice.call(coloured))
+                : Array.prototype.slice.call(coloured);
+            for (var cIndex = 0; cIndex < colouredList.length; cIndex++) {
+                var cEl = colouredList[cIndex];
+                var fg = parseCssColour(cEl.style && cEl.style.color);
+                if (!fg) continue;
+                var bg = nearestBackground(cEl);
+                var ratio = contrastRatio(fg, bg.rgb);
+                // 4.5:1 is the AA threshold for body text; 3:1 for large text
+                // (>=18pt, or >=14pt bold). Using the body number on a heading
+                // would report a failure that is not one.
+                var large = isLargeText(cEl);
+                var need = large ? 3 : 4.5;
+                // Epsilon absorbs float noise ONLY. 0.05 was 1% of the threshold and
+                // swallowed real near-misses: #777777 on white is 4.48:1, a genuine
+                // failure, and went unreported. It must also not fire on a colour that
+                // passes at exactly 4.5, so the comparison errs toward silence.
+                if (ratio < need - 0.001) {
+                    issues.push({
+                        code: "contrast-insufficient",
+                        severity: "error",
+                        message: "Text contrast is " + ratio.toFixed(2) + ":1 against " +
+                            (bg.assumed ? "an assumed white background" : "its background") +
+                            ", below the " + need + ":1 needed for " +
+                            (large ? "large text" : "body text") + " (WCAG 1.4.3).",
+                        path: path + ".contrast[" + cIndex + "]",
+                        _target: cEl
+                    });
+                }
+            }
+
+            // 2026-09-07 BLOCKQUOTE USED AS INDENTATION (WCAG 1.3.1). A quotation
+            // element used for visual offset is announced as a quotation by screen
+            // readers and exported to Word as the Quote style.
+            //
+            // This is OUR OWN historical output: until 2026-09-04 the indent button
+            // fell through to the browser's execCommand, which wraps the block in
+            // <blockquote style="margin:0 0 0 40px;border:none;padding:0px">. Every
+            // document indented in an older build carries these, so the rule
+            // matters most for content we produced ourselves.
+            //
+            // Recognise only that SHAPE -- an offset with the quote decoration
+            // explicitly switched off. A blockquote that keeps its border is a real
+            // quotation and must not be flagged.
+            var quotes = tag === "blockquote" ? [node] : (node.querySelectorAll ? node.querySelectorAll("blockquote") : []);
+            for (var qIndex = 0; qIndex < quotes.length; qIndex++) {
+                var q = quotes[qIndex];
+                var qs = q.style;
+                if (!qs) continue;
+                var hasOffset = /^\s*[\d.]+\s*[a-z%]+\s*$/i.test(qs.marginLeft || "") && parseFloat(qs.marginLeft) > 0;
+                var borderOff = /^(none|0|0px)$/i.test(String(qs.borderStyle || qs.border || "").trim());
+                if (hasOffset && borderOff) {
+                    issues.push({
+                        code: "blockquote-as-indent",
+                        severity: "warning",
+                        message: "This looks like indentation, not a quotation: a <blockquote> with a left margin and no quote styling. Screen readers announce it as a quotation. Use the indent button instead.",
+                        path: path + ".blockquote[" + qIndex + "]",
+                        _target: q
+                    });
+                }
+            }
+
+            // 2026-09-07 AMBIGUOUS LINK TEXT (WCAG 2.4.4). "Click here" read out of
+            // context -- which is how a screen-reader user listing links hears it --
+            // conveys nothing about the destination.
+            var ambiguous = /^(click here|here|read more|more|link|this|this link|learn more|details|go)$/i;
+            var namedLinks = tag === "a" ? [node] : (node.querySelectorAll ? node.querySelectorAll("a") : []);
+            for (var aIndex = 0; aIndex < namedLinks.length; aIndex++) {
+                var aEl = namedLinks[aIndex];
+                if (!aEl.getAttribute || aEl.getAttribute("href") === null) continue;
+                var aName = accessibleNameOf(aEl);
+                if (aName && ambiguous.test(aName.replace(/[\s.,!:;]+$/g, "").replace(/^\s+/, ""))) {
+                    issues.push({
+                        code: "link-ambiguous-text",
+                        severity: "warning",
+                        message: "Link text \"" + aName + "\" does not say where it goes. Out of context a screen reader announces only this text.",
+                        path: path + ".link[" + aIndex + "]",
+                        _target: aEl
+                    });
+                }
+            }
+
             collectUnmarkedLanguageRuns(node, editable, path, issues);
+        }
+
+        // 2026-09-07 DUPLICATE id (WCAG 4.1.1). Two elements sharing an id break
+        // every aria-labelledby / aria-describedby / label that points at it --
+        // the reference silently resolves to the first one. Reached easily by
+        // copying and pasting a block that carries an id.
+        //
+        // Runs ONCE over the whole editable, deliberately NOT inside the per-node
+        // walk: querySelectorAll returns DESCENDANTS only, so a walk visiting each
+        // sibling separately sees one id at a time and can never detect a pair.
+        // The same trap already cost this file its top-level image check.
+        if (editable && editable.querySelectorAll) {
+            var allWithIds = editable.querySelectorAll("[id]");
+            var idSeen = {};
+            for (var dupIndex = 0; dupIndex < allWithIds.length; dupIndex++) {
+                var dupId = allWithIds[dupIndex].getAttribute("id");
+                if (!dupId) continue;
+                if (idSeen[dupId]) {
+                    issues.push({
+                        code: "duplicate-id",
+                        severity: "error",
+                        message: "id \"" + dupId + "\" is used more than once. Any aria-labelledby, aria-describedby or label pointing at it resolves to only the first element.",
+                        path: "document.id[" + dupIndex + "]",
+                        _target: allWithIds[dupIndex]
+                    });
+                }
+                idSeen[dupId] = true;
+            }
         }
 
         return { document: null, issues: issues, valid: !issues.length, source: "dom" };
@@ -668,6 +790,62 @@ function RTE_Plugin_AccessibilityChecker() {
     // image standing in for the text. Empty string means "announced as nothing".
     // Deliberately NOT aria-labelledby - resolving it needs the whole document
     // and a wrong answer here would produce an error the author cannot clear.
+
+    // --- contrast helpers (WCAG 1.4.3) ---------------------------------------
+    function parseCssColour(v) {
+        if (!v) return null;
+        var str = String(v).trim();
+        var m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(str);
+        if (m) {
+            var hex = m[1];
+            if (hex.length === 3) hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+            return [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16)];
+        }
+        var rgb = /^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i.exec(str);
+        if (rgb) return [Math.round(+rgb[1]), Math.round(+rgb[2]), Math.round(+rgb[3])];
+        return null;   // named colours are not resolved: a guess is worse than silence
+    }
+    // Nearest ancestor that DECLARES a background. Reports whether it had to
+    // fall back, so the message can say "assumed white" rather than asserting a
+    // background the document never set.
+    function nearestBackground(el) {
+        var n = el;
+        while (n && n.style) {
+            var c = parseCssColour(n.style.backgroundColor);
+            if (c) return { rgb: c, assumed: false };
+            n = n.parentElement;
+        }
+        return { rgb: [255, 255, 255], assumed: true };
+    }
+    function relativeLuminance(rgb) {
+        var a = [rgb[0], rgb[1], rgb[2]].map(function (v) {
+            v = v / 255;
+            return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+        });
+        return 0.2126 * a[0] + 0.7152 * a[1] + 0.0722 * a[2];
+    }
+    function contrastRatio(fg, bg) {
+        var l1 = relativeLuminance(fg), l2 = relativeLuminance(bg);
+        var hi = Math.max(l1, l2), lo = Math.min(l1, l2);
+        return (hi + 0.05) / (lo + 0.05);
+    }
+    // WCAG "large text": >=18pt, or >=14pt bold. A heading judged against the
+    // body threshold reports a failure that is not one.
+    function isLargeText(el) {
+        var st = el.style || {};
+        var size = String(st.fontSize || "");
+        var pt = null;
+        var m = /^([\d.]+)(px|pt)$/i.exec(size.trim());
+        if (m) pt = m[2].toLowerCase() === "pt" ? parseFloat(m[1]) : parseFloat(m[1]) * 0.75;
+        if (pt === null) {
+            var tagName = (el.tagName || "").toLowerCase();
+            if (/^h[1-3]$/.test(tagName)) return true;
+            return false;
+        }
+        var bold = /bold|^[6-9]00$/.test(String(st.fontWeight || ""));
+        return pt >= 18 || (pt >= 14 && bold);
+    }
+
     function accessibleNameOf(element) {
         if (!element) return "";
         var trim = function (v) { return String(v || "").replace(/^\s+|\s+$/g, ""); };

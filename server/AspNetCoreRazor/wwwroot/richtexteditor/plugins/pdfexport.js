@@ -415,7 +415,7 @@ function RTE_Plugin_PdfExport() {
         return px * 0.75;
     }
 
-        function block(node, style, indent, listMarker, listId, listOrdered) {
+        function block(node, style, indent, listMarker, listId, listOrdered, roleOverride) {
             var tag = node.tagName.toLowerCase();
             var s = styleOf(node, style);
             var align = "left";
@@ -441,12 +441,18 @@ function RTE_Plugin_PdfExport() {
                 // untagged still fails an accessibility audit: assistive
                 // technology gets a flat stream with no headings, no list
                 // structure and no reliable reading order.
-                role: HEADING_SCALE[tag] ? "H" + tag.charAt(1) : (tag === "blockquote" ? "BlockQuote" : "P"),
+                // roleOverride carries the quotation down to the paragraphs INSIDE a
+                // <blockquote>. The role was only ever emitted for a blockquote
+                // holding inline text directly - and the editor writes
+                // <blockquote><p>...</p></blockquote>, so in practice every
+                // blockquote we produce was tagged /P and the quotation was absent
+                // from the accessibility tree we publish claims about.
+                role: roleOverride || (HEADING_SCALE[tag] ? "H" + tag.charAt(1) : (tag === "blockquote" ? "BlockQuote" : "P")),
                 listId: listId || null, listOrdered: !!listOrdered
             });
         }
 
-        function walk(node, style, indent) {
+        function walk(node, style, indent, roleOverride) {
             for (var i = 0; i < node.childNodes.length; i++) {
                 var c = node.childNodes[i];
                 if (c.nodeType === 3) {
@@ -488,8 +494,9 @@ function RTE_Plugin_PdfExport() {
                 }
                 if (isBlockTag(tag)) {
                     var own = (tag === "blockquote" ? self.baseSize * 1.5 : 0) + cssIndentPt(c);
-                    if (hasBlockChildren(c)) { walk(c, styleOf(c, style), indent + own); continue; }
-                    block(c, style, indent + own, null);
+                    var childRole = (tag === "blockquote") ? "BlockQuote" : roleOverride;
+                    if (hasBlockChildren(c)) { walk(c, styleOf(c, style), indent + own, childRole); continue; }
+                    block(c, style, indent + own, null, null, false, childRole);
                     continue;
                 }
                 // Inline content sitting directly under a container.
