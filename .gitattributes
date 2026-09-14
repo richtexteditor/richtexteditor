@@ -1,3 +1,7 @@
 # core.autocrlf=true would otherwise commit shell scripts with CRLF, which
 # breaks the shebang on Linux and macOS.
 *.sh text eol=lf
+
+# The protected runtime must reach GitHub byte-identical to the build: autocrlf
+# stripped 1,067 CRs from rte.js (594,890 -> 593,823 B) in d357492.
+rte.js -text
