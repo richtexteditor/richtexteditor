@@ -146,6 +146,13 @@ function RTE_Plugin_FoldHeadings() {
         st.id = "rte-foldheadings-styles";
         st.appendChild(doc.createTextNode(css));
         (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(doc, st, "rte-foldheadings-styles", st.textContent);
+        }
     }
 
     // Strip fold classes for the duration of a serialization call so saved markup

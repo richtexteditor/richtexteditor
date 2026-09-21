@@ -75,9 +75,7 @@ function RTE_Plugin_DocumentOutline() {
     function injectStyles() {
         var hostDoc = config.container.ownerDocument;
         if (hostDoc.getElementById("rte-document-outline-style")) return;
-        var style = hostDoc.createElement("style");
-        style.id = "rte-document-outline-style";
-        style.innerHTML = [
+        var csstext = [
             ".rte-document-outline-shell{display:flex;align-items:stretch;gap:10px;}",
             ".rte-document-outline-shell>.rte-document-outline-host{flex:1 1 auto;min-width:0;}",
             "/* 2026-07-12 navigation panel precision */",
@@ -100,7 +98,15 @@ function RTE_Plugin_DocumentOutline() {
             ".rte-document-outline-empty{margin:6px;padding:14px;color:#52657e;font-size:13px;font-weight:700;line-height:1.55;background:#fff;border:1px dashed rgba(148,163,184,.34);border-radius:8px;}",
             "@media (max-width: 1100px){.rte-document-outline-shell{display:block;}.rte-document-outline-panel{margin-top:12px;max-width:none;width:100%;}.rte-document-outline-body{max-height:320px;}}"
         ].join("");
+        var style = hostDoc.createElement("style");
+        style.id = "rte-document-outline-style";
+        style.appendChild(hostDoc.createTextNode(csstext));
         hostDoc.head.appendChild(style);
+        // A <style> element's rules are dropped under a strict style-src; this
+        // re-injects them through the CSSOM in that case only.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(hostDoc, style, "rte-document-outline-style", csstext);
+        }
     }
 
     function ensureShell() {

@@ -850,6 +850,13 @@ function RTE_Plugin_SlashCommand() {
             ".rte-slash-popup-dark .rte-slash-empty{color:#94a3b8}"
         ].join("\n");
         host.head.appendChild(style);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(host, style, "rte-slashcommand-style", style.textContent);
+        }
     }
 
     // --- Icons (minimal inline SVGs) ---

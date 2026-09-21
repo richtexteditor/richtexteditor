@@ -627,6 +627,13 @@ function RTE_Plugin_Comments() {
                 ".rte-comment-dark .rte-comment-quote{background:rgba(245,158,11,.12);color:#fcd34d}"
             ].join("\n");
             host.head.appendChild(style);
+            // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+            // drops its rules, leaving this plugin's UI unstyled. The element above stays
+            // the path everyone else takes; this re-injects through the CSSOM only when
+            // the policy actually emptied it.
+            if (editor && typeof editor.ensureStyleSheetLive === "function") {
+                editor.ensureStyleSheetLive(host, style, "rte-comments-style", style.textContent);
+            }
         }
 
         var editdoc = editor.getDocument();
@@ -640,6 +647,13 @@ function RTE_Plugin_Comments() {
                 "@keyframes rte-comment-flash{0%{background:rgba(251,191,36,.9)}100%{background:" + config.commentHighlightBg + "}}"
             ].join("\n");
             editdoc.head.appendChild(iStyle);
+            // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+            // drops its rules, leaving this plugin's UI unstyled. The element above stays
+            // the path everyone else takes; this re-injects through the CSSOM only when
+            // the policy actually emptied it.
+            if (editor && typeof editor.ensureStyleSheetLive === "function") {
+                editor.ensureStyleSheetLive(editdoc, iStyle, "rte-comments-iStyle", iStyle.textContent);
+            }
         }
     }
 

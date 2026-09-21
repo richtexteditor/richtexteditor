@@ -159,6 +159,14 @@ function RTE_Plugin_Watermark() {
                 ? ""
                 : "@media print{[data-rte-watermark]{background-image:none !important;}" +
                   "[data-rte-watermark]::before{display:none !important;}}");
+        // Skipped by the scripted conversion on purpose: this element is reused
+        // and its text is rewritten on every watermark change, so the guard has to
+        // sit after the assignment rather than after the append. Same contract as
+        // everywhere else - the element stays primary, the CSSOM path fires only
+        // when a strict style-src emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(doc, st, "rte-watermark-dynamic", st.textContent);
+        }
     }
 
     // ---- serialization safety -------------------------------------------
@@ -210,5 +218,12 @@ function RTE_Plugin_Watermark() {
         st.id = "rte-watermark-styles";
         st.appendChild(doc.createTextNode("[data-rte-watermark]{position:relative;}"));
         (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(doc, st, "rte-watermark-styles", st.textContent);
+        }
     }
 }

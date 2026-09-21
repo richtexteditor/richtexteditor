@@ -146,5 +146,12 @@ function RTE_Plugin_RtlUi() {
         st.id = "rte-rtl-ui-styles";
         st.appendChild(doc.createTextNode(css()));
         (doc.head || doc.documentElement).appendChild(st);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(doc, st, "rte-rtl-ui-styles", st.textContent);
+        }
     }
 }

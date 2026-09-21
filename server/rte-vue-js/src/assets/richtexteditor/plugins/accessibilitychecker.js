@@ -117,6 +117,13 @@ function RTE_Plugin_AccessibilityChecker() {
             "@media (max-width: 1420px){.rte-a11y-shell{display:block;}.rte-a11y-panel{margin-top:12px;max-width:none;width:100%;}.rte-a11y-body{max-height:360px;}}"
         ].join("");
         hostDoc.head.appendChild(style);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(hostDoc, style, "rte-accessibility-checker-style", style.textContent);
+        }
     }
 
     function ensureShell() {

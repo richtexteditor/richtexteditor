@@ -83,6 +83,13 @@ function RTE_Plugin_RestrictedEditing() {
             "body.rte-restricted [" + editableAttr + "='true']{background:rgba(34,197,94,.16)}"
         ].join("\n");
         (doc.head || doc.getElementsByTagName("head")[0]).appendChild(s);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(doc, s, "__rte_restrictedediting_styles", s.textContent);
+        }
     }
 
     function enable() {

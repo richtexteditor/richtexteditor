@@ -699,6 +699,13 @@ function RTE_Plugin_TrackedChanges() {
                 ".rte-tc-delete{background:linear-gradient(180deg,rgba(255,240,240,.82),rgba(255,240,240,.42));color:#9f1d1d;text-decoration:line-through;text-decoration-color:#dc4c4c;text-decoration-thickness:2px;opacity:.92}"
             ].join("\n");
             host.head.appendChild(style);
+            // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+            // drops its rules, leaving this plugin's UI unstyled. The element above stays
+            // the path everyone else takes; this re-injects through the CSSOM only when
+            // the policy actually emptied it.
+            if (editor && typeof editor.ensureStyleSheetLive === "function") {
+                editor.ensureStyleSheetLive(host, style, "rte-trackedchanges-style", style.textContent);
+            }
         }
 
         var editdoc = editor.getDocument();
@@ -711,6 +718,13 @@ function RTE_Plugin_TrackedChanges() {
                 ".rte-tc-delete{background:linear-gradient(180deg,rgba(255,240,240,.82),rgba(255,240,240,.42));color:#9f1d1d;text-decoration:line-through;text-decoration-color:#dc4c4c;text-decoration-thickness:2px;opacity:.92}"
             ].join("\n");
             editdoc.head.appendChild(iStyle);
+            // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+            // drops its rules, leaving this plugin's UI unstyled. The element above stays
+            // the path everyone else takes; this re-injects through the CSSOM only when
+            // the policy actually emptied it.
+            if (editor && typeof editor.ensureStyleSheetLive === "function") {
+                editor.ensureStyleSheetLive(editdoc, iStyle, "rte-trackedchanges-iStyle", iStyle.textContent);
+            }
         }
     }
 }

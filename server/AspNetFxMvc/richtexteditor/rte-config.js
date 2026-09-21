@@ -5,10 +5,14 @@
 
 if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = { };
 
-RTE_DefaultConfig.editablePaddingTop = 2;
-RTE_DefaultConfig.editablePaddingBottom = 2;
-RTE_DefaultConfig.editablePaddingLeft = 2;
-RTE_DefaultConfig.editablePaddingRight = 2;
+// Writing gutters. These are applied as an INLINE style on the editing body, so
+// they win over any stylesheet - this config is the one place to change them.
+// 2px left text hard against the frame, which is the clearest "unstyled textarea"
+// tell there is; these values give the content room to read as a document.
+RTE_DefaultConfig.editablePaddingTop = 18;
+RTE_DefaultConfig.editablePaddingBottom = 24;
+RTE_DefaultConfig.editablePaddingLeft = 22;
+RTE_DefaultConfig.editablePaddingRight = 22;
 
 // 2026-05-08: empty-editor placeholder ("Type something…" hint that
 // disappears the moment the user starts typing). Off by default — set
@@ -63,6 +67,7 @@ RTE_DefaultConfig.imageHoverQuickBar = true; // Show a small "Alt / Replace / X"
 RTE_DefaultConfig.inlineMath = true; // When true, editor.applyMathMarkup() wraps $...$ runs in <span class="rte-math-inline" data-tex="..."> so a math renderer (KaTeX/MathJax) can target them.
 RTE_DefaultConfig.imageLazyLoad = true; // Newly-inserted <img> tags get loading="lazy" + decoding="async" so big documents stay responsive.
 RTE_DefaultConfig.documentUploadAccept = ".txt,.text,.rtf,.md,.markdown,.html,.htm,.pdf,.doc,.docx,.odt,.xls,.xlsx,.csv,.tsv,.json,.xml,.zip,.rar"; // Default Insert Document chooser filter.
+RTE_DefaultConfig.maxUploadFileSize = 0; // Largest file the editor will insert or upload, in BYTES. 0 = no limit. Applies to the image and document dialogs, paste and drag-and-drop. Over the limit the file is refused before it is read, so nothing is embedded or sent.
 RTE_DefaultConfig.fileUploadLocalObjectUrl = true; // Without file_upload_handler, local document files insert as temporary blob: links instead of failing.
 // Reading-mode persistence key. Default is session-only so refresh restores the toolbar.
 // Set to true for per-editor localStorage persistence, or to a custom string to share state across editors.
@@ -114,8 +119,80 @@ RTE_DefaultConfig.maxTextLength = 0; //Gets or sets the maximum number of charac
 RTE_DefaultConfig.tagWhiteList = [];  // The white list contains a list of tags that can be used in the editor.
 RTE_DefaultConfig.tagBlackList = [];  // The black list contains a list of tags that cannot be used in the editor.
 
+// ---- Content sanitizer (plugins/sanitizer.js) --------------------------------
+// An allowlist filter that runs on INPUT, on OUTPUT and over the live DOM. It is
+// what stops a stored XSS surviving into saved HTML - keep it on unless you
+// sanitize server-side instead. Note this is a different mechanism from
+// tagWhiteList/tagBlackList above: those pick which tags an AUTHOR may produce,
+// the sanitizer decides what is safe to keep at all.
+//
+// Every default below is the behaviour you already get; setting them explicitly
+// only makes the options discoverable.
+
+RTE_DefaultConfig.contentSanitizer = true; // false disables the sanitizer entirely.
+
+// Elements the editor does not know are UNWRAPPED by default - their text is kept
+// and the tag is dropped. That is what silently removes custom elements, and it
+// is also why schema.org microdata disappears (itemscope/itemtype/itemprop are
+// not in the attribute allowlist). Both are recoverable with the two lists below;
+// this is the equivalent of what CKEditor calls "General HTML Support".
+//
+// Entries may be exact names, "*" wildcards, or RegExp:
+//   sanitizerAllowTags       = ["custom-widget", "x-*", /^ui-/]
+//   sanitizerAllowAttributes = ["my-attr", "data-cms-*", "itemscope", "itemtype", "itemprop"]
+// data-* and aria-* are always allowed and need no entry here.
+RTE_DefaultConfig.sanitizerAllowTags = [];
+RTE_DefaultConfig.sanitizerAllowAttributes = [];
+
+RTE_DefaultConfig.sanitizerAllowStyleTags = false; // true keeps <style> blocks inside content.
+
+// Iframes: false drops them outright. Left true, only http(s) sources survive and
+// an iframe with no sandbox attribute is given a restrictive one. Naming hosts is
+// the stronger control - with a list, everything else is dropped.
+//   sanitizerAllowedIframeHosts = ["www.youtube.com", "player.vimeo.com"]
+RTE_DefaultConfig.sanitizerAllowIframes = true;
+RTE_DefaultConfig.sanitizerAllowedIframeHosts = [];
+
+// Also filter the LIVE editing DOM, not just input and output. This is the guard
+// that matters for collaboration: a peer's CRDT update writes into the DOM
+// directly and never passes through setHTMLCode, so with this off a collaborator
+// could run script in every other participant's browser.
+RTE_DefaultConfig.sanitizerGuardLiveDom = true;
+
+// Inspect what the last pass removed:  editor.getSanitizerReport()
+// Sanitize a string yourself:          editor.sanitizeHtml(html)
+
+
 RTE_DefaultConfig.tabSpaces = 4;	//Gets or sets the number of spaces to be inserted when the user hits the "tab" key.
 RTE_DefaultConfig.enterKeyTag = "p" // Determines what happens when the "enter" key is pressed in the editor. div, p or br.
+RTE_DefaultConfig.boldTag = "b"        // Tag the Bold command writes to the saved HTML: "b" (default) or "strong".
+RTE_DefaultConfig.italicTag = "i"      // Tag the Italic command writes to the saved HTML: "i" (default) or "em".
+RTE_DefaultConfig.strikeTag = "s"      // Tag the Strikethrough command writes to the saved HTML: "s" (default), "strike" or "del".
+// <s> is the default because <strike> was removed from the HTML spec, and because
+// three spellings reach the document: execCommand emits <strike>, markdown ~~x~~
+// emits <s>, and pasted content arrives as <del>. There is no underlineTag: the
+// only alternative to <u> is <ins>, which would assert "inserted text".
+// Applies to the OUTPUT of getHTMLCode(), so it also unifies content typed as
+// markdown (**bold**), which is produced as <strong>/<em> internally.
+
+RTE_DefaultConfig.htmlcode_forcehexformat = false; // Write colors as #993300 instead of rgb(153, 51, 0) in the saved HTML.
+// Why the default output is rgb() even though the color picker passes "#993300":
+// the editor sets the value as-is (style.cssText += ";color:#993300"), and it is
+// the BROWSER's CSSOM that normalises it to rgb(153, 51, 0) when the style is read
+// back. Nothing in this editor converts it, which is why there is no "use rgb"
+// setting to turn off - this option converts it BACK on the way out instead.
+//
+// Set true to get hex. Applies in __fixHTML(), which runs on both getHTMLCode()
+// and setHTMLCode(), so it normalises colors that were already rgb() in loaded or
+// pasted content as well as colors the user applies. Covers color and
+// background-color, on spans and on table cells.
+//
+// rgba() is deliberately left alone: it carries an alpha channel that a 6-digit
+// hex cannot represent, so converting it would silently drop the transparency.
+//
+// Availability: 2.x only. In 1.x this flag is compiled to a constant false and
+// no configuration can enable it - for 1.x, post-process the output of
+// getHTMLCode() instead.
 
 RTE_DefaultConfig.pasteMode = "Auto"; // Specifies the manner in which the editor handles pasted text. Auto,Disabled,PasteText,PasteWord.
 RTE_DefaultConfig.markdownShortcutsEnabled = true; // Enables Markdown-style block shortcuts such as "# ", "> ", "- ", "1. ", and "---" + Enter.
@@ -283,6 +360,16 @@ RTE_DefaultConfig.collabRequireCrdt = false;
 RTE_DefaultConfig.onCollabStatus = null;
 
 
+RTE_DefaultConfig.indentation = "40px"; // Step size for indent/outdent on non-list blocks. Any CSS length (px, pt, em, %).
+RTE_DefaultConfig.indentUseMargin = true; // true: indent writes margin-left/right. false: padding-left/right. Margin is the default because Word's w:ind and pasted Word content both use margin.
+
+RTE_DefaultConfig.stylesMerge = false; // true: the Quick Styles lists below are APPENDED to the shipped defaults instead of replacing them (TinyMCE calls this style_formats_merge).
+
+// The four Quick Styles lists accept, in the same array:
+//   ["Red", "color:red", "color:red"]        title, value, optional preview CSS
+//   { title: "Red", value: "color:red" }     object form of the same thing
+//   { title: "Callouts", items: [ ... ] }    a labelled GROUP; items are indented under a heading
+// Groups render as a heading plus indented items, not as a flyout submenu.
 RTE_DefaultConfig.inlineStyles = [["Red", "color:red", "color:red"], ["Bold", "font-weight:bold", "font-weight:bold"], ["Mark", "my-cls-mark"], ["Warning", "my-cls-warning"]]; // Default CSS styles for inline styles dropdown. 
 RTE_DefaultConfig.paragraphStyles = [["Red", "color:red", "color:red"], ["Bold", "font-weight:bold", "font-weight:bold"], ["Quote", "my-cls-quote"], ["LargeCenter", "my-cls-largecenter"]]; // Default CSS styles for paragraph styles dropdown. 
 RTE_DefaultConfig.imageStyles = [["Border", "border: 1px solid #ddd; border-radius: 4px; padding: 5px;"], ["grayscale", "filter: grayscale(100%);"], ["Shadow", "box-shadow:0 0 8px gray"], ["Margin10", "margin:10px"], ["Padding:10", "padding:10px"]
@@ -305,18 +392,24 @@ RTE_DefaultConfig.toolbar_mobile = "{bold,italic,underline|fontname:toggle,fonts
 RTE_DefaultConfig.toolbar_basic = "{bold,italic,underline}|{fontname,fontsize}|{insertlink,insertemoji,insertimage,insertvideo}|removeformat|code"
 	+ "#{toggleborder,fullscreenenter,fullscreenexit,undo,redo,togglemore}"; // Basic set of buttons that appears in the rich text editor's toolbar.
 
-RTE_DefaultConfig.toolbar_full = "{bold,italic,underline,forecolor,backcolor}|{justifyleft,justifycenter,justifyright,justifyfull}|{insertorderedlist,insertunorderedlist,indent,outdent}{superscript,subscript}|{aiassist}"
+RTE_DefaultConfig.toolbar_full = "{bold,italic,underline,strike,forecolor,backcolor}|{justifyleft,justifycenter,justifyright,justifyfull}|{insertorderedlist,insertunorderedlist,indent,outdent}{superscript,subscript,inlinecode}|{aiassist}"
 	+ " #{paragraphs:toggle,fontname:toggle,fontsize:toggle,inlinestyle,lineheight}"
-	+ " / {spellcheck,insertcomment,removeformat,cut,copy,paste,delete,find}|{insertlink,unlink,insertblockquote,insertemoji,insertchars,inserttable,menu_tablecell,menu_tablerow,menu_tablecolumn,insertimage,insertgallery,insertvideo,insertdocument,inserttemplate,insertcode}"
+	+ " / {spellcheck,textpartlanguage,insertcomment,removeformat,cut,copy,paste,delete,find}|{insertlink,unlink,insertblockquote,insertemoji,insertchars,inserttable,menu_tablecell,menu_tablerow,menu_tablecolumn,insertimage,insertgallery,insertvideo,insertdocument,inserttemplate,insertcode}"
 	+ "#{preview,code,selectall}"
 	+ " /{paragraphs:dropdown | fontname:dropdown | fontsize:dropdown} {paragraphstyle,toggle_paragraphop,menu_paragraphop}"
 	+ "#{insertmergefield,insertfootnote,inserttoc,insertpagebreak,revisionhistory,newdoc,save,toggleborder,fullscreenenter,fullscreenexit,undo,redo,togglemore}"; // Full set of buttons that appears in the rich text editor's toolbar.
 
 RTE_DefaultConfig.toolbar_richtextboxjs = RTE_DefaultConfig.toolbar_full; // Compatibility alias for older demo pages still referencing the temporary preset name.
 
-RTE_DefaultConfig.toolbar_office = "<@COMMON,ribbonpaste,pastetext,pasteword,{save,new,print}/{cut,copy,delete,find}/{undo,redo|formatpainter}><@FORMAT,[fontname,fontsize]/{bold,italic,underlinemenu|forecolor,backcolor}/{superscript,subscript,changecase|removeformat,cleancode,selectall}><@PARAGRAPHS,[paragraphs,styles]/{justifymenu,lineheight,ltr,rtl,insertlinemenu}/{insertorderedlist,insertunorderedlist,indent,outdent,insertblockquote}><@INSERT,ribbontable,insertgallery,insertimage,{insertform,insertbox,insertlayer,insertfieldset,pageproperties,help,toggleborder,fullscreen}/{insertlink,unlink,insertanchor,insertimagemap,insertdate,insertchars,virtualkeyboard}/{inserttemplate,insertdocument,insertvideo,syntaxhighlighter,insertyoutube,html5,googlemap}>";
+RTE_DefaultConfig.toolbar_office = "<@COMMON,ribbonpaste,pastetext,pasteword,{save,new,print}/{cut,copy,delete,find}/{undo,redo|formatpainter}><@FORMAT,[fontname,fontsize]/{bold,italic,underlinemenu|forecolor,backcolor}/{superscript,subscript,changecase|removeformat,cleancode,selectall}><@PARAGRAPHS,[paragraphs,styles]/{justifymenu,lineheight,ltr,rtl,textpartlanguage,insertlinemenu}/{insertorderedlist,insertunorderedlist,indent,outdent,insertblockquote}><@INSERT,ribbontable,insertgallery,insertimage,{insertform,insertbox,insertlayer,insertfieldset,pageproperties,help,toggleborder,fullscreen}/{insertlink,unlink,insertanchor,insertimagemap,insertdate,insertchars,virtualkeyboard}/{inserttemplate,insertdocument,insertvideo,syntaxhighlighter,insertyoutube,html5,googlemap}>";
 
-RTE_DefaultConfig.subtoolbar_more = "{strike,superscript,subscript,ucase,lcase,titlecase,inserthorizontalrule,highlight,sortlines,insertcallout,insertcolumns,inserttoggle,inserttodolist,insertmath,insertdiagram,insertbookmark,insertdatechip,spellcheck,emailexport,readaloud,html2pdf,insertdate} #{newdoc,load,save,print,printpreview,readingmode,help}"; // A set of buttons that appears in the subtoolbar of default toolbar set.
+RTE_DefaultConfig.subtoolbar_more = "{strike,superscript,subscript,inlinecode,ucase,lcase,titlecase,inserthorizontalrule,highlight,sortlines,insertcallout,insertcolumns,inserttoggle,inserttodolist,insertmath,insertdiagram,insertbookmark,insertdatechip,spellcheck,emailexport,readaloud,html2pdf,insertdate} #{newdoc,load,save,print,printpreview,readingmode,help}"; // A set of buttons that appears in the subtoolbar of default toolbar set.
+// `inlinecode` is deliberately absent from subtoolbar_more_full below: it is
+// already in toolbar_full's main row, so adding it here would render the button
+// TWICE in that preset. It belongs in subtoolbar_more (above) because that is the
+// overflow set for the DEFAULT toolbar, and toolbar_default carries neither strike
+// nor inlinecode - without that line the feature is unreachable for every user who
+// never configured a toolbar, which is how it shipped in 2.5.8.
 RTE_DefaultConfig.subtoolbar_more_full = "{strike,ucase,lcase,titlecase,inserthorizontalrule,highlight,sortlines,html2pdf,insertdate} #{newdoc,save,print,printpreview,readingmode,help}";// A set of buttons that appears in the subtoolbar of full toolbar set.
 RTE_DefaultConfig.subtoolbar_more_mobile = "{save} #{newdoc,help}"; // A set of buttons that appears in the subtoolbar of mobile toolbar set.
 RTE_DefaultConfig.subtoolbar_paste = "pasteauto,pastetext,pasteword";  // A set of buttons that appears in the rich text editor's paste subtoolbar.
@@ -449,7 +542,9 @@ RTE_DefaultConfig.svgCode_newdoc = '<svg viewBox="0 0 24 24" fill="none" stroke=
 RTE_DefaultConfig.svgCode_lineheight = '<svg viewBox="-2 -2 36 36" fill="currentColor"><rect width="13" height="2" x="17" y="6"></rect><rect width="10" height="2" x="17" y="12"></rect><rect width="13" height="2" x="17" y="18"></rect><rect width="10" height="2" x="17" y="24"></rect><polygon points="11.59 13.41 8 9.83 8 9.83 4.41 13.42 3 12 8 7 13 12 11.59 13.41"></polygon><polygon points="11.59 18.59 8 22.17 8 22.17 4.41 18.58 3 20 8 25 13 20 11.59 18.59"></polygon></svg>';
 RTE_DefaultConfig.svgCode_insertemoji = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>';
 RTE_DefaultConfig.svgCode_insertchars = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 20h4l-2.3-2.6a6 6 0 1 1 8.6 0L14 20h4"/></svg>';
-RTE_DefaultConfig.svgCode_selectall = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="3 3"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/></svg>';
+// Language of parts (WCAG 3.1.2). A speech bubble over a globe: the phrase, not the page.
+RTE_DefaultConfig.svgCode_textpartlanguage = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18z"/></svg>';
+RTE_DefaultConfig.svgCode_selectall ='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="3 3"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/></svg>';
 RTE_DefaultConfig.svgCode_inserthorizontalrule = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"/></svg>';
 RTE_DefaultConfig.svgCode_insertdate = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>';
 RTE_DefaultConfig.svgCode_forecolor = '<svg viewBox="0 0 20 20" fill="currentColor"><path d="M13.6,12.6h1.2l-4.3-9.8H9.3L5,12.6h1.2l1-2.3h5.4L13.6,12.6z M7.8,9.2l2.1-4.8H10l2.1,4.8L7.8,9.2z M3.8,14.4h12.3v2.3H3.8V14.4z"/></svg>';
@@ -634,6 +729,8 @@ RTE_DefaultConfig.text_revisionempty = "No text captured in this snapshot.";
 RTE_DefaultConfig.text_html2pdf = "Create PDF";
 RTE_DefaultConfig.text_insertemoji = "Insert Emoji";
 RTE_DefaultConfig.text_insertchars = "Special characters";
+RTE_DefaultConfig.text_textpartlanguage = "Language";// Mark the language of a phrase (WCAG 3.1.2).
+RTE_DefaultConfig.text_removelanguage = "Remove language";
 RTE_DefaultConfig.text_characters = "Characters";
 RTE_DefaultConfig.text_words = "Words";
 
@@ -836,6 +933,9 @@ RTE_DefaultConfig.text_searchemojis = "Search";
 RTE_DefaultConfig.text_insertgallerytitle = "@insertgallery";
 RTE_DefaultConfig.text_inserttemplatetitle = "@inserttemplate";
 
+RTE_DefaultConfig.text_uploadfailed = "The file could not be uploaded."; // Shown when the upload handler reports an error; the error code follows in brackets.
+RTE_DefaultConfig.text_uploadnothandler = "This file cannot be attached, because file uploads are not set up on this site."; // Shown when no file_upload_handler is configured and fileUploadLocalObjectUrl is false.
+RTE_DefaultConfig.text_uploadtoobig = "This file is {0}. The maximum allowed size is {1}."; // {0} = the file size, {1} = maxUploadFileSize. Shown when a file is refused; handle the "uploadtoobig" customdialog hook for your own dialog.
 RTE_DefaultConfig.text_reachmaxlength = "The text to be added has reached the character limit for this field.";
 
 RTE_DefaultConfig.translation = RTE_DefaultConfig.translation || {
@@ -959,3 +1059,9 @@ RTE_DefaultConfig.plugin_insertcomment = function () {
 	add("highlight", mod + "+" + shift + "+H");
 	add("readingmode", mod + "+" + shift + "+M");
 })();
+
+// 2026-09-04 State inspector (developer tool). The button is opt-in via
+// stateInspectorToolbarButton; these strings exist for hosts that turn it on.
+RTE_DefaultConfig.svgCode_stateinspector = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 8h3v3"/><path d="M8 16h8"/><path d="M14 8l2 2-2 2"/></svg>';
+RTE_DefaultConfig.text_stateinspector = "State inspector";
+RTE_DefaultConfig.text_stateinspectorhint = "Derived document model, structural checks, and a copyable snapshot for bug reports.";

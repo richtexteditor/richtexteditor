@@ -231,6 +231,13 @@ function RTE_Plugin_Dictation() {
         style.setAttribute("data-rte-dictation", "1");
         style.appendChild(document.createTextNode(css));
         document.head.appendChild(style);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(document, style, "rte-dictation-style", style.textContent);
+        }
     }
 
     function normalize(text, isFinal) {

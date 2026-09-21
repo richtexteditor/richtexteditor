@@ -169,6 +169,13 @@ function RTE_Plugin_BlockTypes() {
                 st.setAttribute("data-rte-blocktypes", "1");
                 st.textContent = css;
                 head.appendChild(st);
+                // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+                // drops its rules, leaving this plugin's UI unstyled. The element above stays
+                // the path everyone else takes; this re-injects through the CSSOM only when
+                // the policy actually emptied it.
+                if (editor && typeof editor.ensureStyleSheetLive === "function") {
+                    editor.ensureStyleSheetLive(editdoc, st, "rte-blocktypes-st", st.textContent);
+                }
             }
         } catch (e) { /* ignore */ }
     }

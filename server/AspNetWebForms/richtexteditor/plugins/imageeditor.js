@@ -165,7 +165,8 @@ function RTE_Plugin_ImageEditor() {
 				savebtn.innerText = "Saving...";
 
 				var dataurl = imgeditor.toDataURL();
-				if (!config.file_upload_handler) {
+				var uploadHandler = config.file_upload_handler || window.rte_file_upload_handler;
+				if (!uploadHandler) {
 					img.src = dataurl;
 					editor.notifySelectionChange();
 					dialoginner.close();
@@ -174,7 +175,7 @@ function RTE_Plugin_ImageEditor() {
 
 				var file = dataURLToBlob(dataurl);
 
-				config.file_upload_handler(file, function (url, error) {
+				uploadHandler(file, function (url, error) {
 					if (url) {
 						img.src = url;
 						editor.notifySelectionChange();

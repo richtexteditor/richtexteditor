@@ -394,5 +394,12 @@ function RTE_Plugin_Footnotes() {
         st.setAttribute("data-css", text);
         st.appendChild(doc.createTextNode(text));
         (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+        // A <style> ELEMENT is refused under `style-src 'self'` and its rules are
+        // dropped, so footnote markers and the separator rendered unstyled for any
+        // customer on a strict CSP. This re-injects through the CSSOM only in that
+        // case; the element above stays the path everyone else takes.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(doc, st, "rte-footnotes-styles", text);
+        }
     }
 }

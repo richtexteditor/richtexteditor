@@ -167,6 +167,13 @@ function RTE_Plugin_CharLimit() {
         st.textContent = ".rte-charlimit-counter{position:absolute;right:10px;bottom:6px;z-index:5;font:11px -apple-system,Segoe UI,sans-serif;color:#64748b;background:rgba(255,255,255,.85);padding:1px 7px;border-radius:9px;pointer-events:none}" +
             ".rte-charlimit-counter.is-near{color:#b45309}.rte-charlimit-counter.is-over{color:#dc2626;font-weight:600}";
         (doc.head || doc.documentElement).appendChild(st);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(doc, st, "rte-charlimit-st", st.textContent);
+        }
     }
 
     function refresh() {
