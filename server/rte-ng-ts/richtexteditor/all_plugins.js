@@ -208,6 +208,13 @@ function RTE_Plugin_AccessibilityChecker() {
             "@media (max-width: 1420px){.rte-a11y-shell{display:block;}.rte-a11y-panel{margin-top:12px;max-width:none;width:100%;}.rte-a11y-body{max-height:360px;}}"
         ].join("");
         hostDoc.head.appendChild(style);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(hostDoc, style, "rte-accessibility-checker-style", style.textContent);
+        }
     }
 
     function ensureShell() {
@@ -613,7 +620,248 @@ function RTE_Plugin_AccessibilityChecker() {
                 }
             }
 
+
+            // 2026-09-07 COLOUR CONTRAST (WCAG 1.4.3). The most-cited criterion in
+            // any accessibility audit and the checker had no rule for it -- and
+            // our own comparison page once claimed one, which had to be retracted.
+            //
+            // Only INLINE colour is judged. Contrast against a stylesheet the
+            // editor cannot see would be a guess, and a checker that guesses
+            // teaches people to ignore it. Where no background is declared on the
+            // element or an ancestor, white is assumed and stated in the message,
+            // because that is the editing surface's own ground.
+            var coloured = node.querySelectorAll ? node.querySelectorAll("[style*='color']") : [];
+            var colouredList = (node.getAttribute && /(^|;)\s*color\s*:/i.test(node.getAttribute("style") || ""))
+                ? [node].concat(Array.prototype.slice.call(coloured))
+                : Array.prototype.slice.call(coloured);
+            for (var cIndex = 0; cIndex < colouredList.length; cIndex++) {
+                var cEl = colouredList[cIndex];
+                var fg = parseCssColour(cEl.style && cEl.style.color);
+                if (!fg) continue;
+                var bg = nearestBackground(cEl);
+                var ratio = contrastRatio(fg, bg.rgb);
+                // 4.5:1 is the AA threshold for body text; 3:1 for large text
+                // (>=18pt, or >=14pt bold). Using the body number on a heading
+                // would report a failure that is not one.
+                var large = isLargeText(cEl);
+                var need = large ? 3 : 4.5;
+                // Epsilon absorbs float noise ONLY. 0.05 was 1% of the threshold and
+                // swallowed real near-misses: #777777 on white is 4.48:1, a genuine
+                // failure, and went unreported. It must also not fire on a colour that
+                // passes at exactly 4.5, so the comparison errs toward silence.
+                if (ratio < need - 0.001) {
+                    issues.push({
+                        code: "contrast-insufficient",
+                        severity: "error",
+                        message: "Text contrast is " + ratio.toFixed(2) + ":1 against " +
+                            (bg.assumed ? "an assumed white background" : "its background") +
+                            ", below the " + need + ":1 needed for " +
+                            (large ? "large text" : "body text") + " (WCAG 1.4.3).",
+                        path: path + ".contrast[" + cIndex + "]",
+                        _target: cEl
+                    });
+                }
+            }
+
+            // 2026-09-07 BLOCKQUOTE USED AS INDENTATION (WCAG 1.3.1). A quotation
+            // element used for visual offset is announced as a quotation by screen
+            // readers and exported to Word as the Quote style.
+            //
+            // This is OUR OWN historical output: until 2026-09-04 the indent button
+            // fell through to the browser's execCommand, which wraps the block in
+            // <blockquote style="margin:0 0 0 40px;border:none;padding:0px">. Every
+            // document indented in an older build carries these, so the rule
+            // matters most for content we produced ourselves.
+            //
+            // Recognise only that SHAPE -- an offset with the quote decoration
+            // explicitly switched off. A blockquote that keeps its border is a real
+            // quotation and must not be flagged.
+            var quotes = tag === "blockquote" ? [node] : (node.querySelectorAll ? node.querySelectorAll("blockquote") : []);
+            for (var qIndex = 0; qIndex < quotes.length; qIndex++) {
+                var q = quotes[qIndex];
+                var qs = q.style;
+                if (!qs) continue;
+                var hasOffset = /^\s*[\d.]+\s*[a-z%]+\s*$/i.test(qs.marginLeft || "") && parseFloat(qs.marginLeft) > 0;
+                var borderOff = /^(none|0|0px)$/i.test(String(qs.borderStyle || qs.border || "").trim());
+                if (hasOffset && borderOff) {
+                    issues.push({
+                        code: "blockquote-as-indent",
+                        severity: "warning",
+                        message: "This looks like indentation, not a quotation: a <blockquote> with a left margin and no quote styling. Screen readers announce it as a quotation. Use the indent button instead.",
+                        path: path + ".blockquote[" + qIndex + "]",
+                        _target: q
+                    });
+                }
+            }
+
+            // 2026-09-07 AMBIGUOUS LINK TEXT (WCAG 2.4.4). "Click here" read out of
+            // context -- which is how a screen-reader user listing links hears it --
+            // conveys nothing about the destination.
+            var ambiguous = /^(click here|here|read more|more|link|this|this link|learn more|details|go)$/i;
+            var namedLinks = tag === "a" ? [node] : (node.querySelectorAll ? node.querySelectorAll("a") : []);
+            for (var aIndex = 0; aIndex < namedLinks.length; aIndex++) {
+                var aEl = namedLinks[aIndex];
+                if (!aEl.getAttribute || aEl.getAttribute("href") === null) continue;
+                var aName = accessibleNameOf(aEl);
+                if (aName && ambiguous.test(aName.replace(/[\s.,!:;]+$/g, "").replace(/^\s+/, ""))) {
+                    issues.push({
+                        code: "link-ambiguous-text",
+                        severity: "warning",
+                        message: "Link text \"" + aName + "\" does not say where it goes. Out of context a screen reader announces only this text.",
+                        path: path + ".link[" + aIndex + "]",
+                        _target: aEl
+                    });
+                }
+            }
+
             collectUnmarkedLanguageRuns(node, editable, path, issues);
+        }
+
+        // 2026-09-07 DUPLICATE id (WCAG 4.1.1). Two elements sharing an id break
+        // every aria-labelledby / aria-describedby / label that points at it --
+        // the reference silently resolves to the first one. Reached easily by
+        // copying and pasting a block that carries an id.
+        //
+        // Runs ONCE over the whole editable, deliberately NOT inside the per-node
+        // walk: querySelectorAll returns DESCENDANTS only, so a walk visiting each
+        // sibling separately sees one id at a time and can never detect a pair.
+        // The same trap already cost this file its top-level image check.
+        if (editable && editable.querySelectorAll) {
+            var allWithIds = editable.querySelectorAll("[id]");
+            var idSeen = {};
+            for (var dupIndex = 0; dupIndex < allWithIds.length; dupIndex++) {
+                var dupId = allWithIds[dupIndex].getAttribute("id");
+                if (!dupId) continue;
+                if (idSeen[dupId]) {
+                    issues.push({
+                        code: "duplicate-id",
+                        severity: "error",
+                        message: "id \"" + dupId + "\" is used more than once. Any aria-labelledby, aria-describedby or label pointing at it resolves to only the first element.",
+                        path: "document.id[" + dupIndex + "]",
+                        _target: allWithIds[dupIndex]
+                    });
+                }
+                idSeen[dupId] = true;
+            }
+        }
+
+        // 2026-09-22 Six rules the commercial checkers have and this one did not
+        // (TinyMCE's paid checker: D1, D3, D4, I3, I4, T1). One pass over the whole
+        // editable, like duplicate-id, because several need to see neighbours.
+        if (editable && editable.querySelectorAll) {
+            // D1 paragraph-as-heading: a short paragraph whose whole text is bold and
+            // visibly large looks like a heading but cannot be reached by heading
+            // navigation and is missing from the outline.
+            var paras = editable.querySelectorAll("p");
+            for (var pi = 0; pi < paras.length; pi++) {
+                var pEl = paras[pi];
+                var pText = getText(pEl);
+                if (!pText || pText.length > 80 || /[.!?:;,]$/.test(pText)) continue;
+                var win = pEl.ownerDocument.defaultView;
+                var strong = pEl.querySelector("strong, b");
+                var pStyle = win.getComputedStyle(pEl);
+                var boldAll = (strong && getText(strong) === pText) || parseInt(pStyle.fontWeight, 10) >= 600;
+                if (!boldAll) continue;
+                var sizeEl = strong || pEl;
+                var bodySize = parseFloat(win.getComputedStyle(pEl.ownerDocument.body).fontSize) || 16;
+                if (parseFloat(win.getComputedStyle(sizeEl).fontSize) < bodySize * 1.2) continue;
+                issues.push({
+                    code: "paragraph-as-heading",
+                    severity: "warning",
+                    message: "\"" + pText + "\" looks like a heading (bold, large, on its own line) but is a paragraph. Screen-reader users cannot jump to it. Use a heading level instead.",
+                    path: "document.p[" + pi + "]",
+                    _target: pEl
+                });
+            }
+
+            // D4 fake-list: two or more consecutive paragraphs that start with the same
+            // kind of hand-typed marker ("1." "2." / "-" "*" "•").
+            var markerKind = function (el) {
+                if (!el || String(el.nodeName).toLowerCase() !== "p") return null;
+                var t = getText(el);
+                if (/^\d{1,3}[.)]\s+\S/.test(t)) return "ol";
+                if (/^[-*•▪●]\s+\S/.test(t)) return "ul";
+                return null;
+            };
+            var kids = editable.children;
+            for (var ki = 0; ki < kids.length; ki++) {
+                var kind = markerKind(kids[ki]);
+                if (!kind) continue;
+                var run = 1;
+                while (ki + run < kids.length && markerKind(kids[ki + run]) === kind) run++;
+                if (run >= 2) {
+                    issues.push({
+                        code: "fake-list",
+                        severity: "warning",
+                        message: run + " paragraphs are typed as a " + (kind === "ol" ? "numbered" : "bulleted") + " list. Screen readers do not announce them as a list or say how many items it has. Use the list button instead.",
+                        path: "content[" + ki + "]",
+                        _target: kids[ki]
+                    });
+                }
+                ki += run - 1;
+            }
+
+            // I3 / I4: alt text that is a file name, or too long to be heard comfortably.
+            var imgs = editable.querySelectorAll("img[alt]");
+            for (var ii = 0; ii < imgs.length; ii++) {
+                var alt = (imgs[ii].getAttribute("alt") || "").trim();
+                if (!alt) continue;   // alt="" is a deliberate decorative marker
+                var srcName = ((imgs[ii].getAttribute("src") || "").split(/[?#]/)[0].split("/").pop() || "").toLowerCase();
+                if (/\.(jpe?g|png|gif|webp|bmp|svg|avif|tiff?)$/i.test(alt) || (srcName && alt.toLowerCase() === srcName) || /^(img|image|dsc|photo|screenshot)[-_ ]?\d+/i.test(alt)) {
+                    issues.push({
+                        code: "image-alt-filename",
+                        severity: "error",
+                        message: "Alt text \"" + alt + "\" is a file name, which describes nothing. Say what the image shows.",
+                        path: "document.img[" + ii + "]",
+                        _target: imgs[ii]
+                    });
+                } else if (alt.length > 150) {
+                    issues.push({
+                        code: "image-alt-too-long",
+                        severity: "warning",
+                        message: "Alt text is " + alt.length + " characters. Keep it to a short description; put longer detail in the text or a caption.",
+                        path: "document.img[" + ii + "]",
+                        _target: imgs[ii]
+                    });
+                }
+            }
+
+            // D3 link-adjacent-duplicate: two links next to each other with the same
+            // href (typically an image link and a text link) are announced twice.
+            var links = editable.querySelectorAll("a[href]");
+            for (var li = 1; li < links.length; li++) {
+                var prev = links[li - 1], cur = links[li];
+                if (prev.getAttribute("href") !== cur.getAttribute("href")) continue;
+                var between = prev.nextSibling, adjacent = true;
+                while (between && between !== cur) {
+                    if (between.nodeType === 1 || (between.nodeType === 3 && /\S/.test(between.data))) { adjacent = false; break; }
+                    between = between.nextSibling;
+                }
+                if (adjacent && between === cur) {
+                    issues.push({
+                        code: "link-adjacent-duplicate",
+                        severity: "warning",
+                        message: "Two links next to each other go to the same place, so it is announced twice. Combine them into one link.",
+                        path: "document.link[" + li + "]",
+                        _target: cur
+                    });
+                }
+            }
+
+            // T1 table-missing-caption: a DATA table (it has header cells) without a caption.
+            var tables = editable.querySelectorAll("table");
+            for (var ti = 0; ti < tables.length; ti++) {
+                var tb = tables[ti];
+                if ((tb.getAttribute("role") || "").toLowerCase() === "presentation") continue;
+                if (!tb.querySelector("th") || tb.querySelector("caption")) continue;
+                issues.push({
+                    code: "table-missing-caption",
+                    severity: "warning",
+                    message: "Data table has no caption. A short caption lets screen-reader users know what the table is before they enter it.",
+                    path: "document.table[" + ti + "]",
+                    _target: tb
+                });
+            }
         }
 
         return { document: null, issues: issues, valid: !issues.length, source: "dom" };
@@ -672,6 +920,55 @@ function RTE_Plugin_AccessibilityChecker() {
             markLanguageRuns(target, options && options.lang ? options.lang : issue._lang, issue._script);
         }
 
+        else if (issue.code === "paragraph-as-heading") {
+            var lvl = Math.max(1, Math.min(6, parseInt(options && options.targetLevel, 10) || 2));
+            var h = target.ownerDocument.createElement("h" + lvl);
+            // the paragraph's whole text was bold/large: that styling is the heading now
+            h.textContent = (target.textContent || "").replace(/^\s+|\s+$/g, "");
+            copyAttributes(target, h);
+            h.removeAttribute("style");
+            target.parentNode.replaceChild(h, target);
+        }
+        else if (issue.code === "fake-list") {
+            var d = target.ownerDocument;
+            var listParent = target.parentNode;
+            var ordered = /^\d/.test((target.textContent || "").replace(/^\s+/, ""));
+            var list = d.createElement(ordered ? "ol" : "ul");
+            var node = target;
+            while (node && node.nodeName === "P") {
+                var t = (node.textContent || "").replace(/^\s+/, "");
+                var m = ordered ? /^\d{1,3}[.)]\s+([\s\S]*)$/.exec(t) : /^[-*•▪●]\s+([\s\S]*)$/.exec(t);
+                if (!m) break;
+                var li = d.createElement("li");
+                li.textContent = m[1].replace(/\s+$/, "");
+                list.appendChild(li);
+                var next = node.nextElementSibling;
+                node.parentNode.removeChild(node);
+                node = next;
+            }
+            if (node && node.parentNode === listParent) listParent.insertBefore(list, node);
+            else listParent.appendChild(list);
+        }
+        else if (issue.code === "table-missing-caption") {
+            var capText = String((options && options.captionText) || "").replace(/^\s+|\s+$/g, "");
+            if (capText) {
+                var cap = target.ownerDocument.createElement("caption");
+                cap.textContent = capText;
+                target.insertBefore(cap, target.firstChild);
+            }
+        }
+        else if (issue.code === "link-adjacent-duplicate") {
+            // merge the second link into the first: one link, one announcement
+            var prevLink = target.previousSibling;
+            while (prevLink && prevLink.nodeType !== 1) prevLink = prevLink.previousSibling;
+            if (prevLink && prevLink.nodeName === "A") {
+                while (target.firstChild) prevLink.appendChild(target.firstChild);
+                target.parentNode.removeChild(target);
+            }
+        }
+        else if (issue.code === "image-alt-filename" || issue.code === "image-alt-too-long") {
+            target.setAttribute("alt", String((options && options.altText) || "").replace(/^\s+|\s+$/g, ""));
+        }
         selectedIssueIndex = 0;
         scheduleEditorChange();
         return runAudit();
@@ -759,6 +1056,62 @@ function RTE_Plugin_AccessibilityChecker() {
     // image standing in for the text. Empty string means "announced as nothing".
     // Deliberately NOT aria-labelledby - resolving it needs the whole document
     // and a wrong answer here would produce an error the author cannot clear.
+
+    // --- contrast helpers (WCAG 1.4.3) ---------------------------------------
+    function parseCssColour(v) {
+        if (!v) return null;
+        var str = String(v).trim();
+        var m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(str);
+        if (m) {
+            var hex = m[1];
+            if (hex.length === 3) hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+            return [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16)];
+        }
+        var rgb = /^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i.exec(str);
+        if (rgb) return [Math.round(+rgb[1]), Math.round(+rgb[2]), Math.round(+rgb[3])];
+        return null;   // named colours are not resolved: a guess is worse than silence
+    }
+    // Nearest ancestor that DECLARES a background. Reports whether it had to
+    // fall back, so the message can say "assumed white" rather than asserting a
+    // background the document never set.
+    function nearestBackground(el) {
+        var n = el;
+        while (n && n.style) {
+            var c = parseCssColour(n.style.backgroundColor);
+            if (c) return { rgb: c, assumed: false };
+            n = n.parentElement;
+        }
+        return { rgb: [255, 255, 255], assumed: true };
+    }
+    function relativeLuminance(rgb) {
+        var a = [rgb[0], rgb[1], rgb[2]].map(function (v) {
+            v = v / 255;
+            return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+        });
+        return 0.2126 * a[0] + 0.7152 * a[1] + 0.0722 * a[2];
+    }
+    function contrastRatio(fg, bg) {
+        var l1 = relativeLuminance(fg), l2 = relativeLuminance(bg);
+        var hi = Math.max(l1, l2), lo = Math.min(l1, l2);
+        return (hi + 0.05) / (lo + 0.05);
+    }
+    // WCAG "large text": >=18pt, or >=14pt bold. A heading judged against the
+    // body threshold reports a failure that is not one.
+    function isLargeText(el) {
+        var st = el.style || {};
+        var size = String(st.fontSize || "");
+        var pt = null;
+        var m = /^([\d.]+)(px|pt)$/i.exec(size.trim());
+        if (m) pt = m[2].toLowerCase() === "pt" ? parseFloat(m[1]) : parseFloat(m[1]) * 0.75;
+        if (pt === null) {
+            var tagName = (el.tagName || "").toLowerCase();
+            if (/^h[1-3]$/.test(tagName)) return true;
+            return false;
+        }
+        var bold = /bold|^[6-9]00$/.test(String(st.fontWeight || ""));
+        return pt >= 18 || (pt >= 14 && bold);
+    }
+
     function accessibleNameOf(element) {
         if (!element) return "";
         var trim = function (v) { return String(v || "").replace(/^\s+|\s+$/g, ""); };
@@ -3563,6 +3916,29 @@ function RTE_Plugin_AIToolkit() {
         };
     }
 
+    // HTML that arrives from a ledger or a persisted document came from someone else - another
+    // reviewer, a shared store, an AI endpoint that can be prompt-injected. It is written straight
+    // into the document on accept/reject, so clean it here, at the boundary, instead of relying on
+    // whatever runs against the live DOM later. Script vectors go through the content sanitizer when
+    // it is loaded; position:fixed/sticky is dropped either way, because a full-viewport overlay from
+    // remote content survived every other pass (UI redress, measured 2026-09-18).
+    function cleanRemoteHtml(html) {
+        if (!html) return "";
+        html = String(html);
+        if (typeof editor.sanitizeHtml === "function") html = editor.sanitizeHtml(html);
+        var doc = new DOMParser().parseFromString("<body>" + html + "</body>", "text/html");
+        var styled = doc.body.querySelectorAll("[style]");
+        for (var i = 0; i < styled.length; i++) {
+            var st = styled[i].style;
+            if (/^(fixed|sticky)$/i.test(st.position)) {
+                st.removeProperty("position");
+                st.removeProperty("z-index");
+                if (!styled[i].getAttribute("style")) styled[i].removeAttribute("style");
+            }
+        }
+        return doc.body.innerHTML;
+    }
+
     function normalizeLedgerEntry(raw) {
         if (!raw || !raw.id) return null;
         var changeType = raw.changeType || "ai-preview";
@@ -3580,10 +3956,10 @@ function RTE_Plugin_AIToolkit() {
                 name: author.name || author.id || "User",
                 color: author.color || "#2563eb"
             },
-            originalHtml: raw.originalHtml || "",
+            originalHtml: cleanRemoteHtml(raw.originalHtml),
             originalText: raw.originalText || "",
             resultText: raw.resultText || "",
-            resultHtml: raw.resultHtml || "",
+            resultHtml: cleanRemoteHtml(raw.resultHtml),
             reason: raw.reason || "",
             suggestionType: raw.suggestionType || "",
             language: raw.language || "",
@@ -3620,10 +3996,10 @@ function RTE_Plugin_AIToolkit() {
                 name: author.name || author.id || "User",
                 color: author.color || "#2563eb"
             },
-            originalHtml: raw.originalHtml || textToInlineHtml(raw.originalText || ""),
+            originalHtml: cleanRemoteHtml(raw.originalHtml) || textToInlineHtml(raw.originalText || ""),
             originalText: normalizeText(raw.originalText || ""),
             resultText: normalizeText(raw.resultText || ""),
-            resultHtml: raw.resultHtml || textToInlineHtml(raw.resultText || ""),
+            resultHtml: cleanRemoteHtml(raw.resultHtml) || textToInlineHtml(raw.resultText || ""),
             reason: normalizeText(raw.reason || ""),
             suggestionType: getSuggestionTypeValue(raw.suggestionType || ""),
             language: raw.language || "",
@@ -20732,6 +21108,13 @@ function RTE_Plugin_AutoEmbed() {
         st.id = "rte-autoembed-styles";
         st.appendChild(doc.createTextNode(css));
         (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(doc, st, "rte-autoembed-styles", st.textContent);
+        }
     }
 
     // Programmatic insert at caret (public editor.embedUrl API).
@@ -20913,6 +21296,13 @@ function RTE_Plugin_BlockTypes() {
                 st.setAttribute("data-rte-blocktypes", "1");
                 st.textContent = css;
                 head.appendChild(st);
+                // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+                // drops its rules, leaving this plugin's UI unstyled. The element above stays
+                // the path everyone else takes; this re-injects through the CSSOM only when
+                // the policy actually emptied it.
+                if (editor && typeof editor.ensureStyleSheetLive === "function") {
+                    editor.ensureStyleSheetLive(editdoc, st, "rte-blocktypes-st", st.textContent);
+                }
             }
         } catch (e) { /* ignore */ }
     }
@@ -21151,6 +21541,13 @@ function RTE_Plugin_BookmarkCard() {
                 st.setAttribute("data-rte-bookmarkcard", "1");
                 st.textContent = css;
                 head.appendChild(st);
+                // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+                // drops its rules, leaving this plugin's UI unstyled. The element above stays
+                // the path everyone else takes; this re-injects through the CSSOM only when
+                // the policy actually emptied it.
+                if (editor && typeof editor.ensureStyleSheetLive === "function") {
+                    editor.ensureStyleSheetLive(editdoc, st, "rte-bookmarkcard-st", st.textContent);
+                }
             }
         } catch (e) { /* ignore */ }
     }
@@ -21564,6 +21961,13 @@ function RTE_Plugin_CharLimit() {
         st.textContent = ".rte-charlimit-counter{position:absolute;right:10px;bottom:6px;z-index:5;font:11px -apple-system,Segoe UI,sans-serif;color:#64748b;background:rgba(255,255,255,.85);padding:1px 7px;border-radius:9px;pointer-events:none}" +
             ".rte-charlimit-counter.is-near{color:#b45309}.rte-charlimit-counter.is-over{color:#dc2626;font-weight:600}";
         (doc.head || doc.documentElement).appendChild(st);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(doc, st, "rte-charlimit-st", st.textContent);
+        }
     }
 
     function refresh() {
@@ -22220,6 +22624,13 @@ function RTE_Plugin_Comments() {
                 ".rte-comment-dark .rte-comment-quote{background:rgba(245,158,11,.12);color:#fcd34d}"
             ].join("\n");
             host.head.appendChild(style);
+            // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+            // drops its rules, leaving this plugin's UI unstyled. The element above stays
+            // the path everyone else takes; this re-injects through the CSSOM only when
+            // the policy actually emptied it.
+            if (editor && typeof editor.ensureStyleSheetLive === "function") {
+                editor.ensureStyleSheetLive(host, style, "rte-comments-style", style.textContent);
+            }
         }
 
         var editdoc = editor.getDocument();
@@ -22233,6 +22644,13 @@ function RTE_Plugin_Comments() {
                 "@keyframes rte-comment-flash{0%{background:rgba(251,191,36,.9)}100%{background:" + config.commentHighlightBg + "}}"
             ].join("\n");
             editdoc.head.appendChild(iStyle);
+            // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+            // drops its rules, leaving this plugin's UI unstyled. The element above stays
+            // the path everyone else takes; this re-injects through the CSSOM only when
+            // the policy actually emptied it.
+            if (editor && typeof editor.ensureStyleSheetLive === "function") {
+                editor.ensureStyleSheetLive(editdoc, iStyle, "rte-comments-iStyle", iStyle.textContent);
+            }
         }
     }
 
@@ -22367,6 +22785,13 @@ function RTE_Plugin_ContentMinimap() {
             "@media (max-width: 1100px){.rte-content-minimap-shell{display:block;}.rte-content-minimap-panel{margin-top:12px;max-width:none;width:100%;}.rte-content-minimap-body{max-height:280px;}}"
         ].join("");
         hostDoc.head.appendChild(style);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(hostDoc, style, "rte-content-minimap-style", style.textContent);
+        }
     }
 
     function ensureShell() {
@@ -23038,6 +23463,13 @@ function RTE_Plugin_CrossReference() {
         st.setAttribute("data-css", text);
         st.appendChild(doc.createTextNode(text));
         (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(doc, st, "rte-xref-styles", st.textContent);
+        }
     }
 }
 
@@ -23493,6 +23925,13 @@ function RTE_Plugin_Dictation() {
         style.setAttribute("data-rte-dictation", "1");
         style.appendChild(document.createTextNode(css));
         document.head.appendChild(style);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(document, style, "rte-dictation-style", style.textContent);
+        }
     }
 
     function normalize(text, isFinal) {
@@ -24938,9 +25377,7 @@ function RTE_Plugin_DocumentOutline() {
     function injectStyles() {
         var hostDoc = config.container.ownerDocument;
         if (hostDoc.getElementById("rte-document-outline-style")) return;
-        var style = hostDoc.createElement("style");
-        style.id = "rte-document-outline-style";
-        style.innerHTML = [
+        var csstext = [
             ".rte-document-outline-shell{display:flex;align-items:stretch;gap:10px;}",
             ".rte-document-outline-shell>.rte-document-outline-host{flex:1 1 auto;min-width:0;}",
             "/* 2026-07-12 navigation panel precision */",
@@ -24963,7 +25400,15 @@ function RTE_Plugin_DocumentOutline() {
             ".rte-document-outline-empty{margin:6px;padding:14px;color:#52657e;font-size:13px;font-weight:700;line-height:1.55;background:#fff;border:1px dashed rgba(148,163,184,.34);border-radius:8px;}",
             "@media (max-width: 1100px){.rte-document-outline-shell{display:block;}.rte-document-outline-panel{margin-top:12px;max-width:none;width:100%;}.rte-document-outline-body{max-height:320px;}}"
         ].join("");
+        var style = hostDoc.createElement("style");
+        style.id = "rte-document-outline-style";
+        style.appendChild(hostDoc.createTextNode(csstext));
         hostDoc.head.appendChild(style);
+        // A <style> element's rules are dropped under a strict style-src; this
+        // re-injects them through the CSSOM in that case only.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(hostDoc, style, "rte-document-outline-style", csstext);
+        }
     }
 
     function ensureShell() {
@@ -26526,6 +26971,13 @@ function RTE_Plugin_DragHandle() {
             ".rte-drag-active *{cursor:grabbing !important;}"
         ));
         (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(doc, st, "rte-drag-handle-styles", st.textContent);
+        }
     }
 }
 
@@ -27085,6 +27537,13 @@ function RTE_Plugin_FoldHeadings() {
         st.id = "rte-foldheadings-styles";
         st.appendChild(doc.createTextNode(css));
         (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(doc, st, "rte-foldheadings-styles", st.textContent);
+        }
     }
 
     // Strip fold classes for the duration of a serialization call so saved markup
@@ -27515,6 +27974,13 @@ function RTE_Plugin_Footnotes() {
         st.setAttribute("data-css", text);
         st.appendChild(doc.createTextNode(text));
         (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+        // A <style> ELEMENT is refused under `style-src 'self'` and its rules are
+        // dropped, so footnote markers and the separator rendered unstyled for any
+        // customer on a strict CSP. This re-injects through the CSSOM only in that
+        // case; the element above stays the path everyone else takes.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(doc, st, "rte-footnotes-styles", text);
+        }
     }
 }
 
@@ -27814,6 +28280,13 @@ function RTE_Plugin_FormatPainter() {
         st.id = "rte-format-painter-styles";
         st.appendChild(doc.createTextNode(css()));
         (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(doc, st, "rte-format-painter-styles", st.textContent);
+        }
     }
 }
 
@@ -28061,6 +28534,13 @@ function RTE_Plugin_FormattingMarks() {
         st.setAttribute("data-css", text);
         st.appendChild(doc.createTextNode(text));
         (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(doc, st, "rte-formatting-marks-styles", st.textContent);
+        }
     }
 }
 
@@ -28427,6 +28907,13 @@ function RTE_Plugin_GapCursor() {
         st.setAttribute("data-css", text);
         st.appendChild(doc.createTextNode(text));
         (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(doc, st, "rte-gapcursor-styles", st.textContent);
+        }
     }
 }
 
@@ -28696,6 +29183,13 @@ function RTE_Plugin_GhostComplete() {
         st.id = "rte-ghost-styles";
         st.appendChild(doc.createTextNode(css));
         (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(doc, st, "rte-ghost-styles", st.textContent);
+        }
     }
 
     function stripFor() {
@@ -29158,7 +29652,8 @@ function RTE_Plugin_ImageEditor() {
 				savebtn.innerText = "Saving...";
 
 				var dataurl = imgeditor.toDataURL();
-				if (!config.file_upload_handler) {
+				var uploadHandler = config.file_upload_handler || window.rte_file_upload_handler;
+				if (!uploadHandler) {
 					img.src = dataurl;
 					editor.notifySelectionChange();
 					dialoginner.close();
@@ -29167,7 +29662,7 @@ function RTE_Plugin_ImageEditor() {
 
 				var file = dataURLToBlob(dataurl);
 
-				config.file_upload_handler(file, function (url, error) {
+				uploadHandler(file, function (url, error) {
 					if (url) {
 						img.src = url;
 						editor.notifySelectionChange();
@@ -30508,10 +31003,12 @@ function RTE_Plugin_InsertEmoji() {
 //
 //   config.galleryEndpoint   URL returning { currentFolder, currentFolderDisplay,
 //                            parentFolder, folders: [{folder,name}],
-//                            images: [{url,name,folder,size,source}] }.
+//                            images: [{url,name,folder,size,source,alt}] }.
 //                            Absent -> local mode: presets only, no request.
 //   config.galleryImages     Preset images. String, [url, text], or an object
-//                            with url/src/href plus optional thumbnail/name/meta.
+//                            with url/src/href plus optional thumbnail/name/meta/alt.
+//                            alt (presets and server images) becomes the inserted
+//                            image's alt text; without it the attribute stays absent.
 //
 // Uploads use window.richTextBoxUploadFile when present (it accepts a target
 // folder), otherwise the generic window.rte_file_upload_handler.
@@ -30642,7 +31139,8 @@ function RTE_Plugin_InsertGallery() {
                 url: url,
                 thumbnail: item.thumbnail || item.thumb || item.preview || url,
                 name: item.name || item.text || item.title || getFileName(url),
-                meta: item.meta || item.description || item.alt || ""
+                meta: item.meta || item.description || item.alt || "",
+                alt: typeof item.alt === "string" ? item.alt : undefined
             };
         }
 
@@ -30682,6 +31180,7 @@ function RTE_Plugin_InsertGallery() {
             folder: item.folder || "",
             source: item.source || "upload",
             size: item.size || 0,
+            alt: typeof item.alt === "string" ? item.alt : undefined,
             searchText: (name + " " + item.url).toLowerCase()
         };
     }
@@ -30875,7 +31374,9 @@ function RTE_Plugin_InsertGallery() {
                 return;
             }
 
-            editor.insertImageByUrl(selected.url);
+            // Only an alt the host supplied (preset or server listing). The file name is
+            // not alt text; leaving it absent lets the accessibility checker flag it.
+            editor.insertImageByUrl(selected.url, selected.alt);
             closeDialog();
             editor.focus();
         }
@@ -31106,6 +31607,10 @@ function RTE_Plugin_InsertGallery() {
             render();
         }
 
+        // Upload failures to show once the folder has been re-listed (applyResponse
+        // clears the error, so it would otherwise vanish).
+        var pendingError = "";
+
         function loadFolder(folder, selectAfterLoad) {
             if (!serverMode) {
                 state.images = presetImages.slice(0);
@@ -31119,6 +31624,7 @@ function RTE_Plugin_InsertGallery() {
 
             requestJson("GET", withFolder(endpoint, folder), null, function (payload, errorCode) {
                 if (errorCode) {
+                    pendingError = "";
                     loadFallback(errorCode);
                     return;
                 }
@@ -31127,6 +31633,8 @@ function RTE_Plugin_InsertGallery() {
                 if (selectAfterLoad) {
                     state.selectedUrl = selectAfterLoad;
                 }
+                state.error = pendingError;
+                pendingError = "";
                 state.loading = false;
                 render();
             });
@@ -31161,67 +31669,120 @@ function RTE_Plugin_InsertGallery() {
             });
         }
 
+        // config.maxUploadFileSize is enforced by the core only on its own insert
+        // paths. The gallery calls the upload handler directly, so the limit a
+        // customer set to protect their database was skipped for every image
+        // uploaded through this dialog. The accept list is only a hint to the file
+        // picker ("All files" bypasses it), so the format is checked here too.
+        function rejectReason(file) {
+            var name = String(file.name || "").toLowerCase();
+            var dot = name.lastIndexOf(".");
+            if (dot < 0 || GALLERY_ACCEPT.indexOf(name.substring(dot)) < 0) {
+                return file.name + " is not an accepted image format.";
+            }
+            var max = parseInt(config.maxUploadFileSize, 10);
+            if (max > 0 && file.size > max) {
+                return file.name + " is " + humanSize(file.size) + ". The maximum allowed size is " + humanSize(max) + ".";
+            }
+            return "";
+        }
+
         function uploadFiles(fileList) {
             var files = [];
+            var problems = [];
             var index;
             for (index = 0; index < fileList.length; index++) {
-                files.push(fileList[index]);
+                var reason = rejectReason(fileList[index]);
+                if (reason) {
+                    problems.push(reason);
+                } else {
+                    files.push(fileList[index]);
+                }
             }
 
-            if (!files.length || !canUpload) {
+            if (!canUpload) {
+                return;
+            }
+            if (!files.length) {
+                if (problems.length) {
+                    state.error = problems.join(" ");
+                    render();
+                }
                 return;
             }
 
-            var lastUploadedUrl = "";
+            // One failed file used to stop the batch, and in local mode only the
+            // LAST success was added to the list - uploading three images showed
+            // one. Now every file is attempted, every success is kept, and the
+            // failures are reported together at the end.
+            var uploadedUrls = [];
+
+            function finish() {
+                var lastUploadedUrl = uploadedUrls.length ? uploadedUrls[uploadedUrls.length - 1] : "";
+
+                if (serverMode) {
+                    pendingError = problems.join(" ");
+                    loadFolder(state.currentFolder, lastUploadedUrl || state.selectedUrl);
+                    return;
+                }
+
+                // No server to re-list from, so fold the uploads into the preset
+                // list directly, newest first, and select the last one.
+                for (var u = 0; u < uploadedUrls.length; u++) {
+                    var uploaded = normalizePreset(uploadedUrls[u]);
+                    if (uploaded) {
+                        uploaded.source = "upload";
+                        presetImages.unshift(uploaded);
+                        config.galleryImages.unshift(uploadedUrls[u]);
+                    }
+                }
+                if (lastUploadedUrl) {
+                    state.selectedUrl = lastUploadedUrl;
+                }
+                state.images = presetImages.slice(0);
+                state.loading = false;
+                state.error = problems.join(" ");
+                render();
+            }
 
             function uploadNext(nextIndex) {
                 if (nextIndex >= files.length) {
-                    if (serverMode) {
-                        loadFolder(state.currentFolder, lastUploadedUrl);
-                        return;
-                    }
-
-                    // No server to re-list from, so fold the upload into the
-                    // preset list directly and keep it selected.
-                    if (lastUploadedUrl) {
-                        var uploaded = normalizePreset(lastUploadedUrl);
-                        if (uploaded) {
-                            uploaded.source = "upload";
-                            presetImages.unshift(uploaded);
-                            config.galleryImages.unshift(lastUploadedUrl);
-                        }
-                        state.selectedUrl = lastUploadedUrl;
-                    }
-                    state.images = presetImages.slice(0);
-                    state.loading = false;
-                    render();
+                    finish();
                     return;
                 }
 
                 var file = files[nextIndex];
+                var settled = false;
 
-                function done(url, errorCode) {
-                    if (!url) {
-                        state.error = errorCode || ("Upload failed for " + file.name + ".");
-                        state.loading = false;
-                        render();
+                function done(url, errorText) {
+                    // a handler that calls back twice must not upload the rest twice
+                    if (settled) {
                         return;
                     }
-
-                    lastUploadedUrl = url;
+                    settled = true;
+                    if (url) {
+                        uploadedUrls.push(url);
+                    } else {
+                        problems.push(typeof errorText === "string" && errorText ? errorText : ("Upload failed for " + file.name + "."));
+                    }
                     uploadNext(nextIndex + 1);
                 }
 
-                if (uploadToFolder) {
-                    window.richTextBoxUploadFile(file, function (url, errorCode) {
-                        done(errorCode ? "" : url, errorCode ? ("Upload failed for " + file.name + ".") : "");
-                    }, { folder: state.currentFolder }, nextIndex, files);
-                    return;
-                }
+                try {
+                    if (uploadToFolder) {
+                        window.richTextBoxUploadFile(file, function (url, errorCode) {
+                            done(errorCode ? "" : url, errorCode ? ("Upload failed for " + file.name + ".") : "");
+                        }, { folder: state.currentFolder }, nextIndex, files);
+                        return;
+                    }
 
-                window.rte_file_upload_handler(file, function (url, error) {
-                    done(url, error);
-                }, nextIndex, files);
+                    window.rte_file_upload_handler(file, function (url, error) {
+                        done(url, error);
+                    }, nextIndex, files);
+                } catch (ex) {
+                    // a handler that throws must not leave the dialog stuck on "Loading"
+                    done("", "Upload failed for " + file.name + ".");
+                }
             }
 
             state.loading = true;
@@ -32383,6 +32944,13 @@ function RTE_Plugin_LayoutTable() {
         st.setAttribute("data-css", text);
         st.appendChild(doc.createTextNode(text));
         (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(doc, st, "rte-layout-table-styles", st.textContent);
+        }
     }
 
     function fireChange() {
@@ -32741,6 +33309,13 @@ function RTE_Plugin_LineNumbers() {
         st.setAttribute("data-css", text);
         st.appendChild(doc.createTextNode(text));
         (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(doc, st, "rte-linenumber-styles", st.textContent);
+        }
     }
 }
 
@@ -33138,6 +33713,13 @@ function RTE_Plugin_LinkChecker() {
         st.setAttribute("data-css", text);
         st.appendChild(doc.createTextNode(text));
         (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(doc, st, "rte-link-checker-styles", st.textContent);
+        }
     }
 }
 
@@ -34141,6 +34723,13 @@ function RTE_Plugin_Mention() {
             ".rte-mention:hover{background:#e4edff}"
         ].join("\n");
         host.head.appendChild(style);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(host, style, "rte-mentionplugin-style", style.textContent);
+        }
 
         // Also inject mention-span styles inside the iframe so the pill looks right while editing.
         var editdoc = editor.getDocument();
@@ -34152,6 +34741,13 @@ function RTE_Plugin_Mention() {
                 ".rte-mention:hover{background:#e4edff}"
             ].join("\n");
             editdoc.head.appendChild(iStyle);
+            // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+            // drops its rules, leaving this plugin's UI unstyled. The element above stays
+            // the path everyone else takes; this re-injects through the CSSOM only when
+            // the policy actually emptied it.
+            if (editor && typeof editor.ensureStyleSheetLive === "function") {
+                editor.ensureStyleSheetLive(editdoc, iStyle, "rte-mentionplugin-iStyle", iStyle.textContent);
+            }
         }
     }
 }
@@ -34482,6 +35078,13 @@ function RTE_Plugin_MergeFields() {
         st.setAttribute("data-css", text);
         st.appendChild(doc.createTextNode(text));
         (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(doc, st, "rte-merge-field-styles", st.textContent);
+        }
     }
 }
 
@@ -34615,6 +35218,13 @@ function RTE_Plugin_MermaidDiagram() {
         style.id = "rte-mermaid-styles";
         style.appendChild(doc.createTextNode(css));
         (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(style);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(doc, style, "rte-mermaid-styles", style.textContent);
+        }
     }
 
     function getMermaid(win) {
@@ -34915,6 +35525,13 @@ function RTE_Plugin_MultiLevelList() {
         st.setAttribute("data-css", text);
         st.appendChild(doc.createTextNode(text));
         (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(doc, st, "rte-legal-list-styles", st.textContent);
+        }
     }
 }
 
@@ -35183,6 +35800,446 @@ function RTE_Plugin_MultiRoot() {
                           "Undo, selection and collaboration are per-root; the editor edits an " +
                           "iframe body, so a single instance cannot own several editables without core changes."
                 };
+            }
+        };
+    }
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
+RTE_DefaultConfig.plugin_nodetypes = RTE_Plugin_NodeTypes;
+
+// 2026-09-04 Custom node type registry.
+//
+// WHAT THE GAP ACTUALLY IS. Measured before this was designed, rather than
+// assumed. A custom element with data-* attributes already survives more of this
+// editor than expected:
+//
+//   setHTML -> getHTML round trip ......... survives, attributes intact
+//   contenteditable="false" atomicity ..... preserved
+//   undo of an editor-driven delete ....... restored, attributes intact
+//   sanitizer ............................. already extensible via
+//                                           config.sanitizerAllowTags / -Attributes
+//   markdown export ....................... DEGRADES to the element's text
+//   .docx export .......................... DEGRADES to the element's text
+//   an API to declare any of this ......... DID NOT EXIST
+//
+// So the gap is not "you cannot put your own element in the document" - you can.
+// The gap is that nothing lets you DECLARE that the element is a node type, and
+// therefore nothing downstream can treat it deliberately. Degrading to text in
+// Markdown and .docx is a defensible default; having no way to say what should
+// happen instead is not.
+//
+// This registry is that declaration. Register a type once and it gets:
+//   - its tags and attributes allowed through the sanitizer automatically
+//   - atomicity enforced and repaired (chips stop being atomic the moment
+//     contenteditable is lost, and then the caret edits their internals)
+//   - JSON serialization of every instance, for saving state outside the HTML
+//   - a Markdown representation you control instead of raw text content
+//
+// ORDERING NOTE: plugins initialise in alphabetical bundle order. "nodetypes"
+// sorts BEFORE "sanitizer" and BEFORE "slashcommand", so this file must NOT call
+// editor.slashCommands.register() from init - it would silently no-op. Feeding
+// the sanitizer works precisely because we run first: we write config before
+// sanitizer.js reads it.
+function RTE_Plugin_NodeTypes() {
+    var obj = this;
+    var config;
+    var editor;
+    var types = [];          // registration order
+    var byName = {};
+    var enforceTimer = 0;
+    var originalToMarkdown = null;
+
+    obj.PluginName = "NodeTypes";
+
+    obj.InitConfig = function (argconfig) {
+        config = argconfig;
+        if (config.nodeTypesEnabled === false) return;
+
+        // Types can be declared in config so a host does not have to wait for an
+        // editor instance to exist.
+        if (Array.isArray(config.nodeTypes)) {
+            for (var i = 0; i < config.nodeTypes.length; i++) registerType(config.nodeTypes[i]);
+        }
+    };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+        if (config.nodeTypesEnabled === false) return;
+
+        editor.nodeTypes = {
+            find: function (name) { return findInstances(name); },
+            get: function (name) { return byName[name] || null; },
+            insert: function (name, data) { return insertNode(name, data); },
+            list: function () { return types.map(describe); },
+            register: function (def) { return registerType(def); },
+            serialize: function () { return serializeAll(); },
+            typeOf: function (el) { var t = typeFor(el); return t ? t.name : null; },
+            unregister: function (name) { return unregisterType(name); }
+        };
+
+        // Atomicity is a live invariant, not a one-off: a paste, an undo or a
+        // competing plugin can strip contenteditable and the node silently stops
+        // behaving like one unit.
+        //
+        // Observed rather than event-driven, deliberately. setHTML() does not
+        // fire "change", so an invariant hung off editor events is not enforced
+        // on loaded content at all - which is the most common way a node enters
+        // the document. Measured: with only the "change" handler, a node loaded
+        // via setHTML never gained contenteditable="false".
+        editor.attachEvent("change", function () { scheduleEnforce(); });
+        observeEditable();
+
+        wrapMarkdown();
+
+        // Deferred deliberately. Plugins initialise in alphabetical bundle order:
+        // docxexport (19) runs BEFORE nodetypes (49), but pdfexport (51) and
+        // wordexport (72) run AFTER, so editor.getPdfBytes does not exist yet at
+        // this point. Wrapping now would silently miss PDF entirely - the same
+        // ordering trap that makes slashCommands.register() a no-op from here.
+        // A zero-delay timeout lands after every plugin has initialised.
+        setTimeout(installExportHooks, 0);
+
+        enforceAll();
+    };
+
+    // ------------------------------------------------------------ registration
+
+    function registerType(def) {
+        if (!def || !def.name) return false;
+        if (typeof def.match !== "string" && typeof def.match !== "function") return false;
+        if (byName[def.name]) unregisterType(def.name);
+
+        var type = {
+            name: def.name,
+            match: def.match,
+            atomic: def.atomic !== false,       // atomic by default
+            inline: !!def.inline,
+            toJSON: typeof def.toJSON === "function" ? def.toJSON : null,
+            fromJSON: typeof def.fromJSON === "function" ? def.fromJSON : null,
+            toMarkdown: typeof def.toMarkdown === "function" ? def.toMarkdown : null,
+            // Export representations. toExportHTML covers .docx and PDF at once;
+            // toDocx / toPdf override it per format when they differ.
+            toExportHTML: typeof def.toExportHTML === "function" ? def.toExportHTML : null,
+            toDocx: typeof def.toDocx === "function" ? def.toDocx : null,
+            toPdf: typeof def.toPdf === "function" ? def.toPdf : null,
+            toWord: typeof def.toWord === "function" ? def.toWord : null,
+            allowTags: def.allowTags || [],
+            allowAttributes: def.allowAttributes || []
+        };
+        types.push(type);
+        byName[type.name] = type;
+        feedSanitizer(type);
+        if (editor) { enforceAll(); }
+        return true;
+    }
+
+    function unregisterType(name) {
+        if (!byName[name]) return false;
+        types = types.filter(function (t) { return t.name !== name; });
+        delete byName[name];
+        return true;
+    }
+
+    function describe(t) {
+        return {
+            name: t.name, atomic: t.atomic, inline: t.inline,
+            hasToJSON: !!t.toJSON, hasFromJSON: !!t.fromJSON, hasToMarkdown: !!t.toMarkdown,
+            hasExportHTML: !!(t.toExportHTML || t.toDocx || t.toPdf),
+            instances: findInstances(t.name).length
+        };
+    }
+
+    // The sanitizer is an allowlist: an unknown tag is dropped on input, on
+    // output and from the live DOM. A registered type that did not feed the
+    // allowlist would be deleted by the editor's own security layer, so this is
+    // wired automatically rather than left to the host to remember.
+    function feedSanitizer(type) {
+        if (!config) return;
+        mergeInto("sanitizerAllowTags", type.allowTags);
+        mergeInto("sanitizerAllowAttributes", type.allowAttributes);
+    }
+
+    function mergeInto(key, values) {
+        if (!values || !values.length) return;
+        var list = config[key];
+        if (!Array.isArray(list)) list = list ? [list] : [];
+        for (var i = 0; i < values.length; i++) {
+            if (list.indexOf(values[i]) === -1) list.push(values[i]);
+        }
+        config[key] = list;
+    }
+
+    // ------------------------------------------------------------- instances
+
+    function matches(type, el) {
+        if (!el || el.nodeType !== 1) return false;
+        if (typeof type.match === "string") {
+            try { return el.matches(type.match); } catch (e) { return false; }
+        }
+        try { return !!type.match(el); } catch (e) { return false; }
+    }
+
+    function typeFor(el) {
+        for (var i = 0; i < types.length; i++) {
+            if (matches(types[i], el)) return types[i];
+        }
+        return null;
+    }
+
+    function editable() {
+        return editor && editor.getEditable ? editor.getEditable() : null;
+    }
+
+    function findInstances(name) {
+        var root = editable();
+        var type = byName[name];
+        var out = [];
+        if (!root || !type) return out;
+        // Include the root's own children: querySelectorAll finds descendants
+        // only, and a node pasted at the top level is a child of the root. That
+        // exact blind spot is why the accessibility checker used to miss
+        // top-level images.
+        var all = root.querySelectorAll("*");
+        for (var i = 0; i < all.length; i++) {
+            if (matches(type, all[i])) out.push(all[i]);
+        }
+        return out;
+    }
+
+    function allInstances() {
+        var root = editable();
+        var out = [];
+        if (!root) return out;
+        var all = root.querySelectorAll("*");
+        for (var i = 0; i < all.length; i++) {
+            var t = typeFor(all[i]);
+            if (t) out.push({ type: t, el: all[i] });
+        }
+        return out;
+    }
+
+    function insertNode(name, data) {
+        var type = byName[name];
+        if (!type || !type.fromJSON || !editor) return null;
+        var produced = type.fromJSON(data || {});
+        var html = typeof produced === "string" ? produced : (produced && produced.outerHTML);
+        if (!html) return null;
+        editor.insertHTML(html);
+        scheduleEnforce();
+        return html;
+    }
+
+    function serializeAll() {
+        var out = [];
+        var found = allInstances();
+        for (var i = 0; i < found.length; i++) {
+            var t = found[i].type, el = found[i].el;
+            out.push({
+                name: t.name,
+                data: t.toJSON ? safe(t.toJSON, el, {}) : readDataAttributes(el)
+            });
+        }
+        return out;
+    }
+
+    function readDataAttributes(el) {
+        var data = {};
+        var attrs = el.attributes;
+        for (var i = 0; attrs && i < attrs.length; i++) {
+            if (attrs[i].name.indexOf("data-") === 0) data[attrs[i].name] = attrs[i].value;
+        }
+        return data;
+    }
+
+    function safe(fn, arg, fallback) {
+        try { return fn(arg); } catch (e) { return fallback; }
+    }
+
+    // -------------------------------------------------------------- atomicity
+
+    function observeEditable() {
+        var root = editable();
+        if (!root || typeof MutationObserver === "undefined") return;
+        var observer = new MutationObserver(function () { scheduleEnforce(); });
+        observer.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ["contenteditable"] });
+    }
+
+    function scheduleEnforce() {
+        clearTimeout(enforceTimer);
+        enforceTimer = setTimeout(enforceAll, 60);
+    }
+
+    function enforceAll() {
+        var found = allInstances();
+        for (var i = 0; i < found.length; i++) {
+            if (found[i].type.atomic && found[i].el.getAttribute("contenteditable") !== "false") {
+                found[i].el.setAttribute("contenteditable", "false");
+            }
+        }
+    }
+
+    // ----------------------------------------------------------------- export
+
+    // .docx and PDF both build from the live editable, so the same swap the
+    // Markdown path uses works here: replace each registered node with the HTML
+    // the type says represents it, export, then put the originals back.
+    //
+    // Unlike Markdown these are partly ASYNCHRONOUS - getDocxBlob returns a
+    // Promise - so the restore has to wait for the result to settle. Restoring
+    // synchronously would put the originals back while the exporter was still
+    // reading the DOM.
+    function installExportHooks() {
+        wrapExport("getDocxBlob", "toDocx");
+        wrapExport("exportToDocx", "toDocx");
+        wrapExport("getPdfBytes", "toPdf");
+        wrapExport("exportToPdf", "toPdf");
+        wrapExport("downloadPdf", "toPdf");
+        // wordexport.js sorts at 72 - after this file at 49 - which is exactly
+        // why the install is deferred. It builds from editor.getHTMLCode(), and
+        // getHTMLCode() serializes the live DOM, so the same swap reaches it.
+        wrapExport("getWordDocument", "toWord");
+        wrapExport("exportToWord", "toWord");
+        wrapExport("downloadWord", "toWord");
+    }
+
+    function wrapExport(apiName, hookName) {
+        if (!editor || typeof editor[apiName] !== "function") return;
+        var original = editor[apiName];
+        editor[apiName] = function () {
+            var args = arguments;
+            var found = allInstances().filter(function (f) {
+                return f.type[hookName] || f.type.toExportHTML;
+            });
+            if (!found.length) return original.apply(editor, args);
+
+            var restore = swapNodes(found, hookName);
+            var result;
+            try {
+                result = original.apply(editor, args);
+            } catch (e) {
+                restore();
+                throw e;
+            }
+            if (result && typeof result.then === "function") {
+                return result.then(function (v) { restore(); return v; },
+                                   function (e) { restore(); throw e; });
+            }
+            restore();
+            return result;
+        };
+    }
+
+    // Replaces each instance with its declared export HTML and returns an
+    // idempotent restore function.
+    function swapNodes(found, hookName) {
+        var doc = editor.getDocument();
+        var swaps = [];
+        var savedRange = null;
+        try {
+            var sel = doc.getSelection();
+            if (sel && sel.rangeCount) savedRange = sel.getRangeAt(0).cloneRange();
+        } catch (e) { savedRange = null; }
+
+        for (var i = 0; i < found.length; i++) {
+            var el = found[i].el;
+            var fn = found[i].type[hookName] || found[i].type.toExportHTML;
+            var html = fn ? safe(fn, el, null) : null;
+            if (html === null || html === undefined) continue;
+            var holder = doc.createElement(found[i].type.inline ? "span" : "div");
+            holder.innerHTML = String(html);
+            el.parentNode.insertBefore(holder, el);
+            el.parentNode.removeChild(el);
+            swaps.push({ holder: holder, original: el });
+        }
+
+        var done = false;
+        return function () {
+            if (done) return;
+            done = true;
+            for (var j = swaps.length - 1; j >= 0; j--) {
+                var s = swaps[j];
+                if (s.holder.parentNode) {
+                    s.holder.parentNode.insertBefore(s.original, s.holder);
+                    s.holder.parentNode.removeChild(s.holder);
+                }
+            }
+            if (savedRange) {
+                try {
+                    var sel2 = doc.getSelection();
+                    sel2.removeAllRanges();
+                    sel2.addRange(savedRange);
+                } catch (e) { /* selection may no longer be placeable */ }
+            }
+        };
+    }
+
+    // --------------------------------------------------------------- markdown
+
+    // The core's markdown engine takes a root element, but the public
+    // editor.toMarkdown() closes over the live editable and accepts no argument,
+    // so there is no way to hand it a modified clone. The only seam is to swap
+    // registered nodes for their markdown text in the live DOM, convert, and put
+    // the originals back.
+    //
+    // That mutates the document the user is editing, so it is wrapped in
+    // try/finally: if a host's toMarkdown throws, the originals are restored
+    // anyway. Selection is saved and restored for the same reason.
+    function wrapMarkdown() {
+        if (!editor || typeof editor.toMarkdown !== "function") return;
+        originalToMarkdown = editor.toMarkdown;
+        editor.toMarkdown = function () {
+            var found = allInstances().filter(function (f) { return f.type.toMarkdown; });
+            if (!found.length) return originalToMarkdown.call(editor);
+
+            var doc = editor.getDocument();
+            var swaps = [];
+            var tokens = [];
+            var savedRange = null;
+            try {
+                var sel = doc.getSelection();
+                if (sel && sel.rangeCount) savedRange = sel.getRangeAt(0).cloneRange();
+            } catch (e) { savedRange = null; }
+
+            try {
+                for (var i = 0; i < found.length; i++) {
+                    var el = found[i].el;
+                    var md = safe(found[i].type.toMarkdown, el, null);
+                    if (md === null || md === undefined) continue;
+                    // An ALPHANUMERIC sentinel, not the markdown itself. The core
+                    // engine escapes markdown punctuation in text content, so a
+                    // hook returning "**Approval**" would emit "\*\*Approval\*\*".
+                    // The sentinel has nothing to escape; the real markdown is
+                    // substituted into the finished string instead.
+                    var token = "RTENODETYPETOKEN" + i + "ENDRTENODETYPETOKEN";
+                    var holder = doc.createElement(found[i].type.inline ? "span" : "p");
+                    holder.textContent = token;
+                    el.parentNode.insertBefore(holder, el);
+                    el.parentNode.removeChild(el);
+                    swaps.push({ holder: holder, original: el });
+                    tokens.push({ token: token, markdown: String(md) });
+                }
+                var out = originalToMarkdown.call(editor);
+                for (var k = 0; k < tokens.length; k++) {
+                    out = out.split(tokens[k].token).join(tokens[k].markdown);
+                }
+                return out;
+            } finally {
+                for (var j = swaps.length - 1; j >= 0; j--) {
+                    var s = swaps[j];
+                    if (s.holder.parentNode) {
+                        s.holder.parentNode.insertBefore(s.original, s.holder);
+                        s.holder.parentNode.removeChild(s.holder);
+                    }
+                }
+                if (savedRange) {
+                    try {
+                        var sel2 = doc.getSelection();
+                        sel2.removeAllRanges();
+                        sel2.addRange(savedRange);
+                    } catch (e) { /* selection may no longer be placeable */ }
+                }
             }
         };
     }
@@ -35648,6 +36705,13 @@ function RTE_Plugin_Pagination() {
         st.id = "rte-pagination-styles";
         st.appendChild(doc.createTextNode(css));
         (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(doc, st, "rte-pagination-styles", st.textContent);
+        }
     }
 
     // ---- serialization guard --------------------------------------------
@@ -36111,7 +37175,7 @@ function RTE_Plugin_PdfExport() {
         return px * 0.75;
     }
 
-        function block(node, style, indent, listMarker, listId, listOrdered) {
+        function block(node, style, indent, listMarker, listId, listOrdered, roleOverride) {
             var tag = node.tagName.toLowerCase();
             var s = styleOf(node, style);
             var align = "left";
@@ -36137,12 +37201,18 @@ function RTE_Plugin_PdfExport() {
                 // untagged still fails an accessibility audit: assistive
                 // technology gets a flat stream with no headings, no list
                 // structure and no reliable reading order.
-                role: HEADING_SCALE[tag] ? "H" + tag.charAt(1) : (tag === "blockquote" ? "BlockQuote" : "P"),
+                // roleOverride carries the quotation down to the paragraphs INSIDE a
+                // <blockquote>. The role was only ever emitted for a blockquote
+                // holding inline text directly - and the editor writes
+                // <blockquote><p>...</p></blockquote>, so in practice every
+                // blockquote we produce was tagged /P and the quotation was absent
+                // from the accessibility tree we publish claims about.
+                role: roleOverride || (HEADING_SCALE[tag] ? "H" + tag.charAt(1) : (tag === "blockquote" ? "BlockQuote" : "P")),
                 listId: listId || null, listOrdered: !!listOrdered
             });
         }
 
-        function walk(node, style, indent) {
+        function walk(node, style, indent, roleOverride) {
             for (var i = 0; i < node.childNodes.length; i++) {
                 var c = node.childNodes[i];
                 if (c.nodeType === 3) {
@@ -36184,8 +37254,9 @@ function RTE_Plugin_PdfExport() {
                 }
                 if (isBlockTag(tag)) {
                     var own = (tag === "blockquote" ? self.baseSize * 1.5 : 0) + cssIndentPt(c);
-                    if (hasBlockChildren(c)) { walk(c, styleOf(c, style), indent + own); continue; }
-                    block(c, style, indent + own, null);
+                    var childRole = (tag === "blockquote") ? "BlockQuote" : roleOverride;
+                    if (hasBlockChildren(c)) { walk(c, styleOf(c, style), indent + own, childRole); continue; }
+                    block(c, style, indent + own, null, null, false, childRole);
                     continue;
                 }
                 // Inline content sitting directly under a container.
@@ -37540,6 +38611,13 @@ function RTE_Plugin_RestrictedEditing() {
             "body.rte-restricted [" + editableAttr + "='true']{background:rgba(34,197,94,.16)}"
         ].join("\n");
         (doc.head || doc.getElementsByTagName("head")[0]).appendChild(s);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(doc, s, "__rte_restrictedediting_styles", s.textContent);
+        }
     }
 
     function enable() {
@@ -38350,6 +39428,13 @@ function RTE_Plugin_RevisionHistory() {
             ".rte-rev-dark .rte-rev-diff-del{background:rgba(244,63,94,.16);color:#fda4af}"
         ].join("\n");
         host.head.appendChild(style);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(host, style, "rte-revisionhistory-style", style.textContent);
+        }
     }
 }
 
@@ -38501,7 +39586,276 @@ function RTE_Plugin_RtlUi() {
         st.id = "rte-rtl-ui-styles";
         st.appendChild(doc.createTextNode(css()));
         (doc.head || doc.documentElement).appendChild(st);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(doc, st, "rte-rtl-ui-styles", st.textContent);
+        }
     }
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
+RTE_DefaultConfig.plugin_rubyannotation = RTE_Plugin_RubyAnnotation;
+
+// 2026-09-04 Ruby annotation (phonetic guides above base text).
+//
+// Furigana in Japanese, pinyin/bopomofo in Chinese, ruby glosses in academic
+// typesetting. Word has it, Lexical ships a RubyExtension, and it was the one
+// item in the Lexical feature gap register worth scheduling: small, self
+// contained, and an i18n/accessibility feature rather than a novelty.
+//
+// The markup is standard HTML, not an invention:
+//
+//   <ruby>漢字<rp>(</rp><rt>かんじ</rt><rp>)</rp></ruby>
+//
+// The <rp> parentheses are the accessibility half and are why they are emitted
+// by default: a browser or assistive technology with no ruby support falls back
+// to rendering "漢字(かんじ)" inline instead of running the reading straight
+// into the base text as "漢字かんじ". Copy-paste to a plain-text target gets the
+// same readable fallback.
+//
+// ruby/rt/rp are ALREADY in the sanitizer allowlist (checked, not assumed), so
+// the markup survives sanitisation with no allowlist change.
+function RTE_Plugin_RubyAnnotation() {
+    var obj = this;
+    var config;
+    var editor;
+
+    obj.PluginName = "RubyAnnotation";
+
+    obj.InitConfig = function (argconfig) {
+        config = argconfig;
+        if (config.rubyAnnotationEnabled === false) return;
+
+        if (typeof config.rubyAnnotationParentheses !== "boolean") config.rubyAnnotationParentheses = true;
+
+        // BOTH toolbars. config.toolbar defaults to "default", which resolves to
+        // toolbar_default, so appending only to toolbar_full would leave the
+        // button unreachable for every host that never configured a toolbar -
+        // the mistake that shipped inlinecode invisible for a whole release.
+        // The default toolbar gets it in the overflow set, where a niche
+        // typographic feature belongs; toolbar_full gets it inline.
+        appendToolbarCommand("toolbar_full", "#{rubyannotation}");
+        appendSubToolbarCommand("subtoolbar_more", "rubyannotation");
+    };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+        if (config.rubyAnnotationEnabled === false) return;
+
+        editor.ruby = {
+            add: function (reading) { return applyRuby(reading); },
+            get: function () { var r = findRubyAtSelection(); return r ? readingOf(r) : null; },
+            isRuby: function () { return !!findRubyAtSelection(); },
+            open: function () { obj.OpenRubyDialog(); },
+            remove: function () { return removeRuby(); }
+        };
+
+        injectStyles();
+
+        editor.toolbarFactoryMap = editor.toolbarFactoryMap || {};
+        editor.toolbarFactoryMap["rubyannotation"] = function (cmd) {
+            return editor.createToolbarButton(cmd);
+        };
+
+        editor.attachEvent("exec_command_rubyannotation", function (state) {
+            state.returnValue = true;
+            state.stopBubble = true;
+            obj.OpenRubyDialog();
+        });
+    };
+
+    function appendToolbarCommand(toolbar, item) {
+        if (!config[toolbar]) return;
+        if (config[toolbar].indexOf(item) !== -1) return;
+        config[toolbar] = config[toolbar] + item;
+    }
+
+    // subtoolbar_* entries are a braced, comma-separated list rather than the
+    // "#{name}" form the main toolbars use.
+    function appendSubToolbarCommand(toolbar, name) {
+        var val = config[toolbar];
+        if (!val || val.indexOf(name) !== -1) return;
+        var i = val.indexOf("}");
+        if (i === -1) return;
+        config[toolbar] = val.substring(0, i) + "," + name + val.substring(i);
+    }
+
+    // Ruby has no default styling worth relying on: browsers vary in whether the
+    // reading is sized down at all, and <rp> must be hidden wherever ruby DOES
+    // render or the parentheses show up twice.
+    function injectStyles() {
+        var hostDoc = config.container.ownerDocument;
+        if (hostDoc.getElementById("rte-ruby-style")) return;
+        var style = hostDoc.createElement("style");
+        style.id = "rte-ruby-style";
+        style.innerHTML = [
+            ".rte-ruby-annotated{ruby-position:over;}",
+            ".rte-ruby-annotated>rt{font-size:.55em;line-height:1.15;opacity:.85;user-select:none;}",
+            "@supports (display:ruby){.rte-ruby-annotated>rp{display:none;}}"
+        ].join("");
+        hostDoc.head.appendChild(style);
+        // A <style> element's rules are dropped under a strict style-src; this
+        // re-injects them through the CSSOM in that case only. Missed in 2.9.0,
+        // found by auditing the FULL bundle rather than a sample of plugins.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(hostDoc, style, "rte-ruby-style", style.textContent);
+        }
+    }
+
+    function editableRoot() {
+        return editor && editor.getEditable ? editor.getEditable() : null;
+    }
+
+    function currentRange() {
+        var doc = editor.getDocument();
+        try {
+            var sel = doc.getSelection();
+            if (!sel || !sel.rangeCount) return null;
+            return sel.getRangeAt(0);
+        } catch (e) { return null; }
+    }
+
+    function findRubyAtSelection() {
+        var range = currentRange();
+        var root = editableRoot();
+        if (!range || !root) return null;
+        var node = range.startContainer;
+        while (node && node !== root) {
+            if (node.nodeType === 1 && node.nodeName === "RUBY") return node;
+            node = node.parentNode;
+        }
+        return null;
+    }
+
+    function readingOf(rubyEl) {
+        var rt = rubyEl.querySelector("rt");
+        return rt ? (rt.textContent || "") : "";
+    }
+
+    function baseOf(rubyEl) {
+        var out = "";
+        for (var i = 0; i < rubyEl.childNodes.length; i++) {
+            var n = rubyEl.childNodes[i];
+            if (n.nodeType === 3) out += n.nodeValue;
+            else if (n.nodeType === 1 && n.nodeName !== "RT" && n.nodeName !== "RP") out += n.textContent || "";
+        }
+        return out;
+    }
+
+    function esc(s) {
+        return String(s == null ? "" : s)
+            .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
+    function buildRuby(base, reading) {
+        var parens = config.rubyAnnotationParentheses;
+        return '<ruby class="rte-ruby-annotated">' + esc(base) +
+            (parens ? "<rp>(</rp>" : "") +
+            "<rt>" + esc(reading) + "</rt>" +
+            (parens ? "<rp>)</rp>" : "") +
+            "</ruby>";
+    }
+
+    function applyRuby(reading) {
+        var existing = findRubyAtSelection();
+        if (existing) {
+            var rt = existing.querySelector("rt");
+            if (!rt) {
+                rt = existing.ownerDocument.createElement("rt");
+                existing.appendChild(rt);
+            }
+            rt.textContent = String(reading == null ? "" : reading);
+            editor.focus();
+            return existing;
+        }
+        var range = currentRange();
+        if (!range || range.collapsed) return null;
+        var base = String(range.toString() || "");
+        if (!base) return null;
+        editor.insertHTML(buildRuby(base, reading));
+        editor.focus();
+        return true;
+    }
+
+    // Unwrap back to the base text, discarding the reading and the <rp> fallback
+    // parentheses. Without dropping <rp> the text would read "漢字()".
+    function removeRuby() {
+        var rubyEl = findRubyAtSelection();
+        if (!rubyEl) return false;
+        var doc = rubyEl.ownerDocument;
+        var text = doc.createTextNode(baseOf(rubyEl));
+        rubyEl.parentNode.insertBefore(text, rubyEl);
+        rubyEl.parentNode.removeChild(rubyEl);
+        editor.focus();
+        return true;
+    }
+
+    function append(parent, tag, cssText, className) {
+        var el = parent.ownerDocument.createElement(tag);
+        if (cssText) el.style.cssText = cssText;
+        if (className) el.className = className;
+        parent.appendChild(el);
+        return el;
+    }
+
+    obj.OpenRubyDialog = function () {
+        var existing = findRubyAtSelection();
+        var range = currentRange();
+        var baseText = existing ? baseOf(existing) : (range ? String(range.toString() || "") : "");
+
+        var dlg = editor.createDialog(
+            (editor.getLangText && editor.getLangText("rubyannotationtitle")) || "Ruby annotation",
+            "rte-dialog-ruby"
+        );
+        var close = typeof dlg.close === "function" ? function () { dlg.close(); } : function () { editor.closeCurrentPopup(); };
+
+        var wrap = append(dlg, "div", "padding:14px;min-width:340px;font:13px -apple-system,Segoe UI,sans-serif");
+
+        append(wrap, "div", "font-weight:600;margin-bottom:4px").innerText = "Base text";
+        var baseView = append(wrap, "div",
+            "padding:8px 10px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;min-height:20px;word-break:break-word");
+        baseView.textContent = baseText;
+
+        append(wrap, "div", "font-weight:600;margin:10px 0 4px").innerText = "Reading";
+        var input = append(wrap, "input",
+            "width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font:13px inherit");
+        input.type = "text";
+        input.value = existing ? readingOf(existing) : "";
+        input.placeholder = "e.g. かんじ";
+
+        var note = append(wrap, "div", "font-size:11px;color:#94a3b8;margin-top:6px");
+        note.innerText = baseText
+            ? "Shown above the base text. Parentheses are emitted for readers without ruby support."
+            : "Select the text to annotate first, then reopen this dialog.";
+
+        var footer = append(wrap, "div", "display:flex;justify-content:space-between;gap:8px;margin-top:14px");
+        var left = append(footer, "div", "display:flex;gap:8px");
+        if (existing) {
+            var rm = append(left, "button", "padding:6px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#b91c1c;cursor:pointer");
+            rm.type = "button"; rm.textContent = "Remove";
+            rm.onclick = function () { removeRuby(); close(); };
+        }
+        var right = append(footer, "div", "display:flex;gap:8px");
+        var cancel = append(right, "button", "padding:6px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;cursor:pointer");
+        cancel.type = "button"; cancel.textContent = "Cancel"; cancel.onclick = close;
+        var ok = append(right, "button", "padding:6px 14px;border:1px solid #1d67ba;border-radius:8px;background:#1d67ba;color:#fff;cursor:pointer");
+        ok.type = "button"; ok.textContent = existing ? "Update" : "Add";
+        ok.disabled = !baseText;
+
+        ok.onclick = function () {
+            var reading = input.value.trim();
+            if (!reading || !baseText) { close(); return; }
+            applyRuby(reading);
+            close();
+        };
+
+        setTimeout(function () { input.focus(); }, 0);
+    };
 }
 
 if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
@@ -38709,13 +40063,35 @@ function RTE_Plugin_Sanitizer() {
     // sanitizerAllowedIframeHosts is still the stronger control.
     var DEFAULT_IFRAME_SANDBOX = "allow-scripts allow-same-origin allow-presentation";
 
+    // 2026-09-21 Two holes in the default sandbox, both closed here:
+    //  - it was only ADDED when the iframe had none, so injected markup that
+    //    brought its own sandbox="allow-top-navigation allow-popups allow-forms"
+    //    kept every permission the comment above says is withheld. An existing
+    //    sandbox is now narrowed to the default set, never trusted.
+    //  - allow-scripts + allow-same-origin isolates nothing when the frame is
+    //    served from the page's OWN origin: the framed page can reach the parent
+    //    and remove its own sandbox. Same-origin frames lose allow-same-origin.
+    function applyDefaultSandbox(el, src) {
+        var allowed = DEFAULT_IFRAME_SANDBOX.split(" ");
+        var sameOrigin = false;
+        try { sameOrigin = new URL(src, location.href).origin === location.origin; } catch (e) {}
+        if (sameOrigin) allowed = allowed.filter(function (t) { return t !== "allow-same-origin"; });
+        if (el.hasAttribute("sandbox")) {
+            // keep only what the frame asked for AND the default permits; an empty
+            // sandbox (the strictest) stays empty
+            var asked = (el.getAttribute("sandbox") || "").toLowerCase().split(/\s+/);
+            allowed = allowed.filter(function (t) { return asked.indexOf(t) >= 0; });
+        }
+        el.setAttribute("sandbox", allowed.join(" "));
+    }
+
     function iframeAllowed(el) {
         if (config.sanitizerAllowIframes === false) return false;
         var src = el.getAttribute("src") || "";
         if (!/^https?:/i.test(src)) return false;
         var hosts = config.sanitizerAllowedIframeHosts;
         if (!hosts || !hosts.length) {
-            if (!el.hasAttribute("sandbox")) el.setAttribute("sandbox", DEFAULT_IFRAME_SANDBOX);
+            applyDefaultSandbox(el, src);
             return true;
         }
         try {
@@ -40256,6 +41632,13 @@ function RTE_Plugin_SlashCommand() {
             ".rte-slash-popup-dark .rte-slash-empty{color:#94a3b8}"
         ].join("\n");
         host.head.appendChild(style);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(host, style, "rte-slashcommand-style", style.textContent);
+        }
     }
 
     // --- Icons (minimal inline SVGs) ---
@@ -40560,6 +41943,13 @@ function RTE_Plugin_SmartChips() {
                 st.setAttribute("data-rte-smartchips", "1");
                 st.textContent = css;
                 head.appendChild(st);
+                // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+                // drops its rules, leaving this plugin's UI unstyled. The element above stays
+                // the path everyone else takes; this re-injects through the CSSOM only when
+                // the policy actually emptied it.
+                if (editor && typeof editor.ensureStyleSheetLive === "function") {
+                    editor.ensureStyleSheetLive(editdoc, st, "rte-smartchips-st", st.textContent);
+                }
             }
         } catch (e) { /* ignore */ }
     }
@@ -40745,8 +42135,888 @@ function RTE_Plugin_SpellCheck() {
                 st.setAttribute("data-rte-spellcheck", "1");
                 st.textContent = css;
                 (host.head || host.documentElement).appendChild(st);
+                // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+                // drops its rules, leaving this plugin's UI unstyled. The element above stays
+                // the path everyone else takes; this re-injects through the CSSOM only when
+                // the policy actually emptied it.
+                if (editor && typeof editor.ensureStyleSheetLive === "function") {
+                    editor.ensureStyleSheetLive(host, st, "rte-spellcheck-st", st.textContent);
+                }
             }
         } catch (e) { /* ignore */ }
+    }
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
+RTE_DefaultConfig.plugin_stateinspector = RTE_Plugin_StateInspector;
+
+// 2026-09-04 Document state inspector (developer tool).
+//
+// The editor's source of truth is the contenteditable DOM, not a separate
+// document model, so there is no state object to print. This plugin derives
+// one: it walks the editable subtree and produces a normalized, serializable
+// snapshot (tree + selection + plugin init order), then runs a rule set over
+// that snapshot looking for the structural faults that have actually caused
+// defects in this product - zero-length text nodes, empty inline wrappers,
+// duplicate nested formatting, control characters, sanitizer bypasses, broken
+// atomic chips, invalid list and heading structure.
+//
+// The snapshot is the point. `editor.stateInspector.snapshot()` returns plain
+// JSON, so a support case can carry the document's real structure instead of a
+// screenshot, and a test can assert on structure instead of on an HTML string.
+//
+// It is deliberately NOT in any default toolbar: set stateInspectorToolbarButton
+// to true to add it, or drive it from the API.
+function RTE_Plugin_StateInspector() {
+    var obj = this;
+    var config;
+    var editor;
+    var shell = null;
+    var panel = null;
+    var body = null;
+    var tabsBar = null;
+    var summaryEl = null;
+    var refreshTimer = 0;
+    var activeTab = "issues";
+    var pluginOrder = [];
+    var eventLog = [];
+    var logLimit = 60;
+
+    var TABS = [
+        { id: "issues", label: "Issues" },
+        { id: "tree", label: "Tree" },
+        { id: "selection", label: "Selection" },
+        { id: "plugins", label: "Plugins" },
+        { id: "log", label: "Log" }
+    ];
+
+    var INLINE_TAGS = {
+        A: 1, ABBR: 1, B: 1, BDI: 1, BDO: 1, CITE: 1, CODE: 1, DEL: 1, DFN: 1,
+        EM: 1, I: 1, INS: 1, KBD: 1, MARK: 1, Q: 1, S: 1, SAMP: 1, SMALL: 1,
+        SPAN: 1, STRONG: 1, SUB: 1, SUP: 1, U: 1, VAR: 1, FONT: 1
+    };
+    var VOID_TAGS = {
+        AREA: 1, BASE: 1, BR: 1, COL: 1, EMBED: 1, HR: 1, IMG: 1, INPUT: 1,
+        LINK: 1, META: 1, PARAM: 1, SOURCE: 1, TRACK: 1, WBR: 1
+    };
+    var BLOCK_TAGS = {
+        ADDRESS: 1, ARTICLE: 1, ASIDE: 1, BLOCKQUOTE: 1, DIV: 1, DL: 1, DT: 1,
+        DD: 1, FIELDSET: 1, FIGCAPTION: 1, FIGURE: 1, FOOTER: 1, FORM: 1,
+        H1: 1, H2: 1, H3: 1, H4: 1, H5: 1, H6: 1, HEADER: 1, HR: 1, LI: 1,
+        MAIN: 1, NAV: 1, OL: 1, P: 1, PRE: 1, SECTION: 1, TABLE: 1, UL: 1
+    };
+    // Control characters that make Word reject an entire .docx package and that
+    // silently truncate grep over a bundle. NUL through backspace, vertical tab,
+    // form feed, and shift-out through unit separator.
+    // Written as escapes, never as literal bytes: a literal control character
+    // in source makes grep treat the whole bundle as binary and silently
+    // truncate every search over it.
+    var CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/;
+
+    obj.PluginName = "StateInspector";
+
+    obj.InitConfig = function (argconfig) {
+        config = argconfig;
+        if (config.stateInspectorEnabled === false) return;
+
+        config.stateInspectorTitle = config.stateInspectorTitle || "State inspector";
+        config.stateInspectorHint = config.stateInspectorHint || "Derived document model, structural checks, and a copyable snapshot for bug reports.";
+        config.stateInspectorEmptyText = config.stateInspectorEmptyText || "No content to inspect yet.";
+        if (typeof config.stateInspectorAutoOpen !== "boolean") config.stateInspectorAutoOpen = false;
+        if (typeof config.stateInspectorToolbarButton !== "boolean") config.stateInspectorToolbarButton = false;
+        if (typeof config.stateInspectorMaxDepth !== "number") config.stateInspectorMaxDepth = 24;
+        if (typeof config.stateInspectorLogLimit === "number") logLimit = Math.max(10, Math.min(500, config.stateInspectorLogLimit));
+
+        // Captured here rather than in InitEditor because `for (var p in config)`
+        // reproduces exactly the order the core uses to instantiate plugins -
+        // which is bundle concatenation order, i.e. alphabetical by filename.
+        // A plugin that registers into another plugin's API only works if it
+        // sorts after it; that has silently broken registration before, so the
+        // order is worth being able to see.
+        pluginOrder = collectPluginOrder(config);
+
+        if (config.stateInspectorToolbarButton) {
+            // BOTH presets, deliberately. config.toolbar defaults to "default",
+            // which resolves to toolbar_default - so appending only to
+            // toolbar_full means a host that sets stateInspectorToolbarButton on
+            // a default toolbar gets no button at all. "It is in the config" and
+            // "a user can see it" are different claims. inlinecode shipped a
+            // whole release cycle invisible for exactly this reason.
+            //
+            // If you write a test for this, scope it to [role=toolbar]. Searching
+            // the whole document for the button's label matches the inspector
+            // PANEL's aria-label - the panel is built at InitEditor and merely
+            // hidden - so a page-wide text search reports the button present in
+            // every case, including the two where no button exists. A check whose
+            // population is wrong reports confidently and does not look broken.
+            appendToolbarCommand("toolbar_default", "#{stateinspector}");
+            appendToolbarCommand("toolbar_full", "#{stateinspector}");
+        }
+    };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+        if (config.stateInspectorEnabled === false) return;
+
+        editor.stateInspector = {
+            close: function () { closePanel(); },
+            isOpen: function () { return !!(shell && shell.classList.contains("is-open")); },
+            issues: function () { return analyze(snapshotTree()).issues; },
+            log: function () { return eventLog.slice(0); },
+            open: function () { openPanel(); },
+            plugins: function () { return pluginOrder.slice(0); },
+            refresh: function () { render(); },
+            snapshot: function () { return buildSnapshot(); },
+            toggle: function () { togglePanel(); }
+        };
+
+        injectStyles();
+
+        editor.toolbarFactoryMap = editor.toolbarFactoryMap || {};
+        editor.toolbarFactoryMap["stateinspector"] = function (cmd) {
+            return editor.createToolbarButton(cmd);
+        };
+
+        editor.attachEvent("exec_command_stateinspector", function (state) {
+            state.returnValue = true;
+            state.stopBubble = true;
+            togglePanel();
+        });
+        editor.attachEvent("change", function () {
+            recordEvent("change");
+            scheduleRefresh();
+        });
+        editor.attachEvent("selectionchange", function () {
+            recordEvent("selectionchange");
+            scheduleRefresh();
+        });
+
+        // Safe to register here, unlike documentimport/pdfexport/readabilitystats:
+        // plugins initialise in alphabetical bundle order and "stateinspector"
+        // sorts AFTER "slashcommand", so editor.slashCommands already exists.
+        // Guarded anyway, because that ordering is a filename away from changing.
+        if (editor.slashCommands && editor.slashCommands.register) {
+            editor.slashCommands.register({
+                id: "stateinspector",
+                section: "Tools",
+                title: config.stateInspectorTitle,
+                description: "Inspect document structure, selection, and structural issues",
+                keywords: ["inspect", "debug", "devtools", "state", "structure"],
+                run: function () { openPanel(); }
+            });
+        }
+
+        // Build the wrapper NOW, not lazily on first open. ensureShell() reparents
+        // the editor container, and reparenting a populated editing surface makes
+        // Chrome reseat it - which blanks the visible content while the document
+        // is still there (the status bar keeps counting words nobody can see).
+        // documentoutline.js and contentminimap.js do the same thing for the same
+        // reason: at InitEditor the surface is still empty, so the reseat is free.
+        ensureShell();
+
+        if (config.stateInspectorAutoOpen) openPanel();
+    };
+
+    function appendToolbarCommand(toolbar, item) {
+        if (!config[toolbar]) return;
+        if (config[toolbar].indexOf(item) !== -1) return;
+        config[toolbar] = config[toolbar] + item;
+    }
+
+    function collectPluginOrder(cfg) {
+        var order = [];
+        for (var p in cfg) {
+            if (p[0] !== "p" || p.substr(0, 7) !== "plugin_") continue;
+            if (!cfg[p] || !(cfg[p] instanceof Function)) continue;
+            order.push({ index: order.length, key: p, name: p.substring(7) });
+        }
+        return order;
+    }
+
+    function recordEvent(name) {
+        eventLog.push({ at: Date.now(), event: name });
+        if (eventLog.length > logLimit) eventLog.splice(0, eventLog.length - logLimit);
+    }
+
+    // ---------------------------------------------------------------- snapshot
+
+    function describeAttributes(el) {
+        var attrs = {};
+        var list = el.attributes;
+        if (!list) return attrs;
+        for (var i = 0; i < list.length; i++) {
+            var value = list[i].value;
+            attrs[list[i].name] = value.length > 220 ? value.substring(0, 220) + "…" : value;
+        }
+        return attrs;
+    }
+
+    function walk(node, depth, maxDepth, counters) {
+        if (node.nodeType === 3) {
+            var text = node.nodeValue || "";
+            counters.textNodes++;
+            counters.characters += text.length;
+            return {
+                type: "text",
+                length: text.length,
+                text: text.length > 80 ? text.substring(0, 80) + "…" : text
+            };
+        }
+        if (node.nodeType === 8) {
+            counters.comments++;
+            return { type: "comment", length: (node.nodeValue || "").length };
+        }
+        if (node.nodeType !== 1) return null;
+
+        counters.elements++;
+        var name = node.nodeName;
+        counters.tags[name] = (counters.tags[name] || 0) + 1;
+
+        var entry = {
+            type: "element",
+            name: name.toLowerCase(),
+            attrs: describeAttributes(node),
+            children: []
+        };
+        if (depth >= maxDepth) {
+            entry.truncated = true;
+            entry.childCount = node.childNodes.length;
+            return entry;
+        }
+        for (var i = 0; i < node.childNodes.length; i++) {
+            var child = walk(node.childNodes[i], depth + 1, maxDepth, counters);
+            if (child) entry.children.push(child);
+        }
+        return entry;
+    }
+
+    function snapshotTree() {
+        var editable = editor && editor.getEditable ? editor.getEditable() : null;
+        var counters = { elements: 0, textNodes: 0, comments: 0, characters: 0, tags: {} };
+        if (!editable) {
+            return { root: null, counters: counters, editable: null };
+        }
+        var maxDepth = Math.max(2, config.stateInspectorMaxDepth || 24);
+        var root = {
+            type: "element",
+            name: "root",
+            attrs: {},
+            children: []
+        };
+        for (var i = 0; i < editable.childNodes.length; i++) {
+            var child = walk(editable.childNodes[i], 1, maxDepth, counters);
+            if (child) root.children.push(child);
+        }
+        return { root: root, counters: counters, editable: editable };
+    }
+
+    function describeSelection() {
+        var doc = editor && editor.getDocument ? editor.getDocument() : null;
+        var editable = editor && editor.getEditable ? editor.getEditable() : null;
+        var info = { available: false };
+        if (!doc || !doc.getSelection) return info;
+
+        var sel;
+        try { sel = doc.getSelection(); } catch (e) { return info; }
+        if (!sel || sel.rangeCount === 0) return info;
+
+        var range;
+        try { range = sel.getRangeAt(0); } catch (e) { return info; }
+        if (!range) return info;
+
+        info.available = true;
+        info.collapsed = !!range.collapsed;
+        info.anchor = describeBoundary(range.startContainer, range.startOffset);
+        info.focus = describeBoundary(range.endContainer, range.endOffset);
+        info.insideEditable = !!(editable && editable.contains(range.startContainer) && editable.contains(range.endContainer));
+        try {
+            var selected = String(range.toString() || "");
+            info.textLength = selected.length;
+            info.text = selected.length > 120 ? selected.substring(0, 120) + "…" : selected;
+        } catch (e) {
+            info.textLength = 0;
+        }
+        info.block = describeBlockPath(range.startContainer, editable);
+        return info;
+    }
+
+    function describeBoundary(container, offset) {
+        if (!container) return { node: "(none)", offset: offset };
+        if (container.nodeType === 3) {
+            var text = container.nodeValue || "";
+            return {
+                node: "#text",
+                offset: offset,
+                length: text.length,
+                // A caret sitting in a zero-length text node is the shape of a
+                // caret trap; surfacing it here is the whole point.
+                zeroLength: text.length === 0
+            };
+        }
+        return {
+            node: container.nodeName ? container.nodeName.toLowerCase() : "(unknown)",
+            offset: offset,
+            childCount: container.childNodes ? container.childNodes.length : 0
+        };
+    }
+
+    function describeBlockPath(node, editable) {
+        var path = [];
+        var current = node;
+        while (current && current !== editable) {
+            if (current.nodeType === 1) path.unshift(current.nodeName.toLowerCase());
+            current = current.parentNode;
+        }
+        return path.join(" > ");
+    }
+
+    function buildSnapshot() {
+        var tree = snapshotTree();
+        var analysis = analyze(tree);
+        return {
+            snapshotVersion: 1,
+            generatedAt: new Date().toISOString(),
+            counters: tree.counters,
+            issues: analysis.issues,
+            plugins: pluginOrder.slice(0),
+            recentEvents: eventLog.slice(-20),
+            selection: describeSelection(),
+            tree: tree.root
+        };
+    }
+
+    // ----------------------------------------------------------------- analysis
+
+    function issue(list, id, severity, message, detail) {
+        list.push({ id: id, severity: severity, message: message, detail: detail || "" });
+    }
+
+    function elementPath(el, editable) {
+        var path = [];
+        var current = el;
+        while (current && current !== editable && current.nodeType === 1) {
+            var step = current.nodeName.toLowerCase();
+            if (current.id) step += "#" + current.id;
+            path.unshift(step);
+            current = current.parentNode;
+        }
+        return path.join(" > ");
+    }
+
+    function hasMeaningfulContent(el) {
+        if ((el.textContent || "").replace(/[\s\u200B\uFEFF]/g, "") !== "") return true;
+        for (var i = 0; i < el.childNodes.length; i++) {
+            var child = el.childNodes[i];
+            if (child.nodeType === 1 && VOID_TAGS[child.nodeName]) return true;
+        }
+        return false;
+    }
+
+    function analyze(tree) {
+        var issues = [];
+        var editable = tree.editable;
+        if (!editable) return { issues: issues };
+
+        var walker = editable.ownerDocument.createTreeWalker(
+            editable,
+            // NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT
+            1 | 4,
+            null,
+            false
+        );
+        var lastHeadingLevel = 0;
+        var node;
+
+        while ((node = walker.nextNode())) {
+            if (node.nodeType === 3) {
+                analyzeText(node, editable, issues);
+                continue;
+            }
+            analyzeElement(node, editable, issues);
+
+            var level = headingLevel(node);
+            if (level) {
+                if (lastHeadingLevel && level > lastHeadingLevel + 1) {
+                    issue(issues, "heading-skip", "warn",
+                        "Heading level jumps from h" + lastHeadingLevel + " to h" + level,
+                        elementPath(node, editable));
+                }
+                lastHeadingLevel = level;
+            }
+        }
+
+        // Top-level images are children of the editable root, so a walker that
+        // starts below the root would miss them - which is exactly how the
+        // accessibility checker used to skip pasted images.
+        for (var i = 0; i < editable.childNodes.length; i++) {
+            var child = editable.childNodes[i];
+            if (child.nodeType === 1 && child.nodeName === "IMG") {
+                checkImageAlt(child, editable, issues);
+            }
+        }
+
+        return { issues: issues };
+    }
+
+    function headingLevel(el) {
+        var name = el.nodeName;
+        if (name.length === 2 && name[0] === "H" && name[1] >= "1" && name[1] <= "6") {
+            return parseInt(name[1], 10);
+        }
+        return 0;
+    }
+
+    function analyzeText(node, editable, issues) {
+        var text = node.nodeValue || "";
+        if (text.length === 0) {
+            issue(issues, "zero-length-text", "warn",
+                "Zero-length text node",
+                elementPath(node.parentNode, editable));
+            return;
+        }
+        if (CONTROL_CHARS.test(text)) {
+            issue(issues, "control-characters", "error",
+                "Text contains control characters - Word will reject an exported .docx",
+                elementPath(node.parentNode, editable));
+        }
+    }
+
+    function analyzeElement(el, editable, issues) {
+        var name = el.nodeName;
+        var path = elementPath(el, editable);
+
+        // Sanitizer invariants. These are the shapes that got through before.
+        var attrs = el.attributes;
+        for (var i = 0; attrs && i < attrs.length; i++) {
+            var attrName = attrs[i].name.toLowerCase();
+            var attrValue = attrs[i].value || "";
+            if (attrName.indexOf("on") === 0 && attrName.length > 2) {
+                issue(issues, "event-handler-attribute", "error",
+                    "Inline event handler " + attrName + " present in document content", path);
+            }
+            if (attrName === "href" || attrName === "src" || attrName === "xlink:href") {
+                // Strip control characters and whitespace BEFORE testing the scheme;
+                // "java	script:" is a live bypass otherwise.
+                var scheme = attrValue.replace(/[\u0000-\u0020]/g, "").toLowerCase();
+                if (scheme.indexOf("javascript:") === 0) {
+                    issue(issues, "unsafe-url-scheme", "error",
+                        "javascript: URL in " + attrName, path);
+                } else if (scheme.indexOf("data:text/html") === 0 || scheme.indexOf("data:image/svg+xml") === 0) {
+                    issue(issues, "unsafe-url-scheme", "error",
+                        "Scriptable data: URL in " + attrName, path);
+                }
+            }
+        }
+        if (name === "IFRAME" && el.hasAttribute("srcdoc")) {
+            issue(issues, "iframe-srcdoc", "error",
+                "iframe[srcdoc] executes when the saved content is rendered downstream", path);
+        }
+
+        // Structural invariants.
+        if (INLINE_TAGS[name] && !hasMeaningfulContent(el)) {
+            issue(issues, "empty-inline", "warn",
+                "Empty inline <" + name.toLowerCase() + "> - a caret entering it cannot leave by typing", path);
+        }
+        if (INLINE_TAGS[name] && el.parentNode && el.parentNode.nodeName === name) {
+            issue(issues, "nested-duplicate-inline", "warn",
+                "<" + name.toLowerCase() + "> nested directly inside another <" + name.toLowerCase() + ">", path);
+        }
+        if (INLINE_TAGS[name]) {
+            for (var c = 0; c < el.childNodes.length; c++) {
+                var child = el.childNodes[c];
+                if (child.nodeType === 1 && BLOCK_TAGS[child.nodeName]) {
+                    issue(issues, "block-inside-inline", "warn",
+                        "Block <" + child.nodeName.toLowerCase() + "> inside inline <" + name.toLowerCase() + ">", path);
+                    break;
+                }
+            }
+        }
+        if (name === "LI") {
+            var parentName = el.parentNode ? el.parentNode.nodeName : "";
+            if (parentName !== "UL" && parentName !== "OL") {
+                issue(issues, "orphan-list-item", "warn",
+                    "<li> outside a <ul> or <ol>", path);
+            }
+        }
+        if (name === "IMG") {
+            checkImageAlt(el, editable, issues);
+        }
+        // Atomic content - chips, footnote markers, merge fields - stops being
+        // atomic the moment it loses contenteditable=false, and the caret then
+        // edits its internals.
+        if (el.hasAttribute && el.hasAttribute("data-rte-atomic") && el.getAttribute("contenteditable") !== "false") {
+            issue(issues, "atomic-not-protected", "error",
+                "Atomic element without contenteditable=\"false\"", path);
+        }
+    }
+
+    function checkImageAlt(el, editable, issues) {
+        if (el.getAttribute("role") === "presentation" || el.getAttribute("aria-hidden") === "true") return;
+        var alt = el.getAttribute("alt");
+        if (alt === null) {
+            issue(issues, "image-missing-alt", "warn",
+                "Image has no alt attribute", elementPath(el, editable));
+        }
+    }
+
+    // -------------------------------------------------------------------- view
+
+    function injectStyles() {
+        var hostDoc = config.container.ownerDocument;
+        if (hostDoc.getElementById("rte-state-inspector-style")) return;
+        var style = hostDoc.createElement("style");
+        style.id = "rte-state-inspector-style";
+        style.innerHTML = [
+            ".rte-state-inspector-shell{display:flex;align-items:stretch;gap:10px;}",
+            ".rte-state-inspector-shell>.rte-state-inspector-host{flex:1 1 auto;min-width:0;}",
+            ".rte-state-inspector-panel{display:none;flex:0 0 340px;min-width:290px;max-width:min(400px,36vw);border:1px solid rgba(148,163,184,.22);border-radius:8px;background:#fff;box-shadow:0 14px 32px rgba(29,78,216,.1),0 2px 8px rgba(15,23,42,.06);overflow:hidden;color:#172033;font-family:Aptos,'Segoe UI',sans-serif;}",
+            ".rte-state-inspector-shell.is-open>.rte-state-inspector-panel{display:flex;flex-direction:column;}",
+            ".rte-state-inspector-header{padding:12px 12px 9px 14px;border-bottom:1px solid rgba(148,163,184,.16);background:rgba(248,251,255,.72);}",
+            ".rte-state-inspector-kicker{font-size:10px;line-height:1.3;letter-spacing:.08em;text-transform:uppercase;color:#52657e;font-weight:850;}",
+            ".rte-state-inspector-title{margin-top:3px;font-size:15px;line-height:1.2;font-weight:850;color:#172033;}",
+            ".rte-state-inspector-copy{margin-top:5px;font-size:12px;line-height:1.42;color:#52657e;}",
+            ".rte-state-inspector-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px 8px 14px;border-bottom:1px solid rgba(148,163,184,.16);}",
+            ".rte-state-inspector-summary{min-width:0;font-size:12px;font-weight:750;color:#52657e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
+            ".rte-state-inspector-actions{display:flex;gap:6px;flex:0 0 auto;}",
+            ".rte-state-inspector-btn{appearance:none;border:1px solid rgba(100,116,139,.18);background:#fff;color:#315277;cursor:pointer;font-size:12px;font-weight:750;padding:6px 9px;border-radius:7px;line-height:1;}",
+            ".rte-state-inspector-btn:hover,.rte-state-inspector-btn:focus-visible{background:#eef4ff;color:#0f3f9f;border-color:rgba(37,99,235,.28);}",
+            ".rte-state-inspector-tabs{display:flex;gap:2px;padding:8px 10px 0 10px;border-bottom:1px solid rgba(148,163,184,.16);}",
+            ".rte-state-inspector-tab{appearance:none;border:1px solid transparent;border-bottom:none;background:transparent;color:#52657e;cursor:pointer;font-size:12px;font-weight:800;padding:7px 10px;border-radius:7px 7px 0 0;line-height:1;}",
+            ".rte-state-inspector-tab:hover,.rte-state-inspector-tab:focus-visible{background:#f8fbff;color:#0f3f9f;}",
+            ".rte-state-inspector-tab[aria-selected='true']{background:#eef4ff;border-color:rgba(37,99,235,.26);color:#0f3f9f;}",
+            ".rte-state-inspector-body{padding:10px;overflow:auto;min-height:160px;max-height:540px;scrollbar-width:thin;font-size:12px;line-height:1.5;}",
+            ".rte-state-inspector-issue{display:block;padding:8px 10px;margin-bottom:6px;border:1px solid rgba(148,163,184,.24);border-left-width:3px;border-radius:7px;background:#fff;}",
+            ".rte-state-inspector-issue.is-error{border-left-color:#dc2626;background:#fef4f4;}",
+            ".rte-state-inspector-issue.is-warn{border-left-color:#d97706;background:#fffaf1;}",
+            ".rte-state-inspector-issue-msg{font-weight:750;color:#172033;}",
+            ".rte-state-inspector-issue-meta{margin-top:3px;font-size:11px;color:#52657e;font-family:Consolas,'Cascadia Mono',monospace;word-break:break-all;}",
+            ".rte-state-inspector-ok{padding:14px;color:#166534;font-weight:750;background:#f0fdf4;border:1px dashed rgba(22,101,52,.3);border-radius:8px;}",
+            ".rte-state-inspector-empty{padding:14px;color:#52657e;font-weight:700;background:#fff;border:1px dashed rgba(148,163,184,.34);border-radius:8px;}",
+            ".rte-state-inspector-pre{margin:0;font-family:Consolas,'Cascadia Mono',monospace;font-size:11px;line-height:1.55;color:#172033;white-space:pre;}",
+            ".rte-state-inspector-row{display:flex;gap:8px;padding:4px 0;border-bottom:1px solid rgba(148,163,184,.14);}",
+            ".rte-state-inspector-row-key{flex:0 0 116px;color:#52657e;font-weight:750;}",
+            ".rte-state-inspector-row-val{flex:1 1 auto;min-width:0;font-family:Consolas,'Cascadia Mono',monospace;word-break:break-all;}",
+            ".rte-state-inspector-row.is-flagged .rte-state-inspector-row-val{color:#b91c1c;font-weight:750;}",
+            "@media (max-width: 1100px){.rte-state-inspector-shell{display:block;}.rte-state-inspector-panel{margin-top:12px;max-width:none;width:100%;}.rte-state-inspector-body{max-height:340px;}}"
+        ].join("");
+        hostDoc.head.appendChild(style);
+        // A <style> element's rules are dropped under a strict style-src; this
+        // re-injects them through the CSSOM in that case only. Missed in 2.9.0,
+        // found by auditing the FULL bundle rather than a sample of plugins.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(hostDoc, style, "rte-state-inspector-style", style.textContent);
+        }
+    }
+
+    function ensureShell() {
+        if (shell) return shell;
+        var container = config.container;
+        var hostDoc = container.ownerDocument;
+        shell = hostDoc.createElement("div");
+        shell.className = "rte-state-inspector-shell";
+
+        var host = hostDoc.createElement("div");
+        host.className = "rte-state-inspector-host";
+
+        container.parentNode.insertBefore(shell, container);
+        shell.appendChild(host);
+        host.appendChild(container);
+
+        panel = hostDoc.createElement("aside");
+        panel.className = "rte-state-inspector-panel";
+        panel.setAttribute("role", "complementary");
+        panel.setAttribute("aria-label", config.stateInspectorTitle);
+
+        var header = hostDoc.createElement("div");
+        header.className = "rte-state-inspector-header";
+        var kicker = hostDoc.createElement("div");
+        kicker.className = "rte-state-inspector-kicker";
+        kicker.innerText = "Developer";
+        var title = hostDoc.createElement("div");
+        title.className = "rte-state-inspector-title";
+        title.innerText = config.stateInspectorTitle;
+        var copy = hostDoc.createElement("div");
+        copy.className = "rte-state-inspector-copy";
+        copy.innerText = config.stateInspectorHint;
+        header.appendChild(kicker);
+        header.appendChild(title);
+        header.appendChild(copy);
+
+        var toolbar = hostDoc.createElement("div");
+        toolbar.className = "rte-state-inspector-toolbar";
+        summaryEl = hostDoc.createElement("div");
+        summaryEl.className = "rte-state-inspector-summary";
+        summaryEl.setAttribute("data-rte-inspector-summary", "1");
+        var actions = hostDoc.createElement("div");
+        actions.className = "rte-state-inspector-actions";
+        actions.appendChild(makeButton(hostDoc, "Copy", "Copy the state snapshot as JSON", copySnapshot));
+        actions.appendChild(makeButton(hostDoc, "Hide", "Hide the state inspector", closePanel));
+        toolbar.appendChild(summaryEl);
+        toolbar.appendChild(actions);
+
+        tabsBar = hostDoc.createElement("div");
+        tabsBar.className = "rte-state-inspector-tabs";
+        tabsBar.setAttribute("role", "tablist");
+        for (var i = 0; i < TABS.length; i++) {
+            tabsBar.appendChild(makeTab(hostDoc, TABS[i]));
+        }
+
+        body = hostDoc.createElement("div");
+        body.className = "rte-state-inspector-body";
+
+        panel.appendChild(header);
+        panel.appendChild(toolbar);
+        panel.appendChild(tabsBar);
+        panel.appendChild(body);
+        shell.appendChild(panel);
+        return shell;
+    }
+
+    function makeButton(hostDoc, label, aria, handler) {
+        var btn = hostDoc.createElement("button");
+        btn.type = "button";
+        btn.className = "rte-state-inspector-btn";
+        btn.innerText = label;
+        btn.setAttribute("aria-label", aria);
+        btn.onclick = handler;
+        return btn;
+    }
+
+    function makeTab(hostDoc, tab) {
+        var btn = hostDoc.createElement("button");
+        btn.type = "button";
+        btn.className = "rte-state-inspector-tab";
+        btn.innerText = tab.label;
+        btn.setAttribute("role", "tab");
+        btn.setAttribute("data-rte-inspector-tab", tab.id);
+        btn.setAttribute("aria-selected", tab.id === activeTab ? "true" : "false");
+        btn.onclick = function () {
+            activeTab = tab.id;
+            syncTabs();
+            render();
+        };
+        return btn;
+    }
+
+    function syncTabs() {
+        if (!tabsBar) return;
+        var buttons = tabsBar.querySelectorAll("[data-rte-inspector-tab]");
+        for (var i = 0; i < buttons.length; i++) {
+            var id = buttons[i].getAttribute("data-rte-inspector-tab");
+            buttons[i].setAttribute("aria-selected", id === activeTab ? "true" : "false");
+        }
+    }
+
+    function togglePanel() {
+        if (shell && shell.classList.contains("is-open")) closePanel();
+        else openPanel();
+    }
+
+    function openPanel() {
+        ensureShell();
+        shell.classList.add("is-open");
+        render();
+    }
+
+    function closePanel() {
+        if (!shell) return;
+        shell.classList.remove("is-open");
+    }
+
+    function scheduleRefresh() {
+        if (!shell || !shell.classList.contains("is-open")) return;
+        clearTimeout(refreshTimer);
+        refreshTimer = setTimeout(function () { render(); }, 120);
+    }
+
+    function copySnapshot() {
+        var json = JSON.stringify(buildSnapshot(), null, 2);
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(json);
+            return;
+        }
+        var hostDoc = config.container.ownerDocument;
+        var area = hostDoc.createElement("textarea");
+        area.value = json;
+        area.style.position = "fixed";
+        area.style.opacity = "0";
+        hostDoc.body.appendChild(area);
+        area.select();
+        try { hostDoc.execCommand("copy"); } catch (e) { /* clipboard unavailable */ }
+        hostDoc.body.removeChild(area);
+    }
+
+    function clear(el) {
+        while (el.firstChild) el.removeChild(el.firstChild);
+    }
+
+    function render() {
+        if (!shell || !body) return;
+        var tree = snapshotTree();
+        var analysis = analyze(tree);
+        var hostDoc = config.container.ownerDocument;
+
+        var errors = 0;
+        for (var i = 0; i < analysis.issues.length; i++) {
+            if (analysis.issues[i].severity === "error") errors++;
+        }
+        if (summaryEl) {
+            // Kept short on purpose: the toolbar row ellipsises, and "3 errors" is
+            // the part that must survive the truncation. Full counts are in the
+            // snapshot and the tree tab.
+            summaryEl.innerText = tree.counters.elements + " el · " +
+                analysis.issues.length + " issue" + (analysis.issues.length === 1 ? "" : "s") +
+                (errors ? " · " + errors + " error" + (errors === 1 ? "" : "s") : "");
+        }
+
+        clear(body);
+        if (activeTab === "issues") renderIssues(hostDoc, analysis.issues);
+        else if (activeTab === "tree") renderTree(hostDoc, tree);
+        else if (activeTab === "selection") renderSelection(hostDoc);
+        else if (activeTab === "plugins") renderPlugins(hostDoc);
+        else if (activeTab === "log") renderLog(hostDoc);
+    }
+
+    function renderIssues(hostDoc, issues) {
+        if (!issues.length) {
+            var ok = hostDoc.createElement("div");
+            ok.className = "rte-state-inspector-ok";
+            ok.innerText = "No structural issues found.";
+            body.appendChild(ok);
+            return;
+        }
+        for (var i = 0; i < issues.length; i++) {
+            var item = issues[i];
+            var wrap = hostDoc.createElement("div");
+            wrap.className = "rte-state-inspector-issue is-" + (item.severity === "error" ? "error" : "warn");
+            wrap.setAttribute("data-rte-issue-id", item.id);
+            var msg = hostDoc.createElement("div");
+            msg.className = "rte-state-inspector-issue-msg";
+            msg.innerText = item.message;
+            var meta = hostDoc.createElement("div");
+            meta.className = "rte-state-inspector-issue-meta";
+            meta.innerText = (item.detail || "(document root)") + "  ·  " + item.id;
+            wrap.appendChild(msg);
+            wrap.appendChild(meta);
+            body.appendChild(wrap);
+        }
+    }
+
+    function renderTree(hostDoc, tree) {
+        if (!tree.root || !tree.root.children.length) {
+            var empty = hostDoc.createElement("div");
+            empty.className = "rte-state-inspector-empty";
+            empty.innerText = config.stateInspectorEmptyText;
+            body.appendChild(empty);
+            return;
+        }
+        var pre = hostDoc.createElement("pre");
+        pre.className = "rte-state-inspector-pre";
+        pre.innerText = formatTree(tree.root, 0).join("\n");
+        body.appendChild(pre);
+    }
+
+    function formatTree(node, depth) {
+        var lines = [];
+        var pad = new Array(depth + 1).join("  ");
+        if (node.type === "text") {
+            lines.push(pad + "#text(" + node.length + ") " + JSON.stringify(node.text));
+            return lines;
+        }
+        if (node.type === "comment") {
+            lines.push(pad + "#comment(" + node.length + ")");
+            return lines;
+        }
+        var label = pad + "<" + node.name;
+        var keys = [];
+        for (var k in node.attrs) keys.push(k);
+        if (keys.length) {
+            keys.sort();
+            for (var i = 0; i < keys.length && i < 4; i++) {
+                label += " " + keys[i] + "=" + JSON.stringify(node.attrs[keys[i]]);
+            }
+            if (keys.length > 4) label += " …+" + (keys.length - 4);
+        }
+        label += ">";
+        if (node.truncated) label += "  … " + node.childCount + " children (depth limit)";
+        lines.push(label);
+        for (var c = 0; c < (node.children || []).length; c++) {
+            lines = lines.concat(formatTree(node.children[c], depth + 1));
+        }
+        return lines;
+    }
+
+    function renderSelection(hostDoc) {
+        var info = describeSelection();
+        if (!info.available) {
+            var empty = hostDoc.createElement("div");
+            empty.className = "rte-state-inspector-empty";
+            empty.innerText = "No selection in the document.";
+            body.appendChild(empty);
+            return;
+        }
+        addRow(hostDoc, "Collapsed", String(info.collapsed));
+        addRow(hostDoc, "In editable", String(info.insideEditable), !info.insideEditable);
+        addRow(hostDoc, "Block path", info.block || "(root)");
+        addRow(hostDoc, "Anchor", formatBoundary(info.anchor), !!(info.anchor && info.anchor.zeroLength));
+        addRow(hostDoc, "Focus", formatBoundary(info.focus), !!(info.focus && info.focus.zeroLength));
+        addRow(hostDoc, "Selected", info.textLength + " chars");
+        if (info.text) addRow(hostDoc, "Text", info.text);
+    }
+
+    function formatBoundary(boundary) {
+        if (!boundary) return "(none)";
+        var out = boundary.node + " @ " + boundary.offset;
+        if (typeof boundary.length === "number") out += " (len " + boundary.length + ")";
+        if (typeof boundary.childCount === "number") out += " (" + boundary.childCount + " children)";
+        if (boundary.zeroLength) out += "  ← zero-length text node";
+        return out;
+    }
+
+    function addRow(hostDoc, key, value, flagged) {
+        var row = hostDoc.createElement("div");
+        row.className = "rte-state-inspector-row" + (flagged ? " is-flagged" : "");
+        var k = hostDoc.createElement("div");
+        k.className = "rte-state-inspector-row-key";
+        k.innerText = key;
+        var v = hostDoc.createElement("div");
+        v.className = "rte-state-inspector-row-val";
+        v.innerText = value;
+        row.appendChild(k);
+        row.appendChild(v);
+        body.appendChild(row);
+    }
+
+    function renderPlugins(hostDoc) {
+        if (!pluginOrder.length) {
+            var empty = hostDoc.createElement("div");
+            empty.className = "rte-state-inspector-empty";
+            empty.innerText = "No plugins registered.";
+            body.appendChild(empty);
+            return;
+        }
+        var note = hostDoc.createElement("div");
+        note.className = "rte-state-inspector-copy";
+        note.innerText = "Initialization order. A plugin can only register into another plugin's API if it appears below it.";
+        body.appendChild(note);
+        for (var i = 0; i < pluginOrder.length; i++) {
+            addRow(hostDoc, String(i + 1).padStart ? String(i + 1).padStart(3, "0") : String(i + 1), pluginOrder[i].name);
+        }
+    }
+
+    function renderLog(hostDoc) {
+        if (!eventLog.length) {
+            var empty = hostDoc.createElement("div");
+            empty.className = "rte-state-inspector-empty";
+            empty.innerText = "No editor events recorded yet.";
+            body.appendChild(empty);
+            return;
+        }
+        var start = eventLog[0].at;
+        for (var i = eventLog.length - 1; i >= 0; i--) {
+            addRow(hostDoc, "+" + (eventLog[i].at - start) + "ms", eventLog[i].event);
+        }
     }
 }
 
@@ -41101,6 +43371,13 @@ function RTE_Plugin_TableOfContents() {
         st.setAttribute("data-css", text);
         st.appendChild(doc.createTextNode(text));
         (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(doc, st, "rte-toc-styles", st.textContent);
+        }
     }
 }
 
@@ -41758,6 +44035,13 @@ function RTE_Plugin_TextDirection() {
         st.setAttribute("data-css", text);
         st.appendChild(doc.createTextNode(text));
         (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(doc, st, "rte-textdirection-styles", st.textContent);
+        }
     }
 }
 
@@ -42263,6 +44547,13 @@ function RTE_Plugin_TextPartLanguage() {
         st.setAttribute("data-css", text);
         st.appendChild(doc.createTextNode(text));
         (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(doc, st, "rte-textpartlanguage-styles", st.textContent);
+        }
     }
 }
 
@@ -42351,6 +44642,13 @@ function RTE_Plugin_TodoList() {
         st.id = "rte-todolist-styles";
         st.appendChild(doc.createTextNode(css));
         (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(doc, st, "rte-todolist-styles", st.textContent);
+        }
     }
 
     function makeCheckbox() {
@@ -43105,6 +45403,13 @@ function RTE_Plugin_TrackedChanges() {
                 ".rte-tc-delete{background:linear-gradient(180deg,rgba(255,240,240,.82),rgba(255,240,240,.42));color:#9f1d1d;text-decoration:line-through;text-decoration-color:#dc4c4c;text-decoration-thickness:2px;opacity:.92}"
             ].join("\n");
             host.head.appendChild(style);
+            // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+            // drops its rules, leaving this plugin's UI unstyled. The element above stays
+            // the path everyone else takes; this re-injects through the CSSOM only when
+            // the policy actually emptied it.
+            if (editor && typeof editor.ensureStyleSheetLive === "function") {
+                editor.ensureStyleSheetLive(host, style, "rte-trackedchanges-style", style.textContent);
+            }
         }
 
         var editdoc = editor.getDocument();
@@ -43117,6 +45422,13 @@ function RTE_Plugin_TrackedChanges() {
                 ".rte-tc-delete{background:linear-gradient(180deg,rgba(255,240,240,.82),rgba(255,240,240,.42));color:#9f1d1d;text-decoration:line-through;text-decoration-color:#dc4c4c;text-decoration-thickness:2px;opacity:.92}"
             ].join("\n");
             editdoc.head.appendChild(iStyle);
+            // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+            // drops its rules, leaving this plugin's UI unstyled. The element above stays
+            // the path everyone else takes; this re-injects through the CSSOM only when
+            // the policy actually emptied it.
+            if (editor && typeof editor.ensureStyleSheetLive === "function") {
+                editor.ensureStyleSheetLive(editdoc, iStyle, "rte-trackedchanges-iStyle", iStyle.textContent);
+            }
         }
     }
 }
@@ -43297,6 +45609,13 @@ function RTE_Plugin_Typewriter() {
         st.id = "rte-typewriter-styles";
         st.appendChild(doc.createTextNode(css));
         (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(doc, st, "rte-typewriter-styles", st.textContent);
+        }
     }
 
     // Strip the transient focus class around any serialize so saved markup never
@@ -43486,6 +45805,14 @@ function RTE_Plugin_Watermark() {
                 ? ""
                 : "@media print{[data-rte-watermark]{background-image:none !important;}" +
                   "[data-rte-watermark]::before{display:none !important;}}");
+        // Skipped by the scripted conversion on purpose: this element is reused
+        // and its text is rewritten on every watermark change, so the guard has to
+        // sit after the assignment rather than after the append. Same contract as
+        // everywhere else - the element stays primary, the CSSOM path fires only
+        // when a strict style-src emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(doc, st, "rte-watermark-dynamic", st.textContent);
+        }
     }
 
     // ---- serialization safety -------------------------------------------
@@ -43537,6 +45864,13 @@ function RTE_Plugin_Watermark() {
         st.id = "rte-watermark-styles";
         st.appendChild(doc.createTextNode("[data-rte-watermark]{position:relative;}"));
         (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(doc, st, "rte-watermark-styles", st.textContent);
+        }
     }
 }
 
@@ -44587,6 +46921,13 @@ function RTE_Plugin_YjsCollab() {
             ".rte-collab-presence-chip.is-self{outline:2px solid rgba(15,23,42,.25);outline-offset:1px}"
         ].join("\n");
         document.head.appendChild(style);
+        // A <style> ELEMENT is governed by style-src: under a strict policy the browser
+        // drops its rules, leaving this plugin's UI unstyled. The element above stays
+        // the path everyone else takes; this re-injects through the CSSOM only when
+        // the policy actually emptied it.
+        if (editor && typeof editor.ensureStyleSheetLive === "function") {
+            editor.ensureStyleSheetLive(document, style, "rte-yjscollab-style", style.textContent);
+        }
     }
 }
 
