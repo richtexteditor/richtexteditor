@@ -68,6 +68,10 @@ RTE_DefaultConfig.inlineMath = true; // When true, editor.applyMathMarkup() wrap
 RTE_DefaultConfig.imageLazyLoad = true; // Newly-inserted <img> tags get loading="lazy" + decoding="async" so big documents stay responsive.
 RTE_DefaultConfig.documentUploadAccept = ".txt,.text,.rtf,.md,.markdown,.html,.htm,.pdf,.doc,.docx,.odt,.xls,.xlsx,.csv,.tsv,.json,.xml,.zip,.rar"; // Default Insert Document chooser filter.
 RTE_DefaultConfig.maxUploadFileSize = 0; // Largest file the editor will insert or upload, in BYTES. 0 = no limit. Applies to the image and document dialogs, paste and drag-and-drop. Over the limit the file is refused before it is read, so nothing is embedded or sent.
+RTE_DefaultConfig.allowBase64Images = true; // Without file_upload_handler an inserted image is embedded in the HTML as base64. false = never embed; an upload handler is then required.
+RTE_DefaultConfig.base64ImageMaxSize = 204800; // Largest base64 image, in BYTES, after shrinking (200 KB). Larger images are refused with a message. 0 = no cap (the behaviour before core 2.6.5).
+RTE_DefaultConfig.base64ImageShrink = true; // Resize and re-encode photos in the browser before embedding them as base64. GIF and SVG are never re-encoded.
+RTE_DefaultConfig.base64ImageMaxDimension = 1600; // Longest side, in pixels, of an image shrunk for base64 embedding.
 RTE_DefaultConfig.fileUploadLocalObjectUrl = true; // Without file_upload_handler, local document files insert as temporary blob: links instead of failing.
 // Reading-mode persistence key. Default is session-only so refresh restores the toolbar.
 // Set to true for per-editor localStorage persistence, or to a custom string to share state across editors.
@@ -936,6 +940,8 @@ RTE_DefaultConfig.text_inserttemplatetitle = "@inserttemplate";
 RTE_DefaultConfig.text_uploadfailed = "The file could not be uploaded."; // Shown when the upload handler reports an error; the error code follows in brackets.
 RTE_DefaultConfig.text_uploadnothandler = "This file cannot be attached, because file uploads are not set up on this site."; // Shown when no file_upload_handler is configured and fileUploadLocalObjectUrl is false.
 RTE_DefaultConfig.text_uploadtoobig = "This file is {0}. The maximum allowed size is {1}."; // {0} = the file size, {1} = maxUploadFileSize. Shown when a file is refused; handle the "uploadtoobig" customdialog hook for your own dialog.
+RTE_DefaultConfig.text_base64toobig = "This image is {0} even after resizing. Images larger than {1} need an image upload handler - see the upload documentation."; // {0} = embedded size, {1} = base64ImageMaxSize. customdialog hook: "base64toobig".
+RTE_DefaultConfig.text_base64disabled = "Images cannot be embedded in this editor. An image upload handler must be configured (file_upload_handler)."; // Shown when allowBase64Images is false and no handler is set. customdialog hook: "base64disabled".
 RTE_DefaultConfig.text_reachmaxlength = "The text to be added has reached the character limit for this field.";
 
 RTE_DefaultConfig.translation = RTE_DefaultConfig.translation || {

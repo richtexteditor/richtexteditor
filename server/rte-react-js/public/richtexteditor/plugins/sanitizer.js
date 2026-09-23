@@ -203,13 +203,35 @@ function RTE_Plugin_Sanitizer() {
     // sanitizerAllowedIframeHosts is still the stronger control.
     var DEFAULT_IFRAME_SANDBOX = "allow-scripts allow-same-origin allow-presentation";
 
+    // 2026-09-21 Two holes in the default sandbox, both closed here:
+    //  - it was only ADDED when the iframe had none, so injected markup that
+    //    brought its own sandbox="allow-top-navigation allow-popups allow-forms"
+    //    kept every permission the comment above says is withheld. An existing
+    //    sandbox is now narrowed to the default set, never trusted.
+    //  - allow-scripts + allow-same-origin isolates nothing when the frame is
+    //    served from the page's OWN origin: the framed page can reach the parent
+    //    and remove its own sandbox. Same-origin frames lose allow-same-origin.
+    function applyDefaultSandbox(el, src) {
+        var allowed = DEFAULT_IFRAME_SANDBOX.split(" ");
+        var sameOrigin = false;
+        try { sameOrigin = new URL(src, location.href).origin === location.origin; } catch (e) {}
+        if (sameOrigin) allowed = allowed.filter(function (t) { return t !== "allow-same-origin"; });
+        if (el.hasAttribute("sandbox")) {
+            // keep only what the frame asked for AND the default permits; an empty
+            // sandbox (the strictest) stays empty
+            var asked = (el.getAttribute("sandbox") || "").toLowerCase().split(/\s+/);
+            allowed = allowed.filter(function (t) { return asked.indexOf(t) >= 0; });
+        }
+        el.setAttribute("sandbox", allowed.join(" "));
+    }
+
     function iframeAllowed(el) {
         if (config.sanitizerAllowIframes === false) return false;
         var src = el.getAttribute("src") || "";
         if (!/^https?:/i.test(src)) return false;
         var hosts = config.sanitizerAllowedIframeHosts;
         if (!hosts || !hosts.length) {
-            if (!el.hasAttribute("sandbox")) el.setAttribute("sandbox", DEFAULT_IFRAME_SANDBOX);
+            applyDefaultSandbox(el, src);
             return true;
         }
         try {

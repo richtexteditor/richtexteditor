@@ -2538,6 +2538,29 @@ function RTE_Plugin_AIToolkit() {
         };
     }
 
+    // HTML that arrives from a ledger or a persisted document came from someone else - another
+    // reviewer, a shared store, an AI endpoint that can be prompt-injected. It is written straight
+    // into the document on accept/reject, so clean it here, at the boundary, instead of relying on
+    // whatever runs against the live DOM later. Script vectors go through the content sanitizer when
+    // it is loaded; position:fixed/sticky is dropped either way, because a full-viewport overlay from
+    // remote content survived every other pass (UI redress, measured 2026-09-18).
+    function cleanRemoteHtml(html) {
+        if (!html) return "";
+        html = String(html);
+        if (typeof editor.sanitizeHtml === "function") html = editor.sanitizeHtml(html);
+        var doc = new DOMParser().parseFromString("<body>" + html + "</body>", "text/html");
+        var styled = doc.body.querySelectorAll("[style]");
+        for (var i = 0; i < styled.length; i++) {
+            var st = styled[i].style;
+            if (/^(fixed|sticky)$/i.test(st.position)) {
+                st.removeProperty("position");
+                st.removeProperty("z-index");
+                if (!styled[i].getAttribute("style")) styled[i].removeAttribute("style");
+            }
+        }
+        return doc.body.innerHTML;
+    }
+
     function normalizeLedgerEntry(raw) {
         if (!raw || !raw.id) return null;
         var changeType = raw.changeType || "ai-preview";
@@ -2555,10 +2578,10 @@ function RTE_Plugin_AIToolkit() {
                 name: author.name || author.id || "User",
                 color: author.color || "#2563eb"
             },
-            originalHtml: raw.originalHtml || "",
+            originalHtml: cleanRemoteHtml(raw.originalHtml),
             originalText: raw.originalText || "",
             resultText: raw.resultText || "",
-            resultHtml: raw.resultHtml || "",
+            resultHtml: cleanRemoteHtml(raw.resultHtml),
             reason: raw.reason || "",
             suggestionType: raw.suggestionType || "",
             language: raw.language || "",
@@ -2595,10 +2618,10 @@ function RTE_Plugin_AIToolkit() {
                 name: author.name || author.id || "User",
                 color: author.color || "#2563eb"
             },
-            originalHtml: raw.originalHtml || textToInlineHtml(raw.originalText || ""),
+            originalHtml: cleanRemoteHtml(raw.originalHtml) || textToInlineHtml(raw.originalText || ""),
             originalText: normalizeText(raw.originalText || ""),
             resultText: normalizeText(raw.resultText || ""),
-            resultHtml: raw.resultHtml || textToInlineHtml(raw.resultText || ""),
+            resultHtml: cleanRemoteHtml(raw.resultHtml) || textToInlineHtml(raw.resultText || ""),
             reason: normalizeText(raw.reason || ""),
             suggestionType: getSuggestionTypeValue(raw.suggestionType || ""),
             language: raw.language || "",

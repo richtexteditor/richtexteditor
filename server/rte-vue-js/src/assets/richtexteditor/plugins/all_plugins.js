@@ -745,6 +745,125 @@ function RTE_Plugin_AccessibilityChecker() {
             }
         }
 
+        // 2026-09-22 Six rules the commercial checkers have and this one did not
+        // (TinyMCE's paid checker: D1, D3, D4, I3, I4, T1). One pass over the whole
+        // editable, like duplicate-id, because several need to see neighbours.
+        if (editable && editable.querySelectorAll) {
+            // D1 paragraph-as-heading: a short paragraph whose whole text is bold and
+            // visibly large looks like a heading but cannot be reached by heading
+            // navigation and is missing from the outline.
+            var paras = editable.querySelectorAll("p");
+            for (var pi = 0; pi < paras.length; pi++) {
+                var pEl = paras[pi];
+                var pText = getText(pEl);
+                if (!pText || pText.length > 80 || /[.!?:;,]$/.test(pText)) continue;
+                var win = pEl.ownerDocument.defaultView;
+                var strong = pEl.querySelector("strong, b");
+                var pStyle = win.getComputedStyle(pEl);
+                var boldAll = (strong && getText(strong) === pText) || parseInt(pStyle.fontWeight, 10) >= 600;
+                if (!boldAll) continue;
+                var sizeEl = strong || pEl;
+                var bodySize = parseFloat(win.getComputedStyle(pEl.ownerDocument.body).fontSize) || 16;
+                if (parseFloat(win.getComputedStyle(sizeEl).fontSize) < bodySize * 1.2) continue;
+                issues.push({
+                    code: "paragraph-as-heading",
+                    severity: "warning",
+                    message: "\"" + pText + "\" looks like a heading (bold, large, on its own line) but is a paragraph. Screen-reader users cannot jump to it. Use a heading level instead.",
+                    path: "document.p[" + pi + "]",
+                    _target: pEl
+                });
+            }
+
+            // D4 fake-list: two or more consecutive paragraphs that start with the same
+            // kind of hand-typed marker ("1." "2." / "-" "*" "•").
+            var markerKind = function (el) {
+                if (!el || String(el.nodeName).toLowerCase() !== "p") return null;
+                var t = getText(el);
+                if (/^\d{1,3}[.)]\s+\S/.test(t)) return "ol";
+                if (/^[-*•▪●]\s+\S/.test(t)) return "ul";
+                return null;
+            };
+            var kids = editable.children;
+            for (var ki = 0; ki < kids.length; ki++) {
+                var kind = markerKind(kids[ki]);
+                if (!kind) continue;
+                var run = 1;
+                while (ki + run < kids.length && markerKind(kids[ki + run]) === kind) run++;
+                if (run >= 2) {
+                    issues.push({
+                        code: "fake-list",
+                        severity: "warning",
+                        message: run + " paragraphs are typed as a " + (kind === "ol" ? "numbered" : "bulleted") + " list. Screen readers do not announce them as a list or say how many items it has. Use the list button instead.",
+                        path: "content[" + ki + "]",
+                        _target: kids[ki]
+                    });
+                }
+                ki += run - 1;
+            }
+
+            // I3 / I4: alt text that is a file name, or too long to be heard comfortably.
+            var imgs = editable.querySelectorAll("img[alt]");
+            for (var ii = 0; ii < imgs.length; ii++) {
+                var alt = (imgs[ii].getAttribute("alt") || "").trim();
+                if (!alt) continue;   // alt="" is a deliberate decorative marker
+                var srcName = ((imgs[ii].getAttribute("src") || "").split(/[?#]/)[0].split("/").pop() || "").toLowerCase();
+                if (/\.(jpe?g|png|gif|webp|bmp|svg|avif|tiff?)$/i.test(alt) || (srcName && alt.toLowerCase() === srcName) || /^(img|image|dsc|photo|screenshot)[-_ ]?\d+/i.test(alt)) {
+                    issues.push({
+                        code: "image-alt-filename",
+                        severity: "error",
+                        message: "Alt text \"" + alt + "\" is a file name, which describes nothing. Say what the image shows.",
+                        path: "document.img[" + ii + "]",
+                        _target: imgs[ii]
+                    });
+                } else if (alt.length > 150) {
+                    issues.push({
+                        code: "image-alt-too-long",
+                        severity: "warning",
+                        message: "Alt text is " + alt.length + " characters. Keep it to a short description; put longer detail in the text or a caption.",
+                        path: "document.img[" + ii + "]",
+                        _target: imgs[ii]
+                    });
+                }
+            }
+
+            // D3 link-adjacent-duplicate: two links next to each other with the same
+            // href (typically an image link and a text link) are announced twice.
+            var links = editable.querySelectorAll("a[href]");
+            for (var li = 1; li < links.length; li++) {
+                var prev = links[li - 1], cur = links[li];
+                if (prev.getAttribute("href") !== cur.getAttribute("href")) continue;
+                var between = prev.nextSibling, adjacent = true;
+                while (between && between !== cur) {
+                    if (between.nodeType === 1 || (between.nodeType === 3 && /\S/.test(between.data))) { adjacent = false; break; }
+                    between = between.nextSibling;
+                }
+                if (adjacent && between === cur) {
+                    issues.push({
+                        code: "link-adjacent-duplicate",
+                        severity: "warning",
+                        message: "Two links next to each other go to the same place, so it is announced twice. Combine them into one link.",
+                        path: "document.link[" + li + "]",
+                        _target: cur
+                    });
+                }
+            }
+
+            // T1 table-missing-caption: a DATA table (it has header cells) without a caption.
+            var tables = editable.querySelectorAll("table");
+            for (var ti = 0; ti < tables.length; ti++) {
+                var tb = tables[ti];
+                if ((tb.getAttribute("role") || "").toLowerCase() === "presentation") continue;
+                if (!tb.querySelector("th") || tb.querySelector("caption")) continue;
+                issues.push({
+                    code: "table-missing-caption",
+                    severity: "warning",
+                    message: "Data table has no caption. A short caption lets screen-reader users know what the table is before they enter it.",
+                    path: "document.table[" + ti + "]",
+                    _target: tb
+                });
+            }
+        }
+
         return { document: null, issues: issues, valid: !issues.length, source: "dom" };
     }
 
@@ -801,6 +920,55 @@ function RTE_Plugin_AccessibilityChecker() {
             markLanguageRuns(target, options && options.lang ? options.lang : issue._lang, issue._script);
         }
 
+        else if (issue.code === "paragraph-as-heading") {
+            var lvl = Math.max(1, Math.min(6, parseInt(options && options.targetLevel, 10) || 2));
+            var h = target.ownerDocument.createElement("h" + lvl);
+            // the paragraph's whole text was bold/large: that styling is the heading now
+            h.textContent = (target.textContent || "").replace(/^\s+|\s+$/g, "");
+            copyAttributes(target, h);
+            h.removeAttribute("style");
+            target.parentNode.replaceChild(h, target);
+        }
+        else if (issue.code === "fake-list") {
+            var d = target.ownerDocument;
+            var listParent = target.parentNode;
+            var ordered = /^\d/.test((target.textContent || "").replace(/^\s+/, ""));
+            var list = d.createElement(ordered ? "ol" : "ul");
+            var node = target;
+            while (node && node.nodeName === "P") {
+                var t = (node.textContent || "").replace(/^\s+/, "");
+                var m = ordered ? /^\d{1,3}[.)]\s+([\s\S]*)$/.exec(t) : /^[-*•▪●]\s+([\s\S]*)$/.exec(t);
+                if (!m) break;
+                var li = d.createElement("li");
+                li.textContent = m[1].replace(/\s+$/, "");
+                list.appendChild(li);
+                var next = node.nextElementSibling;
+                node.parentNode.removeChild(node);
+                node = next;
+            }
+            if (node && node.parentNode === listParent) listParent.insertBefore(list, node);
+            else listParent.appendChild(list);
+        }
+        else if (issue.code === "table-missing-caption") {
+            var capText = String((options && options.captionText) || "").replace(/^\s+|\s+$/g, "");
+            if (capText) {
+                var cap = target.ownerDocument.createElement("caption");
+                cap.textContent = capText;
+                target.insertBefore(cap, target.firstChild);
+            }
+        }
+        else if (issue.code === "link-adjacent-duplicate") {
+            // merge the second link into the first: one link, one announcement
+            var prevLink = target.previousSibling;
+            while (prevLink && prevLink.nodeType !== 1) prevLink = prevLink.previousSibling;
+            if (prevLink && prevLink.nodeName === "A") {
+                while (target.firstChild) prevLink.appendChild(target.firstChild);
+                target.parentNode.removeChild(target);
+            }
+        }
+        else if (issue.code === "image-alt-filename" || issue.code === "image-alt-too-long") {
+            target.setAttribute("alt", String((options && options.altText) || "").replace(/^\s+|\s+$/g, ""));
+        }
         selectedIssueIndex = 0;
         scheduleEditorChange();
         return runAudit();
@@ -3748,6 +3916,29 @@ function RTE_Plugin_AIToolkit() {
         };
     }
 
+    // HTML that arrives from a ledger or a persisted document came from someone else - another
+    // reviewer, a shared store, an AI endpoint that can be prompt-injected. It is written straight
+    // into the document on accept/reject, so clean it here, at the boundary, instead of relying on
+    // whatever runs against the live DOM later. Script vectors go through the content sanitizer when
+    // it is loaded; position:fixed/sticky is dropped either way, because a full-viewport overlay from
+    // remote content survived every other pass (UI redress, measured 2026-09-18).
+    function cleanRemoteHtml(html) {
+        if (!html) return "";
+        html = String(html);
+        if (typeof editor.sanitizeHtml === "function") html = editor.sanitizeHtml(html);
+        var doc = new DOMParser().parseFromString("<body>" + html + "</body>", "text/html");
+        var styled = doc.body.querySelectorAll("[style]");
+        for (var i = 0; i < styled.length; i++) {
+            var st = styled[i].style;
+            if (/^(fixed|sticky)$/i.test(st.position)) {
+                st.removeProperty("position");
+                st.removeProperty("z-index");
+                if (!styled[i].getAttribute("style")) styled[i].removeAttribute("style");
+            }
+        }
+        return doc.body.innerHTML;
+    }
+
     function normalizeLedgerEntry(raw) {
         if (!raw || !raw.id) return null;
         var changeType = raw.changeType || "ai-preview";
@@ -3765,10 +3956,10 @@ function RTE_Plugin_AIToolkit() {
                 name: author.name || author.id || "User",
                 color: author.color || "#2563eb"
             },
-            originalHtml: raw.originalHtml || "",
+            originalHtml: cleanRemoteHtml(raw.originalHtml),
             originalText: raw.originalText || "",
             resultText: raw.resultText || "",
-            resultHtml: raw.resultHtml || "",
+            resultHtml: cleanRemoteHtml(raw.resultHtml),
             reason: raw.reason || "",
             suggestionType: raw.suggestionType || "",
             language: raw.language || "",
@@ -3805,10 +3996,10 @@ function RTE_Plugin_AIToolkit() {
                 name: author.name || author.id || "User",
                 color: author.color || "#2563eb"
             },
-            originalHtml: raw.originalHtml || textToInlineHtml(raw.originalText || ""),
+            originalHtml: cleanRemoteHtml(raw.originalHtml) || textToInlineHtml(raw.originalText || ""),
             originalText: normalizeText(raw.originalText || ""),
             resultText: normalizeText(raw.resultText || ""),
-            resultHtml: raw.resultHtml || textToInlineHtml(raw.resultText || ""),
+            resultHtml: cleanRemoteHtml(raw.resultHtml) || textToInlineHtml(raw.resultText || ""),
             reason: normalizeText(raw.reason || ""),
             suggestionType: getSuggestionTypeValue(raw.suggestionType || ""),
             language: raw.language || "",
@@ -30812,10 +31003,12 @@ function RTE_Plugin_InsertEmoji() {
 //
 //   config.galleryEndpoint   URL returning { currentFolder, currentFolderDisplay,
 //                            parentFolder, folders: [{folder,name}],
-//                            images: [{url,name,folder,size,source}] }.
+//                            images: [{url,name,folder,size,source,alt}] }.
 //                            Absent -> local mode: presets only, no request.
 //   config.galleryImages     Preset images. String, [url, text], or an object
-//                            with url/src/href plus optional thumbnail/name/meta.
+//                            with url/src/href plus optional thumbnail/name/meta/alt.
+//                            alt (presets and server images) becomes the inserted
+//                            image's alt text; without it the attribute stays absent.
 //
 // Uploads use window.richTextBoxUploadFile when present (it accepts a target
 // folder), otherwise the generic window.rte_file_upload_handler.
@@ -30946,7 +31139,8 @@ function RTE_Plugin_InsertGallery() {
                 url: url,
                 thumbnail: item.thumbnail || item.thumb || item.preview || url,
                 name: item.name || item.text || item.title || getFileName(url),
-                meta: item.meta || item.description || item.alt || ""
+                meta: item.meta || item.description || item.alt || "",
+                alt: typeof item.alt === "string" ? item.alt : undefined
             };
         }
 
@@ -30986,6 +31180,7 @@ function RTE_Plugin_InsertGallery() {
             folder: item.folder || "",
             source: item.source || "upload",
             size: item.size || 0,
+            alt: typeof item.alt === "string" ? item.alt : undefined,
             searchText: (name + " " + item.url).toLowerCase()
         };
     }
@@ -31179,7 +31374,9 @@ function RTE_Plugin_InsertGallery() {
                 return;
             }
 
-            editor.insertImageByUrl(selected.url);
+            // Only an alt the host supplied (preset or server listing). The file name is
+            // not alt text; leaving it absent lets the accessibility checker flag it.
+            editor.insertImageByUrl(selected.url, selected.alt);
             closeDialog();
             editor.focus();
         }
@@ -31410,6 +31607,10 @@ function RTE_Plugin_InsertGallery() {
             render();
         }
 
+        // Upload failures to show once the folder has been re-listed (applyResponse
+        // clears the error, so it would otherwise vanish).
+        var pendingError = "";
+
         function loadFolder(folder, selectAfterLoad) {
             if (!serverMode) {
                 state.images = presetImages.slice(0);
@@ -31423,6 +31624,7 @@ function RTE_Plugin_InsertGallery() {
 
             requestJson("GET", withFolder(endpoint, folder), null, function (payload, errorCode) {
                 if (errorCode) {
+                    pendingError = "";
                     loadFallback(errorCode);
                     return;
                 }
@@ -31431,6 +31633,8 @@ function RTE_Plugin_InsertGallery() {
                 if (selectAfterLoad) {
                     state.selectedUrl = selectAfterLoad;
                 }
+                state.error = pendingError;
+                pendingError = "";
                 state.loading = false;
                 render();
             });
@@ -31465,67 +31669,120 @@ function RTE_Plugin_InsertGallery() {
             });
         }
 
+        // config.maxUploadFileSize is enforced by the core only on its own insert
+        // paths. The gallery calls the upload handler directly, so the limit a
+        // customer set to protect their database was skipped for every image
+        // uploaded through this dialog. The accept list is only a hint to the file
+        // picker ("All files" bypasses it), so the format is checked here too.
+        function rejectReason(file) {
+            var name = String(file.name || "").toLowerCase();
+            var dot = name.lastIndexOf(".");
+            if (dot < 0 || GALLERY_ACCEPT.indexOf(name.substring(dot)) < 0) {
+                return file.name + " is not an accepted image format.";
+            }
+            var max = parseInt(config.maxUploadFileSize, 10);
+            if (max > 0 && file.size > max) {
+                return file.name + " is " + humanSize(file.size) + ". The maximum allowed size is " + humanSize(max) + ".";
+            }
+            return "";
+        }
+
         function uploadFiles(fileList) {
             var files = [];
+            var problems = [];
             var index;
             for (index = 0; index < fileList.length; index++) {
-                files.push(fileList[index]);
+                var reason = rejectReason(fileList[index]);
+                if (reason) {
+                    problems.push(reason);
+                } else {
+                    files.push(fileList[index]);
+                }
             }
 
-            if (!files.length || !canUpload) {
+            if (!canUpload) {
+                return;
+            }
+            if (!files.length) {
+                if (problems.length) {
+                    state.error = problems.join(" ");
+                    render();
+                }
                 return;
             }
 
-            var lastUploadedUrl = "";
+            // One failed file used to stop the batch, and in local mode only the
+            // LAST success was added to the list - uploading three images showed
+            // one. Now every file is attempted, every success is kept, and the
+            // failures are reported together at the end.
+            var uploadedUrls = [];
+
+            function finish() {
+                var lastUploadedUrl = uploadedUrls.length ? uploadedUrls[uploadedUrls.length - 1] : "";
+
+                if (serverMode) {
+                    pendingError = problems.join(" ");
+                    loadFolder(state.currentFolder, lastUploadedUrl || state.selectedUrl);
+                    return;
+                }
+
+                // No server to re-list from, so fold the uploads into the preset
+                // list directly, newest first, and select the last one.
+                for (var u = 0; u < uploadedUrls.length; u++) {
+                    var uploaded = normalizePreset(uploadedUrls[u]);
+                    if (uploaded) {
+                        uploaded.source = "upload";
+                        presetImages.unshift(uploaded);
+                        config.galleryImages.unshift(uploadedUrls[u]);
+                    }
+                }
+                if (lastUploadedUrl) {
+                    state.selectedUrl = lastUploadedUrl;
+                }
+                state.images = presetImages.slice(0);
+                state.loading = false;
+                state.error = problems.join(" ");
+                render();
+            }
 
             function uploadNext(nextIndex) {
                 if (nextIndex >= files.length) {
-                    if (serverMode) {
-                        loadFolder(state.currentFolder, lastUploadedUrl);
-                        return;
-                    }
-
-                    // No server to re-list from, so fold the upload into the
-                    // preset list directly and keep it selected.
-                    if (lastUploadedUrl) {
-                        var uploaded = normalizePreset(lastUploadedUrl);
-                        if (uploaded) {
-                            uploaded.source = "upload";
-                            presetImages.unshift(uploaded);
-                            config.galleryImages.unshift(lastUploadedUrl);
-                        }
-                        state.selectedUrl = lastUploadedUrl;
-                    }
-                    state.images = presetImages.slice(0);
-                    state.loading = false;
-                    render();
+                    finish();
                     return;
                 }
 
                 var file = files[nextIndex];
+                var settled = false;
 
-                function done(url, errorCode) {
-                    if (!url) {
-                        state.error = errorCode || ("Upload failed for " + file.name + ".");
-                        state.loading = false;
-                        render();
+                function done(url, errorText) {
+                    // a handler that calls back twice must not upload the rest twice
+                    if (settled) {
                         return;
                     }
-
-                    lastUploadedUrl = url;
+                    settled = true;
+                    if (url) {
+                        uploadedUrls.push(url);
+                    } else {
+                        problems.push(typeof errorText === "string" && errorText ? errorText : ("Upload failed for " + file.name + "."));
+                    }
                     uploadNext(nextIndex + 1);
                 }
 
-                if (uploadToFolder) {
-                    window.richTextBoxUploadFile(file, function (url, errorCode) {
-                        done(errorCode ? "" : url, errorCode ? ("Upload failed for " + file.name + ".") : "");
-                    }, { folder: state.currentFolder }, nextIndex, files);
-                    return;
-                }
+                try {
+                    if (uploadToFolder) {
+                        window.richTextBoxUploadFile(file, function (url, errorCode) {
+                            done(errorCode ? "" : url, errorCode ? ("Upload failed for " + file.name + ".") : "");
+                        }, { folder: state.currentFolder }, nextIndex, files);
+                        return;
+                    }
 
-                window.rte_file_upload_handler(file, function (url, error) {
-                    done(url, error);
-                }, nextIndex, files);
+                    window.rte_file_upload_handler(file, function (url, error) {
+                        done(url, error);
+                    }, nextIndex, files);
+                } catch (ex) {
+                    // a handler that throws must not leave the dialog stuck on "Loading"
+                    done("", "Upload failed for " + file.name + ".");
+                }
             }
 
             state.loading = true;
@@ -39806,13 +40063,35 @@ function RTE_Plugin_Sanitizer() {
     // sanitizerAllowedIframeHosts is still the stronger control.
     var DEFAULT_IFRAME_SANDBOX = "allow-scripts allow-same-origin allow-presentation";
 
+    // 2026-09-21 Two holes in the default sandbox, both closed here:
+    //  - it was only ADDED when the iframe had none, so injected markup that
+    //    brought its own sandbox="allow-top-navigation allow-popups allow-forms"
+    //    kept every permission the comment above says is withheld. An existing
+    //    sandbox is now narrowed to the default set, never trusted.
+    //  - allow-scripts + allow-same-origin isolates nothing when the frame is
+    //    served from the page's OWN origin: the framed page can reach the parent
+    //    and remove its own sandbox. Same-origin frames lose allow-same-origin.
+    function applyDefaultSandbox(el, src) {
+        var allowed = DEFAULT_IFRAME_SANDBOX.split(" ");
+        var sameOrigin = false;
+        try { sameOrigin = new URL(src, location.href).origin === location.origin; } catch (e) {}
+        if (sameOrigin) allowed = allowed.filter(function (t) { return t !== "allow-same-origin"; });
+        if (el.hasAttribute("sandbox")) {
+            // keep only what the frame asked for AND the default permits; an empty
+            // sandbox (the strictest) stays empty
+            var asked = (el.getAttribute("sandbox") || "").toLowerCase().split(/\s+/);
+            allowed = allowed.filter(function (t) { return asked.indexOf(t) >= 0; });
+        }
+        el.setAttribute("sandbox", allowed.join(" "));
+    }
+
     function iframeAllowed(el) {
         if (config.sanitizerAllowIframes === false) return false;
         var src = el.getAttribute("src") || "";
         if (!/^https?:/i.test(src)) return false;
         var hosts = config.sanitizerAllowedIframeHosts;
         if (!hosts || !hosts.length) {
-            if (!el.hasAttribute("sandbox")) el.setAttribute("sandbox", DEFAULT_IFRAME_SANDBOX);
+            applyDefaultSandbox(el, src);
             return true;
         }
         try {

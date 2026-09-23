@@ -14,10 +14,12 @@
 //
 //   config.galleryEndpoint   URL returning { currentFolder, currentFolderDisplay,
 //                            parentFolder, folders: [{folder,name}],
-//                            images: [{url,name,folder,size,source}] }.
+//                            images: [{url,name,folder,size,source,alt}] }.
 //                            Absent -> local mode: presets only, no request.
 //   config.galleryImages     Preset images. String, [url, text], or an object
-//                            with url/src/href plus optional thumbnail/name/meta.
+//                            with url/src/href plus optional thumbnail/name/meta/alt.
+//                            alt (presets and server images) becomes the inserted
+//                            image's alt text; without it the attribute stays absent.
 //
 // Uploads use window.richTextBoxUploadFile when present (it accepts a target
 // folder), otherwise the generic window.rte_file_upload_handler.
@@ -148,7 +150,8 @@ function RTE_Plugin_InsertGallery() {
                 url: url,
                 thumbnail: item.thumbnail || item.thumb || item.preview || url,
                 name: item.name || item.text || item.title || getFileName(url),
-                meta: item.meta || item.description || item.alt || ""
+                meta: item.meta || item.description || item.alt || "",
+                alt: typeof item.alt === "string" ? item.alt : undefined
             };
         }
 
@@ -188,6 +191,7 @@ function RTE_Plugin_InsertGallery() {
             folder: item.folder || "",
             source: item.source || "upload",
             size: item.size || 0,
+            alt: typeof item.alt === "string" ? item.alt : undefined,
             searchText: (name + " " + item.url).toLowerCase()
         };
     }
@@ -381,7 +385,9 @@ function RTE_Plugin_InsertGallery() {
                 return;
             }
 
-            editor.insertImageByUrl(selected.url);
+            // Only an alt the host supplied (preset or server listing). The file name is
+            // not alt text; leaving it absent lets the accessibility checker flag it.
+            editor.insertImageByUrl(selected.url, selected.alt);
             closeDialog();
             editor.focus();
         }
@@ -612,6 +618,10 @@ function RTE_Plugin_InsertGallery() {
             render();
         }
 
+        // Upload failures to show once the folder has been re-listed (applyResponse
+        // clears the error, so it would otherwise vanish).
+        var pendingError = "";
+
         function loadFolder(folder, selectAfterLoad) {
             if (!serverMode) {
                 state.images = presetImages.slice(0);
@@ -625,6 +635,7 @@ function RTE_Plugin_InsertGallery() {
 
             requestJson("GET", withFolder(endpoint, folder), null, function (payload, errorCode) {
                 if (errorCode) {
+                    pendingError = "";
                     loadFallback(errorCode);
                     return;
                 }
@@ -633,6 +644,8 @@ function RTE_Plugin_InsertGallery() {
                 if (selectAfterLoad) {
                     state.selectedUrl = selectAfterLoad;
                 }
+                state.error = pendingError;
+                pendingError = "";
                 state.loading = false;
                 render();
             });
@@ -667,67 +680,120 @@ function RTE_Plugin_InsertGallery() {
             });
         }
 
+        // config.maxUploadFileSize is enforced by the core only on its own insert
+        // paths. The gallery calls the upload handler directly, so the limit a
+        // customer set to protect their database was skipped for every image
+        // uploaded through this dialog. The accept list is only a hint to the file
+        // picker ("All files" bypasses it), so the format is checked here too.
+        function rejectReason(file) {
+            var name = String(file.name || "").toLowerCase();
+            var dot = name.lastIndexOf(".");
+            if (dot < 0 || GALLERY_ACCEPT.indexOf(name.substring(dot)) < 0) {
+                return file.name + " is not an accepted image format.";
+            }
+            var max = parseInt(config.maxUploadFileSize, 10);
+            if (max > 0 && file.size > max) {
+                return file.name + " is " + humanSize(file.size) + ". The maximum allowed size is " + humanSize(max) + ".";
+            }
+            return "";
+        }
+
         function uploadFiles(fileList) {
             var files = [];
+            var problems = [];
             var index;
             for (index = 0; index < fileList.length; index++) {
-                files.push(fileList[index]);
+                var reason = rejectReason(fileList[index]);
+                if (reason) {
+                    problems.push(reason);
+                } else {
+                    files.push(fileList[index]);
+                }
             }
 
-            if (!files.length || !canUpload) {
+            if (!canUpload) {
+                return;
+            }
+            if (!files.length) {
+                if (problems.length) {
+                    state.error = problems.join(" ");
+                    render();
+                }
                 return;
             }
 
-            var lastUploadedUrl = "";
+            // One failed file used to stop the batch, and in local mode only the
+            // LAST success was added to the list - uploading three images showed
+            // one. Now every file is attempted, every success is kept, and the
+            // failures are reported together at the end.
+            var uploadedUrls = [];
+
+            function finish() {
+                var lastUploadedUrl = uploadedUrls.length ? uploadedUrls[uploadedUrls.length - 1] : "";
+
+                if (serverMode) {
+                    pendingError = problems.join(" ");
+                    loadFolder(state.currentFolder, lastUploadedUrl || state.selectedUrl);
+                    return;
+                }
+
+                // No server to re-list from, so fold the uploads into the preset
+                // list directly, newest first, and select the last one.
+                for (var u = 0; u < uploadedUrls.length; u++) {
+                    var uploaded = normalizePreset(uploadedUrls[u]);
+                    if (uploaded) {
+                        uploaded.source = "upload";
+                        presetImages.unshift(uploaded);
+                        config.galleryImages.unshift(uploadedUrls[u]);
+                    }
+                }
+                if (lastUploadedUrl) {
+                    state.selectedUrl = lastUploadedUrl;
+                }
+                state.images = presetImages.slice(0);
+                state.loading = false;
+                state.error = problems.join(" ");
+                render();
+            }
 
             function uploadNext(nextIndex) {
                 if (nextIndex >= files.length) {
-                    if (serverMode) {
-                        loadFolder(state.currentFolder, lastUploadedUrl);
-                        return;
-                    }
-
-                    // No server to re-list from, so fold the upload into the
-                    // preset list directly and keep it selected.
-                    if (lastUploadedUrl) {
-                        var uploaded = normalizePreset(lastUploadedUrl);
-                        if (uploaded) {
-                            uploaded.source = "upload";
-                            presetImages.unshift(uploaded);
-                            config.galleryImages.unshift(lastUploadedUrl);
-                        }
-                        state.selectedUrl = lastUploadedUrl;
-                    }
-                    state.images = presetImages.slice(0);
-                    state.loading = false;
-                    render();
+                    finish();
                     return;
                 }
 
                 var file = files[nextIndex];
+                var settled = false;
 
-                function done(url, errorCode) {
-                    if (!url) {
-                        state.error = errorCode || ("Upload failed for " + file.name + ".");
-                        state.loading = false;
-                        render();
+                function done(url, errorText) {
+                    // a handler that calls back twice must not upload the rest twice
+                    if (settled) {
                         return;
                     }
-
-                    lastUploadedUrl = url;
+                    settled = true;
+                    if (url) {
+                        uploadedUrls.push(url);
+                    } else {
+                        problems.push(typeof errorText === "string" && errorText ? errorText : ("Upload failed for " + file.name + "."));
+                    }
                     uploadNext(nextIndex + 1);
                 }
 
-                if (uploadToFolder) {
-                    window.richTextBoxUploadFile(file, function (url, errorCode) {
-                        done(errorCode ? "" : url, errorCode ? ("Upload failed for " + file.name + ".") : "");
-                    }, { folder: state.currentFolder }, nextIndex, files);
-                    return;
-                }
+                try {
+                    if (uploadToFolder) {
+                        window.richTextBoxUploadFile(file, function (url, errorCode) {
+                            done(errorCode ? "" : url, errorCode ? ("Upload failed for " + file.name + ".") : "");
+                        }, { folder: state.currentFolder }, nextIndex, files);
+                        return;
+                    }
 
-                window.rte_file_upload_handler(file, function (url, error) {
-                    done(url, error);
-                }, nextIndex, files);
+                    window.rte_file_upload_handler(file, function (url, error) {
+                        done(url, error);
+                    }, nextIndex, files);
+                } catch (ex) {
+                    // a handler that throws must not leave the dialog stuck on "Loading"
+                    done("", "Upload failed for " + file.name + ".");
+                }
             }
 
             state.loading = true;

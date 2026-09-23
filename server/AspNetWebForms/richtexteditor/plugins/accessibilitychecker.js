@@ -654,6 +654,125 @@ function RTE_Plugin_AccessibilityChecker() {
             }
         }
 
+        // 2026-09-22 Six rules the commercial checkers have and this one did not
+        // (TinyMCE's paid checker: D1, D3, D4, I3, I4, T1). One pass over the whole
+        // editable, like duplicate-id, because several need to see neighbours.
+        if (editable && editable.querySelectorAll) {
+            // D1 paragraph-as-heading: a short paragraph whose whole text is bold and
+            // visibly large looks like a heading but cannot be reached by heading
+            // navigation and is missing from the outline.
+            var paras = editable.querySelectorAll("p");
+            for (var pi = 0; pi < paras.length; pi++) {
+                var pEl = paras[pi];
+                var pText = getText(pEl);
+                if (!pText || pText.length > 80 || /[.!?:;,]$/.test(pText)) continue;
+                var win = pEl.ownerDocument.defaultView;
+                var strong = pEl.querySelector("strong, b");
+                var pStyle = win.getComputedStyle(pEl);
+                var boldAll = (strong && getText(strong) === pText) || parseInt(pStyle.fontWeight, 10) >= 600;
+                if (!boldAll) continue;
+                var sizeEl = strong || pEl;
+                var bodySize = parseFloat(win.getComputedStyle(pEl.ownerDocument.body).fontSize) || 16;
+                if (parseFloat(win.getComputedStyle(sizeEl).fontSize) < bodySize * 1.2) continue;
+                issues.push({
+                    code: "paragraph-as-heading",
+                    severity: "warning",
+                    message: "\"" + pText + "\" looks like a heading (bold, large, on its own line) but is a paragraph. Screen-reader users cannot jump to it. Use a heading level instead.",
+                    path: "document.p[" + pi + "]",
+                    _target: pEl
+                });
+            }
+
+            // D4 fake-list: two or more consecutive paragraphs that start with the same
+            // kind of hand-typed marker ("1." "2." / "-" "*" "•").
+            var markerKind = function (el) {
+                if (!el || String(el.nodeName).toLowerCase() !== "p") return null;
+                var t = getText(el);
+                if (/^\d{1,3}[.)]\s+\S/.test(t)) return "ol";
+                if (/^[-*•▪●]\s+\S/.test(t)) return "ul";
+                return null;
+            };
+            var kids = editable.children;
+            for (var ki = 0; ki < kids.length; ki++) {
+                var kind = markerKind(kids[ki]);
+                if (!kind) continue;
+                var run = 1;
+                while (ki + run < kids.length && markerKind(kids[ki + run]) === kind) run++;
+                if (run >= 2) {
+                    issues.push({
+                        code: "fake-list",
+                        severity: "warning",
+                        message: run + " paragraphs are typed as a " + (kind === "ol" ? "numbered" : "bulleted") + " list. Screen readers do not announce them as a list or say how many items it has. Use the list button instead.",
+                        path: "content[" + ki + "]",
+                        _target: kids[ki]
+                    });
+                }
+                ki += run - 1;
+            }
+
+            // I3 / I4: alt text that is a file name, or too long to be heard comfortably.
+            var imgs = editable.querySelectorAll("img[alt]");
+            for (var ii = 0; ii < imgs.length; ii++) {
+                var alt = (imgs[ii].getAttribute("alt") || "").trim();
+                if (!alt) continue;   // alt="" is a deliberate decorative marker
+                var srcName = ((imgs[ii].getAttribute("src") || "").split(/[?#]/)[0].split("/").pop() || "").toLowerCase();
+                if (/\.(jpe?g|png|gif|webp|bmp|svg|avif|tiff?)$/i.test(alt) || (srcName && alt.toLowerCase() === srcName) || /^(img|image|dsc|photo|screenshot)[-_ ]?\d+/i.test(alt)) {
+                    issues.push({
+                        code: "image-alt-filename",
+                        severity: "error",
+                        message: "Alt text \"" + alt + "\" is a file name, which describes nothing. Say what the image shows.",
+                        path: "document.img[" + ii + "]",
+                        _target: imgs[ii]
+                    });
+                } else if (alt.length > 150) {
+                    issues.push({
+                        code: "image-alt-too-long",
+                        severity: "warning",
+                        message: "Alt text is " + alt.length + " characters. Keep it to a short description; put longer detail in the text or a caption.",
+                        path: "document.img[" + ii + "]",
+                        _target: imgs[ii]
+                    });
+                }
+            }
+
+            // D3 link-adjacent-duplicate: two links next to each other with the same
+            // href (typically an image link and a text link) are announced twice.
+            var links = editable.querySelectorAll("a[href]");
+            for (var li = 1; li < links.length; li++) {
+                var prev = links[li - 1], cur = links[li];
+                if (prev.getAttribute("href") !== cur.getAttribute("href")) continue;
+                var between = prev.nextSibling, adjacent = true;
+                while (between && between !== cur) {
+                    if (between.nodeType === 1 || (between.nodeType === 3 && /\S/.test(between.data))) { adjacent = false; break; }
+                    between = between.nextSibling;
+                }
+                if (adjacent && between === cur) {
+                    issues.push({
+                        code: "link-adjacent-duplicate",
+                        severity: "warning",
+                        message: "Two links next to each other go to the same place, so it is announced twice. Combine them into one link.",
+                        path: "document.link[" + li + "]",
+                        _target: cur
+                    });
+                }
+            }
+
+            // T1 table-missing-caption: a DATA table (it has header cells) without a caption.
+            var tables = editable.querySelectorAll("table");
+            for (var ti = 0; ti < tables.length; ti++) {
+                var tb = tables[ti];
+                if ((tb.getAttribute("role") || "").toLowerCase() === "presentation") continue;
+                if (!tb.querySelector("th") || tb.querySelector("caption")) continue;
+                issues.push({
+                    code: "table-missing-caption",
+                    severity: "warning",
+                    message: "Data table has no caption. A short caption lets screen-reader users know what the table is before they enter it.",
+                    path: "document.table[" + ti + "]",
+                    _target: tb
+                });
+            }
+        }
+
         return { document: null, issues: issues, valid: !issues.length, source: "dom" };
     }
 
@@ -710,6 +829,55 @@ function RTE_Plugin_AccessibilityChecker() {
             markLanguageRuns(target, options && options.lang ? options.lang : issue._lang, issue._script);
         }
 
+        else if (issue.code === "paragraph-as-heading") {
+            var lvl = Math.max(1, Math.min(6, parseInt(options && options.targetLevel, 10) || 2));
+            var h = target.ownerDocument.createElement("h" + lvl);
+            // the paragraph's whole text was bold/large: that styling is the heading now
+            h.textContent = (target.textContent || "").replace(/^\s+|\s+$/g, "");
+            copyAttributes(target, h);
+            h.removeAttribute("style");
+            target.parentNode.replaceChild(h, target);
+        }
+        else if (issue.code === "fake-list") {
+            var d = target.ownerDocument;
+            var listParent = target.parentNode;
+            var ordered = /^\d/.test((target.textContent || "").replace(/^\s+/, ""));
+            var list = d.createElement(ordered ? "ol" : "ul");
+            var node = target;
+            while (node && node.nodeName === "P") {
+                var t = (node.textContent || "").replace(/^\s+/, "");
+                var m = ordered ? /^\d{1,3}[.)]\s+([\s\S]*)$/.exec(t) : /^[-*•▪●]\s+([\s\S]*)$/.exec(t);
+                if (!m) break;
+                var li = d.createElement("li");
+                li.textContent = m[1].replace(/\s+$/, "");
+                list.appendChild(li);
+                var next = node.nextElementSibling;
+                node.parentNode.removeChild(node);
+                node = next;
+            }
+            if (node && node.parentNode === listParent) listParent.insertBefore(list, node);
+            else listParent.appendChild(list);
+        }
+        else if (issue.code === "table-missing-caption") {
+            var capText = String((options && options.captionText) || "").replace(/^\s+|\s+$/g, "");
+            if (capText) {
+                var cap = target.ownerDocument.createElement("caption");
+                cap.textContent = capText;
+                target.insertBefore(cap, target.firstChild);
+            }
+        }
+        else if (issue.code === "link-adjacent-duplicate") {
+            // merge the second link into the first: one link, one announcement
+            var prevLink = target.previousSibling;
+            while (prevLink && prevLink.nodeType !== 1) prevLink = prevLink.previousSibling;
+            if (prevLink && prevLink.nodeName === "A") {
+                while (target.firstChild) prevLink.appendChild(target.firstChild);
+                target.parentNode.removeChild(target);
+            }
+        }
+        else if (issue.code === "image-alt-filename" || issue.code === "image-alt-too-long") {
+            target.setAttribute("alt", String((options && options.altText) || "").replace(/^\s+|\s+$/g, ""));
+        }
         selectedIssueIndex = 0;
         scheduleEditorChange();
         return runAudit();
