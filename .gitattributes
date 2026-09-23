@@ -5,3 +5,9 @@
 # The protected runtime must reach GitHub byte-identical to the build: autocrlf
 # stripped 1,067 CRs from rte.js (594,890 -> 593,823 B) in d357492.
 rte.js -text
+
+# 2026-09-23 The SAME defect that stripped 1,067 CRs from rte.js was still open for every
+# other runtime file: the rule above names only rte.js, so the 2.6.7 push committed
+# all_plugins.js 2,756 bytes short and rte-config.js 1,073 short of the shipped build.
+# The whole editor folder is now byte-for-byte, wherever it appears in this repo.
+**/richtexteditor/** -text
