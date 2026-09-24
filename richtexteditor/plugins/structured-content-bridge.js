@@ -1607,6 +1607,15 @@ function createStructuredContent(editorOrHtml) {
         if (!text) {
             text = getPlainTextFromHtml(html);
         }
+        // Document-level attributes (page setup) are persisted in the HTML as a
+        // hidden data-rte-page-setup marker. The string branch above parses them;
+        // this branch previously did not, so setDocumentPageSetup() wrote the
+        // marker but getDocumentPageSetup() — which reaches here via getJSON() —
+        // always read back null, losing the page setup on every round-trip.
+        var parsedEditorPageSetup = parseStructuredDocumentAttributes(html);
+        if (parsedEditorPageSetup && parsedEditorPageSetup.pageSetup) {
+            attrs = parsedEditorPageSetup;
+        }
     }
 
     return {
