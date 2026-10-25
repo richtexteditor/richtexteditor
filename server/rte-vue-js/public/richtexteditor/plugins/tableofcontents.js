@@ -32,7 +32,8 @@ if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
 RTE_DefaultConfig.plugin_tableofcontents = RTE_Plugin_TableOfContents;
 
 // Heading above the list. Set to "" to omit it.
-if (typeof RTE_DefaultConfig.tocTitle === "undefined") RTE_DefaultConfig.tocTitle = "Contents";
+// 2026-10-18 the default title comes from the language pack (loaded before the plugins) when there is one.
+if (typeof RTE_DefaultConfig.tocTitle === "undefined") RTE_DefaultConfig.tocTitle = RTE_DefaultConfig.text_toc_title || "Contents";
 // Heading levels included, inclusive.
 if (typeof RTE_DefaultConfig.tocMinLevel === "undefined") RTE_DefaultConfig.tocMinLevel = 1;
 if (typeof RTE_DefaultConfig.tocMaxLevel === "undefined") RTE_DefaultConfig.tocMaxLevel = 3;
@@ -193,6 +194,8 @@ function RTE_Plugin_TableOfContents() {
     };
 
     obj.Remove = function () {
+        // 2026-10-14 Suggesting mode: removing this is not tracked yet, so the track hook refuses it. tools/review/suggesting-structure-audit.mjs
+        if (editor.__trackHook && editor.__trackHook("remove", {}) === true) return false;
         var b = block();
         if (!b || !b.parentNode) return false;
         b.parentNode.removeChild(b);
@@ -242,7 +245,7 @@ function RTE_Plugin_TableOfContents() {
         if (!hs.length) {
             var empty = doc.createElement("div");
             empty.className = "rte-toc-empty";
-            empty.textContent = "No headings yet.";
+            empty.textContent = ((typeof config !== "undefined" && config && config.text_toc_empty) || "No headings yet.");
             nav.appendChild(empty);
             return [];
         }

@@ -105,6 +105,31 @@ function RTE_Plugin_LinkChecker() {
         return out;
     }
 
+    // 2026-10-03 Whether an in-document fragment lands somewhere. It was looked up with
+    // querySelector("#" + id), which THROWS for an id that is not a CSS identifier - one starting
+    // with a digit, which is what a numbered heading's generated id looks like ("1. Introduction" ->
+    // "1-introduction") - and the throw was reported as a broken anchor: every link to a numbered
+    // clause and every table-of-contents entry of a numbered document was flagged. Now the id is
+    // compared as a string, the percent-decoded form counts too (#caf%C3%A9 lands on the accented
+    // id, as in a browser), and "#top" lands at the top, as the HTML spec says.
+    // tools/links/link-checker.mjs
+    function anchorExists(editable, raw) {
+        var ids = [raw];
+        try {
+            var decoded = decodeURIComponent(raw);
+            if (decoded !== raw) ids.push(decoded);
+        } catch (e) { /* not valid percent-encoding: the raw form only */ }
+        var named = editable.querySelectorAll("[id], a[name]");
+        for (var i = 0; i < ids.length; i++) {
+            if (ids[i].toLowerCase() === "top") return true;
+            for (var j = 0; j < named.length; j++) {
+                if (named[j].getAttribute("id") === ids[i]) return true;
+                if (named[j].nodeName === "A" && named[j].getAttribute("name") === ids[i]) return true;
+            }
+        }
+        return false;
+    }
+
     // Everything decidable without the network.
     function offlineIssues() {
         var editable = getEditable();
@@ -128,7 +153,7 @@ function RTE_Plugin_LinkChecker() {
 
             if (!a.hasAttribute("href")) {
                 add("error", "empty-href",
-                    "Link has no destination — its address may have been removed for being unsafe.");
+                    "Link has no destination \u2014 its address may have been removed for being unsafe.");
                 continue;
             }
             if (!href || href === "#") {
@@ -150,12 +175,7 @@ function RTE_Plugin_LinkChecker() {
             // breakage because headings get retitled and ids change.
             if (href.charAt(0) === "#") {
                 var id = href.substring(1);
-                var target = null;
-                try {
-                    target = editable.querySelector("#" + id.replace(/["\\\]\[]/g, "\\$&")) ||
-                             editable.querySelector('[name="' + id.replace(/"/g, '\\"') + '"]');
-                } catch (e) { target = null; }
-                if (!target) add("error", "broken-anchor", "Links to #" + id + ", which does not exist in this document.");
+                if (!anchorExists(editable, id)) add("error", "broken-anchor", "Links to #" + id + ", which does not exist in this document.");
             } else if (/^[a-z][a-z0-9+.-]*:/i.test(href) || href.indexOf("//") === 0) {
                 // Absolute URL: parse it to catch malformed ones.
                 var parsed = parseUrl(href);
@@ -207,8 +227,8 @@ function RTE_Plugin_LinkChecker() {
                 out.push({
                     element: group[g2].a, href: group[g2].href, text: group[g2].a.textContent.trim(),
                     severity: "warning", code: "ambiguous-text",
-                    message: "Several links share the text “" + group[g2].a.textContent.trim() +
-                             "” but point to different destinations."
+                    message: "Several links share the text \u201c" + group[g2].a.textContent.trim() +
+                             "\u201d but point to different destinations."
                 });
             }
         }

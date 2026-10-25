@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "Insert";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "Mga istilo";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "Mga istilo ng teksto";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "fil";	// this pack's locale (Intl names, e.g. the text-part language menu)

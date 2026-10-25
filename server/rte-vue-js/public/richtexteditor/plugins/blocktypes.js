@@ -9,11 +9,11 @@ RTE_DefaultConfig.plugin_blocktypes = RTE_Plugin_BlockTypes;
 
 // Callout variants: id -> { label, icon }. Customizable via config.calloutTypes.
 RTE_DefaultConfig.calloutTypes = RTE_DefaultConfig.calloutTypes || [
-    { id: "info", label: "Info", icon: "ℹ️" },       // ℹ️
-    { id: "success", label: "Success", icon: "✅" },       // ✅
-    { id: "warning", label: "Warning", icon: "⚠️" }, // ⚠️
-    { id: "danger", label: "Danger", icon: "⛔" },         // ⛔
-    { id: "note", label: "Note", icon: "📝" }        // 📝
+    { id: "info", label: "Info", icon: "\u2139\ufe0f" },       // ℹ️
+    { id: "success", label: "Success", icon: "\u2705" },       // ✅
+    { id: "warning", label: "Warning", icon: "\u26a0\ufe0f" }, // ⚠️
+    { id: "danger", label: "Danger", icon: "\u26d4" },         // ⛔
+    { id: "note", label: "Note", icon: "\ud83d\udcdd" }        // 📝
 ];
 RTE_DefaultConfig.calloutDefaultType = RTE_DefaultConfig.calloutDefaultType || "info";
 RTE_DefaultConfig.columnsDefaultCount = RTE_DefaultConfig.columnsDefaultCount || 2;
@@ -57,7 +57,7 @@ function RTE_Plugin_BlockTypes() {
         for (var i = 0; i < types.length; i++) {
             if (types[i].id === id) return types[i];
         }
-        return types[0] || { id: "info", label: "Info", icon: "ℹ️" };
+        return types[0] || { id: "info", label: "Info", icon: "\u2139\ufe0f" };
     }
 
     // --- Insertion -------------------------------------------------------
@@ -110,17 +110,26 @@ function RTE_Plugin_BlockTypes() {
         // the blocks rendered unstyled (transparent callouts, block-display
         // columns instead of flex).
         injectStyles();
+        // 2026-10-03 The caret goes into the block JUST inserted, with its first placeholder
+        // selected so typing replaces it. It went to the start of the placeholder ("Hi thereCallout
+        // text"), and to the LAST element of the class in the document: the last column, and - with
+        // a callout inserted above an existing one - into the OLD callout, so what the user typed
+        // changed content that was already there. The new block is the first element of the class
+        // that was not there before. tools/blocks/block-types-insert.mjs
+        var before = [];
+        try { before = Array.prototype.slice.call(editor.getEditable().getElementsByClassName(focusClass)); } catch (e) { before = []; }
         editor.insertHTML(html);
         try {
             var editdoc = editor.getDocument();
             var editable = editor.getEditable();
             var targets = editable.getElementsByClassName(focusClass);
-            if (targets && targets.length) {
-                var target = targets[targets.length - 1]; // the one we just inserted
+            var target = null;
+            for (var i = 0; i < targets.length && !target; i++)
+                if (before.indexOf(targets[i]) === -1) target = targets[i];
+            if (target) {
                 var caretNode = target.querySelector("p") || target;
                 var range = editdoc.createRange();
                 range.selectNodeContents(caretNode);
-                range.collapse(true);
                 var sel = editor.getSelection();
                 sel.removeAllRanges();
                 sel.addRange(range);

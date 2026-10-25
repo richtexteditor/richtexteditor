@@ -5,7 +5,16 @@ function RTE_Plugin_RichTextBoxDialogStyle() {
 
     obj.PluginName = "RichTextBoxDialogStyle";
 
+    // 2026-10-18 the dialog words read config.text_ keys (English as the fallback). tools/i18n/plugin-misc-language.mjs
+    var cfg = null;
+    function dT(key, en, a) {
+        var c = cfg || window.RTE_DefaultConfig || {};
+        var s = c["text_" + key] || en;
+        return a === undefined ? s : s.split("{0}").join(String(a));
+    }
+
     obj.InitConfig = function (config) {
+        cfg = config;
         if (!config.imageItems) {
             config.imageItems = [];
         }
@@ -110,7 +119,7 @@ function RTE_Plugin_RichTextBoxDialogStyle() {
         if (!preview) {
             preview = append(panel, "div", "", "rte-insertimage-preview is-empty");
             var image = append(preview, "img", "", "rte-insertimage-preview-image");
-            image.alt = "Image preview";
+            image.alt = dT("dlg_imgalt", "Image preview");
             append(preview, "div", "", "rte-insertimage-preview-caption");
         }
 
@@ -127,26 +136,26 @@ function RTE_Plugin_RichTextBoxDialogStyle() {
                 preview.classList.add("is-empty");
                 preview.classList.remove("is-error");
                 previewImage.removeAttribute("src");
-                previewCaption.innerText = "Enter an image URL to preview it here.";
+                previewCaption.innerText = dT("dlg_imgempty", "Enter an image URL to preview it here.");
                 return;
             }
 
             preview.classList.remove("is-empty");
             preview.classList.remove("is-error");
-            previewCaption.innerText = "Loading preview...";
+            previewCaption.innerText = dT("dlg_imgloading", "Loading preview...");
             previewImage.src = value;
         }
 
         previewImage.onload = function () {
             preview.classList.remove("is-empty");
             preview.classList.remove("is-error");
-            previewCaption.innerText = "Ready to insert this image.";
+            previewCaption.innerText = dT("dlg_imgready", "Ready to insert this image.");
         };
 
         previewImage.onerror = function () {
             preview.classList.remove("is-empty");
             preview.classList.add("is-error");
-            previewCaption.innerText = "Preview unavailable for this URL.";
+            previewCaption.innerText = dT("dlg_imgerror", "Preview unavailable for this URL.");
         };
 
         bindInput(input, updatePreview, "__rteRichTextBoxImagePreviewBound");
@@ -190,8 +199,8 @@ function RTE_Plugin_RichTextBoxDialogStyle() {
             if (!value) {
                 preview.classList.add("is-empty");
                 ext.innerText = "DOC";
-                title.innerText = "No document selected";
-                meta.innerText = "Enter a document URL to preview the inserted link.";
+                title.innerText = dT("dlg_docnone", "No document selected");
+                meta.innerText = dT("dlg_docempty", "Enter a document URL to preview the inserted link.");
                 return;
             }
 
@@ -201,8 +210,8 @@ function RTE_Plugin_RichTextBoxDialogStyle() {
 
             var host = getUrlHost(value);
             meta.innerText = host
-                ? ("Source: " + host + "  |  The editor inserts a clickable link.")
-                : "The editor inserts a clickable link at the current cursor position.";
+                ? dT("dlg_docsource", "Source: {0}  |  The editor inserts a clickable link.", host)
+                : dT("dlg_doclink", "The editor inserts a clickable link at the current cursor position.");
         }
 
         bindInput(input, updatePreview, "__rteRichTextBoxDocumentPreviewBound");
@@ -230,12 +239,12 @@ function RTE_Plugin_RichTextBoxDialogStyle() {
 
             var uploadTab = panel.querySelector(".fileuploader-dragdrop");
             if (uploadTab) {
-                ensureUploadIntro(uploadTab, "rte-insertimage-intro", "Drop an image here or click anywhere in this panel to browse.");
+                ensureUploadIntro(uploadTab, "rte-insertimage-intro", dT("dlg_imgdrop", "Drop an image here or click anywhere in this panel to browse."));
             }
 
             var urlTab = panel.querySelector(".rte_insertimage_byurl");
             if (urlTab) {
-                ensureUploadIntro(urlTab, "rte-insertimage-intro", "Paste a hosted image URL and verify the preview before inserting.");
+                ensureUploadIntro(urlTab, "rte-insertimage-intro", dT("dlg_imgurl", "Paste a hosted image URL and verify the preview before inserting."));
                 ensureImagePreview(urlTab, urlTab.querySelector(".rte-dialog-line-url"));
             }
 
@@ -267,12 +276,12 @@ function RTE_Plugin_RichTextBoxDialogStyle() {
 
             var uploadTab = panel.querySelector(".fileuploader-dragdrop");
             if (uploadTab) {
-                ensureUploadIntro(uploadTab, "rte-insertdocument-intro", "Upload a local file or drag it into the dialog to create a document link.");
+                ensureUploadIntro(uploadTab, "rte-insertdocument-intro", dT("dlg_docdrop", "Upload a local file or drag it into the dialog to create a document link."));
             }
 
             var urlTab = panel.querySelector(".rte_insertdocument_byurl");
             if (urlTab) {
-                ensureUploadIntro(urlTab, "rte-insertdocument-intro", "Paste a hosted file URL and review the link details before inserting.");
+                ensureUploadIntro(urlTab, "rte-insertdocument-intro", dT("dlg_docurl", "Paste a hosted file URL and review the link details before inserting."));
                 ensureDocumentPreview(urlTab, urlTab.querySelector(".rte-dialog-line-url"));
             }
 

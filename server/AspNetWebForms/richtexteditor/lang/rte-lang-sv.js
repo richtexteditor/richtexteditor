@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "Infoga";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "Stilar";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "Textstilar";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "sv";	// this pack's locale (Intl names, e.g. the text-part language menu)

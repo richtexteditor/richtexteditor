@@ -66,6 +66,86 @@ function RTE_Plugin_RestrictedEditing() {
         refreshStyles();
     };
 
+    // 2026-10-14 The lockdown is enforced, not only drawn. A paragraph that holds a field stays contenteditable so the
+    // caret can reach the field, which left the protected text around the field editable; Delete over a locked
+    // selection, Alt+Arrow (move block) and Ctrl+Shift+D (copy block) changed protected text too, because the core
+    // handles those keys itself. While the lockdown is on, a key or an input whose selection is not entirely inside
+    // one marked region is cancelled at the editing window, in the capture phase, before anything else sees it.
+    // Backspace at a field's start and Delete at its end would reach outside it, so they are cancelled as well.
+    // tools/restricted/restricted-audit.mjs
+    var guardedWindows = [];
+    function regionOf(node) {
+        var el = node && node.nodeType === 1 ? node : (node && node.parentNode);
+        while (el && el.nodeType === 1) {
+            if (el.getAttribute && el.getAttribute(editableAttr) === "true") return el;
+            el = el.parentNode;
+        }
+        return null;
+    }
+    // the marked region that holds the whole selection, or null
+    function selectionRegion(doc) {
+        var sel = doc.getSelection();
+        if (!sel || sel.rangeCount === 0) return null;
+        var r = sel.getRangeAt(0);
+        var a = regionOf(r.startContainer), b = regionOf(r.endContainer);
+        return a && a === b ? { region: a, range: r } : null;
+    }
+    function atEdge(doc, region, range, atStart) {
+        var probe = doc.createRange();
+        probe.selectNodeContents(region);
+        if (atStart) probe.setEnd(range.startContainer, range.startOffset);
+        else probe.setStart(range.endContainer, range.endOffset);
+        return probe.toString() === "";
+    }
+    function editsDocument(e) {
+        var k = e.key || "";
+        if (e.isComposing) return true;
+        if (k === "Backspace" || k === "Delete" || k === "Enter" || k === "Tab") return true;
+        if (e.altKey && (k === "ArrowUp" || k === "ArrowDown")) return true;
+        if (e.ctrlKey || e.metaKey) {
+            var c = k.toLowerCase();
+            return c === "x" || c === "v" || c === "b" || c === "i" || c === "u" || c === "d";
+        }
+        return k.length === 1 && !e.altKey;
+    }
+    function guardKey(e) {
+        if (!enabled || !editsDocument(e)) return;
+        var doc = e.target && (e.target.ownerDocument || e.target);
+        if (!doc || !doc.getSelection) return;
+        var hit = selectionRegion(doc);
+        var refuse = !hit;
+        if (hit && hit.range.collapsed) {
+            if (e.key === "Backspace" && atEdge(doc, hit.region, hit.range, true)) refuse = true;
+            if (e.key === "Delete" && atEdge(doc, hit.region, hit.range, false)) refuse = true;
+        }
+        if (hit && (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown"))) refuse = true;
+        if (hit && (e.ctrlKey || e.metaKey) && e.shiftKey && String(e.key).toLowerCase() === "d") refuse = true;
+        if (!refuse) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+    }
+    function guardInput(e) {
+        if (!enabled) return;
+        var type = e.inputType || "";
+        if (type.indexOf("history") === 0) return;
+        var doc = e.target && (e.target.ownerDocument || e.target);
+        if (!doc || !doc.getSelection) return;
+        if (selectionRegion(doc)) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+    }
+    function ensureGuards() {
+        var body = getEditable();
+        var win = body && body.ownerDocument && body.ownerDocument.defaultView;
+        if (!win || guardedWindows.indexOf(win) >= 0) return;
+        guardedWindows.push(win);
+        win.addEventListener("keydown", guardKey, true);
+        win.addEventListener("beforeinput", guardInput, true);
+        win.addEventListener("cut", function (e) { if (enabled && !selectionRegion(e.target.ownerDocument || e.target)) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);
+        win.addEventListener("paste", function (e) { if (enabled && !selectionRegion(e.target.ownerDocument || e.target)) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);
+        win.addEventListener("drop", function (e) { if (enabled) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);
+    }
+
     function getEditable() {
         return editor.getEditable ? editor.getEditable() : null;
     }
@@ -111,6 +191,7 @@ function RTE_Plugin_RestrictedEditing() {
         }
         // Make the body itself NOT editable; rely on per-element contenteditable.
         body.setAttribute("contenteditable", "false");
+        ensureGuards();
         refreshStyles();
         return true;
     }
@@ -139,6 +220,38 @@ function RTE_Plugin_RestrictedEditing() {
         if (!sel || sel.rangeCount === 0) return null;
         var range = sel.getRangeAt(0);
         if (range.collapsed) return null;
+        // 2026-10-02 A selection that crosses blocks marks the selected text of EACH block. One span
+        // went AROUND the blocks: two paragraphs became four (<p>al</p><span><p>pha</p><p>be</p>
+        // </span><p>ta</p>), list items and table cells got a span inside <ul> / <tr> - and that
+        // span, a direct child of the body, was LOCKED by enable() (it looks for a region among a
+        // child's descendants): the region could not be typed into. Returns the first region.
+        // tools/restricted/mark-across-blocks.mjs
+        var runs = crossBlockRuns(doc, range);
+        if (runs) {
+            var regions = [];
+            // from the last run back: wrapping one never moves the text of a run still to come
+            for (var ri = runs.length - 1; ri >= 0; ri--) {
+                var sub = doc.createRange();
+                sub.setStart(runs[ri].sn, runs[ri].so);
+                sub.setEnd(runs[ri].en, runs[ri].eo);
+                widenToInlineEdges(sub, runs[ri].block);
+                var part = doc.createElement("span");
+                part.setAttribute(editableAttr, "true");
+                if (options.label) part.setAttribute("aria-label", options.label);
+                part.appendChild(sub.extractContents());
+                sub.insertNode(part);
+                regions.unshift(part);
+            }
+            if (!regions.length) return null;
+            var all = doc.createRange();
+            all.setStart(regions[0], 0);
+            all.setEnd(regions[regions.length - 1], regions[regions.length - 1].childNodes.length);
+            sel.removeAllRanges();
+            sel.addRange(all);
+            refreshStyles();
+            if (enabled) enable();
+            return regions[0];
+        }
         var span = doc.createElement("span");
         span.setAttribute(editableAttr, "true");
         if (options.label) span.setAttribute("aria-label", options.label);
@@ -159,6 +272,59 @@ function RTE_Plugin_RestrictedEditing() {
         refreshStyles();
         if (enabled) enable(); // recompute lockdown around new editable region
         return span;
+    }
+
+    // The runs of selected text that share a block, when the selection crosses blocks; null when it
+    // starts and ends in one block (that keeps the single-span path). Whitespace-only runs (the line
+    // break between two blocks) are dropped; text inside a non-editable element moves with its run.
+    var BLOCK_RE = /^(P|DIV|LI|UL|OL|DL|DT|DD|TABLE|TBODY|THEAD|TFOOT|TR|TD|TH|CAPTION|H[1-6]|PRE|BLOCKQUOTE|ADDRESS|FIGURE|FIGCAPTION|SECTION|ARTICLE|ASIDE|HEADER|FOOTER|NAV|MAIN|DETAILS|SUMMARY|FORM|FIELDSET|LEGEND|HR|BODY)$/;
+    function blockOf(node) {
+        for (var n = node; n; n = n.parentNode)
+            if (n.nodeType === 1 && BLOCK_RE.test(n.nodeName)) return n;
+        return null;
+    }
+    function crossBlockRuns(doc, range) {
+        if (blockOf(range.startContainer) === blockOf(range.endContainer)) return null;
+        var root = range.commonAncestorContainer;
+        if (root.nodeType !== 1) root = root.parentNode;
+        var runs = [], cur = null;
+        var w = doc.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+            acceptNode: function (n) { return n.nodeType === 1 && n.getAttribute("contenteditable") === "false" ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT; }
+        });
+        for (var n = w.nextNode(); n; n = w.nextNode()) {
+            if (n.nodeType === 1) {
+                if (BLOCK_RE.test(n.nodeName)) cur = null;
+                continue;
+            }
+            if (!range.intersectsNode(n)) continue;
+            var a = n === range.startContainer ? range.startOffset : 0, b = n === range.endContainer ? range.endOffset : n.data.length;
+            if (b <= a) continue;
+            var blk = blockOf(n);
+            if (!cur || cur.block !== blk) {
+                cur = { block: blk, sn: n, so: a, text: "" };
+                runs.push(cur);
+            }
+            cur.en = n;
+            cur.eo = b;
+            cur.text += n.data.substring(a, b);
+        }
+        var keep = [];
+        for (var i = 0; i < runs.length; i++) if (/\S/.test(runs[i].text)) keep.push(runs[i]);
+        return keep;
+    }
+    // A run starting or ending at the edge of an inline element (<b>) takes the whole element, so
+    // no empty <b></b> is left behind by extractContents.
+    function widenToInlineEdges(range, block) {
+        var n = range.startContainer;
+        if (n.nodeType === 3 && range.startOffset === 0) {
+            while (n.parentNode && n.parentNode !== block && !n.previousSibling && !BLOCK_RE.test(n.parentNode.nodeName)) n = n.parentNode;
+            range.setStartBefore(n);
+        }
+        n = range.endContainer;
+        if (n.nodeType === 3 && range.endOffset === n.data.length) {
+            while (n.parentNode && n.parentNode !== block && !n.nextSibling && !BLOCK_RE.test(n.parentNode.nodeName)) n = n.parentNode;
+            range.setEndAfter(n);
+        }
     }
 
     function unmark(node) {

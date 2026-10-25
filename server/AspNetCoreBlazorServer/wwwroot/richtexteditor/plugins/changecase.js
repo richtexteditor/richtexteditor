@@ -48,6 +48,18 @@ function RTE_Plugin_ChangeCase() {
         editor.getChangeCaseModes = function () {
             return ["upper", "lower", "title", "sentence", "toggle"];
         };
+
+        // 2026-10-17 Shift+F3 cycles the selection's case as Word does: lowercase -> Title Case -> UPPERCASE -> lowercase,
+        // the next step chosen from the text as it is now. tools/keyboard/format-case-keys.mjs
+        (editor.bindDocumentEvent ? function (fn) { editor.bindDocumentEvent("keydown", fn, true); } : function (fn) { editor.getDocument().addEventListener("keydown", fn, true); })(function (e) {
+            if (e.key !== "F3" || !e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+            var text = "";
+            try { text = String(editor.getSelection().toString() || ""); } catch (x) { text = ""; }
+            if (!/\S/.test(text)) return;
+            e.preventDefault();
+            var next = text === text.toUpperCase() ? "lower" : text === transform(text, "title") ? "upper" : "title";
+            obj.Apply(next);
+        });
     };
 
     function getDoc() { try { return editor.getDocument(); } catch (e) { return null; } }
@@ -194,29 +206,30 @@ function RTE_Plugin_ChangeCase() {
         var sel;
         try { sel = editor.getSelection(); } catch (e) { return false; }
         if (!doc || !sel || sel.rangeCount === 0) return false;
+        // 2026-10-14 Suggesting mode: a case change rewrites text and is not tracked yet, so the track hook refuses it.
+        // tools/review/suggesting-structure-audit.mjs
+        if (editor.__trackHook && editor.__trackHook("refuse", { message: "Suggesting is on, so the case was not changed. Turn suggesting off to change it." }) === true) return false;
+
+        // 2026-10-03 A cell selection (cells marked by a drag, Shift+click or Shift+Arrow) changes
+        // EVERY selected cell, as Google Docs does; the caret's word was all that changed before - and
+        // a drag leaves the caret on none. tools/tables/cell-selection-keys.mjs
+        var marked = doc.querySelectorAll("[__rte_selected_cell]");
+        if (marked.length > 1) {
+            var anyCell = false;
+            for (var mc = 0; mc < marked.length; mc++) {
+                var cr = doc.createRange();
+                cr.selectNodeContents(marked[mc]);
+                if (applyToRange(cr, doc, mode)) anyCell = true;
+            }
+            if (anyCell) fireChange();
+            return anyCell;
+        }
 
         var range = sel.getRangeAt(0);
         if (range.collapsed && !expandToWord(range)) return false;
 
-        var nodes = textNodesInRange(range, doc);
-        if (!nodes.length) return false;
-
-        // Join -> transform -> write back, so context-sensitive modes see the
-        // whole selection rather than one <strong>'s worth of it.
-        var joined = "";
-        for (var i = 0; i < nodes.length; i++) joined += nodes[i].nodeValue;
-        var result = transform(joined, mode);
-        if (result === joined) return false;
-        // Defensive: every mode is length-preserving, but if a future mode is
-        // not, bail rather than corrupt the document by mis-slicing.
-        if (result.length !== joined.length) return false;
-
-        var at = 0;
-        for (var j = 0; j < nodes.length; j++) {
-            var len = nodes[j].nodeValue.length;
-            nodes[j].nodeValue = result.substr(at, len);
-            at += len;
-        }
+        var nodes = applyToRange(range, doc, mode);
+        if (!nodes) return false;
 
         // Restore the selection over the transformed run.
         try {
@@ -230,6 +243,46 @@ function RTE_Plugin_ChangeCase() {
         fireChange();
         return true;
     };
+
+    // Transforms the text in range; returns its text nodes, or null when nothing changed.
+    function applyToRange(range, doc, mode) {
+        var nodes = textNodesInRange(range, doc);
+        if (!nodes.length) return null;
+
+        // Join -> transform -> write back, so context-sensitive modes see the
+        // whole selection rather than one <strong>'s worth of it.
+        var joined = "";
+        for (var i = 0; i < nodes.length; i++) joined += nodes[i].nodeValue;
+        // 2026-10-02 Case mapping is NOT always length-preserving: German "\u00df" uppercases to "SS",
+        // ligatures like "\ufb01" to "FI". The old guard then refused the WHOLE change, so a selection
+        // containing one sharp s could never be uppercased. The modes are decided on a proxy where
+        // every such character is a plain x / X (length-preserving), then each ORIGINAL character
+        // gets the case its proxy received, written back node by node so lengths may change.
+        // tools/formatting/change-case.mjs
+        var proxy = "";
+        for (var pi = 0; pi < joined.length; pi++) {
+            var ch0 = joined.charAt(pi);
+            proxy += (ch0.toUpperCase().length !== 1 || ch0.toLowerCase().length !== 1) ? (ch0 === ch0.toLowerCase() ? "x" : "X") : ch0;
+        }
+        var decided = transform(proxy, mode);
+        if (decided.length !== proxy.length) return null;
+        var pieces = [], changed = false;
+        for (var qi = 0; qi < joined.length; qi++) {
+            var orig = joined.charAt(qi), was = proxy.charAt(qi), now = decided.charAt(qi), out = orig;
+            if (now !== was) out = (now === was.toUpperCase()) ? orig.toUpperCase() : orig.toLowerCase();
+            if (out !== orig) changed = true;
+            pieces.push(out);
+        }
+        if (!changed) return null;
+
+        var at = 0;
+        for (var j = 0; j < nodes.length; j++) {
+            var len = nodes[j].nodeValue.length;
+            nodes[j].nodeValue = pieces.slice(at, at + len).join("");
+            at += len;
+        }
+        return nodes;
+    }
 
     function fireChange() {
         try { if (typeof editor.updateDesign === "function") editor.updateDesign(); } catch (e) {}

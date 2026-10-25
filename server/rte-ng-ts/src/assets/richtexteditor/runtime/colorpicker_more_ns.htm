@@ -4,17 +4,28 @@
 	<meta http-equiv="Page-Exit" content="blendTrans(Duration=0.1)" />
 
 	<script type="text/javascript">
+		// Call the editor directly when this frame may. Opened from disk (file://) every frame
+		// is its own origin and the direct call throws a SecurityError - which used to abort this
+		// page's load before it drew Recent, and made OK do nothing. Post a message instead; the
+		// editor's Color Picker listens for this frame's messages.
+		function callPicker(method, value) {
+			try { parent.rtecolorpicker[method](value); return; }
+			catch (e) { }
+			try { parent.postMessage({ rtecolorpicker: method, value: value }, "*"); }
+			catch (e) { }
+		}
 		function updateColor(c) {
-			parent.rtecolorpicker.update(c);
+			callPicker("update", c);
 		}
 		function selectColor(c) {
-			parent.rtecolorpicker.select(c);
+			callPicker("select", c);
 		}
 		function selectCancel() {
-			parent.rtecolorpicker.cancel();
+			callPicker("cancel");
 		}
 		function setCallback(cb) {
-			parent.rtecolorpicker.setCallback(cb);
+			try { parent.rtecolorpicker.setCallback(cb); }
+			catch (e) { }
 		}
 	</script>
 
@@ -121,12 +132,14 @@
 
 		}
 
-		if (top.dialogArguments) {
-			if (typeof (top.dialogArguments) == 'object') {
-				if (top.dialogArguments.onchange) {
-					firecolorchange = top.dialogArguments.onchange;
-					_origincolor = top.dialogArguments.color;
-					_editor = top.dialogArguments.editor;
+		var _dialogArguments = null;
+		try { _dialogArguments = top.dialogArguments; } catch (e) { }	// cross-origin from disk
+		if (_dialogArguments) {
+			if (typeof (_dialogArguments) == 'object') {
+				if (_dialogArguments.onchange) {
+					firecolorchange = _dialogArguments.onchange;
+					_origincolor = _dialogArguments.color;
+					_editor = _dialogArguments.editor;
 				}
 			}
 		}
@@ -313,7 +326,8 @@
 			msg.SelectAColor = "Select a color:";
 			msg.OKButton = "OK";
 			msg.CancelButton = "Cancel";
-			msg.Recent = "Recent";
+			msg.Recent = "Recent colors";
+			msg.RecentEmpty = "Colors you apply will appear here.";
 			msg.WebSafeWarning = "Warning: not a web safe color";
 			msg.WebSafeClick = "Click to select web safe color";
 			msg.HsbHue = "H:";
@@ -392,11 +406,17 @@
 			frm.ColorType[new Number(GetCookie("ColorMode") || 0)].checked = true;
 			ColorMode_Changed(e);
 
-			var recent = GetCookie("RecentColors") || "";
+			// The editor passes its list (every colour it applied, from anywhere); fall back to
+			// the shared storage for a page opened some other way.
+			var recent = GetQuery("Recent") || GetCookie("RecentColors") || "";
+			recent = String(recent).toUpperCase().replace(/[^0-9A-F]/g, "");
+			recent = recent.substring(0, recent.length - recent.length % 6);
 
 			var RecentTooltip = msg.RecentTooltip;
+			var recentShown = 0;
 			for (var i = 1; i < 33; i++)
-				if (recent.length / 6 >= i) {
+				if (recent.length / 6 >= i && i <= 24) {
+					recentShown++;
 					hex = recent.substr((i - 1) * 6, 6);
 					var rgb = HexToRgb(hex);
 					var title = formatString(msg.RecentTooltip, hex, rgb[0], rgb[1], rgb[2]);
@@ -410,8 +430,13 @@
 					recentColor.onkeydown = pnlRecent_KeyDown;
 				}
 				else
-					document.getElementById("pnlRecent" + i).style.border = "0px";
-			//Hide(document.all["pnlRecent" + i]);
+					document.getElementById("pnlRecent" + i).className = "recent-empty";
+			if (!recentShown) {
+				var none = document.createElement("span");
+				none.id = "pnlRecentNone";
+				none.innerText = msg.RecentEmpty;
+				document.getElementById("pnlRecent").appendChild(none);
+			}
 		}
 
 		function pnlRecent_Click(e) {
@@ -2421,6 +2446,56 @@ Elements
 			margin: 0;
 			text-align: center;
 		}
+
+		/* Recent colors: only the swatches there are, rounded, in a grid - not 32 sunken empty
+		   boxes. Up to 24 (three rows) fit the space. */
+		#colorpickerpanel #pnlRecentBorder {
+			display: none;
+		}
+
+		#colorpickerpanel #lblRecent {
+			width: 160px;
+		}
+
+		#colorpickerpanel #pnlRecent {
+			display: grid;
+			grid-template-columns: repeat(8, 16px);
+			grid-auto-rows: 16px;
+			gap: 4px;
+			align-content: start;
+			height: 72px;
+		}
+
+		#colorpickerpanel #pnlRecent DIV {
+			position: static;
+			width: 16px;
+			height: 16px;
+			box-sizing: border-box;
+			border: 1px solid rgba(0, 0, 0, .22);
+			border-radius: 3px;
+			cursor: pointer;
+			transition: transform .1s, box-shadow .1s;
+		}
+
+		#colorpickerpanel #pnlRecent DIV:hover {
+			transform: scale(1.2);
+			box-shadow: 0 1px 4px rgba(0, 0, 0, .3);
+		}
+
+		#colorpickerpanel #pnlRecent DIV:focus-visible {
+			outline: 2px solid #1a73e8;
+			outline-offset: 1px;
+		}
+
+		#colorpickerpanel #pnlRecent DIV.recent-empty {
+			display: none;
+		}
+
+		#pnlRecentNone {
+			grid-column: 1 / -1;
+			font: 11px/1.35 Arial, sans-serif;
+			color: #6b7280;
+		}
 	</style>
 	<title>CustomColor</title>
 </head>
@@ -2683,7 +2758,9 @@ Elements
 <script>
 
 	new function () {
-		var editor = parent.rtecolorpickereditor;
+		var editor = null;
+		try { editor = parent.rtecolorpickereditor; } catch (e) { }	// cross-origin from disk: keep English
+		if (!editor || !editor.getLangText) return;
 		var ns = document.getElementsByTagName("*");
 		for (var i = 0; i < ns.length; i++) {
 			var n = ns[i];

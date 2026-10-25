@@ -217,6 +217,12 @@ function RTE_Plugin_InsertCode() {
 
 	obj.PluginName = "InsertCode";
 
+	// 2026-10-18 the words read config.text_ keys (language packs), English as the fallback; {0} fills a template.
+	// tools/i18n/plugin-panels-language.mjs
+	function pText(key, fallback, arg) {
+	    var s = (config && config["text_" + key]) || fallback;
+	    return arg === undefined ? s : s.split("{0}").join(String(arg));
+	}
 	obj.InitConfig = function (argconfig) {
 		config = argconfig;
 	}
@@ -279,6 +285,12 @@ function RTE_Plugin_InsertCode() {
 		// place the block between the halves, which round-trips byte-stable.
 		function insertCodeBlock(html) {
 			if (!restoreCaret()) return false;
+			// 2026-10-14 Suggesting mode: the block goes in through insertHTML, which records it as a suggested
+			// insertion; the direct DOM insert below would add it untracked. tools/review/code-block-suggesting.mjs
+			if (editor.trackedChanges && typeof editor.trackedChanges.isEnabled === "function" && editor.trackedChanges.isEnabled()) {
+				editor.insertHTML(html);
+				return true;
+			}
 			var edoc = editor.getDocument();
 			var esel = edoc.defaultView.getSelection();
 			if (!esel || !esel.rangeCount) return false;
@@ -317,10 +329,15 @@ function RTE_Plugin_InsertCode() {
 		var dialoginner = editor.createDialog(editor.getLangText("insertcode"), "rte-dialog-insertcode");
 
 		var div2 = __Append(dialoginner, "div", "position:relative;text-align:center;");
-		__Append(div2, "label").innerText = editor.getLangText("language") + ":";
+		// 2026-10-15 the label is tied to the list and the code box has a name; both were unnamed to a screen reader
+		// (axe: select-name, label; WCAG 4.1.2). tools/a11y/dialog-axe.mjs
+		var lbl_lang = __Append(div2, "label");
+		lbl_lang.innerText = editor.getLangText("language") + ":";
 		var sel_lang = __Append(div2, "select", "width:200px;");
+		sel_lang.id = "rte-insertcode-lang-" + new Date().getTime();
+		lbl_lang.htmlFor = sel_lang.id;
 
-		sel_lang.options.add(new Option("Plain Text", ""));
+		sel_lang.options.add(new Option(pText("cd_plaintext", "Plain Text"), ""));
 
 		for (var brush in dp.sh.Brushes) {
 			var aliases = dp.sh.Brushes[brush].Aliases;
@@ -337,11 +354,12 @@ function RTE_Plugin_InsertCode() {
 
 		var div1 = __Append(dialoginner, "div", "position:relative;text-align:center;");
 		var textarea = __Append(div1, "textarea", "width:100%;min-width:300px;height:200px")
+		textarea.setAttribute("aria-label", pText("cd_code", "Code"));
 
 		var divfooter = __Append(dialoginner, "rte-dialog-footer", null, "rte-dialog-footer-center");
 
 		var btn = __Append(divfooter, "rte-dialog-button")
-		btn.innerText = "Insert";
+		btn.innerText = pText("insert", "Insert");
 
 		setTimeout(function () {
 			textarea.focus();

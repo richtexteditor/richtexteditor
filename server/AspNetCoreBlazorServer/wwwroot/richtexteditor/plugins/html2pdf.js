@@ -229,7 +229,7 @@ function RTE_Plugin_Html2PDF() {
 					imglink.setAttribute("href", imgurl);
 					imglink.setAttribute("target", "_blank");
 					imglink.download = "Export-" + ymd + "-" + hms + ".jpg";
-					imglink.innerText = "Download Img";
+					imglink.innerText = ((typeof config !== "undefined" && config && config.text_pdf_dlimg) || "Download Img");
 
 					//dialoginner.close();
 

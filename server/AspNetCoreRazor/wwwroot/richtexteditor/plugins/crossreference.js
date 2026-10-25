@@ -215,7 +215,7 @@ function RTE_Plugin_CrossReference() {
         var clone = note.cloneNode(true);
         var backs = clone.querySelectorAll ? clone.querySelectorAll("a.rte-fn-back") : [];
         for (var i = 0; i < backs.length; i++) if (backs[i].parentNode) backs[i].parentNode.removeChild(backs[i]);
-        return (clone.textContent || "").replace(/↩/g, "").trim().slice(0, 80);
+        return (clone.textContent || "").replace(/\u21a9/g, "").trim().slice(0, 80);
     }
 
     function resolveTarget(id) {

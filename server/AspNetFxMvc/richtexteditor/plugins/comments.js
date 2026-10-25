@@ -44,7 +44,10 @@ function RTE_Plugin_Comments() {
             openSidebar: function () { openSidebar(); },
             closeSidebar: function () { closeSidebar(); },
             toggleSidebar: function () { if (sidebar && sidebar.isConnected) closeSidebar(); else openSidebar(); },
-            focusComment: function (id) { focusComment(id); }
+            focusComment: function (id) { focusComment(id); },
+            react: function (commentId, emoji) { return reactToComment(commentId, emoji); },
+            next: function () { return stepComment(1); },
+            previous: function () { return stepComment(-1); }
         };
 
         injectStyles();
@@ -54,13 +57,46 @@ function RTE_Plugin_Comments() {
             return editor.createToolbarButton(cmd);
         };
 
+        // 2026-10-17 Ctrl/Cmd+Alt+M adds a comment on the selection (Google Docs, CKEditor and TinyMCE bind it). A key that
+        // reports a character other than "m" is AltGr typing (German AltGr+M is a micro sign) and is left alone.
+        // tools/keyboard/comment-shortcut.mjs
+        (editor.bindDocumentEvent ? function (fn) { editor.bindDocumentEvent("keydown", fn, true); } : function (fn) { editor.getDocument().addEventListener("keydown", fn, true); })(function (e) {
+            if (!(e.ctrlKey || e.metaKey) || !e.altKey || e.shiftKey) return;
+            if (e.key !== "m" && e.key !== "M") return;
+            e.preventDefault();
+            openComposerForSelection();
+        });
+
+        // 2026-10-17 Google Docs' chords: Ctrl/Cmd+Alt+N then C = next comment, Ctrl/Cmd+Alt+P then C = previous. A key
+        // that reports a character other than n / p is AltGr typing and is left alone. tools/comments/comment-navigation.mjs
+        var chordDir = 0, chordAt = 0;
+        (editor.bindDocumentEvent ? function (fn) { editor.bindDocumentEvent("keydown", fn, true); } : function (fn) { editor.getDocument().addEventListener("keydown", fn, true); })(function (e) {
+            if ((e.ctrlKey || e.metaKey) && e.altKey && !e.shiftKey && (e.key === "n" || e.key === "N" || e.key === "p" || e.key === "P")) {
+                chordDir = (e.key === "n" || e.key === "N") ? 1 : -1;
+                chordAt = Date.now();
+                e.preventDefault();
+                return;
+            }
+            if (chordDir && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === "c" || e.key === "C") && Date.now() - chordAt < 2000) {
+                var dir = chordDir;
+                chordDir = 0;
+                e.preventDefault();
+                stepComment(dir);
+                return;
+            }
+            if (e.key !== "Control" && e.key !== "Alt" && e.key !== "Meta" && e.key !== "Shift") chordDir = 0;
+        });
+
         editor.attachEvent("exec_command_commentadd", function (state) {
             state.returnValue = true;
             state.stopBubble = true;
             openComposerForSelection();
         });
 
-        editor.getEditable().addEventListener("click", function (e) {
+        // 2026-10-17 bound through the core so it follows the live editing document: plugins that wrap the content area move
+        // the iframe during init, and a listener on the old document died (a click on a comment's highlight did nothing).
+        // tools/keyboard/plugin-listeners-live.mjs
+        (editor.bindEditableEvent ? function (fn) { editor.bindEditableEvent("click", fn); } : function (fn) { editor.getEditable().addEventListener("click", fn); })(function (e) {
             var span = e.target && e.target.closest ? e.target.closest(".rte-comment") : null;
             if (!span) return;
             var id = span.getAttribute("data-comment-id");
@@ -120,6 +156,24 @@ function RTE_Plugin_Comments() {
 
     // --- creating comments ---
 
+    // 2026-10-18 a comments button runs its action on click, so Enter and Space work (they fire click, not mousedown;
+    // these ran on mousedown only and did nothing from the keyboard). mousedown still prevents default so a mouse press
+    // keeps the editor's selection. If a keyboard press re-rendered the sidebar and took focus with it, focus goes to
+    // the sidebar's first control. tools/a11y/comment-buttons-keyboard.mjs
+    function onActivate(el, fn) {
+        el.addEventListener("mousedown", function (e) { e.preventDefault(); });
+        el.addEventListener("click", function (e) {
+            e.preventDefault();
+            var fromKeyboard = e.detail === 0;
+            fn();
+            if (!fromKeyboard || !sidebar || !sidebar.isConnected) return;
+            var a = sidebar.ownerDocument.activeElement;
+            if (a && a !== sidebar.ownerDocument.body && a.isConnected) return;
+            var first = sidebar.querySelector("button, [tabindex]:not([tabindex='-1'])");
+            if (first) { try { first.focus(); } catch (x) { /* ignore */ } }
+        });
+    }
+
     function openComposerForSelection() {
         var sel = editor.getSelection();
         if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
@@ -150,35 +204,117 @@ function RTE_Plugin_Comments() {
         composer = host.createElement("div");
         composer.className = "rte-comment-composer" + (isEditorDark() ? " rte-comment-dark" : "");
         composer.setAttribute("role", "dialog");
-        composer.setAttribute("aria-label", "Add comment");
+        composer.setAttribute("aria-label", cmText("cm_addcomment", "Add comment"));
 
         var header = host.createElement("div");
         header.className = "rte-comment-composer-header";
-        header.textContent = "Add comment";
+        header.textContent = cmText("cm_addcomment", "Add comment");
         composer.appendChild(header);
 
         var textarea = host.createElement("textarea");
         textarea.className = "rte-comment-composer-textarea";
-        textarea.placeholder = "Type your comment...";
+        textarea.placeholder = cmText("cm_typecomment", "Type your comment...");
         textarea.rows = 3;
         composer.appendChild(textarea);
+
+        // Mentions: "@" starts a list of the users in config.commentMentions. Choosing one inserts "@Name" and keeps
+        // the user id with the comment. tools/comments/comment-mentions.mjs
+        var mentionBox = host.createElement("div");
+        mentionBox.className = "rte-comment-mentions";
+        mentionBox.setAttribute("role", "listbox");
+        mentionBox.style.display = "none";
+        composer.appendChild(mentionBox);
+        var picked = [];
+        var mentionItems = [];
+        var mentionActive = 0;
+        var mentionStart = -1;
+        function mentionQuery() {
+            var before = textarea.value.slice(0, textarea.selectionStart);
+            var m = /(^|\s)@([^\s@]*)$/.exec(before);
+            if (!m) return null;
+            mentionStart = before.length - m[2].length - 1;
+            return m[2];
+        }
+        function hideMentions() {
+            while (mentionBox.firstChild) mentionBox.removeChild(mentionBox.firstChild);
+            mentionBox.style.display = "none";
+            mentionItems = [];
+            mentionStart = -1;
+        }
+        function paintMentions() {
+            while (mentionBox.firstChild) mentionBox.removeChild(mentionBox.firstChild);
+            for (var i = 0; i < mentionItems.length; i++) {
+                var opt = host.createElement("div");
+                opt.className = "rte-comment-mention-option" + (i === mentionActive ? " rte-comment-mention-active" : "");
+                opt.setAttribute("role", "option");
+                opt.setAttribute("aria-selected", i === mentionActive ? "true" : "false");
+                opt.textContent = mentionItems[i].name;
+                opt.addEventListener("mousedown", (function (u) { return function (e) { e.preventDefault(); pickMention(u); }; })(mentionItems[i]));
+                mentionBox.appendChild(opt);
+            }
+        }
+        function refreshMentions() {
+            var q = mentionQuery();
+            var users = Array.isArray(config.commentMentions) ? config.commentMentions : [];
+            mentionItems = [];
+            if (q !== null) {
+                var ql = q.toLowerCase();
+                for (var i = 0; i < users.length; i++) {
+                    var u = users[i];
+                    if (!u || !u.name || u.id == null) continue;
+                    var words = String(u.name).toLowerCase().split(/\s+/);
+                    for (var w = 0; w < words.length; w++) {
+                        if (words[w].indexOf(ql) === 0) { mentionItems.push(u); break; }
+                    }
+                }
+            }
+            if (!mentionItems.length) { hideMentions(); return; }
+            mentionActive = 0;
+            mentionBox.style.display = "";
+            paintMentions();
+        }
+        function pickMention(user) {
+            if (!user || mentionStart < 0) return;
+            var insert = "@" + user.name + " ";
+            var caret = textarea.selectionStart;
+            textarea.value = textarea.value.slice(0, mentionStart) + insert + textarea.value.slice(caret);
+            var pos = mentionStart + insert.length;
+            textarea.setSelectionRange(pos, pos);
+            if (!picked.some(function (m) { return m.id === user.id; })) picked.push({ id: user.id, name: user.name });
+            hideMentions();
+        }
+        textarea.addEventListener("input", refreshMentions);
+        textarea.addEventListener("keydown", function (e) {
+            if (mentionBox.style.display === "none") return;
+            if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                var step = e.key === "ArrowDown" ? 1 : -1;
+                mentionActive = (mentionActive + step + mentionItems.length) % mentionItems.length;
+                paintMentions();
+                e.preventDefault();
+            } else if (e.key === "Enter" || e.key === "Tab") {
+                pickMention(mentionItems[mentionActive]);
+                e.preventDefault();
+            } else if (e.key === "Escape" || e.key === "Esc") {
+                hideMentions();
+                e.stopPropagation();
+            }
+        });
 
         var actions = host.createElement("div");
         actions.className = "rte-comment-composer-actions";
         var cancel = host.createElement("button");
         cancel.type = "button";
         cancel.className = "rte-comment-btn rte-comment-btn-ghost";
-        cancel.textContent = "Cancel";
-        cancel.addEventListener("mousedown", function (e) { e.preventDefault(); closeComposer(); });
+        cancel.textContent = cmText("cancel", "Cancel");
+        onActivate(cancel, closeComposer);
         var submit = host.createElement("button");
         submit.type = "button";
         submit.className = "rte-comment-btn rte-comment-btn-primary";
-        submit.textContent = "Comment";
-        submit.addEventListener("mousedown", function (e) {
-            e.preventDefault();
+        submit.textContent = cmText("cm_submit", "Comment");
+        onActivate(submit, function () {
             var text = textarea.value.replace(/^\s+|\s+$/g, "");
             if (!text) return;
-            addComment({ anchor: options.anchor, text: text });
+            addComment({ anchor: options.anchor, text: text, mentions: picked.filter(function (m) { return text.indexOf("@" + m.name) >= 0; }) });
             closeComposer();
         });
         actions.appendChild(cancel);
@@ -195,6 +331,35 @@ function RTE_Plugin_Comments() {
         composer.addEventListener("keydown", escListener);
     }
 
+    // Users a comment mentions: { id, name } pairs, with anything else dropped.
+    function sanitizeMentions(list) {
+        var out = [];
+        if (!Array.isArray(list)) return out;
+        for (var i = 0; i < list.length; i++) {
+            var m = list[i];
+            if (m && m.id != null && m.name) out.push({ id: String(m.id), name: String(m.name) });
+        }
+        return out;
+    }
+
+    // Comment text with each mention ("@Name") in its own highlighted span. Built from text nodes, never innerHTML.
+    function appendTextWithMentions(host, parent, text, mentions) {
+        var names = sanitizeMentions(mentions).sort(function (a, b) { return b.name.length - a.name.length; });
+        if (!names.length || !text) { parent.textContent = text || ""; return; }
+        var pattern = names.map(function (m) { return m.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }).join("|");
+        var re = new RegExp("@(" + pattern + ")", "g");
+        var last = 0, hit;
+        while ((hit = re.exec(text)) !== null) {
+            if (hit.index > last) parent.appendChild(host.createTextNode(text.slice(last, hit.index)));
+            var span = host.createElement("span");
+            span.className = "rte-comment-mention";
+            span.textContent = hit[0];
+            parent.appendChild(span);
+            last = hit.index + hit[0].length;
+        }
+        if (last < text.length) parent.appendChild(host.createTextNode(text.slice(last)));
+    }
+
     function positionComposer(anchor) {
         if (!composer) return;
         composer.style.position = "absolute";
@@ -209,8 +374,10 @@ function RTE_Plugin_Comments() {
                 r.setEnd(anchor.endContainer, anchor.endOffset);
                 var rects = r.getClientRects();
                 var rect = rects && rects.length ? rects[rects.length - 1] : r.getBoundingClientRect();
-                left = ir.left + (rect.left || 0) + window.pageXOffset;
-                top = ir.top + (rect.bottom || rect.top || 0) + window.pageYOffset + 6;
+                // the rect is in iframe pixels, scaled on screen inside a transform:scale() ancestor
+                var sk = iframe.offsetWidth && ir.width > 0 ? ir.width / iframe.offsetWidth : 1;
+                left = ir.left + (rect.left || 0) * sk + window.pageXOffset;
+                top = ir.top + (rect.bottom || rect.top || 0) * sk + window.pageYOffset + 6;
             } catch (ignore) { }
         }
         composer.style.left = left + "px";
@@ -249,21 +416,26 @@ function RTE_Plugin_Comments() {
                 var wrapRange = editdoc.createRange();
                 wrapRange.setStart(anchor.startContainer, anchor.startOffset);
                 wrapRange.setEnd(anchor.endContainer, anchor.endOffset);
-                var span = editdoc.createElement("span");
-                span.className = "rte-comment";
-                span.setAttribute("data-comment-id", id);
-                span.setAttribute("data-comment-author", user.id);
-                var fragment = wrapRange.extractContents();
-                span.appendChild(fragment);
-                wrapRange.insertNode(span);
-                wrappedText = span.textContent;
-                // Collapse caret after the span.
-                var after = editdoc.createRange();
-                after.setStartAfter(span);
-                after.collapse(true);
-                var sel = editor.getSelection();
-                sel.removeAllRanges();
-                sel.addRange(after);
+                // 2026-10-02 one highlight per block the selection crosses (wrapEachBlock)
+                var spans = wrapEachBlock(editdoc, wrapRange, function () {
+                    var span = editdoc.createElement("span");
+                    span.className = "rte-comment";
+                    span.setAttribute("data-comment-id", id);
+                    span.setAttribute("data-comment-author", user.id);
+                    return span;
+                });
+                var parts = [];
+                for (var si = 0; si < spans.length; si++) parts.push(spans[si].textContent);
+                wrappedText = parts.join("\n");
+                if (spans.length) {
+                    // Collapse caret after the last highlight.
+                    var after = editdoc.createRange();
+                    after.setStartAfter(spans[spans.length - 1]);
+                    after.collapse(true);
+                    var sel = editor.getSelection();
+                    sel.removeAllRanges();
+                    sel.addRange(after);
+                }
             } catch (err) {
                 console.warn("comments: range wrap failed:", err);
             }
@@ -274,6 +446,7 @@ function RTE_Plugin_Comments() {
             changeType: "comment",
             author: user,
             text: text,
+            mentions: sanitizeMentions(options.mentions),
             originalText: wrappedText || (anchor && anchor.text) || "",
             status: "pending",
             sourceLabel: "Comment",
@@ -304,10 +477,91 @@ function RTE_Plugin_Comments() {
         return true;
     }
 
+    // 2026-10-15 reactions (BlockNote has them): a person adds an emoji to a comment and clicks it again to take it
+    // back. Kept with the comment in the shared review store as [{ emoji, users: [id] }]; only this set is accepted.
+    // tools/comments/comment-reactions.mjs
+    var REACTIONS = [
+        { emoji: "\uD83D\uDC4D", label: "Thumbs up", key: "cm_thumbsup" },
+        { emoji: "\u2705", label: "Done", key: "cm_done" },
+        { emoji: "\uD83C\uDF89", label: "Celebrate", key: "cm_celebrate" },
+        { emoji: "\uD83D\uDC40", label: "Looking", key: "cm_looking" },
+        { emoji: "\u2753", label: "Question", key: "cm_question" }
+    ];
+    // 2026-10-18 the comments UI reads config.text_ keys (language packs), English as the fallback; {0} / {1} fill a
+    // template. tools/i18n/comments-language.mjs
+    function cmText(key, fallback) {
+        var s = (config && config["text_" + key]) || fallback;
+        for (var i = 2; i < arguments.length; i++) s = s.split("{" + (i - 2) + "}").join(String(arguments[i]));
+        return s;
+    }
+
+    function reactionIndex(emoji) {
+        for (var i = 0; i < REACTIONS.length; i++) if (REACTIONS[i].emoji === emoji) return i;
+        return -1;
+    }
+
+    function reactToComment(commentId, emoji) {
+        if (!editor.reviewLedger || reactionIndex(emoji) < 0) return false;
+        var entry = editor.reviewLedger.get(commentId);
+        if (!entry || entry.changeType !== "comment") return false;
+        var me = String(getCurrentUser().id);
+        var list = Array.isArray(entry.reactions) ? entry.reactions : [];
+        var out = [], found = false;
+        for (var i = 0; i < list.length; i++) {
+            if (!list[i] || !Array.isArray(list[i].users)) continue;
+            var users = list[i].users.slice();
+            if (list[i].emoji === emoji) {
+                found = true;
+                var at = users.indexOf(me);
+                if (at >= 0) users.splice(at, 1); else users.push(me);
+            }
+            if (users.length) out.push({ emoji: list[i].emoji, users: users });
+        }
+        if (!found) out.push({ emoji: emoji, users: [me] });
+        editor.reviewLedger.update(commentId, { reactions: out });
+        if (sidebar && sidebar.isConnected) renderSidebar();
+        try { if (typeof editor.fireEvent === "function") editor.fireEvent("comment_reacted", { id: commentId, emoji: emoji, user: me }); } catch (e) { }
+        return true;
+    }
+
+    function renderReactions(entry, host) {
+        var row = host.createElement("div");
+        row.className = "rte-comment-reactions";
+        row.setAttribute("role", "group");
+        row.setAttribute("aria-label", cmText("cm_reactions", "Reactions"));
+        var me = String(getCurrentUser().id);
+        var list = Array.isArray(entry.reactions) ? entry.reactions : [];
+        REACTIONS.forEach(function (r, index) {
+            var users = [];
+            for (var i = 0; i < list.length; i++) if (list[i] && list[i].emoji === r.emoji && Array.isArray(list[i].users)) users = list[i].users;
+            var mine = users.indexOf(me) >= 0;
+            var b = host.createElement("button");
+            b.type = "button";
+            b.className = "rte-comment-reaction";
+            b.setAttribute("data-reaction", String(index));
+            b.setAttribute("aria-pressed", mine ? "true" : "false");
+            var rLabel = cmText(r.key, r.label);
+            b.setAttribute("aria-label", users.length === 1 ? cmText("cm_reactioncount", "{0}, {1} reaction", rLabel, 1) : cmText("cm_reactionscount", "{0}, {1} reactions", rLabel, users.length));
+            b.title = rLabel;
+            b.textContent = r.emoji + (users.length ? " " + users.length : "");
+            b.addEventListener("mousedown", function (e) { e.preventDefault(); });
+            b.addEventListener("click", function (e) {
+                e.preventDefault();
+                reactToComment(entry.id, r.emoji);
+                // the sidebar was rebuilt; keep keyboard focus on the same button
+                try {
+                    var again = sidebar && sidebar.querySelector('[data-comment-ref="' + cssEscape(entry.id) + '"] .rte-comment-reaction[data-reaction="' + index + '"]');
+                    if (again) again.focus();
+                } catch (err) { }
+            });
+            row.appendChild(b);
+        });
+        return row;
+    }
+
     function resolveComment(commentId) {
         if (!editor.reviewLedger) return false;
-        var span = editor.getEditable().querySelector('[data-comment-id="' + cssEscape(commentId) + '"]');
-        if (span) unwrapKeepChildren(span);
+        unwrapCommentSpans(commentId);
         editor.reviewLedger.update(commentId, { status: "resolved", decidedAt: Date.now() });
         if (sidebar && sidebar.isConnected) renderSidebar();
         try { if (typeof editor.fireEvent === "function") editor.fireEvent("comment_resolved", { id: commentId }); } catch (e) { }
@@ -316,14 +570,62 @@ function RTE_Plugin_Comments() {
 
     function deleteComment(commentId) {
         if (!editor.reviewLedger) return false;
-        var span = editor.getEditable().querySelector('[data-comment-id="' + cssEscape(commentId) + '"]');
-        if (span) unwrapKeepChildren(span);
+        unwrapCommentSpans(commentId);
         editor.reviewLedger.remove(commentId);
         if (sidebar && sidebar.isConnected) renderSidebar();
         return true;
     }
 
+    // 2026-10-17 select the next / previous commented text after / before the caret (wrapping) and show it in the
+    // sidebar. tools/comments/comment-navigation.mjs
+    function stepComment(dir) {
+        var doc = editor.getDocument(), ed = editor.getEditable();
+        if (!doc || !ed) return null;
+        var spans = ed.querySelectorAll("[data-comment-id]"), firsts = [], seen = {};
+        for (var i = 0; i < spans.length; i++) {
+            var cid = spans[i].getAttribute("data-comment-id");
+            if (!cid || seen[cid]) continue;
+            seen[cid] = true;
+            firsts.push(spans[i]);
+        }
+        if (!firsts.length) return null;
+        var sel = doc.getSelection(), cur = sel && sel.rangeCount ? sel.getRangeAt(0) : null;
+        var pick = null;
+        if (cur) {
+            if (dir > 0) {
+                for (var a = 0; a < firsts.length && !pick; a++) {
+                    var ra = doc.createRange(); ra.selectNodeContents(firsts[a]);
+                    if (ra.compareBoundaryPoints(Range.START_TO_END, cur) >= 0 && ra.compareBoundaryPoints(Range.START_TO_START, cur) > 0) pick = firsts[a];
+                    else if (ra.compareBoundaryPoints(Range.START_TO_START, cur) >= 0 && !cur.collapsed && ra.compareBoundaryPoints(Range.START_TO_START, cur) !== 0) pick = firsts[a];
+                }
+            }
+            else {
+                for (var b = firsts.length - 1; b >= 0 && !pick; b--) {
+                    var rb = doc.createRange(); rb.selectNodeContents(firsts[b]);
+                    if (rb.compareBoundaryPoints(Range.START_TO_START, cur) < 0) pick = firsts[b];
+                }
+            }
+        }
+        if (!pick) pick = dir > 0 ? firsts[0] : firsts[firsts.length - 1];
+        var id = pick.getAttribute("data-comment-id");
+        var all = ed.querySelectorAll('[data-comment-id="' + cssEscape(id) + '"]');
+        var r = doc.createRange();
+        r.setStart(all[0], 0);
+        r.setEnd(all[all.length - 1], all[all.length - 1].childNodes.length);
+        try { editor.focus(); } catch (x) { /* best effort */ }
+        sel.removeAllRanges();
+        sel.addRange(r);
+        try { pick.scrollIntoView({ block: "nearest" }); } catch (x) { /* best effort */ }
+        focusComment(id);
+        return id;
+    }
+
+    // 2026-10-17 the highlighted comment survives a re-render of the sidebar (selecting its text re-renders it, which
+    // dropped the highlight at once). tools/comments/comment-navigation.mjs
+    var activeCommentId = null, activeCommentUntil = 0;
     function focusComment(commentId) {
+        activeCommentId = commentId;
+        activeCommentUntil = Date.now() + 1400;
         if (!sidebar || !sidebar.isConnected) openSidebar();
         setTimeout(function () {
             if (!sidebar) return;
@@ -331,9 +633,82 @@ function RTE_Plugin_Comments() {
             if (item) {
                 item.scrollIntoView({ block: "nearest" });
                 item.classList.add("rte-comment-item-active");
-                setTimeout(function () { item.classList.remove("rte-comment-item-active"); }, 1400);
+                // a timer from an earlier highlight of the same comment must not clear a newer one
+                setTimeout(function () { if (activeCommentId !== commentId || Date.now() >= activeCommentUntil - 20) item.classList.remove("rte-comment-item-active"); }, 1400);
             }
         }, 30);
+    }
+
+    // 2026-10-02 A comment on a selection that crosses blocks highlights the selected text of EACH
+    // block. One span went AROUND the blocks: two paragraphs became four
+    // (<p>al</p><span><p>pha</p><p>be</p></span><p>ta</p>), list items and table cells got a span
+    // inside <ul> / <tr>, and resolving the comment left the four paragraphs. The selection is cut
+    // into runs of text that share a block, and each run is wrapped in its own make() element; all
+    // carry the comment's id, so resolve and delete remove every one. A run starting or ending at
+    // the edge of an inline element (<b>) takes the whole element, so no empty <b></b> is left
+    // behind. Text inside a non-editable element (a chip) moves with its run.
+    // tools/comments/comments-across-blocks.mjs
+    var BLOCK_RE = /^(P|DIV|LI|UL|OL|DL|DT|DD|TABLE|TBODY|THEAD|TFOOT|TR|TD|TH|CAPTION|H[1-6]|PRE|BLOCKQUOTE|ADDRESS|FIGURE|FIGCAPTION|SECTION|ARTICLE|ASIDE|HEADER|FOOTER|NAV|MAIN|DETAILS|SUMMARY|FORM|FIELDSET|LEGEND|HR|BODY)$/;
+    function blockOf(node) {
+        for (var n = node; n; n = n.parentNode)
+            if (n.nodeType === 1 && BLOCK_RE.test(n.nodeName)) return n;
+        return null;
+    }
+    function wrapEachBlock(doc, range, make) {
+        var root = range.commonAncestorContainer;
+        if (root.nodeType !== 1) root = root.parentNode;
+        var runs = [], cur = null;
+        var w = doc.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+            acceptNode: function (n) { return n.nodeType === 1 && n.getAttribute("contenteditable") === "false" ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT; }
+        });
+        for (var n = w.nextNode(); n; n = w.nextNode()) {
+            if (n.nodeType === 1) {
+                if (BLOCK_RE.test(n.nodeName)) cur = null;
+                continue;
+            }
+            if (!range.intersectsNode(n)) continue;
+            var a = n === range.startContainer ? range.startOffset : 0, b = n === range.endContainer ? range.endOffset : n.data.length;
+            if (b <= a) continue;
+            var blk = blockOf(n);
+            if (!cur || cur.block !== blk) {
+                cur = { block: blk, sn: n, so: a, text: "" };
+                runs.push(cur);
+            }
+            cur.en = n;
+            cur.eo = b;
+            cur.text += n.data.substring(a, b);
+        }
+        var out = [];
+        // from the last run back: wrapping one never moves the text of a run still to come
+        for (var i = runs.length - 1; i >= 0; i--) {
+            var run = runs[i];
+            if (!/\S/.test(run.text)) continue; // the line break between two blocks
+            var sub = doc.createRange();
+            sub.setStart(run.sn, run.so);
+            sub.setEnd(run.en, run.eo);
+            widenToInlineEdges(sub, run.block);
+            var el = make();
+            el.appendChild(sub.extractContents());
+            sub.insertNode(el);
+            out.unshift(el);
+        }
+        return out;
+    }
+    function widenToInlineEdges(range, block) {
+        var n = range.startContainer;
+        if (n.nodeType === 3 && range.startOffset === 0) {
+            while (n.parentNode && n.parentNode !== block && !n.previousSibling && !BLOCK_RE.test(n.parentNode.nodeName)) n = n.parentNode;
+            range.setStartBefore(n);
+        }
+        n = range.endContainer;
+        if (n.nodeType === 3 && range.endOffset === n.data.length) {
+            while (n.parentNode && n.parentNode !== block && !n.nextSibling && !BLOCK_RE.test(n.parentNode.nodeName)) n = n.parentNode;
+            range.setEndAfter(n);
+        }
+    }
+    function unwrapCommentSpans(commentId) {
+        var spans = editor.getEditable().querySelectorAll('[data-comment-id="' + cssEscape(commentId) + '"]');
+        for (var i = 0; i < spans.length; i++) unwrapKeepChildren(spans[i]);
     }
 
     function unwrapKeepChildren(el) {
@@ -367,7 +742,9 @@ function RTE_Plugin_Comments() {
         sidebar = host.createElement("div");
         sidebar.className = "rte-comment-sidebar" + (isEditorDark() ? " rte-comment-dark" : "");
         sidebar.setAttribute("role", "complementary");
-        sidebar.setAttribute("aria-label", "Comments");
+        sidebar.setAttribute("aria-label", cmText("cm_comments", "Comments"));
+        // 2026-10-17 drag / arrow-key resizable (tools/ui/panel-resize.mjs)
+        setTimeout(function () { if (editor && sidebar && typeof editor.makePanelResizable === "function") editor.makePanelResizable(sidebar, { label: cmText("cm_resizepanel", "Resize comments panel") }); }, 0);
         var shell = getEditorShell();
         if (shell) {
             shell.parentNode.insertBefore(sidebar, shell.nextSibling);
@@ -403,14 +780,14 @@ function RTE_Plugin_Comments() {
         header.className = "rte-comment-sidebar-header";
         var title = host.createElement("div");
         title.className = "rte-comment-sidebar-title";
-        title.textContent = "Comments";
+        title.textContent = cmText("cm_comments", "Comments");
         header.appendChild(title);
         var close = host.createElement("button");
         close.type = "button";
         close.className = "rte-comment-sidebar-close";
-        close.setAttribute("aria-label", "Close");
+        close.setAttribute("aria-label", cmText("close", "Close"));
         close.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>';
-        close.addEventListener("mousedown", function (e) { e.preventDefault(); closeSidebar(); });
+        onActivate(close, closeSidebar);
         header.appendChild(close);
         sidebar.appendChild(header);
 
@@ -422,7 +799,7 @@ function RTE_Plugin_Comments() {
         if (!entries.length) {
             var empty = host.createElement("div");
             empty.className = "rte-comment-empty";
-            empty.textContent = "No open comments. Select text and click the Comment button to start.";
+            empty.textContent = cmText("cm_empty", "No open comments. Select text and click the Comment button to start.");
             list.appendChild(empty);
             return;
         }
@@ -438,6 +815,10 @@ function RTE_Plugin_Comments() {
         var wrap = host.createElement("div");
         wrap.className = "rte-comment-item";
         wrap.setAttribute("data-comment-ref", entry.id);
+        if (entry.id === activeCommentId && Date.now() < activeCommentUntil) {
+            wrap.classList.add("rte-comment-item-active");
+            setTimeout(function () { if (activeCommentId !== entry.id || Date.now() >= activeCommentUntil - 20) wrap.classList.remove("rte-comment-item-active"); }, Math.max(0, activeCommentUntil - Date.now()));
+        }
         wrap.setAttribute("role", "article");
 
         var topRow = host.createElement("div");
@@ -464,15 +845,15 @@ function RTE_Plugin_Comments() {
         var resolveBtn = host.createElement("button");
         resolveBtn.type = "button";
         resolveBtn.className = "rte-comment-action rte-comment-resolve";
-        resolveBtn.textContent = "Resolve";
-        resolveBtn.setAttribute("aria-label", "Resolve comment");
-        resolveBtn.addEventListener("mousedown", function (e) { e.preventDefault(); resolveComment(entry.id); });
+        resolveBtn.textContent = cmText("cm_resolve", "Resolve");
+        resolveBtn.setAttribute("aria-label", cmText("cm_resolvecomment", "Resolve comment"));
+        onActivate(resolveBtn, function () { resolveComment(entry.id); });
         var delBtn = host.createElement("button");
         delBtn.type = "button";
         delBtn.className = "rte-comment-action rte-comment-delete";
-        delBtn.textContent = "Delete";
-        delBtn.setAttribute("aria-label", "Delete comment");
-        delBtn.addEventListener("mousedown", function (e) { e.preventDefault(); deleteComment(entry.id); });
+        delBtn.textContent = cmText("delete", "Delete");
+        delBtn.setAttribute("aria-label", cmText("cm_deletecomment", "Delete comment"));
+        onActivate(delBtn, function () { deleteComment(entry.id); });
         actions.appendChild(resolveBtn);
         actions.appendChild(delBtn);
         topRow.appendChild(actions);
@@ -489,8 +870,9 @@ function RTE_Plugin_Comments() {
 
         var body = host.createElement("div");
         body.className = "rte-comment-body";
-        body.textContent = entry.text;
+        appendTextWithMentions(host, body, entry.text, entry.mentions);
         wrap.appendChild(body);
+        wrap.appendChild(renderReactions(entry, host));
 
         var replies = Array.isArray(entry.replies) ? entry.replies : [];
         for (var i = 0; i < replies.length; i++) {
@@ -505,7 +887,7 @@ function RTE_Plugin_Comments() {
             repBody.className = "rte-comment-reply-body";
             var repName = host.createElement("div");
             repName.className = "rte-comment-reply-name";
-            repName.textContent = ((rep.author && rep.author.name) || "User") + " \u00B7 " + relativeTime(rep.createdAt);
+            repName.textContent = ((rep.author && rep.author.name) || cmText("cm_user", "User")) + " \u00B7 " + relativeTime(rep.createdAt);
             var repText = host.createElement("div");
             repText.className = "rte-comment-reply-text";
             repText.textContent = rep.text;
@@ -522,8 +904,8 @@ function RTE_Plugin_Comments() {
         var replyInput = host.createElement("input");
         replyInput.type = "text";
         replyInput.className = "rte-comment-reply-input";
-        replyInput.placeholder = "Reply...";
-        replyInput.setAttribute("aria-label", "Reply to comment");
+        replyInput.placeholder = cmText("cm_reply", "Reply...");
+        replyInput.setAttribute("aria-label", cmText("cm_replytocomment", "Reply to comment"));
         replyInput.addEventListener("keydown", function (e) {
             if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
@@ -539,11 +921,13 @@ function RTE_Plugin_Comments() {
     }
 
     function scrollToSpan(commentId) {
-        var span = editor.getEditable().querySelector('[data-comment-id="' + cssEscape(commentId) + '"]');
-        if (!span) return;
-        span.scrollIntoView({ block: "center", behavior: "smooth" });
-        span.classList.add("rte-comment-flash");
-        setTimeout(function () { span.classList.remove("rte-comment-flash"); }, 1200);
+        var spans = editor.getEditable().querySelectorAll('[data-comment-id="' + cssEscape(commentId) + '"]');
+        if (!spans.length) return;
+        spans[0].scrollIntoView({ block: "center", behavior: "smooth" });
+        for (var i = 0; i < spans.length; i++) spans[i].classList.add("rte-comment-flash");
+        setTimeout(function () {
+            for (var j = 0; j < spans.length; j++) spans[j].classList.remove("rte-comment-flash");
+        }, 1200);
     }
 
     function initialsOf(label) {
@@ -556,10 +940,10 @@ function RTE_Plugin_Comments() {
     function relativeTime(ts) {
         if (!ts) return "";
         var diff = Math.floor((Date.now() - ts) / 1000);
-        if (diff < 60) return "just now";
-        if (diff < 3600) return Math.floor(diff / 60) + "m ago";
-        if (diff < 86400) return Math.floor(diff / 3600) + "h ago";
-        return Math.floor(diff / 86400) + "d ago";
+        if (diff < 60) return cmText("cm_justnow", "just now");
+        if (diff < 3600) return cmText("cm_minutesago", "{0}m ago", Math.floor(diff / 60));
+        if (diff < 86400) return cmText("cm_hoursago", "{0}h ago", Math.floor(diff / 3600));
+        return cmText("cm_daysago", "{0}d ago", Math.floor(diff / 86400));
     }
 
     function truncate(s, n) {
@@ -604,6 +988,11 @@ function RTE_Plugin_Comments() {
                 ".rte-comment-reply-name{font-size:11px;color:#64748b}",
                 ".rte-comment-reply-text{font-size:12px;color:#172033;line-height:1.45;white-space:pre-wrap;margin-top:2px}",
                 ".rte-comment-reply-composer{margin-top:8px;display:flex}",
+                ".rte-comment-reactions{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}",
+                ".rte-comment-reaction{display:inline-flex;align-items:center;gap:3px;min-height:24px;padding:1px 7px;border-radius:12px;border:1px solid rgba(148,163,184,.28);background:#fff;font:inherit;font-size:12px;line-height:1;color:#334155;cursor:pointer;opacity:.6}",
+                ".rte-comment-reaction:hover,.rte-comment-reaction:focus-visible{opacity:1;border-color:rgba(37,99,235,.38)}",
+                ".rte-comment-reaction:focus-visible{outline:2px solid rgba(37,99,235,.45);outline-offset:1px}",
+                ".rte-comment-reaction[aria-pressed=true]{opacity:1;background:#eef4ff;border-color:rgba(37,99,235,.45);color:#0f3f9f}",
                 ".rte-comment-reply-input{flex:1;min-width:0;padding:7px 10px;border-radius:7px;border:1px solid rgba(148,163,184,.24);font:inherit;font-size:12px;background:#fff}",
                 ".rte-comment-reply-input:focus,.rte-comment-composer-textarea:focus{outline:2px solid rgba(37,99,235,.18);border-color:rgba(37,99,235,.38)}",
                 ".rte-comment-composer{position:absolute;z-index:2147483000;width:min(320px,calc(100vw - 24px));background:linear-gradient(180deg,#fff,#f8fbff);border:1px solid rgba(148,163,184,.22);box-shadow:0 14px 32px rgba(29,78,216,.12),0 2px 8px rgba(15,23,42,.08);border-radius:8px;padding:12px;font-family:Aptos,'Segoe UI',sans-serif;color:#172033}",
@@ -624,7 +1013,17 @@ function RTE_Plugin_Comments() {
                 ".rte-comment-dark .rte-comment-body,.rte-comment-dark .rte-comment-reply-text,.rte-comment-dark .rte-comment-composer-header{color:#e2e8f0}",
                 ".rte-comment-dark .rte-comment-reply-input,.rte-comment-dark .rte-comment-composer-textarea{background:#0f172a;color:#e2e8f0;border-color:#334155}",
                 ".rte-comment-dark .rte-comment-action,.rte-comment-dark .rte-comment-btn-ghost,.rte-comment-dark .rte-comment-sidebar-close{background:#0f172a;color:#cbd5e1;border-color:#334155}",
-                ".rte-comment-dark .rte-comment-quote{background:rgba(245,158,11,.12);color:#fcd34d}"
+                ".rte-comment-dark .rte-comment-quote{background:rgba(245,158,11,.12);color:#fcd34d}",
+                ".rte-comment-dark .rte-comment-reaction{background:#0f172a;color:#cbd5e1;border-color:#334155}",
+                ".rte-comment-dark .rte-comment-reaction[aria-pressed=true]{background:#1e3a8a;color:#e2e8f0;border-color:#3b82f6}",
+                ".rte-comment-mentions{margin-top:4px;max-height:160px;overflow:auto;border:1px solid rgba(148,163,184,.3);border-radius:7px;background:#fff;box-shadow:0 6px 18px rgba(15,23,42,.12)}",
+                ".rte-comment-mention-option{padding:6px 10px;font-size:13px;color:#172033;cursor:pointer}",
+                ".rte-comment-mention-option.rte-comment-mention-active{background:#dbeafe}",
+                ".rte-comment-mention{font-weight:600;color:#1d4ed8;background:rgba(37,99,235,.1);border-radius:4px;padding:0 2px}",
+                ".rte-comment-dark .rte-comment-mentions{background:#0f172a;border-color:#334155}",
+                ".rte-comment-dark .rte-comment-mention-option{color:#e2e8f0}",
+                ".rte-comment-dark .rte-comment-mention-option.rte-comment-mention-active{background:#1e3a8a}",
+                ".rte-comment-dark .rte-comment-mention{color:#93c5fd;background:rgba(147,197,253,.14)}"
             ].join("\n");
             host.head.appendChild(style);
             // A <style> ELEMENT is governed by style-src: under a strict policy the browser

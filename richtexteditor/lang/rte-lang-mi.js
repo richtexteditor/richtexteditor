@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "Insert";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "Kāhua";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "Kāhua kuputuhi";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "mi";	// this pack's locale (Intl names, e.g. the text-part language menu)

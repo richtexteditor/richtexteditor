@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "Εισαγωγή";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "Στυλ";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "Στυλ κειμένου";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "el";	// this pack's locale (Intl names, e.g. the text-part language menu)

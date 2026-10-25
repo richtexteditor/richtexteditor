@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "Daħħal";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "Stili";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "Stili tat-test";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "mt";	// this pack's locale (Intl names, e.g. the text-part language menu)

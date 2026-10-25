@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "Insert";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "Stíleanna";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "Stíleanna téacs";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "ga";	// this pack's locale (Intl names, e.g. the text-part language menu)

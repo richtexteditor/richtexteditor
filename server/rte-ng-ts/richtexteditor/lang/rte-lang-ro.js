@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "Inserare";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "Stiluri";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "Stiluri de text";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "ro";	// this pack's locale (Intl names, e.g. the text-part language menu)

@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "সন্নিবেশ";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "শৈলী";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "পাঠ্য শৈলী";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "bn";	// this pack's locale (Intl names, e.g. the text-part language menu)

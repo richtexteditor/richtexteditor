@@ -35,11 +35,11 @@ function RTE_Plugin_FormattingMarks() {
     // differently. These are what people are actually hunting when they turn
     // formatting marks on after pasting from somewhere else.
     var INVISIBLES = [
-        { ch: " ", cls: "rte-fm-nbsp",  label: "·" },   // non-breaking space
-        { ch: "​", cls: "rte-fm-zwsp",  label: "␀" },   // zero-width space
-        { ch: "‎", cls: "rte-fm-bidi",  label: "‎" },   // LTR mark
-        { ch: "‏", cls: "rte-fm-bidi",  label: "‏" },   // RTL mark
-        { ch: "­", cls: "rte-fm-shy",   label: "-" }         // soft hyphen
+        { ch: "\xa0", cls: "rte-fm-nbsp",  label: "\xb7" },   // non-breaking space
+        { ch: "\u200b", cls: "rte-fm-zwsp",  label: "\u2400" },   // zero-width space
+        { ch: "\u200e", cls: "rte-fm-bidi",  label: "\u200e" },   // LTR mark
+        { ch: "\u200f", cls: "rte-fm-bidi",  label: "\u200f" },   // RTL mark
+        { ch: "\xad", cls: "rte-fm-shy",   label: "-" }         // soft hyphen
     ];
 
     obj.PluginName = "FormattingMarks";
@@ -148,22 +148,67 @@ function RTE_Plugin_FormattingMarks() {
         // may be deliberate.
         if (parent.nodeName === "CODE" || parent.nodeName === "PRE") return;
 
+        // Replacing the text node moves a caret inside it to the node's old place in its
+        // parent - usually the paragraph start. This runs on every keyup, and the first
+        // space typed at a line end is always a non-breaking one, so with marks on every
+        // later character landed at the start, reversed: " edited" became "detide".
+        // Remember where the selection was inside this node and put it back.
+        var sel = doc.getSelection ? doc.getSelection() : null;
+        var range = sel && sel.rangeCount ? sel.getRangeAt(0) : null;
+        var keepStart = range && range.startContainer === node ? range.startOffset : -1;
+        var keepEnd = range && range.endContainer === node ? range.endOffset : -1;
+
         var frag = doc.createDocumentFragment();
+        var pieces = [];   // in order: { node, marker } - every marker stands for ONE character
         var buf = "";
         for (var i = 0; i < text.length; i++) {
             var def = chars[text[i]];
+            // A space typed at a line end is inserted as a non-breaking placeholder that the
+            // browser turns back into a space when the next character arrives. Wrapped in a
+            // non-editable marker it never could, and saved as a hard &nbsp;. Leave the one
+            // right before the caret alone; it is marked once the caret moves on.
+            if (def && text[i] === "\xa0" && i === keepStart - 1 && keepStart === keepEnd) def = null;
             if (!def) { buf += text[i]; continue; }
-            if (buf) { frag.appendChild(doc.createTextNode(buf)); buf = ""; }
+            if (buf) { pieces.push({ node: frag.appendChild(doc.createTextNode(buf)), marker: false }); buf = ""; }
             var span = doc.createElement("span");
             span.setAttribute("data-rte-fm", "1");
             span.setAttribute("data-rte-fm-char", text[i]);
             span.className = def.cls;
             span.setAttribute("contenteditable", "false");
             span.textContent = def.label;
-            frag.appendChild(span);
+            pieces.push({ node: frag.appendChild(span), marker: true });
         }
-        if (buf) frag.appendChild(doc.createTextNode(buf));
+        if (buf) pieces.push({ node: frag.appendChild(doc.createTextNode(buf)), marker: false });
         parent.replaceChild(frag, node);
+
+        if (keepStart < 0 && keepEnd < 0) return;
+        // Offset k in the old text -> a point in the pieces. Inside text where possible;
+        // never inside a marker (it is not editable): just before or after it.
+        function pointAt(k) {
+            var pos = 0;
+            for (var p = 0; p < pieces.length; p++) {
+                var piece = pieces[p];
+                if (piece.marker) {
+                    if (k <= pos) return { node: parent, offset: Array.prototype.indexOf.call(parent.childNodes, piece.node) };
+                    pos += 1;
+                } else {
+                    var len = piece.node.nodeValue.length;
+                    if (k <= pos + len) return { node: piece.node, offset: k - pos };
+                    pos += len;
+                }
+            }
+            var last = pieces[pieces.length - 1].node;
+            return { node: parent, offset: Array.prototype.indexOf.call(parent.childNodes, last) + 1 };
+        }
+        try {
+            var r = doc.createRange();
+            var a = pointAt(keepStart >= 0 ? keepStart : 0);
+            var b = keepEnd >= 0 ? pointAt(keepEnd) : a;
+            if (keepStart < 0) { r.setStart(range.startContainer, range.startOffset); } else r.setStart(a.node, a.offset);
+            if (keepEnd < 0) { r.setEnd(range.endContainer, range.endOffset); } else r.setEnd(b.node, b.offset);
+            sel.removeAllRanges();
+            sel.addRange(r);
+        } catch (e) { /* a selection we cannot restore is no reason to lose the marks */ }
     }
 
     // ---- serialization safety -------------------------------------------

@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "सम्मिलित करें";	//"Inse
 
 RTE_DefaultConfig.text_styles = "शैलियाँ";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "पाठ शैलियाँ";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "hi";	// this pack's locale (Intl names, e.g. the text-part language menu)

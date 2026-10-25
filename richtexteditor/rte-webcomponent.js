@@ -54,19 +54,27 @@
     if (!global.customElements || !global.HTMLElement) return;
     if (global.customElements.get("rich-text-editor")) return;
 
-    var OBSERVED = ["value", "readonly", "disabled", "height", "width", "toolbar", "name"];
+    var OBSERVED = ["value", "readonly", "disabled", "required", "height", "width", "toolbar", "name"];
 
     function RichTextEditorElement() {
         var self = Reflect.construct(HTMLElement, [], RichTextEditorElement);
         self._editor = null;
         self._value = "";
         self._host = null;
+        self._mountBoundary = null;
         self._ready = null;
         self._resolveReady = null;
         self._isReady = false;
         self._everConnected = false;
         self._internals = null;
         self._fallbackInput = null;
+        self._valueSet = false;
+        self._defaultValue = "";
+        self._formDisabled = false;
+        self._configReadOnly = false;
+        self._readyTimer = null;
+        self._nativeSurface = null;
+        self._nativeInput = null;
         try { if (self.attachInternals) self._internals = self.attachInternals(); } catch (e) {}
         return self;
     }
@@ -93,6 +101,7 @@
             return this._value;
         },
         set: function (html) {
+            if (!this._settingAttributeValue) this._valueSet = true;
             this._value = html == null ? "" : String(html);
             if (this._editor) {
                 try { this._editor.setHTMLCode(this._value); } catch (e) {}
@@ -135,6 +144,19 @@
 
     proto.connectedCallback = function () {
         if (this._editor) return;
+        // Parser-created elements connect before their child markup has been
+        // parsed. Wait for the initial document before consuming that seed.
+        if (!this._everConnected && document.readyState === "loading") {
+            if (!this._connectListener) {
+                var self = this;
+                this._connectListener = function () {
+                    self._connectListener = null;
+                    if (self.isConnected) self.connectedCallback();
+                };
+                document.addEventListener("DOMContentLoaded", this._connectListener, { once: true });
+            }
+            return;
+        }
         if (!global.RichTextEditor) {
             console.error("<rich-text-editor>: rte.js must be loaded before rte-webcomponent.js.");
             return;
@@ -144,7 +166,7 @@
         // the attribute still holds the ORIGINAL seed, so re-reading it here
         // silently threw the edits away and restored stale text. Found by the
         // unmount/remount check in the test suite.
-        if (!this._everConnected && this.hasAttribute("value")) this._value = this.getAttribute("value") || "";
+        if (!this._everConnected && !this._valueSet && this.hasAttribute("value")) this._value = this.getAttribute("value") || "";
         if (!this._everConnected) {
             // <textarea>-style progressive enhancement: markup written between the
             // tags is the initial document when no value attribute seeds one. The
@@ -158,7 +180,8 @@
                 else if (kid.nodeType === 3) seed += kid.data;
                 try { this.removeChild(kid); } catch (e) { }
             }
-            if (!this.hasAttribute("value") && seed.trim()) this._value = seed;
+            this._defaultValue = this.hasAttribute("value") ? this.getAttribute("value") || "" : seed;
+            if (!this._valueSet && !this.hasAttribute("value") && seed.trim()) this._value = seed;
         }
         this._everConnected = true;
 
@@ -168,8 +191,7 @@
             // style plugin the toolbar is unstyled and 43,000 px tall.
             if (this._shadowStylingAvailable()) {
                 var root = this.shadowRoot || this.attachShadow({ mode: "open" });
-                mount = document.createElement("div");
-                root.appendChild(mount);
+                mount = root;
             }
             else {
                 console.warn("<rich-text-editor shadow>: plugins/shadowdom.js is not loaded, so the " +
@@ -177,8 +199,18 @@
             }
         }
 
+        // Plugins can wrap the core host. Remove this owned boundary, not just
+        // the moved host, so reconnects cannot accumulate empty side panels.
+        this._mountBoundary = document.createElement("div");
+        mount.appendChild(this._mountBoundary);
         this._host = document.createElement("div");
-        mount.appendChild(this._host);
+        // ElementInternals' validation anchor must be focusable. Without this,
+        // submitting an empty required editor logs "not focusable" and gives
+        // the user no route back to the invalid field.
+        this._host.tabIndex = -1;
+        var element = this;
+        this._host.addEventListener("focus", function () { element.focus(); });
+        this._mountBoundary.appendChild(this._host);
 
         var config = this._buildConfig();
         this._editor = new global.RichTextEditor(this._host, config);
@@ -188,6 +220,13 @@
     };
 
     proto.disconnectedCallback = function () {
+        if (this._connectListener) document.removeEventListener("DOMContentLoaded", this._connectListener);
+        this._connectListener = null;
+        if (this._readyTimer !== null) clearInterval(this._readyTimer);
+        this._readyTimer = null;
+        if (this._nativeSurface && this._nativeInput) this._nativeSurface.removeEventListener("input", this._nativeInput);
+        this._nativeSurface = null;
+        this._nativeInput = null;
         // An SPA router unmounts and remounts constantly; a leaked iframe per
         // navigation is a real memory bug, not a theoretical one.
         this._value = this.value;
@@ -195,7 +234,9 @@
             try { if (typeof this._editor.destroy === "function") this._editor.destroy(); } catch (e) {}
             this._editor = null;
         }
-        if (this._host && this._host.parentNode) this._host.parentNode.removeChild(this._host);
+        if (this._mountBoundary && this._mountBoundary.parentNode) this._mountBoundary.parentNode.removeChild(this._mountBoundary);
+        else if (this._host && this._host.parentNode) this._host.parentNode.removeChild(this._host);
+        this._mountBoundary = null;
         this._host = null;
         this._ready = null;
         this._resolveReady = null;
@@ -208,12 +249,15 @@
             // Like <input value>, the attribute seeds the initial value; once the
             // user has typed, the property is the truth and setting the attribute
             // again is an explicit reset by the page.
-            this.value = newValue || "";
+            this._defaultValue = newValue || "";
+            this._settingAttributeValue = true;
+            try { this.value = newValue || ""; }
+            finally { this._settingAttributeValue = false; }
         }
         else if (name === "readonly" || name === "disabled") {
             this._applyReadOnly();
         }
-        else if (name === "name") {
+        else if (name === "name" || name === "required") {
             this._syncFormValue();
         }
         else if (this._editor) {
@@ -228,10 +272,14 @@
 
     // Called by the browser when the containing form is reset.
     proto.formResetCallback = function () {
-        this.value = this.getAttribute("value") || "";
+        this.value = this._defaultValue;
     };
 
-    proto.formDisabledCallback = function () { this._applyReadOnly(); };
+    proto.formDisabledCallback = function (disabled) {
+        this._formDisabled = !!disabled;
+        this._applyReadOnly();
+        this._syncFormValue();
+    };
 
     // -------------------------------------------------------------- behaviour
 
@@ -268,6 +316,7 @@
         if (this.hasAttribute("toolbar")) config.toolbar = this.getAttribute("toolbar");
         if (this.hasAttribute("height")) config.height = this.getAttribute("height");
         if (this.hasAttribute("width")) config.width = this.getAttribute("width");
+        this._configReadOnly = !!config.readOnly;
         if (this._isReadOnly()) config.readOnly = true;
         if (this._value) config.value = this._value;
         return config;
@@ -275,7 +324,7 @@
 
     proto._isReadOnly = function () {
         return this.hasAttribute("readonly") || this.hasAttribute("disabled")
-            || !!(this._internals && this._internals.form && this._internals.form.disabled);
+            || this._formDisabled || this._configReadOnly;
     };
 
     proto._applyReadOnly = function () {
@@ -294,7 +343,9 @@
 
     proto._bind = function () {
         var self = this;
+        var editor = this._editor;
         var emit = function (type) {
+            if (self._editor !== editor || !self.isConnected) return;
             self._syncFormValue();
             // composed:true so a listener outside a shadow boundary still hears it.
             self.dispatchEvent(new Event(type, { bubbles: true, composed: true }));
@@ -311,12 +362,24 @@
 
     proto._waitForReady = function () {
         var self = this;
+        var editor = this._editor;
         var tries = 0;
-        var timer = setInterval(function () {
+        this._readyTimer = setInterval(function () {
+            if (self._editor !== editor || !self.isConnected) {
+                clearInterval(self._readyTimer); self._readyTimer = null; return;
+            }
             var alive = false;
             try { alive = !!(self._editor && self._editor.getEditable()); } catch (e) {}
             if (alive || ++tries > 200) {
-                clearInterval(timer);
+                clearInterval(self._readyTimer); self._readyTimer = null;
+                // A timeout is not readiness. Never resolve .ready with a null
+                // editor or apply stale content after disconnection.
+                if (!alive) return;
+                self._nativeSurface = editor.getEditable();
+                self._nativeInput = function () {
+                    if (self._editor === editor && self.isConnected) self._syncFormValue();
+                };
+                self._nativeSurface.addEventListener("input", self._nativeInput);
                 if (self._value) { try { self._editor.setHTMLCode(self._value); } catch (e) {} }
                 self._applyReadOnly();
                 self._syncFormValue();
@@ -336,7 +399,10 @@
             this._syncValidity(value);
             return;
         }
-        if (!name) return;
+        if (!name) {
+            if (this._fallbackInput) this._fallbackInput.removeAttribute("name");
+            return;
+        }
         if (!this._fallbackInput) {
             this._fallbackInput = document.createElement("input");
             this._fallbackInput.type = "hidden";
@@ -344,6 +410,7 @@
         }
         this._fallbackInput.name = name;
         this._fallbackInput.value = value;
+        this._fallbackInput.disabled = this.hasAttribute("disabled") || this._formDisabled;
     };
 
     proto._syncValidity = function (value) {
@@ -352,7 +419,13 @@
         // "Empty" for a rich-text field means no text and no media — an empty
         // <p> is what the editor puts in a blank document, and treating that as
         // filled makes `required` meaningless.
-        var empty = !String(value || "").replace(/<[^>]*>/g, "").replace(/&nbsp;|\s/g, "")
+        var text = document.createElement("div");
+        // Inert parsing decodes numeric and named entities without attaching
+        // user markup to the live page or fetching its media.
+        var template = document.createElement("template");
+        template.innerHTML = String(value || "");
+        text.textContent = template.content.textContent;
+        var empty = !text.textContent.replace(/\s/g, "")
             && !/<(img|table|iframe|video|audio|hr)\b/i.test(value || "");
         try {
             if (required && empty) this._internals.setValidity({ valueMissing: true }, "Please fill out this field.", this._host || this);

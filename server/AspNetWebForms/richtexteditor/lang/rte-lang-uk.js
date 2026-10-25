@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "Вставка";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "Стилі";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "Стилі тексту";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "uk";	// this pack's locale (Intl names, e.g. the text-part language menu)

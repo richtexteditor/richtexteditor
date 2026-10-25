@@ -66,6 +66,16 @@ function RTE_Plugin_FormatPainter() {
         editor.cancelFormatPainter = function () { return obj.Cancel(); };
         editor.isFormatPainterActive = function () { return !!captured; };
         editor.getCapturedFormatting = function () { return captured ? cloneProps(captured.props) : null; };
+
+        // 2026-10-17 Ctrl/Cmd+Alt+C copies the selection's formatting and Ctrl/Cmd+Alt+V applies it, as in Google Docs. A key
+        // that reports a character other than c / v is AltGr typing (Ctrl+Alt on Windows) and is left alone.
+        // tools/keyboard/format-case-keys.mjs
+        (editor.bindDocumentEvent ? function (fn) { editor.bindDocumentEvent("keydown", fn, true); } : function (fn) { editor.getDocument().addEventListener("keydown", fn, true); })(function (e) {
+            if (!(e.ctrlKey || e.metaKey) || !e.altKey || e.shiftKey) return;
+            var k = e.key;
+            if (k === "c" || k === "C") { e.preventDefault(); obj.Copy(); }
+            else if (k === "v" || k === "V") { if (!captured) return; e.preventDefault(); obj.Paint(); }
+        });
     };
 
     function setup() {

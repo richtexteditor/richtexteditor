@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "Sisip";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "Gaya";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "Gaya teks";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "ms";	// this pack's locale (Intl names, e.g. the text-part language menu)

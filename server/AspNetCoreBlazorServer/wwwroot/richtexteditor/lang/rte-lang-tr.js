@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "Ekle";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "Stiller";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "Metin stilleri";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "tr";	// this pack's locale (Intl names, e.g. the text-part language menu)

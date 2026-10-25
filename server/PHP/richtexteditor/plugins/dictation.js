@@ -213,7 +213,7 @@ function RTE_Plugin_Dictation() {
         if (!button) return;
         button.classList.toggle("rte-dictation-on", listening);
         button.setAttribute("aria-pressed", listening ? "true" : "false");
-        button.setAttribute("title", listening ? "Dictating… (click to stop)" : "Dictate (click to start/stop)");
+        button.setAttribute("title", listening ? "Dictating\u2026 (click to stop)" : "Dictate (click to start/stop)");
         ensureStyles();
     }
 

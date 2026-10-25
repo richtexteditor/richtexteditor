@@ -116,15 +116,18 @@
             }, 16);
         }
         this._emitUpdate = emitUpdate;
+        this._editorListeners = [];
 
         ["selectionchange", "change", "focus", "blur"].forEach(function (evt) {
             try {
-                self.editor.attachEvent(evt, function (a, b) {
+                var listener = function (a, b) {
                     self._emit(evt, a, b);
                     if (evt === "selectionchange" || evt === "change") {
                         emitUpdate();
                     }
-                });
+                };
+                self.editor.attachEvent(evt, listener);
+                self._editorListeners.push([evt, listener]);
             } catch (e) { /* event surface differs by build; ignore */ }
         });
 
@@ -150,6 +153,7 @@
     };
 
     HeadlessController.prototype.on = function (name, cb) {
+        if (this._destroyed) return this;
         if (typeof cb === "function") {
             (this._handlers[name] = this._handlers[name] || []).push(cb);
         }
@@ -165,12 +169,13 @@
     };
 
     HeadlessController.prototype._emit = function (name) {
+        if (this._destroyed) return;
         var list = this._handlers[name];
         if (!list || !list.length) {
             return;
         }
         var args = Array.prototype.slice.call(arguments, 1);
-        for (var i = 0; i < list.length; i++) {
+        for (var i = 0; i < list.length && !this._destroyed; i++) {
             try {
                 list[i].apply(this, args);
             } catch (e) {
@@ -303,8 +308,15 @@
     };
 
     HeadlessController.prototype.destroy = function () {
+        if (this._destroyed) return this;
         this._destroyed = true;
         this._handlers = {};
+        if (this._editorListeners) {
+            for (var ei = 0; ei < this._editorListeners.length; ei++) {
+                try { this.editor.detachEvent(this._editorListeners[ei][0], this._editorListeners[ei][1]); } catch (e) {}
+            }
+            this._editorListeners = null;
+        }
         // Drop format subscriptions here too: _destroyed alone only silences the
         // callback, it does not stop the core from evaluating the commands on
         // every toolbar refresh for a controller nobody is using any more.
@@ -321,7 +333,10 @@
         }
         this._docListeners = null;
         this._boundDoc = null;
-        try { if (this.editor.prepareDestroy) { this.editor.prepareDestroy(); } } catch (e) { /* ignore */ }
+        try {
+            if (typeof this.editor.destroy === "function") this.editor.destroy();
+            else if (typeof this.editor.prepareDestroy === "function") this.editor.prepareDestroy();
+        } catch (e) { /* ignore */ }
         return this;
     };
 

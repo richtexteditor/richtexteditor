@@ -1,4 +1,5 @@
-var pendingLoadsByBasePath = {};
+var pendingLoadsByBasePath = Object.create(null);
+var failedLoadsByBasePath = Object.create(null);
 
 var INLINE_CONTAINER_TAGS = {
     a: true,
@@ -138,7 +139,7 @@ function getPlainTextFromHtml(html) {
 // Japanese hiragana/katakana, and the ideographic iteration marks. Hangul is
 // intentionally excluded — Korean is written with inter-word spaces, so it is
 // counted as whitespace-delimited tokens like Latin text (matching Word/Docs).
-var CJK_WORD_CHAR = /[々〇぀-ヿ㐀-䶿一-鿿豈-﫿]/g;
+var CJK_WORD_CHAR = /[\u3005\u3007\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/g;
 
 function countWords(value) {
     var normalized = normalizePlainText(value);
@@ -1798,7 +1799,7 @@ function parseBlockNode(node) {
         }
         var orderedListAttrs = {};
         if (startValue) {
-            orderedListAttrs.start = parseInt(startValue, 10) || 1;
+            orderedListAttrs.start = (isFinite(parseInt(startValue, 10)) ? parseInt(startValue, 10) : 1);
         }
         if (orderedListType) {
             orderedListAttrs.orderedListType = orderedListType;
@@ -2538,7 +2539,7 @@ function escapeHtml(value) {
 }
 
 function escapeAttribute(value) {
-    return escapeHtml(value).replace(/"/g, "&quot;");
+    return escapeHtml(value === undefined || value === null ? "" : String(value)).replace(/"/g, "&quot;");
 }
 
 function buildAttributeString(attrs) {
@@ -2791,7 +2792,7 @@ function serializeNode(node, inlineMode) {
 
     if (node.type === "orderedList") {
         var listAttrs = {};
-        if (node.attrs && node.attrs.start) {
+        if (node.attrs && node.attrs.start !== undefined && node.attrs.start !== null) {
             listAttrs.start = node.attrs.start;
         }
         if (node.attrs) {
@@ -3192,8 +3193,8 @@ function validateNode(node, path, mode, issues) {
 
     if (node.type === "bulletList" || node.type === "orderedList") {
         if (node.type === "orderedList" && node.attrs && node.attrs.start !== undefined) {
-            if (typeof node.attrs.start !== "number" || node.attrs.start < 1) {
-                issues.push(createValidationIssue(path + ".attrs.start", "Ordered lists require a positive numeric start value."));
+            if (typeof node.attrs.start !== "number" || !isFinite(node.attrs.start) || Math.floor(node.attrs.start) !== node.attrs.start || Math.abs(node.attrs.start) > 9007199254740991) {
+                issues.push(createValidationIssue(path + ".attrs.start", "Ordered lists require a finite safe integer start value."));
             }
         }
         if (node.type === "orderedList" && node.attrs && node.attrs.orderedListType !== undefined) {
@@ -3928,12 +3929,12 @@ function getMarkdownListMatch(line) {
         };
     }
 
-    var orderedMatch = /^(\s*)(\d+)\.\s+(.*)$/.exec(line);
+    var orderedMatch = /^(\s*)(\d{1,9})\.\s+(.*)$/.exec(line);
     if (orderedMatch) {
         return {
             indent: orderedMatch[1].length,
             ordered: true,
-            start: parseInt(orderedMatch[2], 10) || 1,
+            start: parseInt(orderedMatch[2], 10),
             text: orderedMatch[3],
             marker: orderedMatch[2] + ".",
             contentIndent: orderedMatch[1].length + orderedMatch[2].length + 2,
@@ -4923,8 +4924,13 @@ function serializeMarkdownBlocks(nodes) {
 
         if (node.type === "bulletList" || node.type === "orderedList") {
             var listParts = [];
-            var start = node.type === "orderedList" && node.attrs && node.attrs.start ? parseInt(node.attrs.start, 10) || 1 : 1;
+            var start = node.type === "orderedList" && node.attrs && node.attrs.start !== undefined ? parseInt(node.attrs.start, 10) : 1;
+            if (!isFinite(start)) start = 1;
             var listItems = node.content || [];
+            if (node.type === "orderedList" && (start < 0 || start + Math.max(0, listItems.length - 1) > 999999999)) {
+                parts.push(serializeNode(node, false));
+                continue;
+            }
             for (var itemIndex = 0; itemIndex < listItems.length; itemIndex++) {
                 var prefix = node.type === "orderedList" ? (start + itemIndex) + ". " : "- ";
                 listParts.push(serializeMarkdownListItem(listItems[itemIndex].content || [], prefix));
@@ -5069,15 +5075,28 @@ function installStructuredContentBridge() {
 }
 
 function ensureStylesheet(href) {
-    if (document.querySelector('link[data-rte-style="' + href + '"]')) {
-        return;
-    }
-
-    var link = document.createElement("link");
-    link.rel = "stylesheet";
-    link.href = href;
-    link.setAttribute("data-rte-style", href);
-    document.head.appendChild(link);
+    return new Promise(function (resolve, reject) {
+        var existing = document.querySelector('link[data-rte-style="' + href + '"]');
+        if (existing && (existing.getAttribute("data-rte-loaded") === "true" || existing.sheet)) {
+            resolve();
+            return;
+        }
+        var link = existing || document.createElement("link");
+        link.addEventListener("load", function () {
+            link.setAttribute("data-rte-loaded", "true");
+            resolve();
+        }, { once: true });
+        link.addEventListener("error", function () {
+            if (link.parentNode) link.parentNode.removeChild(link);
+            reject(new Error("Failed to load " + href));
+        }, { once: true });
+        if (!existing) {
+            link.rel = "stylesheet";
+            link.href = href;
+            link.setAttribute("data-rte-style", href);
+            document.head.appendChild(link);
+        }
+    });
 }
 
 function loadScript(src) {
@@ -5107,6 +5126,7 @@ function loadScript(src) {
             resolve(script);
         };
         script.onerror = function () {
+            if (script.parentNode) script.parentNode.removeChild(script);
             reject(new Error("Failed to load " + src));
         };
 
@@ -5123,18 +5143,30 @@ function loadRichTextEditorAssets(options) {
 
     var basePath = trimTrailingSlash(options && options.basePath ? options.basePath : "/richtexteditor");
 
-    if (window.RichTextEditor) {
+    if (pendingLoadsByBasePath[basePath]) {
+        return pendingLoadsByBasePath[basePath];
+    }
+
+    if (window.RichTextEditor && !failedLoadsByBasePath[basePath]) {
         return Promise.resolve(installStructuredContentBridge());
     }
 
     if (!pendingLoadsByBasePath[basePath]) {
-        ensureStylesheet(basePath + "/rte_theme_default.css");
-        pendingLoadsByBasePath[basePath] = loadScript(basePath + "/rte.js")
+        var themeReady = ensureStylesheet(basePath + "/rte_theme_default.css");
+        var scriptsReady = loadScript(basePath + "/rte.js")
             .then(function () {
+                if (window.RTE_DefaultConfig) window.RTE_DefaultConfig.url_base = basePath;
                 return loadScript(basePath + "/plugins/all_plugins.js");
-            })
+            });
+        pendingLoadsByBasePath[basePath] = Promise.all([themeReady, scriptsReady])
             .then(function () {
+                delete failedLoadsByBasePath[basePath];
                 return installStructuredContentBridge();
+            })
+            .catch(function (error) {
+                delete pendingLoadsByBasePath[basePath];
+                failedLoadsByBasePath[basePath] = true;
+                throw error;
             });
     }
 

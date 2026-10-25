@@ -28,6 +28,13 @@ function RTE_Plugin_ReadAloud() {
     function supported() { return !!synth() && typeof window.SpeechSynthesisUtterance === "function"; }
 
     obj.InitConfig = function (argconfig) { config = argconfig; };
+    // 2026-10-18 the words read config.text_ keys (language packs), English as the fallback; {0} / {1} fill a template.
+    // tools/i18n/plugin-bars-language.mjs
+    function pText(key, fallback) {
+        var s = (config && config["text_" + key]) || fallback;
+        for (var i = 2; i < arguments.length; i++) s = s.split("{" + (i - 2) + "}").join(String(arguments[i]));
+        return s;
+    }
 
     obj.InitEditor = function (argeditor) {
         editor = argeditor;
@@ -50,7 +57,7 @@ function RTE_Plugin_ReadAloud() {
             var d = editor.createDialog((editor.getLangText && editor.getLangText("readaloudtitle")) || "Read aloud", "rte-dialog-readaloud");
             var w = d.ownerDocument.createElement("div");
             w.style.cssText = "padding:16px;min-width:320px;font:13px -apple-system,Segoe UI,sans-serif";
-            w.textContent = "This browser does not provide a speech synthesizer (Web Speech API). Read-aloud is unavailable here.";
+            w.textContent = pText("ra_unsupported", "This browser does not provide a speech synthesizer (Web Speech API). Read-aloud is unavailable here.");
             d.appendChild(w);
         } catch (e) { /* ignore */ }
     };
@@ -89,7 +96,7 @@ function RTE_Plugin_ReadAloud() {
 
     // Split [text] into sentence segments with absolute offsets (base added).
     function splitSentences(text, base) {
-        var segs = [], re = /[^.!?\n。！？]*[.!?\n。！？]+|\S[^.!?\n]*$/g, m;
+        var segs = [], re = /[^.!?\n\u3002\uff01\uff1f]*[.!?\n\u3002\uff01\uff1f]+|\S[^.!?\n]*$/g, m;
         while ((m = re.exec(text)) !== null) {
             if (m[0] && /\S/.test(m[0])) segs.push({ text: m[0], start: base + m.index, end: base + m.index + m[0].length });
             if (m.index === re.lastIndex) re.lastIndex++; // guard against zero-length
@@ -103,7 +110,7 @@ function RTE_Plugin_ReadAloud() {
         if (!supported()) { obj.NotifyUnsupported(); return; }
         obj.Stop(); // reset any prior run
         var map = buildMap();
-        if (!map.hasNodes) { setStatus("Nothing to read"); return; }
+        if (!map.hasNodes) { setStatus(pText("ra_nothing", "Nothing to read")); return; }
         // Selection range -> read just the selection; else whole doc.
         var sel = editor.getSelection ? editor.getSelection() : null;
         var rStart = 0, rEnd = map.full.length;
@@ -118,7 +125,7 @@ function RTE_Plugin_ReadAloud() {
         savedRange = (sel && sel.rangeCount) ? sel.getRangeAt(0).cloneRange() : null;
         var slice = map.full.substring(rStart, rEnd);
         queue = splitSentences(slice, rStart);
-        if (!queue.length) { setStatus("Nothing to read"); return; }
+        if (!queue.length) { setStatus(pText("ra_nothing", "Nothing to read")); return; }
         qIndex = 0; speaking = true; paused = false;
         obj._map = map; obj._opts = opts || {};
         updatePlayBtn();
@@ -134,7 +141,7 @@ function RTE_Plugin_ReadAloud() {
         u.rate = Math.min(2, Math.max(0.5, rate));
         var v = chosenVoice();
         if (v) u.voice = v;
-        u.onstart = function () { if (config.readAloudHighlight !== false) highlight(seg); setStatus("Reading… (" + (qIndex + 1) + "/" + queue.length + ")"); };
+        u.onstart = function () { if (config.readAloudHighlight !== false) highlight(seg); setStatus(pText("ra_readingof", "Reading\u2026 ({0}/{1})", qIndex + 1, queue.length)); };
         u.onend = function () { if (!speaking) return; qIndex++; speakNext(); };
         u.onerror = function () { if (!speaking) return; qIndex++; speakNext(); };
         try { s.speak(u); } catch (e) { qIndex++; speakNext(); }
@@ -155,11 +162,11 @@ function RTE_Plugin_ReadAloud() {
 
     obj.Pause = function () {
         var s = synth(); if (!s || !speaking) return;
-        if (!paused) { try { s.pause(); } catch (e) {} paused = true; updatePlayBtn(); setStatus("Paused"); }
+        if (!paused) { try { s.pause(); } catch (e) {} paused = true; updatePlayBtn(); setStatus(pText("ra_paused", "Paused")); }
     };
     obj.Resume = function () {
         var s = synth(); if (!s || !speaking) return;
-        if (paused) { try { s.resume(); } catch (e) {} paused = false; updatePlayBtn(); setStatus("Reading…"); }
+        if (paused) { try { s.resume(); } catch (e) {} paused = false; updatePlayBtn(); setStatus(pText("ra_reading", "Reading\u2026")); }
     };
     obj.Stop = function () {
         var s = synth();
@@ -207,16 +214,23 @@ function RTE_Plugin_ReadAloud() {
         if (bar) return;
         var d = document;
         bar = d.createElement("div");
-        bar.className = "rte-readaloud-bar";
-        var title = d.createElement("span"); title.className = "rte-readaloud-title"; title.textContent = "Read"; bar.appendChild(title);
-        playBtn = btn(bar, "Play", "Play / Pause");
-        var stopBtn = btn(bar, "Stop", "Stop");
-        voiceSel = d.createElement("select"); voiceSel.className = "rte-readaloud-voice"; voiceSel.title = "Voice"; bar.appendChild(voiceSel);
-        rateSel = d.createElement("select"); rateSel.className = "rte-readaloud-rate"; rateSel.title = "Speed";
+        // 2026-10-17 appended to the page body, outside the editor, so rte-dark could not reach it: mirrored (and
+        // rte-auto-dark under a dark system setting). tools/a11y/readaloud-bar-dark.mjs
+        var barDark = false;
+        try {
+            var bk = editor.container && editor.container.classList;
+            barDark = !!bk && (bk.contains("rte-dark") || (bk.contains("rte-auto-dark") && !bk.contains("rte-light") && !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches)));
+        } catch (x) { barDark = false; }
+        bar.className = "rte-readaloud-bar" + (barDark ? " rte-readaloud-dark" : "");
+        var title = d.createElement("span"); title.className = "rte-readaloud-title"; title.textContent = pText("ra_read", "Read"); bar.appendChild(title);
+        playBtn = btn(bar, pText("ra_play", "Play"), pText("ra_playpause", "Play / Pause"));
+        var stopBtn = btn(bar, pText("ra_stop", "Stop"), pText("ra_stop", "Stop"));
+        voiceSel = d.createElement("select"); voiceSel.className = "rte-readaloud-voice"; voiceSel.title = pText("ra_voice", "Voice"); bar.appendChild(voiceSel);
+        rateSel = d.createElement("select"); rateSel.className = "rte-readaloud-rate"; rateSel.title = pText("ra_speed", "Speed");
         ["0.75", "1", "1.25", "1.5", "2"].forEach(function (r) { var o = d.createElement("option"); o.value = r; o.textContent = r + "x"; if (r === "1") o.selected = true; rateSel.appendChild(o); });
         bar.appendChild(rateSel);
         statusEl = d.createElement("span"); statusEl.className = "rte-readaloud-status"; bar.appendChild(statusEl);
-        var closeBtn = btn(bar, "Close", "Close"); closeBtn.className += " is-close";
+        var closeBtn = btn(bar, pText("close", "Close"), pText("close", "Close")); closeBtn.className += " is-close";
         d.body.appendChild(bar);
 
         loadVoices();
@@ -238,6 +252,6 @@ function RTE_Plugin_ReadAloud() {
         bar = null; playBtn = statusEl = voiceSel = rateSel = null;
     };
 
-    function updatePlayBtn() { if (playBtn) playBtn.textContent = (speaking && !paused) ? "Pause" : "Play"; }
+    function updatePlayBtn() { if (playBtn) playBtn.textContent = (speaking && !paused) ? pText("ra_pause", "Pause") : pText("ra_play", "Play"); }
     function setStatus(t) { if (statusEl) statusEl.textContent = t; }
 }

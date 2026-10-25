@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "Vložit";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "Styly";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "Styly textu";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "cs";	// this pack's locale (Intl names, e.g. the text-part language menu)

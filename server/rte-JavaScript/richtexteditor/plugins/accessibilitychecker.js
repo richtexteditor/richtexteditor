@@ -14,20 +14,41 @@ function RTE_Plugin_AccessibilityChecker() {
     var refreshTimer = 0;
     var lastResult = null;
     var selectedIssueIndex = -1;
+    var destroyed = false;
 
     obj.PluginName = "AccessibilityChecker";
+
+    // 2026-10-18 the panel's words - its chrome, every rule's message and the repairs - read config.text_ keys with
+    // English as the fallback ({0} / {1} are filled in). The rule codes stay as identifiers.
+    // tools/i18n/a11y-checker-language.mjs
+    function aT(key, en, a, b) {
+        var s = (config && config["text_" + key]) || en;
+        if (a !== undefined) s = s.split("{0}").join(String(a));
+        if (b !== undefined) s = s.split("{1}").join(String(b));
+        return s;
+    }
 
     obj.InitConfig = function (argconfig) {
         config = argconfig;
         if (config.accessibilityCheckerEnabled === false) return;
 
         if (typeof config.accessibilityCheckerAutoOpen !== "boolean") config.accessibilityCheckerAutoOpen = false;
-        config.accessibilityCheckerTitle = config.accessibilityCheckerTitle || "Accessibility";
-        config.accessibilityCheckerHint = config.accessibilityCheckerHint || "Review heading structure, image alt text, and table headers without leaving the editor.";
-        config.accessibilityCheckerEmptyText = config.accessibilityCheckerEmptyText || "No accessibility issues found in the current document.";
+        config.accessibilityCheckerTitle = config.accessibilityCheckerTitle || config.text_a11yc_title || "Accessibility";
+        config.accessibilityCheckerHint = config.accessibilityCheckerHint || config.text_a11yc_hint || "Review heading structure, image alt text, and table headers without leaving the editor.";
+        config.accessibilityCheckerEmptyText = config.accessibilityCheckerEmptyText || config.text_a11yc_empty || "No accessibility issues found in the current document.";
 
         appendToolbarCommand("toolbar_default", "#{accessibilitychecker}");
         appendToolbarCommand("toolbar_full", "#{accessibilitychecker}");
+        // 2026-10-03 Build the shell NOW, before the editor creates its iframe. ensureShell() moves the
+        // editor container; done in InitEditor it moved the live iframe, which then gets a fresh
+        // document - and every plugin that had already bound listeners to the old one went deaf (the
+        // slash menu, @mentions and emoji autocomplete, until they moved to editor.bindDocumentEvent;
+        // customer plugins binding the document directly still were). Nothing is loaded yet here.
+        // InitEditor's own ensureShell() call finds the shell and returns it.
+        // tools/keyboard/plugin-listeners.mjs
+        if (config.accessibilityCheckerEnabled !== false && config.container && config.container.parentNode) {
+            try { ensureShell(); } catch (e) { /* InitEditor builds it */ }
+        }
     };
 
     obj.InitEditor = function (argeditor) {
@@ -59,6 +80,14 @@ function RTE_Plugin_AccessibilityChecker() {
         editor.attachEvent("change", function () {
             scheduleRefresh();
         });
+        // 2026-10-18 setHTMLCode fires no "change": a document loaded or replaced that way kept the previous audit
+        // ("Ready to publish" over a document with six issues). tools/a11y/checker-opens-fresh.mjs
+        try { editor.attachEvent("aftersethtml", function () { scheduleRefresh(); }); } catch (e) { /* older cores */ }
+        editor.attachEvent("destroy", function () {
+            destroyed = true;
+            clearTimeout(refreshTimer);
+            refreshTimer = 0;
+        });
 
         ensureShell();
         runAudit();
@@ -80,7 +109,7 @@ function RTE_Plugin_AccessibilityChecker() {
             ".rte-a11y-shell{display:flex;align-items:stretch;gap:10px;}",
             ".rte-a11y-shell>.rte-a11y-host{flex:1 1 auto;min-width:0;}",
             "/* 2026-07-12 accessibility panel precision */",
-            ".rte-a11y-panel{display:none;flex:0 0 310px;min-width:270px;max-width:min(360px,32vw);border:1px solid rgba(148,163,184,.22);border-radius:8px;background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(248,251,255,.96));box-shadow:0 14px 32px rgba(29,78,216,.1),0 2px 8px rgba(15,23,42,.06);overflow:hidden;color:#172033;font-family:Aptos,'Segoe UI',sans-serif;}",
+            ".rte-a11y-panel{display:none;flex:0 0 310px;min-width:270px;max-width:min(360px,32vw);border:1px solid rgba(148,163,184,.22);border-radius:8px;background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(248,251,255,.96));box-shadow:0 14px 32px rgba(29,78,216,.1),0 2px 8px rgba(15,23,42,.06);overflow:hidden;color:#172033;font-family:Aptos,'Segoe UI',sans-serif;}.rte-a11y-locked-note{margin:6px 10px;padding:6px 8px;border:1px solid #e3b341;border-radius:6px;background:#fff8e1;color:#5c3d00;font-size:12px;}",
             ".rte-a11y-shell.is-open>.rte-a11y-panel{display:flex;flex-direction:column;}",
             ".rte-a11y-header{padding:12px 12px 9px 14px;border-bottom:1px solid rgba(148,163,184,.16);background:rgba(255,255,255,.72);}",
             ".rte-a11y-kicker{font-size:10px;line-height:1.3;letter-spacing:.08em;text-transform:uppercase;color:#52657e;font-weight:850;}",
@@ -113,6 +142,17 @@ function RTE_Plugin_AccessibilityChecker() {
             ".rte-a11y-button{appearance:none;border:1px solid #1d67ba;border-radius:7px;background:#1d67ba;color:#fff;padding:8px 12px;font-size:12px;font-weight:750;cursor:pointer;box-shadow:0 6px 14px rgba(29,103,186,.16);}",
             ".rte-a11y-button-secondary{background:#fff;color:#315277;border-color:rgba(100,116,139,.18);box-shadow:none;}",
             ".rte-a11y-button:hover,.rte-a11y-button:focus-visible{transform:translateY(-1px);}",
+            ".rte-a11y-panel.rte-a11y-dark{background:linear-gradient(180deg,#1e293b,#0f172a);border-color:#334155;color:#e2e8f0;box-shadow:0 18px 40px rgba(0,0,0,.45);}",
+            ".rte-a11y-dark .rte-a11y-header,.rte-a11y-dark .rte-a11y-toolbar{background:rgba(15,23,42,.6);border-color:#334155;}",
+            ".rte-a11y-dark .rte-a11y-kicker,.rte-a11y-dark .rte-a11y-copy,.rte-a11y-dark .rte-a11y-count,.rte-a11y-dark .rte-a11y-detail-copy,.rte-a11y-dark .rte-a11y-label{color:#94a3b8;}",
+            ".rte-a11y-dark .rte-a11y-code{color:#a5b4c8;}",
+            ".rte-a11y-dark .rte-a11y-title,.rte-a11y-dark .rte-a11y-message,.rte-a11y-dark .rte-a11y-detail-title{color:#f1f5f9;}",
+            ".rte-a11y-dark .rte-a11y-item,.rte-a11y-dark .rte-a11y-detail,.rte-a11y-dark .rte-a11y-empty{background:rgba(15,23,42,.72);border-color:#334155;color:#e2e8f0;}",
+            ".rte-a11y-dark .rte-a11y-link,.rte-a11y-dark .rte-a11y-button-secondary{background:#0f172a;color:#bfdbfe;border-color:#475569;}",
+            ".rte-a11y-dark .rte-a11y-input{background:#0f172a;color:#e2e8f0;border-color:#475569;}",
+            ".rte-a11y-dark .rte-a11y-badge-warning{background:#422006;color:#fde68a;border-color:#92400e;}",
+            ".rte-a11y-dark .rte-a11y-badge-error{background:#4c0519;color:#fecdd3;border-color:#9f1239;}",
+            ".rte-a11y-dark .rte-a11y-locked-note{background:#422006;color:#fde68a;border-color:#92400e;}",
             ".rte-a11y-empty{padding:14px;border-radius:8px;background:#fff;color:#52657e;font-size:13px;font-weight:700;line-height:1.55;border:1px dashed rgba(148,163,184,.34);}",
             "@media (max-width: 1420px){.rte-a11y-shell{display:block;}.rte-a11y-panel{margin-top:12px;max-width:none;width:100%;}.rte-a11y-body{max-height:360px;}}"
         ].join("");
@@ -145,16 +185,22 @@ function RTE_Plugin_AccessibilityChecker() {
         panel.className = "rte-a11y-panel";
         panel.setAttribute("aria-label", config.accessibilityCheckerTitle);
         panel.setAttribute("role", "complementary");
+        // 2026-10-17 drag / arrow-key resizable (tools/ui/panel-resize.mjs)
+        setTimeout(function () { if (editor && typeof editor.makePanelResizable === "function") editor.makePanelResizable(panel, { label: aT("a11yc_resize", "Resize accessibility panel") }); }, 0);
 
         var header = hostDoc.createElement("div");
         header.className = "rte-a11y-header";
-        header.innerHTML = '<div class="rte-a11y-kicker">Accessibility</div><div class="rte-a11y-title"></div><div class="rte-a11y-copy"></div>';
+        header.innerHTML = '<div class="rte-a11y-kicker"></div><div class="rte-a11y-title"></div><div class="rte-a11y-copy"></div>';
+        header.querySelector(".rte-a11y-kicker").innerText = aT("a11yc_title", "Accessibility");
         header.querySelector(".rte-a11y-title").innerText = config.accessibilityCheckerTitle;
         header.querySelector(".rte-a11y-copy").innerText = config.accessibilityCheckerHint;
 
         var toolbar = hostDoc.createElement("div");
         toolbar.className = "rte-a11y-toolbar";
-        toolbar.innerHTML = '<div class="rte-a11y-count" data-rte-a11y-count="1"></div><div class="rte-a11y-actions"><button type="button" class="rte-a11y-link" data-rte-a11y-refresh="1">Refresh</button><button type="button" class="rte-a11y-link" data-rte-a11y-close="1" aria-label="Hide accessibility checker">Hide</button></div>';
+        toolbar.innerHTML = '<div class="rte-a11y-count" data-rte-a11y-count="1"></div><div class="rte-a11y-actions"><button type="button" class="rte-a11y-link" data-rte-a11y-refresh="1"></button><button type="button" class="rte-a11y-link" data-rte-a11y-close="1"></button></div>';
+        toolbar.querySelector("[data-rte-a11y-refresh]").innerText = aT("a11yc_refresh", "Refresh");
+        toolbar.querySelector("[data-rte-a11y-close]").innerText = aT("a11yc_hide", "Hide");
+        toolbar.querySelector("[data-rte-a11y-close]").setAttribute("aria-label", aT("a11yc_hidearia", "Hide accessibility checker"));
         toolbar.querySelector("[data-rte-a11y-refresh]").onclick = function () { runAudit(); };
         toolbar.querySelector("[data-rte-a11y-close]").onclick = function () { closePanel(); };
 
@@ -183,10 +229,20 @@ function RTE_Plugin_AccessibilityChecker() {
         else openPanel();
     }
 
+    // 2026-10-17 the panel sits beside the editor's element, so rte-dark could not reach it: mirrored (and
+    // rte-auto-dark under a dark system setting). tools/a11y/checker-panel-dark.mjs
+    function editorIsDark() {
+        try {
+            var k = editor.container && editor.container.classList;
+            return !!k && (k.contains("rte-dark") || (k.contains("rte-auto-dark") && !k.contains("rte-light") && !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches)));
+        } catch (x) { return false; }
+    }
     function openPanel() {
         ensureShell();
+        if (panel && panel.classList) { if (editorIsDark()) panel.classList.add("rte-a11y-dark"); else panel.classList.remove("rte-a11y-dark"); }
         shell.classList.add("is-open");
-        renderPanel();
+        // audit what is shown now, not what was there at the last change event
+        runAudit();
         notifyResize();
     }
 
@@ -217,6 +273,7 @@ function RTE_Plugin_AccessibilityChecker() {
     }
 
     function scheduleRefresh() {
+        if (destroyed) return;
         clearTimeout(refreshTimer);
         refreshTimer = setTimeout(function () {
             runAudit();
@@ -224,6 +281,7 @@ function RTE_Plugin_AccessibilityChecker() {
     }
 
     function runAudit() {
+        if (destroyed) return lastResult || { document: null, issues: [], valid: true, source: "dom" };
         ensureShell();
         var ctor = window.RichTextEditor;
         var documentModel = editor.getJSON ? editor.getJSON() : null;
@@ -236,7 +294,30 @@ function RTE_Plugin_AccessibilityChecker() {
         return lastResult;
     }
 
+    // 2026-10-17 a locked document stays locked: the fixes edit the DOM directly (neither insertHTML's nor
+    // setHTMLCode's lock reaches them) and the checker's button stays enabled in comments-only mode. A repair is
+    // refused while the editor is read-only or comments-only, and the panel says so. tools/a11y/checker-repair-locked.mjs
+    function checkerLocked() {
+        try { return !!((editor.getReadOnly && editor.getReadOnly()) || (editor.getCommentsOnly && editor.getCommentsOnly())); } catch (e) { return false; }
+    }
+
+    function showLockedNote() {
+        if (!panel) return;
+        var note = panel.querySelector(".rte-a11y-locked-note");
+        if (!note) {
+            note = panel.ownerDocument.createElement("div");
+            note.className = "rte-a11y-locked-note";
+            note.setAttribute("role", "status");
+            panel.insertBefore(note, panel.children[1] || null);
+        }
+        note.textContent = "";
+        var text = (config && config.text_a11ycheckerlocked) || "This document is read-only, so the fix was not applied.";
+        setTimeout(function () { note.textContent = text; }, 30);
+        note.textContent = text;
+    }
+
     function repairIssue(issueIndex, options) {
+        if (checkerLocked()) { showLockedNote(); return lastResult || runAudit(); }
         if (!lastResult || !lastResult.issues || !lastResult.issues[issueIndex]) return runAudit();
         var ctor = window.RichTextEditor;
         // An issue carrying `_target` came from the DOM audit and is addressed
@@ -289,16 +370,16 @@ function RTE_Plugin_AccessibilityChecker() {
     // document, and the reverse). We flag only what we can be certain of —
     // a checker that cries wolf gets switched off.
     var SCRIPTS = [
-        { name: "Hebrew",   lang: "he", re: /[֐-׿]/g },
-        { name: "Arabic",   lang: "ar", re: /[؀-ۿݐ-ݿﭐ-﷿ﹰ-﻿]/g },
-        { name: "Greek",    lang: "el", re: /[Ͱ-Ͽἀ-῿]/g },
-        { name: "Cyrillic", lang: "ru", re: /[Ѐ-ӿ]/g },
-        { name: "Han",      lang: "zh", re: /[㐀-䶿一-鿿]/g },
-        { name: "Kana",     lang: "ja", re: /[぀-ゟ゠-ヿ]/g },
-        { name: "Hangul",   lang: "ko", re: /[가-힯ᄀ-ᇿ]/g },
-        { name: "Devanagari", lang: "hi", re: /[ऀ-ॿ]/g },
-        { name: "Thai",     lang: "th", re: /[฀-๿]/g },
-        { name: "Latin",    lang: "en", re: /[A-Za-zÀ-ɏ]/g }
+        { name: "Hebrew",   lang: "he", re: /[\u0590-\u05ff]/g },
+        { name: "Arabic",   lang: "ar", re: /[\u0600-\u06ff\u0750-\u077f\ufb50-\ufdff\ufe70-\ufeff]/g },
+        { name: "Greek",    lang: "el", re: /[\u0370-\u03ff\u1f00-\u1fff]/g },
+        { name: "Cyrillic", lang: "ru", re: /[\u0400-\u04ff]/g },
+        { name: "Han",      lang: "zh", re: /[\u3400-\u4dbf\u4e00-\u9fff]/g },
+        { name: "Kana",     lang: "ja", re: /[\u3040-\u309f\u30a0-\u30ff]/g },
+        { name: "Hangul",   lang: "ko", re: /[\uac00-\ud7af\u1100-\u11ff]/g },
+        { name: "Devanagari", lang: "hi", re: /[\u0900-\u097f]/g },
+        { name: "Thai",     lang: "th", re: /[\u0e00-\u0e7f]/g },
+        { name: "Latin",    lang: "en", re: /[A-Za-z\xc0-\u024f]/g }
     ];
 
     // Below this, a "run" is more likely a stray glyph, a maths symbol or a
@@ -362,8 +443,7 @@ function RTE_Plugin_AccessibilityChecker() {
                 issues.push({
                     code: "language-of-parts",
                     severity: "warning",
-                    message: script.name + " text is not marked with a language. Select the phrase and set its " +
-                             "language so assistive technology pronounces it correctly (WCAG 3.1.2).",
+                    message: aT("a11yc_m_lang", "{0} text is not marked with a language. Select the phrase and set its language so assistive technology pronounces it correctly (WCAG 3.1.2).", aT("a11yc_script_" + script.lang, script.name)),
                     path: path + ".lang",
                     _target: block,
                     _lang: script.lang,
@@ -398,7 +478,7 @@ function RTE_Plugin_AccessibilityChecker() {
                     issues.push({
                         code: "heading-empty",
                         severity: "warning",
-                        message: "Heading is empty. Add a concise label or remove the heading.",
+                        message: aT("a11yc_m_hempty", "Heading is empty. Add a concise label or remove the heading."),
                         path: path,
                         _target: node
                     });
@@ -407,7 +487,7 @@ function RTE_Plugin_AccessibilityChecker() {
                     issues.push({
                         code: "heading-level-skip",
                         severity: "warning",
-                        message: "Heading jumps from H" + previousHeadingLevel + " to H" + level + ". Use the next heading level for a clearer outline.",
+                        message: aT("a11yc_m_hskip", "Heading jumps from H{0} to H{1}. Use the next heading level for a clearer outline.", previousHeadingLevel, level),
                         path: path + ".attrs.level",
                         _target: node
                     });
@@ -428,7 +508,7 @@ function RTE_Plugin_AccessibilityChecker() {
                     issues.push({
                         code: "image-missing-alt",
                         severity: "error",
-                        message: "Image is missing alt text. Describe the image or mark it decorative in your content workflow.",
+                        message: aT("a11yc_m_alt", "Image is missing alt text. Describe the image or mark it decorative in your content workflow."),
                         path: path + ".image[" + imageIndex + "]",
                         _target: image
                     });
@@ -452,7 +532,7 @@ function RTE_Plugin_AccessibilityChecker() {
                 issues.push({
                     code: "link-empty",
                     severity: "error",
-                    message: "Link has no text, so it is announced only as \"link\". Add link text, an aria-label, or alt text on the image inside it.",
+                    message: aT("a11yc_m_linkempty", "Link has no text, so it is announced only as \"link\". Add link text, an aria-label, or alt text on the image inside it."),
                     path: path + ".link[" + linkIndex + "]",
                     _target: link
                 });
@@ -477,7 +557,7 @@ function RTE_Plugin_AccessibilityChecker() {
                         issues.push({
                             code: "layout-table-semantics",
                             severity: "error",
-                            message: "Layout table still carries data-table markup (header cells, scope or a caption). A screen reader will announce relationships this table does not have.",
+                            message: aT("a11yc_m_layouttable", "Layout table still carries data-table markup (header cells, scope or a caption). A screen reader will announce relationships this table does not have."),
                             path: path + ".table[" + tableIndex + "]",
                             _target: table
                         });
@@ -487,7 +567,7 @@ function RTE_Plugin_AccessibilityChecker() {
                     issues.push({
                         code: "table-missing-header",
                         severity: "warning",
-                        message: "Table has no header cells. Promote the first row to headers, or mark it as a layout table when it only positions content.",
+                        message: aT("a11yc_m_noheader", "Table has no header cells. Promote the first row to headers, or mark it as a layout table when it only positions content."),
                         path: path + ".table[" + tableIndex + "]",
                         _target: table
                     });
@@ -521,7 +601,7 @@ function RTE_Plugin_AccessibilityChecker() {
                         issues.push({
                             code: "table-header-empty",
                             severity: "error",
-                            message: "Header cell is empty, so the column or row it labels is announced with no name. Give it text, or make it a normal cell if it labels nothing.",
+                            message: aT("a11yc_m_headerempty", "Header cell is empty, so the column or row it labels is announced with no name. Give it text, or make it a normal cell if it labels nothing."),
                             path: path + ".table[" + tableIndex + "].th[" + headerIndex + "]",
                             _target: headerCell
                         });
@@ -562,10 +642,9 @@ function RTE_Plugin_AccessibilityChecker() {
                     issues.push({
                         code: "contrast-insufficient",
                         severity: "error",
-                        message: "Text contrast is " + ratio.toFixed(2) + ":1 against " +
-                            (bg.assumed ? "an assumed white background" : "its background") +
-                            ", below the " + need + ":1 needed for " +
-                            (large ? "large text" : "body text") + " (WCAG 1.4.3).",
+                        message: aT("a11yc_m_contrast_" + (bg.assumed ? "w" : "b") + (large ? "l" : "b"),
+                            "Text contrast is {0}:1 against " + (bg.assumed ? "an assumed white background" : "its background") +
+                            ", below the {1}:1 needed for " + (large ? "large text" : "body text") + " (WCAG 1.4.3).", ratio.toFixed(2), need),
                         path: path + ".contrast[" + cIndex + "]",
                         _target: cEl
                     });
@@ -596,7 +675,7 @@ function RTE_Plugin_AccessibilityChecker() {
                     issues.push({
                         code: "blockquote-as-indent",
                         severity: "warning",
-                        message: "This looks like indentation, not a quotation: a <blockquote> with a left margin and no quote styling. Screen readers announce it as a quotation. Use the indent button instead.",
+                        message: aT("a11yc_m_bqindent", "This looks like indentation, not a quotation: a <blockquote> with a left margin and no quote styling. Screen readers announce it as a quotation. Use the indent button instead."),
                         path: path + ".blockquote[" + qIndex + "]",
                         _target: q
                     });
@@ -616,7 +695,7 @@ function RTE_Plugin_AccessibilityChecker() {
                     issues.push({
                         code: "link-ambiguous-text",
                         severity: "warning",
-                        message: "Link text \"" + aName + "\" does not say where it goes. Out of context a screen reader announces only this text.",
+                        message: aT("a11yc_m_ambig", "Link text \"{0}\" does not say where it goes. Out of context a screen reader announces only this text.", aName),
                         path: path + ".link[" + aIndex + "]",
                         _target: aEl
                     });
@@ -645,7 +724,7 @@ function RTE_Plugin_AccessibilityChecker() {
                     issues.push({
                         code: "duplicate-id",
                         severity: "error",
-                        message: "id \"" + dupId + "\" is used more than once. Any aria-labelledby, aria-describedby or label pointing at it resolves to only the first element.",
+                        message: aT("a11yc_m_dupid", "id \"{0}\" is used more than once. Any aria-labelledby, aria-describedby or label pointing at it resolves to only the first element.", dupId),
                         path: "document.id[" + dupIndex + "]",
                         _target: allWithIds[dupIndex]
                     });
@@ -677,7 +756,7 @@ function RTE_Plugin_AccessibilityChecker() {
                 issues.push({
                     code: "paragraph-as-heading",
                     severity: "warning",
-                    message: "\"" + pText + "\" looks like a heading (bold, large, on its own line) but is a paragraph. Screen-reader users cannot jump to it. Use a heading level instead.",
+                    message: aT("a11yc_m_pheading", "\"{0}\" looks like a heading (bold, large, on its own line) but is a paragraph. Screen-reader users cannot jump to it. Use a heading level instead.", pText),
                     path: "document.p[" + pi + "]",
                     _target: pEl
                 });
@@ -689,7 +768,7 @@ function RTE_Plugin_AccessibilityChecker() {
                 if (!el || String(el.nodeName).toLowerCase() !== "p") return null;
                 var t = getText(el);
                 if (/^\d{1,3}[.)]\s+\S/.test(t)) return "ol";
-                if (/^[-*•▪●]\s+\S/.test(t)) return "ul";
+                if (/^[-*\u2022\u25aa\u25cf]\s+\S/.test(t)) return "ul";
                 return null;
             };
             var kids = editable.children;
@@ -702,7 +781,7 @@ function RTE_Plugin_AccessibilityChecker() {
                     issues.push({
                         code: "fake-list",
                         severity: "warning",
-                        message: run + " paragraphs are typed as a " + (kind === "ol" ? "numbered" : "bulleted") + " list. Screen readers do not announce them as a list or say how many items it has. Use the list button instead.",
+                        message: aT("a11yc_m_fakelist_" + (kind === "ol" ? "ol" : "ul"), "{0} paragraphs are typed as a " + (kind === "ol" ? "numbered" : "bulleted") + " list. Screen readers do not announce them as a list or say how many items it has. Use the list button instead.", run),
                         path: "content[" + ki + "]",
                         _target: kids[ki]
                     });
@@ -720,7 +799,7 @@ function RTE_Plugin_AccessibilityChecker() {
                     issues.push({
                         code: "image-alt-filename",
                         severity: "error",
-                        message: "Alt text \"" + alt + "\" is a file name, which describes nothing. Say what the image shows.",
+                        message: aT("a11yc_m_altfile", "Alt text \"{0}\" is a file name, which describes nothing. Say what the image shows.", alt),
                         path: "document.img[" + ii + "]",
                         _target: imgs[ii]
                     });
@@ -728,7 +807,7 @@ function RTE_Plugin_AccessibilityChecker() {
                     issues.push({
                         code: "image-alt-too-long",
                         severity: "warning",
-                        message: "Alt text is " + alt.length + " characters. Keep it to a short description; put longer detail in the text or a caption.",
+                        message: aT("a11yc_m_altlong", "Alt text is {0} characters. Keep it to a short description; put longer detail in the text or a caption.", alt.length),
                         path: "document.img[" + ii + "]",
                         _target: imgs[ii]
                     });
@@ -750,7 +829,7 @@ function RTE_Plugin_AccessibilityChecker() {
                     issues.push({
                         code: "link-adjacent-duplicate",
                         severity: "warning",
-                        message: "Two links next to each other go to the same place, so it is announced twice. Combine them into one link.",
+                        message: aT("a11yc_m_adjlinks", "Two links next to each other go to the same place, so it is announced twice. Combine them into one link."),
                         path: "document.link[" + li + "]",
                         _target: cur
                     });
@@ -766,7 +845,7 @@ function RTE_Plugin_AccessibilityChecker() {
                 issues.push({
                     code: "table-missing-caption",
                     severity: "warning",
-                    message: "Data table has no caption. A short caption lets screen-reader users know what the table is before they enter it.",
+                    message: aT("a11yc_m_nocaption", "Data table has no caption. A short caption lets screen-reader users know what the table is before they enter it."),
                     path: "document.table[" + ti + "]",
                     _target: tb
                 });
@@ -779,6 +858,13 @@ function RTE_Plugin_AccessibilityChecker() {
     function repairDomIssue(issue, options) {
         if (!issue || !issue._target) return runAudit();
         var target = issue._target;
+        // 2026-10-05 a target edited away since the audit: re-audit (the repair threw half-way, leaving the
+        // undo step open). tools/review/plugin-review-20261005.mjs
+        var liveRoot = editor.getEditable ? editor.getEditable() : null;
+        if (!target.parentNode || (liveRoot && !liveRoot.contains(target))) return runAudit();
+        // 2026-10-04 every repair is one undo step: the state before it is recorded first, the result after.
+        // Undo skipped a repair entirely. tools/a11y/checker-action-repairs.mjs
+        commitUndo();
 
         if (issue.code === "image-missing-alt") {
             target.setAttribute("alt", String(options.altText || "").replace(/^\s+|\s+$/g, ""));
@@ -815,11 +901,18 @@ function RTE_Plugin_AccessibilityChecker() {
                 target.parentNode.replaceChild(cell, target);
             }
         }
-        else if (issue.code === "link-empty") {
+        else if (issue.code === "link-empty" || issue.code === "link-ambiguous-text") {
             // Prefer real text: an aria-label is invisible, so a sighted editor
             // cannot see what the link says and it drifts out of date.
             var linkText = String((options && options.linkText) || "").replace(/^\s+|\s+$/g, "");
-            if (linkText) target.textContent = linkText;
+            // 2026-10-05 only the link's TEXT is replaced: an image or formatting inside it stays (textContent
+            // wiped them). tools/review/plugin-review-20261005.mjs
+            if (linkText) {
+                var lw = target.ownerDocument.createTreeWalker(target, 4, null, false), ltn, ltexts = [];
+                while ((ltn = lw.nextNode())) if (/\S/.test(ltn.data)) ltexts.push(ltn);
+                if (!ltexts.length) { if (target.firstChild && target.firstChild.nodeType === 1) target.appendChild(target.ownerDocument.createTextNode(" ")); target.appendChild(target.ownerDocument.createTextNode(linkText)); }
+                else { ltexts[0].data = linkText; for (var lti = 1; lti < ltexts.length; lti++) ltexts[lti].data = ""; }
+            }
             else {
                 var linkLabel = String((options && options.linkLabel) || "").replace(/^\s+|\s+$/g, "");
                 if (linkLabel) target.setAttribute("aria-label", linkLabel);
@@ -829,6 +922,34 @@ function RTE_Plugin_AccessibilityChecker() {
             markLanguageRuns(target, options && options.lang ? options.lang : issue._lang, issue._script);
         }
 
+        else if (issue.code === "duplicate-id") {
+            // 2026-10-04 the first element keeps the id (links and labels already resolve to it); the repeat
+            // loses it. tools/a11y/checker-action-repairs.mjs
+            target.removeAttribute("id");
+        }
+        else if (issue.code === "blockquote-as-indent") {
+            // the quote goes; its left margin moves onto each block it held (bare text becomes a paragraph)
+            var ml = target.style.marginLeft, qd = target.ownerDocument, qp = target.parentNode, run = null;
+            while (target.firstChild) {
+                var qc = target.firstChild;
+                // 2026-10-05 every block tag (a rule or a section was wrapped in a <p>), margins ADD (a 20px
+                // paragraph in a 40px quote is 60px), and a space between inline words stays (it was dropped:
+                // "Helloworld"). tools/review/plugin-review-20261005.mjs
+                var isBlock = qc.nodeType === 1 && /^(P|DIV|H[1-6]|UL|OL|DL|PRE|TABLE|BLOCKQUOTE|FIGURE|ADDRESS|HR|SECTION|ARTICLE|ASIDE|NAV|HEADER|FOOTER|DETAILS|FIELDSET|FORM)$/.test(qc.nodeName);
+                if (isBlock) {
+                    run = null;
+                    if (ml && qc.nodeName !== "HR") {
+                        var own = qc.style.marginLeft, ownPx = /^([\d.]+)px$/.exec(own || ""), qPx = /^([\d.]+)px$/.exec(ml);
+                        qc.style.marginLeft = !own ? ml : (ownPx && qPx ? (parseFloat(ownPx[1]) + parseFloat(qPx[1])) + "px" : "calc(" + ml + " + " + own + ")");
+                    }
+                    qp.insertBefore(qc, target); continue;
+                }
+                if (qc.nodeType === 3 && !/\S/.test(qc.data) && !run) { target.removeChild(qc); continue; }
+                if (!run) { run = qd.createElement("p"); if (ml) run.style.marginLeft = ml; qp.insertBefore(run, target); }
+                run.appendChild(qc);
+            }
+            qp.removeChild(target);
+        }
         else if (issue.code === "paragraph-as-heading") {
             var lvl = Math.max(1, Math.min(6, parseInt(options && options.targetLevel, 10) || 2));
             var h = target.ownerDocument.createElement("h" + lvl);
@@ -846,7 +967,7 @@ function RTE_Plugin_AccessibilityChecker() {
             var node = target;
             while (node && node.nodeName === "P") {
                 var t = (node.textContent || "").replace(/^\s+/, "");
-                var m = ordered ? /^\d{1,3}[.)]\s+([\s\S]*)$/.exec(t) : /^[-*•▪●]\s+([\s\S]*)$/.exec(t);
+                var m = ordered ? /^\d{1,3}[.)]\s+([\s\S]*)$/.exec(t) : /^[-*\u2022\u25aa\u25cf]\s+([\s\S]*)$/.exec(t);
                 if (!m) break;
                 var li = d.createElement("li");
                 li.textContent = m[1].replace(/\s+$/, "");
@@ -879,8 +1000,19 @@ function RTE_Plugin_AccessibilityChecker() {
             target.setAttribute("alt", String((options && options.altText) || "").replace(/^\s+|\s+$/g, ""));
         }
         selectedIssueIndex = 0;
+        recordUndo();
         scheduleEditorChange();
         return runAudit();
+    }
+
+    // record the repaired document as its own step (notifySelectionChange saves the undo snapshot), then
+    // seal it so the next edit starts a new one
+    function recordUndo() {
+        try { if (editor.recordUndo) editor.recordUndo(); else if (editor.notifySelectionChange) editor.notifySelectionChange(); if (editor.commitBookmark) editor.commitBookmark(); } catch (er) { /* ignore */ }
+        commitUndo();
+    }
+    function commitUndo() {
+        if (typeof editor.commitBookmark === "function") { try { editor.commitBookmark(); } catch (er) { /* ignore */ } }
     }
 
     // Wrap the offending script's runs in <span lang> — the same markup
@@ -921,8 +1053,8 @@ function RTE_Plugin_AccessibilityChecker() {
                 var text = m[0];
                 // Trim the neutrals the greedy match pulled in at the edges;
                 // they belong to the surrounding sentence, not the phrase.
-                var lead = text.length - text.replace(/^[\s.,;:!?'"()‐-‧«»“”]+/, "").length;
-                var trail = text.length - text.replace(/[\s.,;:!?'"()‐-‧«»“”]+$/, "").length;
+                var lead = text.length - text.replace(/^[\s.,;:!?'"()\u2010-\u2027\xab\xbb\u201c\u201d]+/, "").length;
+                var trail = text.length - text.replace(/[\s.,;:!?'"()\u2010-\u2027\xab\xbb\u201c\u201d]+$/, "").length;
                 var start = m.index + lead;
                 var end = m.index + text.length - trail;
                 if (end - start < MIN_SCRIPT_RUN) continue;
@@ -1092,8 +1224,8 @@ function RTE_Plugin_AccessibilityChecker() {
         var count = panel.querySelector("[data-rte-a11y-count]");
         if (count) {
             count.innerText = issues.length
-                ? (issues.length + " issue" + (issues.length === 1 ? "" : "s") + " to review")
-                : "Ready to publish";
+                ? (issues.length === 1 ? aT("a11yc_count1", "{0} issue to review", 1) : aT("a11yc_countn", "{0} issues to review", issues.length))
+                : aT("a11yc_ready", "Ready to publish");
         }
 
         empty.style.display = issues.length ? "none" : "block";
@@ -1106,11 +1238,12 @@ function RTE_Plugin_AccessibilityChecker() {
                 button.setAttribute("aria-selected", issueIndex === selectedIssueIndex ? "true" : "false");
                 button.innerHTML =
                     '<div class="rte-a11y-item-top">' +
-                    '<span class="rte-a11y-badge rte-a11y-badge-' + issue.severity + '">' + issue.severity + '</span>' +
+                    '<span class="rte-a11y-badge rte-a11y-badge-' + issue.severity + '"></span>' +
                     '<span class="rte-a11y-code">' + issue.code + '</span>' +
                     "</div>" +
                     '<div class="rte-a11y-message"></div>';
                 button.querySelector(".rte-a11y-message").innerText = issue.message;
+                button.querySelector(".rte-a11y-badge").innerText = aT("a11yc_sev_" + issue.severity, issue.severity);
                 button.onclick = function () {
                     selectedIssueIndex = issueIndex;
                     focusIssue(issue);
@@ -1128,7 +1261,9 @@ function RTE_Plugin_AccessibilityChecker() {
 
         var issues = lastResult && lastResult.issues ? lastResult.issues : [];
         if (!issues.length || selectedIssueIndex < 0 || !issues[selectedIssueIndex]) {
-            detail.innerHTML = '<div class="rte-a11y-detail-title">No fixes pending</div><div class="rte-a11y-detail-copy">Run the checker again after major content changes to keep headings, image descriptions, and tables in shape.</div>';
+            detail.innerHTML = '<div class="rte-a11y-detail-title"></div><div class="rte-a11y-detail-copy"></div>';
+            detail.querySelector(".rte-a11y-detail-title").innerText = aT("a11yc_nofixes", "No fixes pending");
+            detail.querySelector(".rte-a11y-detail-copy").innerText = aT("a11yc_nofixeshint", "Run the checker again after major content changes to keep headings, image descriptions, and tables in shape.");
             return;
         }
 
@@ -1143,14 +1278,68 @@ function RTE_Plugin_AccessibilityChecker() {
         detail.appendChild(copy);
 
         if (issue.code === "image-missing-alt") {
-            renderTextRepair("Alt text", "Describe the image for screen-reader users.", function (value) {
+            renderTextRepair(aT("a11yc_f_alt", "Alt text"), aT("a11yc_f_althint", "Describe the image for screen-reader users."), function (value) {
                 repairIssue(selectedIssueIndex, { altText: value });
             });
             return;
         }
 
+        // 2026-10-04 Every repair that takes text gets a field here. These repairs existed (repairDomIssue)
+        // but the panel showed only the message for them. tools/a11y/checker-text-repairs.mjs
+        var TEXT_REPAIRS = {
+            "table-missing-caption": [aT("a11yc_f_caption", "Caption"), aT("a11yc_f_captionhint", "Say what the table shows, e.g. \"Sales by quarter\"."), "captionText"],
+            "table-header-empty": [aT("a11yc_f_header", "Header text"), aT("a11yc_f_headerhint", "Name the column or row this cell labels."), "headerText"],
+            "link-empty": [aT("a11yc_f_link", "Link text"), aT("a11yc_f_linkhint", "Say where the link goes."), "linkText"],
+            "link-ambiguous-text": [aT("a11yc_f_link", "Link text"), aT("a11yc_f_linkambighint", "Say where the link goes, not \"click here\"."), "linkText"],
+            "image-alt-filename": [aT("a11yc_f_alt", "Alt text"), aT("a11yc_f_altfilehint", "Describe what the image shows."), "altText"],
+            "image-alt-too-long": [aT("a11yc_f_alt", "Alt text"), aT("a11yc_f_altlonghint", "A short description; keep detail in the text."), "altText"]
+        };
+        if (TEXT_REPAIRS[issue.code]) {
+            var tr = TEXT_REPAIRS[issue.code];
+            renderTextRepair(tr[0], tr[1], function (value) {
+                var o = {}; o[tr[2]] = value;
+                repairIssue(selectedIssueIndex, o);
+            });
+            return;
+        }
+
+        // ...and every repair that needs no typing gets a button (they too showed only the message).
+        // tools/a11y/checker-action-repairs.mjs
+        var ACTION_REPAIRS = {
+            "fake-list": [aT("a11yc_a_list", "Make it a list"), function () { return {}; }],
+            "paragraph-as-heading": [aT("a11yc_a_heading", "Make it a heading"), function () {
+                // one level below the heading before it (H2 when there is none)
+                var before = 1, t = issue._target, all = t && t.ownerDocument ? t.ownerDocument.querySelectorAll("h1,h2,h3,h4,h5,h6") : [];
+                for (var hi = 0; hi < all.length; hi++) if (all[hi].compareDocumentPosition(t) & 4) before = parseInt(all[hi].nodeName.charAt(1), 10);
+                return { targetLevel: Math.min(6, before + 1) };
+            }],
+            "layout-table-semantics": [aT("a11yc_a_layout", "Remove table semantics"), function () { return {}; }],
+            "link-adjacent-duplicate": [aT("a11yc_a_merge", "Merge the links"), function () { return {}; }],
+            "duplicate-id": [aT("a11yc_a_dupid", "Remove the repeated id"), function () { return {}; }],
+            "blockquote-as-indent": [aT("a11yc_a_indent", "Make it indentation"), function () { return {}; }]
+        };
+        if (ACTION_REPAIRS[issue.code]) {
+            var ar = ACTION_REPAIRS[issue.code];
+            var arRow = detail.ownerDocument.createElement("div");
+            arRow.className = "rte-a11y-row";
+            var arDo = detail.ownerDocument.createElement("button");
+            arDo.type = "button";
+            arDo.className = "rte-a11y-button";
+            arDo.innerText = ar[0];
+            arDo.onclick = function () { repairIssue(selectedIssueIndex, ar[1]()); };
+            var arFocus = detail.ownerDocument.createElement("button");
+            arFocus.type = "button";
+            arFocus.className = "rte-a11y-button rte-a11y-button-secondary";
+            arFocus.innerText = aT("a11yc_focus", "Focus issue");
+            arFocus.onclick = function () { focusIssue(issue); };
+            arRow.appendChild(arDo);
+            arRow.appendChild(arFocus);
+            detail.appendChild(arRow);
+            return;
+        }
+
         if (issue.code === "heading-empty") {
-            renderTextRepair("Heading text", "Add a concise heading label before publishing.", function (value) {
+            renderTextRepair(aT("a11yc_f_heading", "Heading text"), aT("a11yc_f_headinghint", "Add a concise heading label before publishing."), function (value) {
                 repairIssue(selectedIssueIndex, { headingText: value });
             });
             return;
@@ -1163,14 +1352,14 @@ function RTE_Plugin_AccessibilityChecker() {
             var normalize = detail.ownerDocument.createElement("button");
             normalize.type = "button";
             normalize.className = "rte-a11y-button";
-            normalize.innerText = "Normalize to H" + suggestedLevel;
+            normalize.innerText = aT("a11yc_normalize", "Normalize to H{0}", suggestedLevel);
             normalize.onclick = function () {
                 repairIssue(selectedIssueIndex, { targetLevel: suggestedLevel });
             };
             var focus = detail.ownerDocument.createElement("button");
             focus.type = "button";
             focus.className = "rte-a11y-button rte-a11y-button-secondary";
-            focus.innerText = "Focus issue";
+            focus.innerText = aT("a11yc_focus", "Focus issue");
             focus.onclick = function () { focusIssue(issue); };
             row.appendChild(normalize);
             row.appendChild(focus);
@@ -1184,14 +1373,14 @@ function RTE_Plugin_AccessibilityChecker() {
             var promote = detail.ownerDocument.createElement("button");
             promote.type = "button";
             promote.className = "rte-a11y-button";
-            promote.innerText = "Promote first row to headers";
+            promote.innerText = aT("a11yc_promote", "Promote first row to headers");
             promote.onclick = function () {
                 repairIssue(selectedIssueIndex, {});
             };
             var review = detail.ownerDocument.createElement("button");
             review.type = "button";
             review.className = "rte-a11y-button rte-a11y-button-secondary";
-            review.innerText = "Focus issue";
+            review.innerText = aT("a11yc_focus", "Focus issue");
             review.onclick = function () { focusIssue(issue); };
             actionRow.appendChild(promote);
             actionRow.appendChild(review);
@@ -1205,12 +1394,12 @@ function RTE_Plugin_AccessibilityChecker() {
             var mark = detail.ownerDocument.createElement("button");
             mark.type = "button";
             mark.className = "rte-a11y-button";
-            mark.innerText = "Mark as " + issue._script;
+            mark.innerText = aT("a11yc_markas", "Mark as {0}", aT("a11yc_script_" + issue._lang, issue._script));
             mark.onclick = function () { repairIssue(selectedIssueIndex, { lang: issue._lang }); };
             var look = detail.ownerDocument.createElement("button");
             look.type = "button";
             look.className = "rte-a11y-button rte-a11y-button-secondary";
-            look.innerText = "Focus issue";
+            look.innerText = aT("a11yc_focus", "Focus issue");
             look.onclick = function () { focusIssue(issue); };
             langRow.appendChild(mark);
             langRow.appendChild(look);
@@ -1218,7 +1407,10 @@ function RTE_Plugin_AccessibilityChecker() {
             return;
         }
 
-        detail.innerHTML += '<div class="rte-a11y-detail-copy">This issue is visible here, but does not have an automatic repair action yet.</div>';
+        var noRepair = detail.ownerDocument.createElement("div");
+        noRepair.className = "rte-a11y-detail-copy";
+        noRepair.innerText = aT("a11yc_norepair", "This issue is visible here, but does not have an automatic repair action yet.");
+        detail.appendChild(noRepair);
     }
 
     function renderTextRepair(labelText, hintText, apply) {
@@ -1236,7 +1428,7 @@ function RTE_Plugin_AccessibilityChecker() {
         var button = detail.ownerDocument.createElement("button");
         button.type = "button";
         button.className = "rte-a11y-button";
-        button.innerText = "Apply fix";
+        button.innerText = aT("a11yc_applyfix", "Apply fix");
         button.onclick = function () {
             var value = String(input.value || "").replace(/^\s+|\s+$/g, "");
             if (!value) return;
@@ -1245,7 +1437,7 @@ function RTE_Plugin_AccessibilityChecker() {
         var focus = detail.ownerDocument.createElement("button");
         focus.type = "button";
         focus.className = "rte-a11y-button rte-a11y-button-secondary";
-        focus.innerText = "Focus issue";
+        focus.innerText = aT("a11yc_focus", "Focus issue");
         focus.onclick = function () {
             var issues = lastResult && lastResult.issues ? lastResult.issues : [];
             if (issues[selectedIssueIndex]) focusIssue(issues[selectedIssueIndex]);

@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "Insert";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "Styles";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "Text styles";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "sm";	// this pack's locale (Intl names, e.g. the text-part language menu)

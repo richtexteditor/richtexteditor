@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "Wstaw";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "Style";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "Style tekstu";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "pl";	// this pack's locale (Intl names, e.g. the text-part language menu)

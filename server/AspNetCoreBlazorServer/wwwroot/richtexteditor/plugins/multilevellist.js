@@ -88,11 +88,15 @@ function RTE_Plugin_MultiLevelList() {
     function applyToSelection(on) {
         var ol = nearestRootList();
         if (!ol) return false;
+        // Direct API calls need explicit undo boundaries; change notifications
+        // alone race the delayed bookmark snapshot in WebKit.
+        if (editor.commitBookmark) editor.commitBookmark();
         if (on) ol.classList.add(config.legalListClass);
         else ol.classList.remove(config.legalListClass);
         // Let the host know the document changed so undo/save stay honest.
         try { if (typeof editor.updateDesign === "function") editor.updateDesign(); } catch (e) {}
         try { editor.fireEvent && editor.fireEvent("change"); } catch (e) {}
+        if (editor.recordUndo) editor.recordUndo();
         return on;
     }
 

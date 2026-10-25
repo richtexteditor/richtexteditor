@@ -71,6 +71,23 @@ function RTE_Plugin_AutoEmbed() {
         if (m) return "https://player.vimeo.com/video/" + m[1];
         m = /^https?:\/\/player\.vimeo\.com\/video\/(\d{6,12})/i.exec(url);
         if (m) return "https://player.vimeo.com/video/" + m[1];
+        // 2026-10-13 more providers, each id checked against its own pattern before it is placed in the embed address.
+        m = /^https?:\/\/(?:www\.)?dailymotion\.com\/video\/([A-Za-z0-9]{4,20})(?:[/?#]|$)/i.exec(url);
+        if (m) return "https://www.dailymotion.com/embed/video/" + m[1];
+        m = /^https?:\/\/dai\.ly\/([A-Za-z0-9]{4,20})(?:[/?#]|$)/i.exec(url);
+        if (m) return "https://www.dailymotion.com/embed/video/" + m[1];
+        m = /^https?:\/\/(?:www\.)?loom\.com\/share\/([a-f0-9]{32})(?:[/?#]|$)/i.exec(url);
+        if (m) return "https://www.loom.com/embed/" + m[1];
+        m = /^https?:\/\/(?:www\.)?codepen\.io\/([A-Za-z0-9_-]{1,40})\/pen\/([A-Za-z0-9]{4,20})(?:[/?#]|$)/i.exec(url);
+        if (m) return "https://codepen.io/" + m[1] + "/embed/" + m[2] + "?default-tab=result";
+        m = /^https?:\/\/(?:www\.)?ted\.com\/talks\/([a-z0-9_]{3,80})(?:[/?#]|$)/i.exec(url);
+        if (m) return "https://embed.ted.com/talks/" + m[1];
+        // 2026-10-15 Youku and Coub, which Plate also embeds. Tweets are not here: they need X's widget script, an
+        // external call. tools/embeds/embed-providers.mjs
+        m = /^https?:\/\/v\.youku\.com\/v_show\/id_(X[A-Za-z0-9]{6,30}={0,2})\.html(?:[?#]|$)/i.exec(url);
+        if (m) return "https://player.youku.com/embed/" + m[1];
+        m = /^https?:\/\/(?:www\.)?coub\.com\/view\/([a-z0-9]{3,12})(?:[/?#]|$)/i.exec(url);
+        if (m) return "https://coub.com/embed/" + m[1];
         return null;
     }
     function resolve(url) {

@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "Inserir";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "Estils";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "Estils de text";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "ca";	// this pack's locale (Intl names, e.g. the text-part language menu)

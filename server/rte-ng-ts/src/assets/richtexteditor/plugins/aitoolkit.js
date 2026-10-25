@@ -22,7 +22,10 @@ if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
     var scripts = document.getElementsByTagName("script");
     for (var j = scripts.length - 1; j >= 0; j--) {
         var src = scripts[j].getAttribute("src") || "";
-        if (/(?:^|\/)(?:aitoolkit|all_plugins)\.js(?:\?.*)?$/i.test(src)) {
+        // 2026-10-17 the .min names too: a page loading all_plugins.min.js matched nothing and fell back to the fixed
+        // /richtexteditor path - the drive root over file://, so the AI stylesheet never loaded from a download opened
+        // from disk. tools/ai/aitoolkit-css-location.mjs
+        if (/(?:^|\/)(?:aitoolkit|all_plugins)(?:\.min)?\.js(?:[?#].*)?$/i.test(src)) {
             ourScript = scripts[j];
             break;
         }
@@ -33,11 +36,13 @@ if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
     // paying for it. The readable .css is still shipped and still the one to edit
     // or override; this only changes what gets fetched by default.
     function resolve(name) {
-        return srcAttr
-            ? srcAttr.replace(/[^/]+$/, name)
-            : (((window.RTE_DefaultConfig && window.RTE_DefaultConfig.url_base) || "/richtexteditor") + "/plugins/" + name);
+        if (srcAttr) return srcAttr.replace(/[?#].*$/, "").replace(/[^/]+$/, name);
+        // no plugin script of ours (bundled into an app script): the folder rte.js was loaded from, then the old default
+        var base = (typeof RichTextEditor !== "undefined" && RichTextEditor.__scriptBase) ||
+            (window.RTE_DefaultConfig && window.RTE_DefaultConfig.url_base) || "/richtexteditor";
+        return base + "/plugins/" + name;
     }
-    function bust(href) { return href.indexOf("?") < 0 ? href + "?v=20260830a" : href; }
+    function bust(href) { return href.indexOf("?") < 0 ? href + "?v=20261018a" : href; }
 
     var link = document.createElement("link");
     link.rel = "stylesheet";
@@ -127,26 +132,26 @@ function RTE_Plugin_AIToolkit() {
         // in a later pass. Customer overrides via `aiToolkitActions` keep
         // any legacy long-form labels untouched.
         config.aiToolkitActions = config.aiToolkitActions || [
-            { id: "chat-panel", section: "Start", icon: "chat", title: "Chat", description: "Ask follow-up questions about this document.", target: "chat-panel" },
-            { id: "open-dialog", section: "Start", icon: "open_dialog", title: "Draft", description: "Generate, rewrite, translate, or summarize before applying.", target: "dialog" },
-            { id: "review-panel", section: "Start", icon: "review", title: "Review", description: "Accept or reject prepared AI edits.", target: "review-panel" },
-            { id: "proofread", section: "Quick edit", icon: "proofread", title: "Proofread", description: "Check grammar, spacing, and clarity.", resolverMode: "proofread", target: "selection-preview" },
-            { id: "rewrite", section: "Quick edit", icon: "rewrite", title: "Rewrite", description: "Improve clarity without changing intent.", resolverMode: "rewrite", target: "selection-preview" },
-            { id: "translate", section: "Quick edit", icon: "translate", title: "Translate", description: "Choose a language and preview the result.", resolverMode: "translate", target: "dialog", autoRun: false },
-            { id: "justify", section: "Quick edit", icon: "justify", title: "Explain", description: "Rewrite and show why it changed.", resolverMode: "justify", target: "dialog", autoRun: false },
-            { id: "comment", section: "Insert", icon: "comment", title: "Add note", description: "Insert a short comment near the selection.", resolverMode: "comment", target: "comment" },
-            { id: "paragraph", section: "Insert", icon: "paragraph", title: "Add paragraph", description: "Draft a supporting paragraph below.", resolverMode: "paragraph", target: "insert" }
+            { id: "chat-panel", section: aiT("aia_sec_start", "Start"), icon: "chat", title: aiT("aia_chat_panel_t", "Chat"), description: aiT("aia_chat_panel_d", "Ask follow-up questions about this document."), target: "chat-panel" },
+            { id: "open-dialog", section: aiT("aia_sec_start", "Start"), icon: "open_dialog", title: aiT("aia_open_dialog_t", "Draft"), description: aiT("aia_open_dialog_d", "Generate, rewrite, translate, or summarize before applying."), target: "dialog" },
+            { id: "review-panel", section: aiT("aia_sec_start", "Start"), icon: "review", title: aiT("aia_review_panel_t", "Review"), description: aiT("aia_review_panel_d", "Accept or reject prepared AI edits."), target: "review-panel" },
+            { id: "proofread", section: aiT("aia_sec_quick", "Quick edit"), icon: "proofread", title: aiT("aia_proofread_t", "Proofread"), description: aiT("aia_proofread_d", "Check grammar, spacing, and clarity."), resolverMode: "proofread", target: "selection-preview" },
+            { id: "rewrite", section: aiT("aia_sec_quick", "Quick edit"), icon: "rewrite", title: aiT("aia_rewrite_t", "Rewrite"), description: aiT("aia_rewrite_d", "Improve clarity without changing intent."), resolverMode: "rewrite", target: "selection-preview" },
+            { id: "translate", section: aiT("aia_sec_quick", "Quick edit"), icon: "translate", title: aiT("aia_translate_t", "Translate"), description: aiT("aia_translate_d", "Choose a language and preview the result."), resolverMode: "translate", target: "dialog", autoRun: false },
+            { id: "justify", section: aiT("aia_sec_quick", "Quick edit"), icon: "justify", title: aiT("aia_justify_t", "Explain"), description: aiT("aia_justify_d", "Rewrite and show why it changed."), resolverMode: "justify", target: "dialog", autoRun: false },
+            { id: "comment", section: aiT("aia_sec_insert", "Insert"), icon: "comment", title: aiT("aia_comment_t", "Add note"), description: aiT("aia_comment_d", "Insert a short comment near the selection."), resolverMode: "comment", target: "comment" },
+            { id: "paragraph", section: aiT("aia_sec_insert", "Insert"), icon: "paragraph", title: aiT("aia_paragraph_t", "Add paragraph"), description: aiT("aia_paragraph_d", "Draft a supporting paragraph below."), resolverMode: "paragraph", target: "insert" }
         ];
         // 2026-05-09 (v20260509j): single-verb default chip labels matching
         // the toolbar dropdown idiom — chips render on one line at the
         // default 390px chat panel width. Customer overrides via
         // aiToolkitChatPrompts keep their own labels untouched.
         config.aiToolkitChatPrompts = config.aiToolkitChatPrompts || [
-            { id: "summarize", label: "Summarize", prompt: "Summarize the current content and suggest the clearest next edit." },
-            { id: "proofread", label: "Proofread", prompt: "Proofread the current content and prepare a cleaner version I can review." },
-            { id: "translate", label: "Translate", prompt: "Translate the current content into Spanish and prepare a reviewable version." },
-            { id: "headings", label: "Headings", prompt: "Suggest better section titles and subheadings for this content." },
-            { id: "expand", label: "Expand", prompt: "Add a short supporting paragraph that strengthens this content." }
+            { id: "summarize", label: aiT("aip_summarize", "Summarize"), prompt: "Summarize the current content and suggest the clearest next edit." },
+            { id: "proofread", label: aiT("aip_proofread", "Proofread"), prompt: "Proofread the current content and prepare a cleaner version I can review." },
+            { id: "translate", label: aiT("aip_translate", "Translate"), prompt: "Translate the current content into Spanish and prepare a reviewable version." },
+            { id: "headings", label: aiT("aip_headings", "Headings"), prompt: "Suggest better section titles and subheadings for this content." },
+            { id: "expand", label: aiT("aip_expand", "Expand"), prompt: "Add a short supporting paragraph that strengthens this content." }
         ];
         // 2026-05-20 (v20260520c): descriptions trimmed to ~5-8 words so
         // each fits the one-line mode caption without wrapping at the 480px
@@ -165,16 +170,23 @@ function RTE_Plugin_AIToolkit() {
         // on narrow viewports. Same brevity Notion AI inline composer subtitles
         // ship — "Improve writing", "Make shorter" — single 2-4 word verb
         // phrases.
+        // 2026-10-18 the Ask AI dialog's words read config.text_ keys where they are SHOWN (English as the fallback);
+        // labels that also feed logic (Document / Selection) are translated at the display sites only.
+        // tools/i18n/ask-ai-language.mjs
+        function aiT(key, fallback, arg) { var s = (config && config["text_" + key]) || fallback; return arg === undefined ? s : s.split("{0}").join(String(arg)); }
+        obj.__aiT = aiT;
         config.aiToolkitDialogModes = config.aiToolkitDialogModes || [
-            { id: "proofread", title: "Proofread", description: "Fix grammar & clarity." },
-            { id: "rewrite", title: "Rewrite", description: "Rewrite for clarity." },
-            { id: "translate", title: "Translate", description: "Translate to a language." },
-            { id: "justify", title: "Explain rewrite", description: "Rewrite and explain why." },
-            { id: "shorten", title: "Shorten", description: "Compress to be shorter." },
-            { id: "expand", title: "Expand", description: "Add supporting detail." },
-            { id: "summarize", title: "Summarize", description: "Summarize the source." }
+            { id: "proofread", title: aiT("aim_proofread_t", "Proofread"), description: aiT("aim_proofread_d", "Fix grammar & clarity.") },
+            { id: "rewrite", title: aiT("aim_rewrite_t", "Rewrite"), description: aiT("aim_rewrite_d", "Rewrite for clarity.") },
+            { id: "translate", title: aiT("aim_translate_t", "Translate"), description: aiT("aim_translate_d", "Translate to a language.") },
+            { id: "justify", title: aiT("aim_justify_t", "Explain rewrite"), description: aiT("aim_justify_d", "Rewrite and explain why.") },
+            { id: "shorten", title: aiT("aim_shorten_t", "Shorten"), description: aiT("aim_shorten_d", "Compress to be shorter.") },
+            { id: "expand", title: aiT("aim_expand_t", "Expand"), description: aiT("aim_expand_d", "Add supporting detail.") },
+            { id: "summarize", title: aiT("aim_summarize_t", "Summarize"), description: aiT("aim_summarize_d", "Summarize the source.") }
         ];
         config.aiToolkitResolver = config.aiToolkitResolver || null;
+        // 2026-10-13 image generation: the host's provider call, bring your own key. null = not configured.
+        config.aiToolkitImageResolver = config.aiToolkitImageResolver || null;
         config.aiToolkitOperationHandlers = config.aiToolkitOperationHandlers || {};
         config.aiToolkitPersistenceKey = config.aiToolkitPersistenceKey || "";
         config.aiToolkitReviewSyncInterval = config.aiToolkitReviewSyncInterval || 15000;
@@ -200,10 +212,129 @@ function RTE_Plugin_AIToolkit() {
 
     obj.InitEditor = function (argeditor) {
         editor = argeditor;
+
+        // 2026-10-13 Image generation (tools/ai/image-generation.mjs). The host supplies the provider call through
+        // config.aiToolkitImageResolver, so the editor makes no outbound request of its own. What comes back is checked
+        // before anything is inserted: an image data URL (png, jpeg, webp or gif) or an https address, at most 6 million
+        // characters.
+        var IMAGE_SRC_MAX = 6000000;
+        function checkGeneratedImageSrc(src) {
+            var s = typeof src === "string" ? src.replace(/^\s+|\s+$/g, "") : "";
+            if (!s) throw new Error("The image generator returned no image.");
+            if (s.length > IMAGE_SRC_MAX) throw new Error("The generated image is too large to insert.");
+            if (/^data:image\/(png|jpe?g|webp|gif);base64,[A-Za-z0-9+\/=]+$/i.test(s)) return s;
+            if (/^https:\/\/[^\s"'<>]+$/i.test(s)) return s;
+            throw new Error("The image generator returned something that is not an image address.");
+        }
+        function generateImage(prompt) {
+            var text = String(prompt || "").replace(/^\s+|\s+$/g, "");
+            if (!text) return Promise.reject(new Error("Describe the image first."));
+            var resolver = config.aiToolkitImageResolver;
+            if (typeof resolver !== "function") {
+                return Promise.reject(new Error("No image generator is configured (config.aiToolkitImageResolver)."));
+            }
+            return Promise.resolve().then(function () { return resolver(text); }).then(checkGeneratedImageSrc);
+        }
+        function insertGeneratedImage(src, alt) {
+            editor.insertHTML('<img src="' + escapeAttribute(src) + '" alt="' + escapeAttribute(alt || "") + '">');
+            try { if (typeof editor.fireChange === "function") editor.fireChange(); } catch (e) { /* ignore */ }
+        }
+        var imageComposer = null;
+        function closeImageComposer() {
+            // 2026-10-14 Focus inside the card (Escape, Cancel) goes back to the editor when it closes, so a
+            // keyboard user does not land on the page body (WCAG 2.4.3). tools/ai/image-generator-focus.mjs
+            var hadFocus = false;
+            try { hadFocus = !!(imageComposer && imageComposer.contains(imageComposer.ownerDocument.activeElement)); } catch (e) { /* ignore */ }
+            if (imageComposer && imageComposer.parentNode) imageComposer.parentNode.removeChild(imageComposer);
+            imageComposer = null;
+            if (hadFocus) { try { editor.focus(); } catch (e) { /* ignore */ } }
+        }
+        // A small prompt card over the editor. Generate inserts the image at the caret and closes the card; Cancel and
+        // Escape close it without inserting anything.
+        function openImageComposer() {
+            closeImageComposer();
+            var frame = editor.iframe;
+            if (!frame || !frame.ownerDocument) return;
+            var host = frame.ownerDocument;
+            var box = host.createElement("div");
+            box.className = "rte-image-gen";
+            box.setAttribute("role", "dialog");
+            box.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aig_title", "Generate an image") : "Generate an image"));
+            var bs = box.style;
+            bs.position = "fixed"; bs.zIndex = "2147483000"; bs.width = "320px"; bs.padding = "12px";
+            bs.background = "#fff"; bs.border = "1px solid rgba(0,0,0,.15)"; bs.borderRadius = "8px";
+            bs.boxShadow = "0 8px 24px rgba(15,23,42,.18)"; bs.font = "13px/1.4 system-ui, sans-serif"; bs.color = "#1f2937";
+            var fr = frame.getBoundingClientRect();
+            bs.left = Math.round(fr.left + 16) + "px";
+            bs.top = Math.round(fr.top + 16) + "px";
+            var label = host.createElement("label");
+            label.textContent = (obj.__aiT ? obj.__aiT("aig_describe", "Describe the image") : "Describe the image");
+            label.style.display = "block";
+            label.style.marginBottom = "6px";
+            var area = host.createElement("textarea");
+            area.rows = 3;
+            area.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aig_describe", "Describe the image") : "Describe the image"));
+            area.style.width = "100%"; area.style.boxSizing = "border-box"; area.style.font = "inherit";
+            var status = host.createElement("div");
+            status.className = "rte-image-gen-status";
+            status.setAttribute("aria-live", "polite");
+            status.style.minHeight = "18px"; status.style.margin = "6px 0"; status.style.color = "#b91c1c";
+            var row = host.createElement("div");
+            row.style.textAlign = "right";
+            var cancel = host.createElement("button");
+            cancel.type = "button";
+            cancel.className = "rte-image-gen-cancel";
+            cancel.textContent = (obj.__aiT ? obj.__aiT("aig_cancel", "Cancel") : "Cancel");
+            cancel.style.marginRight = "6px";
+            var go = host.createElement("button");
+            go.type = "button";
+            go.className = "rte-image-gen-go";
+            go.textContent = (obj.__aiT ? obj.__aiT("aig_generate", "Generate") : "Generate");
+            go.style.background = "#1d67ba"; go.style.color = "#fff"; go.style.border = "0";
+            go.style.borderRadius = "4px"; go.style.padding = "4px 12px";
+            go.addEventListener("click", function () {
+                var text = area.value.replace(/^\s+|\s+$/g, "");
+                if (!text) { status.textContent = (obj.__aiT ? obj.__aiT("aig_describefirst", "Describe the image first.") : "Describe the image first."); return; }
+                go.disabled = true;
+                status.style.color = "#475569";
+                status.textContent = (obj.__aiT ? obj.__aiT("aig_generating", "Generating...") : "Generating...");
+                generateImage(text).then(function (src) {
+                    insertGeneratedImage(src, text);
+                    closeImageComposer();
+                    // the Generate button was disabled while it ran, which moved focus out of the card: return it here
+                    try { editor.focus(); } catch (e) { /* ignore */ }
+                }, function (err) {
+                    go.disabled = false;
+                    status.style.color = "#b91c1c";
+                    status.textContent = (err && err.message) || (obj.__aiT ? obj.__aiT("aig_failed", "The image could not be generated.") : "The image could not be generated.");
+                });
+            });
+            cancel.addEventListener("click", closeImageComposer);
+            box.addEventListener("keydown", function (e) {
+                if (e.key === "Escape" || e.key === "Esc") { e.preventDefault(); closeImageComposer(); }
+            });
+            row.appendChild(cancel);
+            row.appendChild(go);
+            box.appendChild(label);
+            box.appendChild(area);
+            box.appendChild(status);
+            box.appendChild(row);
+            host.body.appendChild(box);
+            imageComposer = box;
+            try { area.focus(); } catch (e) { /* focus is best effort */ }
+        }
+        editor.generateImage = function (prompt) {
+            return generateImage(prompt).then(function (src) { insertGeneratedImage(src, prompt); return true; });
+        };
+        editor.openImageGenerator = function () { openImageComposer(); };
+
         editor.aiToolkit = {
+            generateImage: generateImage,
+            setImageResolver: function (fn) { config.aiToolkitImageResolver = typeof fn === "function" ? fn : null; },
             normalizeText: normalizeText,
             ensureSentence: ensureSentence,
             buildDemoResult: buildDemoResult,
+            isDemoMode: isDemoMode,
             getTranslateLanguages: getTranslateLanguages,
             getTranslateLanguageLabel: getTranslateLanguageLabel,
             getOperationContract: getOperationContract,
@@ -690,6 +821,21 @@ function RTE_Plugin_AIToolkit() {
         config[key] = current ? current + token : token;
     }
 
+    // 2026-10-15 with no resolver the toolkit answers from built-in samples, and nothing said so: an evaluating
+    // customer reported the AI feature as "not working". The dialog and the chat panel now carry a notice while
+    // no resolver is set. tools/ai/demo-mode-notice.mjs
+    function isDemoMode() {
+        return typeof config.aiToolkitResolver !== "function";
+    }
+
+    function appendDemoNotice(parent) {
+        if (!isDemoMode()) return null;
+        var notice = append(parent, "div", "", "rte-ai-demo-notice",
+            config.text_aitoolkitdemonotice || "Demo mode: these are built-in sample results, not a real AI model. Connect an AI provider with the aiToolkitResolver setting to get real suggestions.");
+        notice.setAttribute("role", "note");
+        return notice;
+    }
+
     function append(parent, tagName, cssText, className, text) {
         var node = parent.ownerDocument.createElement(tagName);
         if (cssText) {
@@ -1100,7 +1246,9 @@ function RTE_Plugin_AIToolkit() {
                 if (mode === "insert" && editor && editor.insertHTML) {
                     editor.insertHTML(html);
                 } else if (editor && editor.setHTMLCode) {
-                    editor.setHTMLCode(html);
+                    // undoable: Ctrl+Z gives back exactly the document this replaced
+                    // (tools/import/replace-undo-plugins.mjs)
+                    editor.setHTMLCode(html, { undoable: true });
                 }
                 return html;
             }).catch(function (err) {
@@ -1137,6 +1285,385 @@ function RTE_Plugin_AIToolkit() {
             .trim();
     }
 
+    // 2026-10-18 Spoken labels are phrases joined into sentences. A phrase that already ended one ("... is ready.")
+    // gave "ready.. Document thread"; after such a phrase the next follows with a space. tools/ai/aria-double-period.mjs
+    function joinSentences(parts) {
+        var out = "";
+        for (var i = 0; i < parts.length; i++) {
+            var s = String(parts[i] == null ? "" : parts[i]).replace(/[ \t\r\n]+$/, "");
+            if (!s) continue;
+            out += !out ? s : (/[.?!\u2026\u3002\uff01\uff1f]$/.test(out) ? " " : ". ") + s;
+        }
+        return out;
+    }
+
+    // 2026-10-18 The inline AI suggestion card and the AI chat compose most of their words - shown and announced -
+    // from many small builders. With a language pack loaded, this catalog translates them where they are displayed:
+    // a whole string, else sentence by sentence, with patterns for the counts ("Queue 1 of 2"). Text a person wrote
+    // (the card's Current / Suggested compare, the chat's messages) is never touched; anything not catalogued stays
+    // as it is; an English page does nothing here. tools/i18n/ai-card-chat-language.mjs
+    var AIQ_EXACT = [
+        ["air_accept", "Accept"],
+        ["air_reject", "Reject"],
+        ["air_current", "Current"],
+        ["air_suggested", "Suggested"],
+        ["air_why", "Why"],
+        ["air_scope_sel", "Selection"],
+        ["air_scope_doc", "Document"],
+        ["air_type_proofread", "Proofread"],
+        ["air_type_rewrite", "Rewrite"],
+        ["air_type_translate", "Translate"],
+        ["air_type_comment", "Comment"],
+        ["air_type_paragraph", "Paragraph"],
+        ["air_type_summarize", "Summarize"],
+        ["air_type_expand", "Expand"],
+        ["air_type_shorten", "Shorten"],
+        ["aip_headings", "Headings"],
+        ["aichat", "AI Chat"],
+        ["aic_newchat", "Start a fresh chat"],
+        ["aic_closechat", "Close AI chat"],
+        ["aic_close", "Close"],
+        ["aic_usesel", "Use selection"],
+        ["aic_usedoc", "Use document"],
+        ["aic_copymsg", "Copy message text"],
+        ["aic_copy", "Copy"],
+        ["aic_regen", "Regenerate response"],
+        ["aid_regenerate", "Regenerate"],
+        ["aic_actions", "AI chat actions"],
+        ["aic_send", "Send"],
+        ["aic_starttitle", "Start with AI Chat"],
+        ["aic_pill_doc", "Document context"],
+        ["aic_pill_sel", "Selection context"],
+        ["aic_compose_doc", "Compose next AI request for the current document"],
+        ["aic_compose_sel", "Compose next AI request for the current selection"],
+        ["aic_emptytitle_doc", "Type a prompt or load a starter for the current document first"],
+        ["aic_emptytitle_sel", "Type a prompt or load a starter for the current selection first"],
+        ["aic_empty_doc", "Ask anything about the current document"],
+        ["aic_empty_sel", "Ask anything about the current selection"],
+        ["air_focusaria", "Focus the current AI review item"],
+        ["aiq_preview", "AI suggestion preview"],
+        ["aiq_proposed", "Proposed edit"],
+        ["aiq_curandsug", "Current and suggested text"],
+        ["aiq_curtext", "Current text"],
+        ["aiq_sugtext", "Suggested text"],
+        ["aiq_ready", "Ready to review"],
+        ["aiq_curfocus", "Current focus"],
+        ["aiq_seldraft", "Selection draft"],
+        ["aiq_docdraft", "Document draft"],
+        ["aiq_prepdraft", "Prepared draft"],
+        ["aiq_customdraft", "Custom draft"],
+        ["aiq_draftready", "Draft ready"],
+        ["aiq_glance", "Change at a glance"],
+        ["aiq_surface", "Surface edit"],
+        ["aiq_textrewrite", "Text rewrite"],
+        ["aiq_textchange", "Text change"],
+        ["aiq_langchange", "Language change"],
+        ["aiq_reviewchange", "Reviewable change"],
+        ["aiq_acceptedchange", "Accepted change"],
+        ["aiq_rejectedchange", "Rejected change"],
+        ["aiq_lowimpact", "Low impact"],
+        ["aiq_medimpact", "Medium impact"],
+        ["aiq_highimpact", "High impact"],
+        ["aiq_whatnext", "What happens next"],
+        ["aiq_qcomplete", "Queue complete"],
+        ["aiq_qopened", "Queue opened"],
+        ["aiq_qhandoff", "Queue handoff"],
+        ["aiq_qstate", "Queue state"],
+        ["aiq_recready", "Recovery ready"],
+        ["aiq_recavail", "Recovery available"],
+        ["aiq_finalitem", "Accepting or rejecting this final pending item finishes the current review run"],
+        ["aiq_moveson", "Accepting or rejecting this item moves review straight to the next pending suggestion"],
+        ["aiq_nolater", "No later pending items remain in this queue"],
+        ["aiq_thenrec", "Then recovery and next queues appear"],
+        ["aiq_thencomplete", "Then queue complete"],
+        ["aiq_undolast", "Undo the last decision or open another queue"],
+        ["aiq_afterfinal", "After reviewing the final pending item, recovery and next queues appear"],
+        ["aiq_afterdec", "After this decision"],
+        ["aiq_handoff", "Action handoff"],
+        ["aiq_decidelane", "Decide lane"],
+        ["aiq_curlane", "Current lane"],
+        ["aiq_curactionlane", "Current action lane"],
+        ["aiq_kblane", "Keyboard lane"],
+        ["aiq_curenter", "Current Enter target"],
+        ["aiq_spaceact", "Enter or Space activates this action"],
+        ["aiq_acceptfinish", "Accept & finish"],
+        ["aiq_rejectfinish", "Reject & finish"],
+        ["aiq_acceptnext", "Accept & next"],
+        ["aiq_rejectnext", "Reject & next"],
+        ["aiq_accfinishdesc", "Accept & finish this AI change and finish the current review queue"],
+        ["aiq_rejfinishdesc", "Reject & finish this AI change and finish the current review queue"],
+        ["aiq_open", "Open"],
+        ["aiq_review", "Review"],
+        ["aiq_move", "Move"],
+        ["aiq_previous", "Previous"],
+        ["aiq_next", "Next"],
+        ["aiq_decide", "Decide"],
+        ["aiq_recover", "Recover"],
+        ["aiq_actions", "AI suggestion actions"],
+        ["aiq_openactions", "Open actions"],
+        ["aiq_moveactions", "Move actions"],
+        ["aiq_decideactions", "Decide actions"],
+        ["aiq_recoveractions", "Recover actions"],
+        ["aiq_whysug", "Why this suggestion"],
+        ["aiq_upnext", "Up next"],
+        ["aiq_upnextcur", "Up next becomes current"],
+        ["aiq_follows", "This follows after the current decision"],
+        ["aiq_nextitem", "Next item"],
+        ["aiq_reviewnow", "Review this item now"],
+        ["aiq_reopen", "Reopen this suggestion in the current review lane"],
+        ["aiq_jump", "Jump earlier or later in this queue before deciding"],
+        ["aiq_previtem", "Previous AI review item"],
+        ["aiq_nextitemai", "Next AI review item"],
+        ["aiq_noprev", "No previous AI review item in the current queue"],
+        ["aiq_nonext", "No next AI review item in the current queue"],
+        ["aiq_shortcuts", "Inline AI review shortcuts"],
+        ["aiq_kbguide", "Keyboard guide"],
+        ["aiq_move_l", "move"],
+        ["aiq_jump_l", "jump"],
+        ["aiq_enter", "Enter"],
+        ["aiq_custom", "Custom"],
+        ["aiq_reason_proof", "Normalizes spacing, punctuation, and capitalization while keeping the original meaning intact"],
+        ["aiq_reason_rewrite", "Tightens the wording by removing filler phrases so the point comes through faster"],
+        ["aiq_c_ready", "Ready"],
+        ["aiq_c_docfocus", "Document focus"],
+        ["aiq_c_selfocus", "Selection focus"],
+        ["aiq_c_inplace", "Ask, rewrite, or review the current document in place"],
+        ["aiq_c_docthread", "Document thread"],
+        ["aiq_c_selthread", "Selection thread"],
+        ["aiq_c_newask", "Ready for a new ask"],
+        ["aiq_c_latest", "Latest reply is ready"],
+        ["aiq_c_context", "Context"],
+        ["aiq_c_docactive", "Document active"],
+        ["aiq_c_selactive", "Selection active"],
+        ["aiq_c_nosel", "No current selection"],
+        ["aiq_c_selready", "Selection ready"],
+        ["aiq_c_wholedoc", "Using the whole document as the active source"],
+        ["aiq_c_narrow", "Select text any time to narrow the ask"],
+        ["aiq_c_snapshot", "Document snapshot"],
+        ["aiq_c_scopeswitch", "Context scope switch"],
+        ["aiq_c_unavail", "Unavailable until text is selected"],
+        ["aiq_c_activescope", "Active scope"],
+        ["aiq_c_usingwhole", "AI Chat is using the whole document"],
+        ["aiq_c_quickstarts", "Quick starts"],
+        ["aiq_c_readychoose", "Ready to choose"],
+        ["aiq_c_choosestarter", "Choose a starter for the current document or keep typing your own prompt in Compose"],
+        ["aiq_c_starterbtns", "Starter buttons for the current document"],
+        ["aiq_c_loadsstarter", "Loads this starter into Compose for the current document"],
+        ["aiq_c_summarystarter", "Summary starter"],
+        ["aiq_c_reviewstarter", "Review starter"],
+        ["aiq_c_langstarter", "Language starter"],
+        ["aiq_c_structstarter", "Structure starter"],
+        ["aiq_c_expandstarter", "Expand starter"],
+        ["aiq_c_starterready", "Starter ready"],
+        ["aiq_c_p_summarize", "Summarize the current content and suggest the clearest next edit"],
+        ["aiq_c_p_proofread", "Proofread the current content and prepare a cleaner version I can review"],
+        ["aiq_c_p_translate", "Translate the current content into Spanish and prepare a reviewable version"],
+        ["aiq_c_p_headings", "Suggest better section titles and subheadings for this content"],
+        ["aiq_c_p_expand", "Add a short supporting paragraph that strengthens this content"],
+        ["aiq_c_conversation", "Conversation"],
+        ["aiq_c_firstex", "First exchange"],
+        ["aiq_c_waitfirst", "Waiting for first ask"],
+        ["aiq_c_firstanswer", "Your first answer, draft, or reviewable change for the current document will appear here"],
+        ["aiq_c_askexplore", "Ask and explore"],
+        ["aiq_c_getanswers", "Get answers, summaries, headings, or rewrite direction grounded in the current context"],
+        ["aiq_c_prepedits", "Prepare reviewable edits"],
+        ["aiq_c_previewinline", "Preview inline changes, apply structured plans, or turn responses into review-ready suggestions"],
+        ["aiq_c_usestarters", "Use starters or type your own"],
+        ["aiq_c_choosecurated", "Choose one of the curated quick starts above or write a custom prompt in the composer below"],
+        ["aiq_c_compose", "Compose"],
+        ["aiq_c_readyask", "Ready to ask about the current document"],
+        ["aiq_c_entersends", "Enter sends"],
+        ["aiq_c_composeactions", "Compose actions"],
+        ["aiq_c_openask", "Open Ask AI"],
+        ["aiq_c_senddisabled", "Send disabled"],
+        ["aiq_c_responseready", "AI response ready"],
+        ["aiq_c_replyready", "Reply ready"],
+        ["aiq_c_textchange", "This is a text change"],
+        ["aiq_c_exchange", "AI chat exchange"],
+        ["aiq_c_customex", "Custom exchange"],
+        ["aiq_c_request", "Request"],
+        ["aiq_c_curexchange", "Current exchange"],
+        ["aiq_c_you", "You"],
+        ["aiq_c_prompt", "Prompt"],
+        ["aiq_c_promptsent", "Prompt sent"],
+        ["aiq_c_waitingai", "Waiting on AI for the current document context"],
+        ["aiq_c_whatyouasked", "What you asked"],
+        ["aiq_c_usingdoc", "Using current document"],
+        ["aiq_c_response", "Response"],
+        ["aiq_c_answer", "Answer"],
+        ["aiq_c_answerready", "Answer ready"],
+        ["aiq_c_readanswer", "Read the answer grounded in the current document context"],
+        ["aiq_c_copyonly", "Copy only"],
+        ["aiq_c_copyonlygroup", "Copy only group"],
+        ["aiq_c_copyprep", "Copy this prepared reply without changing the document"],
+        ["aiq_c_copyprepai", "Copy this prepared AI reply without changing the document"],
+        ["aiq_c_copytext", "Copy text"],
+        ["aiq_c_actions", "Actions"],
+        ["aiq_c_ai", "AI"]
+    ];
+    var AIQ_PATTERNS = [
+        ["aiq_p_queue", new RegExp("^Queue (\\d+) of (\\d+)$")],
+        ["aiq_p_step", new RegExp("^(\\d+) steps?$")],
+        ["aiq_p_keeps", new RegExp("^Keeps (\\d+) words? across (\\d+) sentences?$")],
+        ["aiq_p_queuein", new RegExp("^It is queue (\\d+) of (\\d+) in this view$")],
+        ["aiq_p_enterfocuses", new RegExp("^Enter focuses (.+)$")],
+        ["aiq_p_entercolon", new RegExp("^Enter: (.+)$")],
+        ["aiq_p_focus", new RegExp("^[Ff]ocus (.+)$")],
+        ["aiq_p_reviewopens", new RegExp("^Review opens on (.+)$")],
+        ["aiq_p_openfocus", new RegExp("^Open this AI suggestion in review and focus (.+)$")],
+        ["aiq_p_auses", new RegExp("^A uses (.+)$")],
+        ["aiq_p_ruses", new RegExp("^R uses (.+)$")],
+        ["aiq_p_exchanges", new RegExp("^(\\d+) exchanges?$")],
+        ["aiq_p_messages", new RegExp("^(\\d+) messages?$")],
+        ["aiq_p_words", new RegExp("^(\\d+) words?$")],
+        ["aid_chars", new RegExp("^(\\d+) chars?$")],
+        ["aiq_p_paragraphs", new RegExp("^(\\d+) paragraphs?$")],
+        ["aic_pill_starters", new RegExp("^(\\d+) starters?$")],
+        ["aic_pill_words", new RegExp("^(\\d+) words in scope$")],
+        ["aiq_p_exchangen", new RegExp("^Exchange (\\d+)$")],
+        ["aiq_p_turn", new RegExp("^Turn (\\d+)$")],
+        ["aiq_p_convdoc", new RegExp("^(\\d+) exchanges?, (\\d+) messages? in this conversation for the current document$")],
+        ["aiq_p_convsel", new RegExp("^(\\d+) exchanges?, (\\d+) messages? in this conversation for the current selection$")],
+        ["aiq_p_threaddoc", new RegExp("^(\\d+) exchanges?, (\\d+) messages? in this document thread$")],
+        ["aiq_p_threadsel", new RegExp("^(\\d+) exchanges?, (\\d+) messages? in this selection thread$")],
+        ["aiq_p_responding", new RegExp("^Responding to (.+) request$")],
+        ["aiq_p_actions", new RegExp("^Actions: (.+)$")]
+    ];
+    var aiqIndex = null;
+    function aiqLocale() {
+        var l = config && config.text_uilocale;
+        return l && !/^en(-|$)/i.test(l) ? l : "";
+    }
+    function aiqCjk() { return /^(zh|ja)/i.test(aiqLocale()); }
+    function aiqExact(s) {
+        if (!aiqIndex) {
+            aiqIndex = {};
+            for (var i = 0; i < AIQ_EXACT.length; i++) {
+                var en = AIQ_EXACT[i][1];
+                if (!aiqIndex["=" + en]) aiqIndex["=" + en] = AIQ_EXACT[i][0];
+                if (!aiqIndex["~" + en.toLowerCase()]) aiqIndex["~" + en.toLowerCase()] = AIQ_EXACT[i][0];
+            }
+        }
+        var key = aiqIndex["=" + s] || aiqIndex["~" + s.toLowerCase()];
+        return (key && config["text_" + key]) || null;
+    }
+    // a phrase without its closing stop: the catalog, then the patterns (a word capture must translate too)
+    function aiqCore(s) {
+        var v = aiqExact(s);
+        if (v) return v;
+        for (var i = 0; i < AIQ_PATTERNS.length; i++) {
+            var m = AIQ_PATTERNS[i][1].exec(s);
+            if (!m) continue;
+            var tpl = config["text_" + AIQ_PATTERNS[i][0]];
+            if (!tpl) return null;
+            var out = tpl;
+            for (var j = 1; j < m.length; j++) {
+                var cap = m[j], tr = /^[0-9]+$/.test(cap) ? cap : aiqCore(cap);
+                if (tr == null) return null;
+                out = out.split("{" + (j - 1) + "}").join(tr);
+            }
+            return out;
+        }
+        return null;
+    }
+    function aiqPiece(piece) {
+        var body = piece, punct = "";
+        var last = body.charAt(body.length - 1);
+        if (last === "." || last === ":") { punct = last; body = body.substring(0, body.length - 1); }
+        var v = aiqCore(body);
+        if (v == null) return null;
+        if (punct) {
+            var end = v.charAt(v.length - 1);
+            var closed = ".:!?".indexOf(end) >= 0 || end === String.fromCharCode(0x3002) || end === String.fromCharCode(0xff1a);
+            if (!closed) v += aiqCjk() ? String.fromCharCode(punct === ":" ? 0xff1a : 0x3002) : punct;
+        }
+        return v;
+    }
+    function aiqText(text) {
+        var t = String(text == null ? "" : text).replace(/^\s+|\s+$/g, "");
+        if (!t || !/[A-Za-z]/.test(t)) return null;
+        var whole = aiqPiece(t);
+        if (whole != null) return whole;
+        var dash = t.indexOf(" - ");
+        if (dash > 0) {
+            var a = aiqText(t.substring(0, dash)), b = aiqText(t.substring(dash + 3));
+            if (a != null || b != null) return (a != null ? a : t.substring(0, dash)) + " - " + (b != null ? b : t.substring(dash + 3));
+        }
+        var pieces = t.match(/[^.:!?]+[.:!?]*/g);
+        if (!pieces || pieces.length < 2) return null;
+        var out = "", prevTranslated = false, changed = false;
+        for (var i = 0; i < pieces.length; i++) {
+            var p = pieces[i].replace(/^\s+|\s+$/g, "");
+            if (!p) continue;
+            var tr = aiqPiece(p);
+            if (tr != null) changed = true;
+            var local = tr != null || !/[A-Za-z]/.test(p);
+            var cur = tr != null ? tr : p;
+            out += !out ? cur : ((local && prevTranslated && aiqCjk()) ? "" : " ") + cur;
+            prevTranslated = local;
+        }
+        return changed ? out : null;
+    }
+    var aiqCjkStop = null, aiqCjkGap = null;
+    function aiqFinish(s) {
+        if (s == null || !aiqCjk()) return s;
+        if (!aiqCjkStop) {
+            var cjk = String.fromCharCode(0x4e00) + "-" + String.fromCharCode(0x9fff) + String.fromCharCode(0x3040) + "-" + String.fromCharCode(0x30ff) + String.fromCharCode(0x201d) + String.fromCharCode(0x300d);
+            aiqCjkStop = new RegExp("([" + cjk + "])\\.", "g");
+            aiqCjkGap = new RegExp("([" + String.fromCharCode(0x3002) + String.fromCharCode(0xff1a) + "])\\s+(?=[^A-Za-z0-9\\s])", "g");
+        }
+        return s.replace(aiqCjkStop, "$1" + String.fromCharCode(0x3002)).replace(aiqCjkGap, "$1");
+    }
+    var AIQ_SKIP = ".rte-ai-inline-preview-compare-text, .rte-ai-chat-message-text, .rte-ai-chat-message-request-body, textarea, input, script, style, svg";
+    function aiqLocalize(root) {
+        if (!root || !aiqLocale()) return;
+        var stack = [root];
+        while (stack.length) {
+            var el = stack.pop();
+            if (el.nodeType !== 1) continue;
+            if (el !== root && el.matches && el.matches(AIQ_SKIP)) continue;
+            for (var a = 0; a < 3; a++) {
+                var name = a === 0 ? "aria-label" : (a === 1 ? "title" : "placeholder");
+                var val = el.getAttribute(name);
+                if (val) { var tv = aiqFinish(aiqText(val) || val); if (tv !== val) el.setAttribute(name, tv); }
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+                if (c.nodeType === 1) stack.push(c);
+                else if (c.nodeType === 3 && /[A-Za-z.]/.test(c.data)) {
+                    var tt = aiqFinish(aiqText(c.data) || c.data.replace(/^\s+|\s+$/g, ""));
+                    if (tt) {
+                        var lead = /^\s*/.exec(c.data)[0], trail = /\s*$/.exec(c.data)[0];
+                        if (lead + tt + trail !== c.data) c.data = lead + tt + trail;
+                    }
+                }
+            }
+        }
+    }
+    // keep a root localized as the toolkit rebuilds it (idempotent: a translated string has nothing left to match)
+    function aiqWatch(root, select) {
+        if (!root || !aiqLocale() || root.__aiqWatched) return;
+        root.__aiqWatched = true;
+        var run = function () {
+            if (!select) { aiqLocalize(root); return; }
+            var list = root.querySelectorAll(select);
+            for (var i = 0; i < list.length; i++) aiqLocalize(list[i]);
+        };
+        run();
+        var win = root.ownerDocument && root.ownerDocument.defaultView;
+        var MO = win && win.MutationObserver;
+        if (!MO) return;
+        var pending = false;
+        new MO(function () {
+            if (pending) return;
+            pending = true;
+            win.setTimeout(function () { pending = false; run(); }, 0);
+        }).observe(root, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["aria-label", "title", "placeholder"] });
+    }
+    function aiqWatchCards() {
+        var editable = editor.getEditable ? editor.getEditable() : null;
+        if (editable) aiqWatch(editable, ".rte-ai-inline-preview");
+    }
+
     function ensureSentence(text) {
         var clean = normalizeText(text);
         if (!clean) {
@@ -1155,6 +1682,24 @@ function RTE_Plugin_AIToolkit() {
 
     function normalizeLanguageValue(language) {
         return normalizeText(language || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+    }
+
+    // 2026-10-18 the Translate-to list names the built-in languages in the page's language (Intl.DisplayNames in the
+    // pack's locale, text_uilocale) at the display site only; values and the language a request names are unchanged,
+    // and an application's own label is kept. tools/i18n/ai-translate-languages.mjs
+    var TRANSLATE_BUILTIN = { spanish: ["es", "Spanish"], french: ["fr", "French"], german: ["de", "German"], italian: ["it", "Italian"], portuguese: ["pt", "Portuguese"], japanese: ["ja", "Japanese"] };
+    function getTranslateLanguageDisplay(entry) {
+        var label = entry.label || entry.value;
+        var builtIn = TRANSLATE_BUILTIN[normalizeLanguageValue(entry.value)];
+        var locale = config && config.text_uilocale;
+        if (!builtIn || label !== builtIn[1] || !locale || /^en(-|$)/i.test(locale)) return label;
+        try {
+            if (typeof Intl !== "undefined" && Intl.DisplayNames) {
+                var n = new Intl.DisplayNames([locale], { type: "language" }).of(builtIn[0]);
+                if (n && n !== builtIn[0]) return n;
+            }
+        } catch (e) { /* the English label */ }
+        return label;
     }
 
     function getTranslateLanguageLabel(language) {
@@ -1187,27 +1732,27 @@ function RTE_Plugin_AIToolkit() {
     function getSuggestionTypeLabel(type) {
         switch (getSuggestionTypeValue(type)) {
             case "proofread":
-                return "Proofread";
+                return (obj.__aiT ? obj.__aiT("air_type_proofread", "Proofread") : "Proofread");
             case "rewrite":
-                return "Rewrite";
+                return (obj.__aiT ? obj.__aiT("air_type_rewrite", "Rewrite") : "Rewrite");
             case "translate":
-                return "Translate";
+                return (obj.__aiT ? obj.__aiT("air_type_translate", "Translate") : "Translate");
             case "justify":
-                return "Justify";
+                return (obj.__aiT ? obj.__aiT("air_type_justify", "Justify") : "Justify");
             case "summarize":
-                return "Summarize";
+                return (obj.__aiT ? obj.__aiT("air_type_summarize", "Summarize") : "Summarize");
             case "shorten":
-                return "Shorten";
+                return (obj.__aiT ? obj.__aiT("air_type_shorten", "Shorten") : "Shorten");
             case "expand":
-                return "Expand";
+                return (obj.__aiT ? obj.__aiT("air_type_expand", "Expand") : "Expand");
             case "comment":
-                return "Comment";
+                return (obj.__aiT ? obj.__aiT("air_type_comment", "Comment") : "Comment");
             case "paragraph":
-                return "Paragraph";
+                return (obj.__aiT ? obj.__aiT("air_type_paragraph", "Paragraph") : "Paragraph");
             case "chat":
-                return "Chat";
+                return (obj.__aiT ? obj.__aiT("air_type_chat", "Chat") : "Chat");
             default:
-                return "Other";
+                return (obj.__aiT ? obj.__aiT("air_type_other", "Other") : "Other");
         }
     }
 
@@ -1358,7 +1903,7 @@ function RTE_Plugin_AIToolkit() {
         if (options.redoNextLabel) {
             parts.push(options.redoNextLabel);
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildSuggestionSourceLabel(type, snapshot, language, scope) {
@@ -1383,11 +1928,11 @@ function RTE_Plugin_AIToolkit() {
         var languageValue = getTranslateLanguageValue(language);
         var languageLabel = getTranslateLanguageLabel(languageValue);
         var leadMap = {
-            spanish: "Version en español",
-            french: "Version française",
+            spanish: "Version en espa\xf1ol",
+            french: "Version fran\xe7aise",
             german: "Deutsche Fassung",
             italian: "Versione italiana",
-            portuguese: "Versão em português",
+            portuguese: "Vers\xe3o em portugu\xeas",
             japanese: "Japanese draft"
         };
         var lead = leadMap[languageValue] || (languageLabel + " version");
@@ -1402,20 +1947,29 @@ function RTE_Plugin_AIToolkit() {
         }
 
         var words = clean.split(/\s+/);
+        // 2026-10-18 an in-place edit ends like the selection it replaces: one that stops before the end of its
+        // paragraph gains no closing stop, one that starts mid-sentence keeps its first letter. Proofreading "Hello world"
+        // in "Hello world, this is a test." gave "Hello world., this is a test.". tools/ai/demo-proofread-fragment.mjs
+        function finishEdit(text) {
+            var s = normalizeText(text);
+            if (!s) return s;
+            if (!options.midStart) s = s.charAt(0).toUpperCase() + s.substring(1);
+            if (!options.midEnd && !/[.!?]$/.test(s)) s += ".";
+            return s;
+        }
         switch (mode) {
             case "proofread":
                 var proofed = clean
                     .replace(/\s{2,}/g, " ")
                     .replace(/\s+([,.;:!?])/g, "$1")
                     .replace(/([,.;:!?])([^\s"'\)\]])/g, "$1 $2")
-                    .replace(/\.{2,}(?!\.)/g, ".")
-                    .replace(/^(.)/, function (m) { return m.toUpperCase(); });
-                return ensureSentence(proofed);
+                    .replace(/\.{2,}(?!\.)/g, ".");
+                return finishEdit(proofed);
             case "rewrite":
-                return ensureSentence(clean
-                    .replace(/\bvery\s+/gi, "")
-                    .replace(/\breally\s+/gi, "")
-                    .replace(/\bjust\s+/gi, "")
+                return finishEdit(clean
+                    .replace(/\bvery\b\s*/gi, "")
+                    .replace(/\breally\b\s*/gi, "")
+                    .replace(/\bjust\b\s*/gi, "")
                     .replace(/\bin order to\b/gi, "to")
                     .replace(/\bdue to the fact that\b/gi, "because")
                     .replace(/\s{2,}/g, " "));
@@ -1445,7 +1999,7 @@ function RTE_Plugin_AIToolkit() {
         if (!clean) {
             return "Additional paragraph: This section adds a concise supporting explanation so the reader gets more context without losing momentum.";
         }
-        return ensureSentence("Additional paragraph: This section adds a concise supporting explanation that reinforces " + clean.split(/\s+/).slice(0, 10).join(" ") + " for the reader.");
+        return ensureSentence("Additional paragraph: This section adds a concise supporting explanation that reinforces " + clean.split(/\s+/).slice(0, 10).join(" ").replace(/[.!?;:,]+$/, "") + " for the reader.");
     }
 
     function truncateText(text, maxLength) {
@@ -1457,7 +2011,9 @@ function RTE_Plugin_AIToolkit() {
     }
 
     function buildChatAnswer(prompt, source) {
-        var focus = truncateText(source, 160) || "the current document";
+        // 2026-10-18 the quoted text loses its own closing stop, or the reply read "this is a test.. Ask me" and
+        // "test., I would". tools/ai/aria-double-period.mjs
+        var focus = String(truncateText(source, 160) || "").replace(/[ \t\r\n.!?;:,]+$/, "") || "the current document";
         if (/\b(headings?|titles?)\b/.test(prompt)) {
             return "You could tighten the structure by using shorter headings that mirror the main claims in " + focus + ". Ask me to draft heading options and I can turn them into reviewable suggestions.";
         }
@@ -1996,7 +2552,7 @@ function RTE_Plugin_AIToolkit() {
         if (unavailableReason) {
             parts.push(unavailableReason);
         }
-        button.setAttribute("aria-label", parts.join(". "));
+        button.setAttribute("aria-label", joinSentences(parts));
         button.title = detail
             ? (label || "Action") + " - " + detail + (unavailableReason ? " " + unavailableReason : "")
             : (label || "Action") + (unavailableReason ? " - " + unavailableReason : "");
@@ -2011,13 +2567,34 @@ function RTE_Plugin_AIToolkit() {
         }, action, request);
     }
 
+    // Whether a selection starts mid-sentence (text before it in its block that does not end a sentence) and ends
+    // before its block does (text after it). Only for a selection; a document-wide request is a whole text.
+    function selectionSentenceContext(request) {
+        var out = { midStart: false, midEnd: false };
+        try {
+            var snap = request && request.snapshot;
+            var r = snap && snap.hasSelection && request.scope !== "document" ? snap.range : null;
+            if (!r) return out;
+            var doc = r.startContainer.ownerDocument;
+            var blockOf = function (n) {
+                var el = n && n.nodeType === 1 ? n : (n && n.parentNode);
+                while (el && el.nodeType === 1 && !/^(P|LI|TD|TH|H[1-6]|DIV|BLOCKQUOTE|PRE|BODY)$/.test(el.nodeName)) el = el.parentNode;
+                return el && el.nodeType === 1 ? el : null;
+            };
+            var b1 = blockOf(r.startContainer), b2 = blockOf(r.endContainer);
+            if (b1) { var pre = doc.createRange(); pre.selectNodeContents(b1); pre.setEnd(r.startContainer, r.startOffset); var before = pre.toString(); out.midStart = /\S/.test(before) && !/[.!?]["'\u201d)\]]*\s*$/.test(before); }
+            if (b2) { var post = doc.createRange(); post.selectNodeContents(b2); post.setStart(r.endContainer, r.endOffset); out.midEnd = /\S/.test(post.toString()); }
+        } catch (e) { /* a whole text */ }
+        return out;
+    }
+
     function defaultResolveAction(request) {
         switch (request.mode) {
             case "proofread":
                 var proofReason = "Normalizes spacing, punctuation, and capitalization while keeping the original meaning intact.";
                 return {
                     operations: [
-                        buildLegacyOperation(request.action && request.action.target ? request.action.target : "selection-preview", buildDemoResult("proofread", request.source), { reason: proofReason }, request, request.action)
+                        buildLegacyOperation(request.action && request.action.target ? request.action.target : "selection-preview", buildDemoResult("proofread", request.source, selectionSentenceContext(request)), { reason: proofReason }, request, request.action)
                     ],
                     reason: proofReason
                 };
@@ -2025,7 +2602,7 @@ function RTE_Plugin_AIToolkit() {
                 var rewriteReason = "Tightens the wording by removing filler phrases so the point comes through faster.";
                 return {
                     operations: [
-                        buildLegacyOperation(request.action && request.action.target ? request.action.target : "selection-preview", buildDemoResult("rewrite", request.source), { reason: rewriteReason }, request, request.action)
+                        buildLegacyOperation(request.action && request.action.target ? request.action.target : "selection-preview", buildDemoResult("rewrite", request.source, selectionSentenceContext(request)), { reason: rewriteReason }, request, request.action)
                     ],
                     reason: rewriteReason
                 };
@@ -2048,7 +2625,7 @@ function RTE_Plugin_AIToolkit() {
                     operations: [
                         {
                             type: "preview-suggestion",
-                            text: buildDemoResult("rewrite", request.source),
+                            text: buildDemoResult("rewrite", request.source, selectionSentenceContext(request)),
                             reason: "This rewrite reduces filler language, clarifies the main point, and makes the sentence easier to review before accepting."
                         }
                     ],
@@ -2534,6 +3111,8 @@ function RTE_Plugin_AIToolkit() {
             scope: suggestion.snapshot && suggestion.snapshot.hasSelection ? "selection" : "document",
             text: suggestion.text || "",
             blockPath: suggestion.blockPath || "",
+            mentions: cleanLedgerMentions(suggestion.mentions),
+            reactions: cleanLedgerReactions(suggestion.reactions),
             replies: Array.isArray(suggestion.replies) ? suggestion.replies : []
         };
     }
@@ -2560,6 +3139,33 @@ function RTE_Plugin_AIToolkit() {
         }
         return doc.body.innerHTML;
     }
+    // 2026-10-12 comment mentions: the { id, name } pairs a comment names, kept with the comment in the shared store.
+    function cleanLedgerMentions(list) {
+        var out = [];
+        if (!Array.isArray(list)) return out;
+        for (var i = 0; i < list.length; i++) {
+            var m = list[i];
+            if (m && m.id != null && m.name) out.push({ id: String(m.id), name: String(m.name) });
+        }
+        return out;
+    }
+    // 2026-10-15 comment reactions: [{ emoji, users: [id] }], kept with the comment like mentions.
+    function cleanLedgerReactions(list) {
+        var out = [];
+        if (!Array.isArray(list)) return out;
+        for (var i = 0; i < list.length && out.length < 20; i++) {
+            var r = list[i];
+            if (!r || typeof r.emoji !== "string" || !r.emoji || r.emoji.length > 8 || !Array.isArray(r.users)) continue;
+            var users = [];
+            for (var j = 0; j < r.users.length; j++) {
+                var u = r.users[j] == null ? "" : String(r.users[j]);
+                if (u && users.indexOf(u) < 0) users.push(u);
+            }
+            if (users.length) out.push({ emoji: r.emoji, users: users });
+        }
+        return out;
+    }
+
 
     function normalizeLedgerEntry(raw) {
         if (!raw || !raw.id) return null;
@@ -2592,6 +3198,8 @@ function RTE_Plugin_AIToolkit() {
             sourceLabel: raw.sourceLabel || "",
             snapshot: raw.snapshot || { hasSelection: raw.scope === "selection" },
             text: raw.text || "",
+            mentions: cleanLedgerMentions(raw.mentions),
+            reactions: cleanLedgerReactions(raw.reactions),
             blockPath: raw.blockPath || "",
             replies: Array.isArray(raw.replies) ? raw.replies : []
         };
@@ -2634,6 +3242,8 @@ function RTE_Plugin_AIToolkit() {
                 hasSelection: raw.scope === "selection"
             },
             text: raw.text || "",
+            mentions: cleanLedgerMentions(raw.mentions),
+            reactions: cleanLedgerReactions(raw.reactions),
             blockPath: raw.blockPath || "",
             replies: Array.isArray(raw.replies) ? raw.replies : []
         };
@@ -2689,6 +3299,8 @@ function RTE_Plugin_AIToolkit() {
             createdAt: suggestion.createdAt || 0,
             decidedAt: suggestion.decidedAt || 0,
             sourceLabel: suggestion.sourceLabel || "",
+            mentions: cleanLedgerMentions(suggestion.mentions),
+            reactions: cleanLedgerReactions(suggestion.reactions),
             snapshot: {
                 hasSelection: !!(suggestion.snapshot && suggestion.snapshot.hasSelection)
             }
@@ -4942,13 +5554,13 @@ function RTE_Plugin_AIToolkit() {
         var bodyNode = ownerDocument.createElement("span");
         bodyNode.className = "rte-ai-inline-preview-shortcuts-body";
         shortcutsChip.appendChild(bodyNode);
-        var pieces = String(text || "").split(/(\s+·\s+|\s+-\s+)/);
+        var pieces = String(text || "").split(/(\s+\xb7\s+|\s+-\s+)/);
         for (var pieceIndex = 0; pieceIndex < pieces.length; pieceIndex++) {
             var piece = pieces[pieceIndex];
             if (!piece) {
                 continue;
             }
-            if (/^\s+[·-]\s+$/.test(piece)) {
+            if (/^\s+[\xb7-]\s+$/.test(piece)) {
                 var separator = ownerDocument.createElement("span");
                 separator.className = "rte-ai-inline-preview-shortcuts-separator";
                 separator.innerText = piece.replace(/^\s+|\s+$/g, "");
@@ -5141,13 +5753,13 @@ function RTE_Plugin_AIToolkit() {
     function getSuggestionStatusLabel(status) {
         switch (status) {
             case "accepted":
-                return "Accepted";
+                return (obj.__aiT ? obj.__aiT("air_status_accepted", "Accepted") : "Accepted");
             case "rejected":
-                return "Rejected";
+                return (obj.__aiT ? obj.__aiT("air_status_rejected", "Rejected") : "Rejected");
             case "stale":
-                return "Needs refresh";
+                return (obj.__aiT ? obj.__aiT("air_status_stale", "Needs refresh") : "Needs refresh");
             default:
-                return "Pending";
+                return (obj.__aiT ? obj.__aiT("air_status_pending", "Pending") : "Pending");
         }
     }
 
@@ -5407,7 +6019,7 @@ function RTE_Plugin_AIToolkit() {
         if (summaryData.detail) {
             parts.push(summaryData.detail);
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function createInlinePreviewActionSummaryHtml(previewState) {
@@ -5566,10 +6178,10 @@ function RTE_Plugin_AIToolkit() {
             }
             var ariaLabel = label ? (label + " actions") : "AI suggestion actions";
             if (detailText) {
-                ariaLabel += ". " + detailText;
+                ariaLabel = joinSentences([ariaLabel, detailText]);
             }
             if (isCurrentGroup && badgeText) {
-                ariaLabel += ". Current lane. " + badgeText;
+                ariaLabel = joinSentences([ariaLabel, "Current lane", badgeText]);
             }
             groupNode.setAttribute("aria-label", ariaLabel);
         }
@@ -5618,7 +6230,7 @@ function RTE_Plugin_AIToolkit() {
                 button.setAttribute("aria-keyshortcuts", shortcutKey ? ("Enter Space " + shortcutKey) : "Enter Space");
                 button.setAttribute("data-rte-ai-enter-target-label", "Enter");
                 if (ariaLabel && !/current enter target/i.test(ariaLabel)) {
-                    button.setAttribute("aria-label", ariaLabel + ". Current Enter target.");
+                    button.setAttribute("aria-label", joinSentences([ariaLabel, "Current Enter target."]));
                 }
                 if (title && !/enter or space activates this action/i.test(title)) {
                     title += ". Enter or Space activates this action";
@@ -5627,7 +6239,7 @@ function RTE_Plugin_AIToolkit() {
                     }
                 }
                 if (title && !/current enter target/i.test(title)) {
-                    button.title = title + ". Current Enter target.";
+                    button.title = joinSentences([title, "Current Enter target."]);
                 }
             }
             else {
@@ -6161,7 +6773,32 @@ function RTE_Plugin_AIToolkit() {
             + "</" + resolvedTag + ">";
     }
 
+    // 2026-10-18 The card is inserted into the editing document - an iframe by default - but the toolkit's stylesheet
+    // was linked into the host page only, so every card rendered as unstyled run-on text. The host page's copy is
+    // linked into the editing document once (never into the saved HTML). tools/ai/inline-card-styled.mjs
+    function ensureCardStylesheet() {
+        try {
+            var editable = editor.getEditable ? editor.getEditable() : null;
+            var doc = editable && editable.ownerDocument;
+            if (!doc || doc === document || doc.querySelector("link[data-rte-ai-card-css]")) return;
+            var src = document.querySelector("link[data-rte-auto-injected=aitoolkit]");
+            if (!src) {
+                var all = document.querySelectorAll("link[rel=stylesheet]");
+                for (var i = 0; i < all.length; i++) {
+                    if (/(?:^|\/)aitoolkit(?:\.min)?\.css(?:[?#].*)?$/i.test(all[i].getAttribute("href") || "")) { src = all[i]; break; }
+                }
+            }
+            if (!src || !src.href) return;
+            var link = doc.createElement("link");
+            link.rel = "stylesheet";
+            link.href = src.href;
+            link.setAttribute("data-rte-ai-card-css", "1");
+            (doc.head || doc.documentElement).appendChild(link);
+        } catch (e) { /* the card stays unstyled, as before */ }
+    }
+
     function createInlinePreviewHtml(previewState) {
+        ensureCardStylesheet();
         var isBlock = !!previewState.isBlock;
         var wrapperTag = isBlock ? "div" : "span";
         var partTag = isBlock ? "div" : "span";
@@ -6239,6 +6876,7 @@ function RTE_Plugin_AIToolkit() {
             editor.__aiBindInlinePreviewEventHandlers();
         }
         editor.insertHTML(createInlinePreviewHtml(previewState));
+        aiqWatchCards();
         persistSuggestionStore();
         emitReviewLogEvent("suggestion-created", previewState);
         if (editor.__aiReviewPanel && editor.__aiReviewPanel.isConnected) {
@@ -6326,8 +6964,8 @@ function RTE_Plugin_AIToolkit() {
         var searchInput = panel.ownerDocument.createElement("input");
         searchInput.type = "text";
         searchInput.className = "rte-ai-menu-search-input";
-        searchInput.placeholder = "Filter actions…";
-        searchInput.setAttribute("aria-label", "Filter AI actions");
+        searchInput.placeholder = (obj.__aiT ? obj.__aiT("aia_filter", "Filter actions\u2026") : "Filter actions\u2026");
+        searchInput.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aia_filteraria", "Filter AI actions") : "Filter AI actions"));
         searchInput.setAttribute("autocomplete", "off");
         searchInput.setAttribute("spellcheck", "false");
         searchRow.appendChild(searchInput);
@@ -6387,7 +7025,7 @@ function RTE_Plugin_AIToolkit() {
                 // 26px row floor and 2-col grid measure identically.
                 if (action.description) {
                     button.title = action.description;
-                    button.setAttribute("aria-label", (action.title || action.id) + " — " + action.description);
+                    button.setAttribute("aria-label", (action.title || action.id) + " \u2014 " + action.description);
                 }
                 var icon = append(button, "span", "", "rte-ai-menu-item-icon");
                 icon.innerHTML = getActionIconSvg(action);
@@ -6455,7 +7093,7 @@ function RTE_Plugin_AIToolkit() {
                 if (!searchRow.__aiEmptyHint) {
                     var hint = panel.ownerDocument.createElement("div");
                     hint.className = "rte-ai-menu-empty-hint";
-                    hint.textContent = "No actions match.";
+                    hint.textContent = (obj.__aiT ? obj.__aiT("aia_nomatch", "No actions match.") : "No actions match.");
                     panel.appendChild(hint);
                     searchRow.__aiEmptyHint = hint;
                 }
@@ -6644,6 +7282,19 @@ function RTE_Plugin_AIToolkit() {
         });
     }
 
+    // 2026-10-17 a locked document stays locked: in read-only mode (Ask AI opened through the API) and in comments-only
+    // mode (its button stays enabled there) "Replace document", applyResult() and executeResolvedAction() rewrote the
+    // document. Text-changing operations are refused and the refusal is announced; opening a panel and adding a
+    // comment still work. tools/ai/ai-locked.mjs
+    function documentLocked() {
+        try { return !!((editor.getReadOnly && editor.getReadOnly()) || (editor.getCommentsOnly && editor.getCommentsOnly())); } catch (e) { return false; }
+    }
+
+    function refuseLocked() {
+        announceReviewStatus(config.text_aitoolkitlocked || "This document is read-only, so the AI result was not applied.");
+        return false;
+    }
+
     function executeOperations(operations, options) {
         options = options || {};
         var snapshot = options.snapshot || captureSelectionSnapshot();
@@ -6680,6 +7331,7 @@ function RTE_Plugin_AIToolkit() {
             });
         }
 
+        if (documentLocked() && !/^open-|comment/i.test(String(operation.type))) return refuseLocked();
         switch (operation.type) {
             case "open-chat-panel":
                 openChatPanel({ focusComposer: true });
@@ -6891,6 +7543,7 @@ function RTE_Plugin_AIToolkit() {
     }
 
     function applyResult(result, options) {
+        if (documentLocked()) return refuseLocked();
         var clean = normalizeText(result);
         if (!clean) {
             return false;
@@ -6903,7 +7556,9 @@ function RTE_Plugin_AIToolkit() {
         var snapshot = options.snapshot || captureSelectionSnapshot();
 
         if (mode === "document") {
-            editor.setHTMLCode(textToHtml(clean));
+            // 2026-10-03 undoable: an AI rewrite of the whole document is one Ctrl+Z back to exactly
+            // what was there, edits made just before included (tools/import/replace-undo-plugins.mjs)
+            editor.setHTMLCode(textToHtml(clean), { undoable: true });
             syncSuggestionStates();
             persistSuggestionStore();
             if (editor.__aiReviewPanel && editor.__aiReviewPanel.isConnected) {
@@ -7116,7 +7771,7 @@ function RTE_Plugin_AIToolkit() {
         if (options.redoNextLabel) {
             parts.push(options.redoNextLabel);
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildReviewQueuePositionData(visibleSuggestions, activeSuggestionId, suggestion) {
@@ -7897,7 +8552,7 @@ function RTE_Plugin_AIToolkit() {
                 parts.push(options.queueTransitionData.followupDetail);
             }
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function updateReviewCondensedPreviewAria(item, suggestion, panel) {
@@ -8222,7 +8877,7 @@ function RTE_Plugin_AIToolkit() {
                         focusActionLabel: getReviewFocusActionDisplayLabel(findSuggestionById(nextOverallPendingId), preferredQueueFocusAction)
                     } : null,
                     undoAction,
-                    { id: "all-types", label: "All types" },
+                    { id: "all-types", label: (obj.__aiT ? obj.__aiT("air_alltypes", "All types") : "All types") },
                     hasResolved && !showResolved ? { id: "show-resolved", label: "Show resolved" } : null,
                     { id: "open-chat", label: "AI Chat" }
                 ])
@@ -8250,7 +8905,7 @@ function RTE_Plugin_AIToolkit() {
             announceMessage: "",
             actions: [
                 undoAction,
-                typeFilter !== "all" ? { id: "all-types", label: "All types" } : null,
+                typeFilter !== "all" ? { id: "all-types", label: (obj.__aiT ? obj.__aiT("air_alltypes", "All types") : "All types") } : null,
                 hasResolved && !showResolved ? { id: "show-resolved", label: "Show resolved" } : null,
                 { id: "open-chat", label: "AI Chat" }
             ]
@@ -9416,7 +10071,7 @@ function RTE_Plugin_AIToolkit() {
         if (contextCardData.copy) {
             parts.push(contextCardData.copy);
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function getChatMessageStateTitle(message) {
@@ -9629,7 +10284,7 @@ function RTE_Plugin_AIToolkit() {
         if (isRecommended) {
             parts.push("Recommended next step.");
         }
-        button.setAttribute("aria-label", parts.join(". "));
+        button.setAttribute("aria-label", joinSentences(parts));
         button.title = detail
             ? label + " - " + detail + (isRecommended ? " Recommended next step." : "")
             : label + (isRecommended ? " - Recommended next step." : "");
@@ -9864,7 +10519,7 @@ function RTE_Plugin_AIToolkit() {
         if (actionLabels.length) {
             parts.push("Actions: " + actionLabels.join(", "));
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function syncChatActionAccessibility(actionsNode, recommendedActionId, message, currentSnapshot) {
@@ -9874,8 +10529,8 @@ function RTE_Plugin_AIToolkit() {
         var recommendedLabel = getChatRecommendedActionLabel(recommendedActionId);
         actionsNode.setAttribute("role", "group");
         actionsNode.setAttribute("aria-label", recommendedLabel
-            ? "AI chat actions. Recommended next step: " + recommendedLabel + "."
-            : "AI chat actions");
+            ? (obj.__aiT ? obj.__aiT("aic_actionsrec", "AI chat actions. Recommended next step: {0}.", recommendedLabel) : "AI chat actions. Recommended next step: " + recommendedLabel + ".")
+            : (obj.__aiT ? obj.__aiT("aic_actions", "AI chat actions") : "AI chat actions"));
         var groupNodes = actionsNode.querySelectorAll(".rte-ai-chat-message-action-group");
         for (var groupIndex = 0; groupIndex < groupNodes.length; groupIndex++) {
             var groupNode = groupNodes[groupIndex];
@@ -10001,7 +10656,7 @@ function RTE_Plugin_AIToolkit() {
         if (planItem.detail) {
             parts.push(planItem.detail);
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildChatPreviewPlanItems(message, recommendedActionId, currentSnapshot) {
@@ -10128,7 +10783,7 @@ function RTE_Plugin_AIToolkit() {
                 parts.push("+" + resolvedPreview.hiddenPlanCount + " more");
             }
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function summarizeChatPromptCopy(text) {
@@ -10227,7 +10882,7 @@ function RTE_Plugin_AIToolkit() {
         if (message.text) {
             parts.push(message.text);
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildChatAssistantRequestCardAriaLabel(requestCardData, exchangeLabel) {
@@ -10250,7 +10905,7 @@ function RTE_Plugin_AIToolkit() {
         if (requestCardData.promptText) {
             parts.push(requestCardData.promptText);
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildChatMessageAriaLabel(messages, messageIndex, currentSnapshot) {
@@ -10322,7 +10977,7 @@ function RTE_Plugin_AIToolkit() {
                 parts.push(actionSummary.title);
             }
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildChatMessageStateCardAriaLabel(message) {
@@ -10342,7 +10997,7 @@ function RTE_Plugin_AIToolkit() {
         if (stateDetail) {
             parts.push(stateDetail);
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function getChatMessageThreadRole(messages, messageIndex) {
@@ -10496,7 +11151,7 @@ function RTE_Plugin_AIToolkit() {
         if (bannerData.detail) {
             parts.push(bannerData.detail);
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildChatExchangeGroupAriaLabel(messages, requestIndex, currentSnapshot) {
@@ -10552,7 +11207,7 @@ function RTE_Plugin_AIToolkit() {
         if (bannerData && bannerData.isCurrent) {
             parts.push("Current exchange");
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildChatExchangeOutcomeData(messages, messageIndex, currentSnapshot) {
@@ -10636,7 +11291,7 @@ function RTE_Plugin_AIToolkit() {
         if (outcomeData.detail) {
             parts.push(outcomeData.detail);
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function getChatContextWordCount(text) {
@@ -10779,46 +11434,51 @@ function RTE_Plugin_AIToolkit() {
                 }
             }
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildChatSendActionData(state, context, activePrompt) {
         var scopeLabel = context && context.scope === "selection" ? "selection" : "document";
+        // 2026-10-18 every sentence reads a config.text_ key per scope (word order and gender differ by language);
+        // the English fallbacks are the sentences this built before. tools/i18n/ai-chat-language.mjs
+        var sc = scopeLabel === "selection" ? "sel" : "doc";
+        var L = function (key, en, arg) { var s = (obj.__aiT ? obj.__aiT(key, en) : en); return arg === undefined ? s : s.split("{0}").join(String(arg)); };
+        var LS = function (key, enSel, enDoc, arg) { return L(key + "_" + sc, sc === "sel" ? enSel : enDoc, arg); };
         var hasCustomDraft = !!normalizeText(state && state.draft ? state.draft : "");
         if (state && state.busy) {
             return {
-                text: "Thinking...",
+                text: L("aic_thinking", "Thinking..."),
                 disabled: true,
-                ariaLabel: "Send disabled while AI Chat is thinking about the current " + scopeLabel + ".",
-                title: "AI Chat is thinking about the current " + scopeLabel + "."
+                ariaLabel: LS("aic_busyaria", "Send disabled while AI Chat is thinking about the current selection.", "Send disabled while AI Chat is thinking about the current document."),
+                title: LS("aic_busytitle", "AI Chat is thinking about the current selection.", "AI Chat is thinking about the current document.")
             };
         }
         if (activePrompt && activePrompt.label) {
             return {
-                text: "Send starter",
+                text: L("aic_sendstarter", "Send starter"),
                 disabled: false,
-                ariaLabel: "Send starter. Send the " + activePrompt.label + " starter for the current " + scopeLabel + ".",
-                title: "Send the " + activePrompt.label + " starter for the current " + scopeLabel + "."
+                ariaLabel: LS("aic_starteraria", "Send starter. Send the {0} starter for the current selection.", "Send starter. Send the {0} starter for the current document.", activePrompt.label),
+                title: LS("aic_startertitle", "Send the {0} starter for the current selection.", "Send the {0} starter for the current document.", activePrompt.label)
             };
         }
         if (hasCustomDraft) {
             return {
-                text: "Send prompt",
+                text: L("aic_sendprompt", "Send prompt"),
                 disabled: false,
-                ariaLabel: "Send prompt. Send the custom prompt for the current " + scopeLabel + ".",
-                title: "Send the custom prompt for the current " + scopeLabel + "."
+                ariaLabel: LS("aic_promptaria", "Send prompt. Send the custom prompt for the current selection.", "Send prompt. Send the custom prompt for the current document."),
+                title: LS("aic_prompttitle", "Send the custom prompt for the current selection.", "Send the custom prompt for the current document.")
             };
         }
         return {
-            text: "Send",
+            text: L("aic_send", "Send"),
             disabled: true,
-            ariaLabel: "Send disabled. Type a prompt or load a starter for the current " + scopeLabel + " first.",
-            title: "Type a prompt or load a starter for the current " + scopeLabel + " first."
+            ariaLabel: LS("aic_emptyaria", "Send disabled. Type a prompt or load a starter for the current selection first.", "Send disabled. Type a prompt or load a starter for the current document first."),
+            title: LS("aic_emptytitle", "Type a prompt or load a starter for the current selection first.", "Type a prompt or load a starter for the current document first.")
         };
     }
 
     function buildChatComposerActionsAriaLabel(sendActionData) {
-        return "Compose actions. Open Ask AI. " + (sendActionData && sendActionData.ariaLabel ? sendActionData.ariaLabel : "Send.");
+        return (obj.__aiT ? obj.__aiT("aic_composeactions", "Compose actions. Open Ask AI.") : "Compose actions. Open Ask AI.") + " " + (sendActionData && sendActionData.ariaLabel ? sendActionData.ariaLabel : (obj.__aiT ? obj.__aiT("aic_sendp", "Send.") : "Send."));
     }
 
     function getLatestChatMessage(state) {
@@ -11032,7 +11692,7 @@ function RTE_Plugin_AIToolkit() {
                 parts.push(summaryData.changeGlance.detail);
             }
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildChatFeedIntroData(state, context, activePrompt) {
@@ -11104,7 +11764,7 @@ function RTE_Plugin_AIToolkit() {
         if (feedIntroData.detail) {
             parts.push(feedIntroData.detail);
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildChatFeedSectionAriaLabel(state, context, activePrompt) {
@@ -11133,7 +11793,7 @@ function RTE_Plugin_AIToolkit() {
             if (summaryData && summaryData.detail) {
                 parts.push(summaryData.detail);
             }
-            return parts.join(". ");
+            return joinSentences(parts);
         }
         var feedIntroData = buildChatFeedIntroData(state, context, activePrompt);
         if (feedIntroData.title) {
@@ -11149,7 +11809,7 @@ function RTE_Plugin_AIToolkit() {
         if (feedIntroData.detail) {
             parts.push(feedIntroData.detail);
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function getChatConversationSummaryTitle(state, context) {
@@ -11256,7 +11916,7 @@ function RTE_Plugin_AIToolkit() {
             parts.push(titleText);
         }
         if (!headerData) {
-            return parts.join(". ");
+            return joinSentences(parts);
         }
         if (headerData.statusLabel) {
             parts.push(headerData.statusLabel);
@@ -11274,7 +11934,7 @@ function RTE_Plugin_AIToolkit() {
                 }
             }
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildChatContextData(context) {
@@ -11354,7 +12014,7 @@ function RTE_Plugin_AIToolkit() {
         if (contextData.previewSummary) {
             parts.push(contextData.previewSummary);
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildChatContextBarAriaLabel(contextData) {
@@ -11369,7 +12029,7 @@ function RTE_Plugin_AIToolkit() {
                 }
             }
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildChatContextScopeButtonAriaLabel(scopeId, contextData) {
@@ -11405,7 +12065,7 @@ function RTE_Plugin_AIToolkit() {
         if (contextData.previewSummary) {
             parts.push(contextData.previewSummary);
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildChatQuickStartData(state, prompts, activePrompt, context) {
@@ -11458,7 +12118,7 @@ function RTE_Plugin_AIToolkit() {
         if (quickStartData.detail) {
             parts.push(quickStartData.detail);
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildChatQuickButtonAriaLabel(prompt, isActivePrompt, context) {
@@ -11477,7 +12137,7 @@ function RTE_Plugin_AIToolkit() {
         parts.push(isActivePrompt
             ? "Current starter loaded in Compose for the current " + scopeLabel
             : "Loads this starter into Compose for the current " + scopeLabel);
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildChatQuickRowAriaLabel(context) {
@@ -11512,21 +12172,21 @@ function RTE_Plugin_AIToolkit() {
         // The capability-cards data is still attached to emptyStateData.aria
         // so screen-reader users hear the long form via the aria-label.
         return {
-            title: "Start with AI Chat",
-            detail: context.scope === "selection"
-                ? "Ask anything about the current selection."
-                : "Ask anything about the current document.",
+            title: (obj.__aiT ? obj.__aiT("aic_starttitle", "Start with AI Chat") : "Start with AI Chat"),
+            detail: (context.scope === "selection"
+                ? (obj.__aiT ? obj.__aiT("aic_empty_sel", "Ask anything about the current selection") : "Ask anything about the current selection")
+                : (obj.__aiT ? obj.__aiT("aic_empty_doc", "Ask anything about the current document") : "Ask anything about the current document")) + ".",
             metaPills: [
                 {
-                    text: context.scope === "selection" ? "Selection context" : "Document context",
+                    text: context.scope === "selection" ? (obj.__aiT ? obj.__aiT("aic_pill_sel", "Selection context") : "Selection context") : (obj.__aiT ? obj.__aiT("aic_pill_doc", "Document context") : "Document context"),
                     className: "is-scope"
                 },
                 {
-                    text: (prompts && prompts.length ? prompts.length : 0) + " starters",
+                    text: (obj.__aiT ? obj.__aiT("aic_pill_starters", "{0} starters", prompts && prompts.length ? prompts.length : 0) : (prompts && prompts.length ? prompts.length : 0) + " starters"),
                     className: "is-prompts"
                 },
                 {
-                    text: getChatContextWordCount(context.source) + " words in scope",
+                    text: (obj.__aiT ? obj.__aiT("aic_pill_words", "{0} words in scope", getChatContextWordCount(context.source)) : getChatContextWordCount(context.source) + " words in scope"),
                     className: "is-size"
                 }
             ],
@@ -11545,7 +12205,7 @@ function RTE_Plugin_AIToolkit() {
         if (capabilityCard.copy) {
             parts.push(capabilityCard.copy);
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildChatEmptyStateAriaLabel(emptyStateData) {
@@ -11571,7 +12231,7 @@ function RTE_Plugin_AIToolkit() {
                 parts.push(buildChatEmptyCapabilityAriaLabel(emptyStateData.capabilityCards[cardIndex]));
             }
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function clearChatNode(node) {
@@ -11930,6 +12590,8 @@ function RTE_Plugin_AIToolkit() {
         panel.setAttribute("aria-label", config.text_aichat || "AI Chat");
         panel.tabIndex = -1;
         editor.__aiChatPanel = panel;
+        aiqWatch(panel);
+        appendDemoNotice(panel);
         panel.onkeydown = function (e) {
             if (e.key === "Escape") {
                 e.preventDefault();
@@ -11971,8 +12633,8 @@ function RTE_Plugin_AIToolkit() {
         var clearButton = append(headerActions, "button", "", "secondary rte-ai-chat-header-button is-icon-only");
         clearButton.type = "button";
         clearButton.setAttribute("data-rte-ai-chat-header-action", "new-chat");
-        clearButton.title = "Start a fresh chat";
-        clearButton.setAttribute("aria-label", "Start a fresh chat");
+        clearButton.title = (obj.__aiT ? obj.__aiT("aic_newchat", "Start a fresh chat") : "Start a fresh chat");
+        clearButton.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aic_newchat", "Start a fresh chat") : "Start a fresh chat"));
         setReviewV2ButtonContent(clearButton, "refresh", "");
         clearButton.onclick = function () {
             resetChatConversationState(state, "Started a fresh AI chat.");
@@ -11981,8 +12643,8 @@ function RTE_Plugin_AIToolkit() {
         var closeButton = append(headerActions, "button", "", "rte-ai-panel-close-button");
         closeButton.type = "button";
         closeButton.setAttribute("data-rte-ai-chat-header-action", "close");
-        closeButton.setAttribute("aria-label", "Close AI chat");
-        closeButton.title = "Close";
+        closeButton.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aic_closechat", "Close AI chat") : "Close AI chat"));
+        closeButton.title = (obj.__aiT ? obj.__aiT("aic_close", "Close") : "Close");
         closeButton.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>';
         closeButton.onclick = function () {
             closeChatPanel({ restoreFocus: true });
@@ -12026,7 +12688,7 @@ function RTE_Plugin_AIToolkit() {
         selectionButton.disabled = !context.snapshot.hasSelection;
         selectionButton.setAttribute("data-rte-ai-chat-scope-target", "selection");
         selectionButton.setAttribute("aria-label", buildChatContextScopeButtonAriaLabel("selection", contextData));
-        selectionButton.title = "Use selection";
+        selectionButton.title = (obj.__aiT ? obj.__aiT("aic_usesel", "Use selection") : "Use selection");
         setReviewV2ButtonContent(selectionButton, "cursorText", "");
         selectionButton.onclick = function () {
             var currentSnapshot = captureSelectionSnapshot();
@@ -12038,7 +12700,7 @@ function RTE_Plugin_AIToolkit() {
         documentButton.type = "button";
         documentButton.setAttribute("data-rte-ai-chat-scope-target", "document");
         documentButton.setAttribute("aria-label", buildChatContextScopeButtonAriaLabel("document", contextData));
-        documentButton.title = "Use document";
+        documentButton.title = (obj.__aiT ? obj.__aiT("aic_usedoc", "Use document") : "Use document");
         setReviewV2ButtonContent(documentButton, "document", "");
         documentButton.onclick = function () {
             state.scope = "document";
@@ -12093,7 +12755,7 @@ function RTE_Plugin_AIToolkit() {
         if (recentSessions.length > 1) {
             var historySection = append(panel, "div", "", "rte-ai-chat-stack rte-ai-chat-history-shell is-minimal");
             historySection.setAttribute("role", "group");
-            historySection.setAttribute("aria-label", "Recent AI chats");
+            historySection.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aic_recent", "Recent AI chats") : "Recent AI chats"));
             var historyRow = append(historySection, "div", "", "rte-ai-chat-quick-row rte-ai-chat-history-row");
             for (var s = 0; s < recentSessions.length; s++) {
                 (function (session, index) {
@@ -12160,10 +12822,10 @@ function RTE_Plugin_AIToolkit() {
             // reference drops with the chips.
             var hasQuickStarts = !!(prompts && prompts.length);
             var emptyHintBase = context.scope === "selection"
-                ? "Ask anything about the current selection"
-                : "Ask anything about the current document";
+                ? (obj.__aiT ? obj.__aiT("aic_empty_sel", "Ask anything about the current selection") : "Ask anything about the current selection")
+                : (obj.__aiT ? obj.__aiT("aic_empty_doc", "Ask anything about the current document") : "Ask anything about the current document");
             append(emptyState, "div", "", "rte-ai-chat-empty-detail",
-                hasQuickStarts ? (emptyHintBase + " — or tap a quick start above.") : (emptyHintBase + "."));
+                hasQuickStarts ? (emptyHintBase + (obj.__aiT ? obj.__aiT("aic_orquick", " \u2014 or tap a quick start above.") : " \u2014 or tap a quick start above.")) : (emptyHintBase + "."));
         }
         var activeExchangeGroup = null;
         var activeExchangeIndex = 0;
@@ -12315,8 +12977,8 @@ function RTE_Plugin_AIToolkit() {
                     var msgActions = append(item, "div", "", "rte-ai-chat-message-actions-row");
                     var msgCopyBtn = append(msgActions, "button", "", "rte-ai-chat-message-action is-copy");
                     msgCopyBtn.type = "button";
-                    msgCopyBtn.title = "Copy message text";
-                    setReviewV2ButtonContent(msgCopyBtn, "checkAll", "Copy");
+                    msgCopyBtn.title = (obj.__aiT ? obj.__aiT("aic_copymsg", "Copy message text") : "Copy message text");
+                    setReviewV2ButtonContent(msgCopyBtn, "checkAll", (obj.__aiT ? obj.__aiT("aic_copy", "Copy") : "Copy"));
                     msgCopyBtn.onclick = (function (text, btn) {
                         return function (e) {
                             if (e && e.stopPropagation) e.stopPropagation();
@@ -12341,10 +13003,10 @@ function RTE_Plugin_AIToolkit() {
                             }
                             if (copied) {
                                 btn.classList.add("is-just-copied");
-                                setReviewV2ButtonContent(btn, "check", "Copied");
+                                setReviewV2ButtonContent(btn, "check", (obj.__aiT ? obj.__aiT("aic_copied", "Copied") : "Copied"));
                                 setTimeout(function () {
                                     btn.classList.remove("is-just-copied");
-                                    setReviewV2ButtonContent(btn, "checkAll", "Copy");
+                                    setReviewV2ButtonContent(btn, "checkAll", (obj.__aiT ? obj.__aiT("aic_copy", "Copy") : "Copy"));
                                 }, 1400);
                             }
                         };
@@ -12362,8 +13024,8 @@ function RTE_Plugin_AIToolkit() {
                     if (precedingUserPrompt) {
                         var msgRegenBtn = append(msgActions, "button", "", "rte-ai-chat-message-action is-regen");
                         msgRegenBtn.type = "button";
-                        msgRegenBtn.title = "Regenerate response";
-                        setReviewV2ButtonContent(msgRegenBtn, "refresh", "Regenerate");
+                        msgRegenBtn.title = (obj.__aiT ? obj.__aiT("aic_regen", "Regenerate response") : "Regenerate response");
+                        setReviewV2ButtonContent(msgRegenBtn, "refresh", (obj.__aiT ? obj.__aiT("aid_regenerate", "Regenerate") : "Regenerate"));
                         msgRegenBtn.onclick = (function (prompt) {
                             return function (e) {
                                 if (e && e.stopPropagation) e.stopPropagation();
@@ -12622,7 +13284,7 @@ function RTE_Plugin_AIToolkit() {
                         moreToggle.type = "button";
                         moreToggle.setAttribute("data-rte-ai-chat-action", "more");
                         moreToggle.setAttribute("aria-expanded", "false");
-                        moreToggle.title = "More apply options";
+                        moreToggle.title = (obj.__aiT ? obj.__aiT("ai2_moreopts", "More apply options") : "More apply options");
                         setReviewV2ButtonContent(moreToggle, "more", "More");
                         moreToggle.onclick = (function (host) {
                             return function (e) {
@@ -12711,8 +13373,8 @@ function RTE_Plugin_AIToolkit() {
         // 51 chars → 14 chars. Same shape Claude composer ("Ask
         // anything") / ChatGPT composer ("Message ChatGPT") / Notion AI
         // ("Tell AI what to do…") ship.
-        composerArea.placeholder = "Ask anything…";
-        composerArea.setAttribute("aria-label", "Compose next AI request for the current " + (context.scope === "selection" ? "selection" : "document"));
+        composerArea.placeholder = (obj.__aiT ? obj.__aiT("aic_askanything", "Ask anything\u2026") : "Ask anything\u2026");
+        composerArea.setAttribute("aria-label", context.scope === "selection" ? (obj.__aiT ? obj.__aiT("aic_compose_sel", "Compose next AI request for the current selection") : "Compose next AI request for the current selection") : (obj.__aiT ? obj.__aiT("aic_compose_doc", "Compose next AI request for the current document") : "Compose next AI request for the current document"));
         composerArea.value = state.draft || "";
         composerArea.disabled = !!state.busy;
         composerArea.oninput = function () {
@@ -12839,7 +13501,7 @@ function RTE_Plugin_AIToolkit() {
     }
 
     function getReviewTypeOptions(suggestions) {
-        var map = { all: "All types" };
+        var map = { all: (obj.__aiT ? obj.__aiT("air_alltypes", "All types") : "All types") };
         for (var i = 0; i < suggestions.length; i++) {
             var typeValue = getSuggestionTypeValue(suggestions[i] && suggestions[i].suggestionType || "");
             if (!map[typeValue]) {
@@ -13782,7 +14444,7 @@ function RTE_Plugin_AIToolkit() {
         if (summaryData.detail) {
             parts.push(summaryData.detail);
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function syncActiveReviewActionSummary(preferredAction) {
@@ -14005,10 +14667,10 @@ function RTE_Plugin_AIToolkit() {
             if (isTarget) {
                 button.setAttribute("data-rte-ai-review-enter-target-label", "Enter");
                 if (ariaLabel && !/current enter target/i.test(ariaLabel)) {
-                    button.setAttribute("aria-label", ariaLabel + ". Current Enter target.");
+                    button.setAttribute("aria-label", joinSentences([ariaLabel, "Current Enter target."]));
                 }
                 if (title && !/current enter target/i.test(title)) {
-                    button.title = title + ". Current Enter target.";
+                    button.title = joinSentences([title, "Current Enter target."]);
                 }
             }
             else {
@@ -14793,8 +15455,8 @@ function RTE_Plugin_AIToolkit() {
         // header pill would have duplicated that signal.
         var closeBtn = append(header, "button", "", "rte-ai-review-v2-close");
         closeBtn.type = "button";
-        closeBtn.setAttribute("aria-label", "Close AI review");
-        closeBtn.title = "Close";
+        closeBtn.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("air_closearia", "Close AI review") : "Close AI review"));
+        closeBtn.title = (obj.__aiT ? obj.__aiT("air_close", "Close") : "Close");
         closeBtn.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>';
         closeBtn.onclick = function () {
             closeReviewPanel();
@@ -14840,9 +15502,9 @@ function RTE_Plugin_AIToolkit() {
             return tab;
         }
 
-        makeTab("pending", "inbox", "To review", pendingCountForTabs);
-        makeTab("resolved", "history", "History", resolvedCountForTabs);
-        makeTab("all", "filter", "All", counts.total);
+        makeTab("pending", "inbox", (obj.__aiT ? obj.__aiT("air_tab_pending", "To review") : "To review"), pendingCountForTabs);
+        makeTab("resolved", "history", (obj.__aiT ? obj.__aiT("air_tab_history", "History") : "History"), resolvedCountForTabs);
+        makeTab("all", "filter", (obj.__aiT ? obj.__aiT("air_tab_all", "All") : "All"), counts.total);
 
         // Toolbar: type filter + (on Pending tab only) Accept all / Reject all
         var toolbar = append(panel, "div", "", "rte-ai-review-v2-toolbar");
@@ -14872,14 +15534,14 @@ function RTE_Plugin_AIToolkit() {
             var acceptAllBtn = append(toolbar, "button", "", "rte-ai-review-v2-batch is-accept");
             acceptAllBtn.type = "button";
             acceptAllBtn.disabled = !pendingForBatch;
-            setReviewV2ButtonContent(acceptAllBtn, "checkAll", "Accept all");
+            setReviewV2ButtonContent(acceptAllBtn, "checkAll", (obj.__aiT ? obj.__aiT("air_acceptall", "Accept all") : "Accept all"));
             acceptAllBtn.onclick = function () {
                 if (acceptPendingSuggestionsByType(typeFilter)) renderReviewPanelV2(true);
             };
             var rejectAllBtn = append(toolbar, "button", "", "rte-ai-review-v2-batch is-reject");
             rejectAllBtn.type = "button";
             rejectAllBtn.disabled = !pendingForBatch;
-            setReviewV2ButtonContent(rejectAllBtn, "x", "Reject all");
+            setReviewV2ButtonContent(rejectAllBtn, "x", (obj.__aiT ? obj.__aiT("air_rejectall", "Reject all") : "Reject all"));
             rejectAllBtn.onclick = function () {
                 if (rejectPendingSuggestionsByType(typeFilter)) renderReviewPanelV2(true);
             };
@@ -14923,11 +15585,11 @@ function RTE_Plugin_AIToolkit() {
         }
         var activeV2Suggestion = findSuggestionById(activeId);
         var resolvedProgress = counts.total ? Math.max(0, Math.min(100, Math.round((resolvedCountForTabs / counts.total) * 100))) : 0;
-        var queueScopeLabel = typeFilter === "all" ? "All types" : getSuggestionTypeLabel(typeFilter);
+        var queueScopeLabel = typeFilter === "all" ? (obj.__aiT ? obj.__aiT("air_alltypes", "All types") : "All types") : getSuggestionTypeLabel(typeFilter);
         var v2Center = append(panel, "div", "", "rte-ai-review-v2-center");
         panel.insertBefore(v2Center, body);
         v2Center.setAttribute("role", "group");
-        v2Center.setAttribute("aria-label", "AI review summary");
+        v2Center.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("air_summary", "AI review summary") : "AI review summary"));
         function appendReviewV2CenterTile(className, label, value, detail) {
             var tile = append(v2Center, "div", "", "rte-ai-review-v2-center-tile " + className);
             append(tile, "span", "", "rte-ai-review-v2-center-label", label);
@@ -14935,19 +15597,19 @@ function RTE_Plugin_AIToolkit() {
             append(tile, "span", "", "rte-ai-review-v2-center-detail", detail);
             return tile;
         }
-        appendReviewV2CenterTile("is-queue", "Queue", pendingForBatch + " pending", queueScopeLabel + (activeTab === "pending" ? " to review" : " filter"));
-        appendReviewV2CenterTile("is-progress", "Progress", resolvedProgress + "% done", resolvedCountForTabs + " resolved of " + counts.total);
+        appendReviewV2CenterTile("is-queue", (obj.__aiT ? obj.__aiT("air_queue", "Queue") : "Queue"), (obj.__aiT ? obj.__aiT("air_npending", "{0} pending", pendingForBatch) : pendingForBatch + " pending"), activeTab === "pending" ? (obj.__aiT ? obj.__aiT("air_toreview", "{0} to review", queueScopeLabel) : queueScopeLabel + " to review") : (obj.__aiT ? obj.__aiT("air_filter", "{0} filter", queueScopeLabel) : queueScopeLabel + " filter"));
+        appendReviewV2CenterTile("is-progress", (obj.__aiT ? obj.__aiT("air_progress", "Progress") : "Progress"), (obj.__aiT ? obj.__aiT("air_pctdone", "{0}% done", resolvedProgress) : resolvedProgress + "% done"), (obj.__aiT ? obj.__aiT("air_resolvedof", "{0} resolved of {1}").split("{0}").join(String(resolvedCountForTabs)).split("{1}").join(String(counts.total)) : resolvedCountForTabs + " resolved of " + counts.total));
         var nextV2Value = activeV2Suggestion
-            ? ((activeV2Suggestion.status === "pending" || activeV2Suggestion.status === "stale") ? "Review current" : "Inspect item")
-            : (pendingForBatch ? "Pick an item" : (counts.total ? "All caught up" : "Start with Ask AI"));
+            ? ((activeV2Suggestion.status === "pending" || activeV2Suggestion.status === "stale") ? (obj.__aiT ? obj.__aiT("air_reviewcurrent", "Review current") : "Review current") : (obj.__aiT ? obj.__aiT("air_inspect", "Inspect item") : "Inspect item"))
+            : (pendingForBatch ? (obj.__aiT ? obj.__aiT("air_pick", "Pick an item") : "Pick an item") : (counts.total ? (obj.__aiT ? obj.__aiT("air_caughtup", "All caught up") : "All caught up") : (obj.__aiT ? obj.__aiT("air_startask", "Start with Ask AI") : "Start with Ask AI")));
         var nextV2Detail = activeV2Suggestion
             ? summarizeSuggestionText(activeV2Suggestion.originalText || activeV2Suggestion.resultText || "AI suggestion", 72)
-            : (pendingForBatch ? "Select a card below to compare the change." : (counts.total ? "History keeps accepted and rejected changes." : "AI suggestions will appear here."));
-        var nextV2Tile = appendReviewV2CenterTile("is-next", "Next step", nextV2Value, nextV2Detail);
+            : (pendingForBatch ? (obj.__aiT ? obj.__aiT("air_d_pick", "Select a card below to compare the change.") : "Select a card below to compare the change.") : (counts.total ? (obj.__aiT ? obj.__aiT("air_d_history", "History keeps accepted and rejected changes.") : "History keeps accepted and rejected changes.") : (obj.__aiT ? obj.__aiT("air_d_empty", "AI suggestions will appear here.") : "AI suggestions will appear here.")));
+        var nextV2Tile = appendReviewV2CenterTile("is-next", (obj.__aiT ? obj.__aiT("air_next", "Next step") : "Next step"), nextV2Value, nextV2Detail);
         if (activeV2Suggestion) {
-            var focusV2Button = append(nextV2Tile, "button", "", "rte-ai-review-v2-center-action", "Focus");
+            var focusV2Button = append(nextV2Tile, "button", "", "rte-ai-review-v2-center-action", (obj.__aiT ? obj.__aiT("air_focus", "Focus") : "Focus"));
             focusV2Button.type = "button";
-            focusV2Button.setAttribute("aria-label", "Focus the current AI review item");
+            focusV2Button.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("air_focusaria", "Focus the current AI review item") : "Focus the current AI review item"));
             focusV2Button.onclick = function () {
                 setActiveSuggestionId(activeId);
                 renderReviewPanelV2(true);
@@ -14959,19 +15621,19 @@ function RTE_Plugin_AIToolkit() {
             if (counts.total === 0) {
                 // Truly empty store — guide the user to AI Chat / Ask AI.
                 append(empty, "div", "", "rte-ai-review-v2-empty-art is-prompt");
-                append(empty, "div", "", "rte-ai-review-v2-empty-title", "No AI suggestions yet");
-                append(empty, "div", "", "rte-ai-review-v2-empty-detail", "Ask AI or AI Chat will drop suggestions here for you to accept or reject.");
+                append(empty, "div", "", "rte-ai-review-v2-empty-title", (obj.__aiT ? obj.__aiT("air_e_none_t", "No AI suggestions yet") : "No AI suggestions yet"));
+                append(empty, "div", "", "rte-ai-review-v2-empty-detail", (obj.__aiT ? obj.__aiT("air_e_none_d", "Ask AI or AI Chat will drop suggestions here for you to accept or reject.") : "Ask AI or AI Chat will drop suggestions here for you to accept or reject."));
             } else if (activeTab === "pending") {
                 // History exists but Pending is empty — celebrate.
                 append(empty, "div", "", "rte-ai-review-v2-empty-art is-clear");
-                append(empty, "div", "", "rte-ai-review-v2-empty-title", "Nothing to review");
-                append(empty, "div", "", "rte-ai-review-v2-empty-detail", "You're all caught up. Switch to History to see past decisions.");
+                append(empty, "div", "", "rte-ai-review-v2-empty-title", (obj.__aiT ? obj.__aiT("air_e_done_t", "Nothing to review") : "Nothing to review"));
+                append(empty, "div", "", "rte-ai-review-v2-empty-detail", (obj.__aiT ? obj.__aiT("air_e_done_d", "You're all caught up. Switch to History to see past decisions.") : "You're all caught up. Switch to History to see past decisions."));
             } else if (activeTab === "resolved") {
-                append(empty, "div", "", "rte-ai-review-v2-empty-title", "No history yet");
-                append(empty, "div", "", "rte-ai-review-v2-empty-detail", "Decisions you make on the To review tab will show up here.");
+                append(empty, "div", "", "rte-ai-review-v2-empty-title", (obj.__aiT ? obj.__aiT("air_e_nohist_t", "No history yet") : "No history yet"));
+                append(empty, "div", "", "rte-ai-review-v2-empty-detail", (obj.__aiT ? obj.__aiT("air_e_nohist_d", "Decisions you make on the To review tab will show up here.") : "Decisions you make on the To review tab will show up here."));
             } else {
-                append(empty, "div", "", "rte-ai-review-v2-empty-title", "No suggestions match this filter");
-                append(empty, "div", "", "rte-ai-review-v2-empty-detail", "Try a different type, or pick a different tab.");
+                append(empty, "div", "", "rte-ai-review-v2-empty-title", (obj.__aiT ? obj.__aiT("air_e_nomatch_t", "No suggestions match this filter") : "No suggestions match this filter"));
+                append(empty, "div", "", "rte-ai-review-v2-empty-detail", (obj.__aiT ? obj.__aiT("air_e_nomatch_d", "Try a different type, or pick a different tab.") : "Try a different type, or pick a different tab."));
             }
         } else {
             for (var vi = 0; vi < visible.length; vi++) {
@@ -14986,9 +15648,9 @@ function RTE_Plugin_AIToolkit() {
                         append(head, "span", "", "rte-ai-review-v2-item-type", getSuggestionTypeLabel(sug.suggestionType));
                     }
                     if (sug.snapshot && sug.snapshot.hasSelection) {
-                        append(head, "span", "", "rte-ai-review-v2-item-scope", "Selection");
+                        append(head, "span", "", "rte-ai-review-v2-item-scope", (obj.__aiT ? obj.__aiT("air_scope_sel", "Selection") : "Selection"));
                     } else {
-                        append(head, "span", "", "rte-ai-review-v2-item-scope", "Document");
+                        append(head, "span", "", "rte-ai-review-v2-item-scope", (obj.__aiT ? obj.__aiT("air_scope_doc", "Document") : "Document"));
                     }
 
                     var titleText = summarizeSuggestionText(sug.originalText || sug.resultText || "AI suggestion", 120);
@@ -14998,7 +15660,7 @@ function RTE_Plugin_AIToolkit() {
                         if (sug.originalText && sug.resultText && normalizeText(sug.originalText) !== normalizeText(sug.resultText)) {
                             var compare = append(item, "div", "", "rte-ai-review-v2-compare");
                             var before = append(compare, "div", "", "rte-ai-review-v2-before");
-                            append(before, "span", "", "rte-ai-review-v2-compare-label", "Current");
+                            append(before, "span", "", "rte-ai-review-v2-compare-label", (obj.__aiT ? obj.__aiT("air_current", "Current") : "Current"));
                             append(before, "div", "", "rte-ai-review-v2-compare-text", normalizeText(sug.originalText));
                             // Decorative arrow on the centerline of the
                             // grid pointing from Current -> Suggested.
@@ -15006,7 +15668,7 @@ function RTE_Plugin_AIToolkit() {
                             compareArrow.setAttribute("aria-hidden", "true");
                             compareArrow.innerHTML = REVIEW_V2_ICONS.arrowRight;
                             var after = append(compare, "div", "", "rte-ai-review-v2-after");
-                            append(after, "span", "", "rte-ai-review-v2-compare-label", "Suggested");
+                            append(after, "span", "", "rte-ai-review-v2-compare-label", (obj.__aiT ? obj.__aiT("air_suggested", "Suggested") : "Suggested"));
                             append(after, "div", "", "rte-ai-review-v2-compare-text", normalizeText(sug.resultText));
                         }
                         if (sug.reason) {
@@ -15018,14 +15680,14 @@ function RTE_Plugin_AIToolkit() {
                             bulbWrap.innerHTML = REVIEW_V2_ICONS.bulb;
                             reasonLabel.appendChild(bulbWrap);
                             var reasonLabelText = reason.ownerDocument.createElement("span");
-                            reasonLabelText.textContent = "Why";
+                            reasonLabelText.textContent = (obj.__aiT ? obj.__aiT("air_why", "Why") : "Why");
                             reasonLabel.appendChild(reasonLabelText);
                             append(reason, "span", "", "rte-ai-review-v2-reason-text", sug.reason);
                         }
                         var actions = append(item, "div", "", "rte-ai-review-v2-actions");
                         var locateBtn = append(actions, "button", "", "rte-ai-review-v2-action is-locate");
                         locateBtn.type = "button";
-                        setReviewV2ButtonContent(locateBtn, "target", "Locate");
+                        setReviewV2ButtonContent(locateBtn, "target", (obj.__aiT ? obj.__aiT("air_locate", "Locate") : "Locate"));
                         locateBtn.onclick = function (e) {
                             if (e && e.stopPropagation) e.stopPropagation();
                             locateSuggestion(sug.id);
@@ -15033,14 +15695,14 @@ function RTE_Plugin_AIToolkit() {
                         if (sug.status === "pending" || sug.status === "stale") {
                             var acceptBtn = append(actions, "button", "", "rte-ai-review-v2-action is-accept");
                             acceptBtn.type = "button";
-                            setReviewV2ButtonContent(acceptBtn, "check", "Accept");
+                            setReviewV2ButtonContent(acceptBtn, "check", (obj.__aiT ? obj.__aiT("air_accept", "Accept") : "Accept"));
                             acceptBtn.onclick = function (e) {
                                 if (e && e.stopPropagation) e.stopPropagation();
                                 applyReviewDecision(sug.id, "accept", { focusAction: "accept" });
                             };
                             var rejectBtn = append(actions, "button", "", "rte-ai-review-v2-action is-reject");
                             rejectBtn.type = "button";
-                            setReviewV2ButtonContent(rejectBtn, "x", "Reject");
+                            setReviewV2ButtonContent(rejectBtn, "x", (obj.__aiT ? obj.__aiT("air_reject", "Reject") : "Reject"));
                             rejectBtn.onclick = function (e) {
                                 if (e && e.stopPropagation) e.stopPropagation();
                                 applyReviewDecision(sug.id, "reject", { focusAction: "reject" });
@@ -15903,7 +16565,7 @@ function RTE_Plugin_AIToolkit() {
                         if (previewItem.reasonText) {
                             previewAriaParts.push("Why this next: " + previewItem.reasonText);
                         }
-                        previewRow.setAttribute("aria-label", previewAriaParts.join(". "));
+                        previewRow.setAttribute("aria-label", joinSentences(previewAriaParts));
                         previewRow.setAttribute("data-rte-ai-primary-label", previewItem.actionLabel || previewItem.label || "Open next queue");
                         if (previewItem.focusActionLabel) {
                             previewRow.setAttribute("data-rte-ai-empty-focus-label", previewItem.focusActionLabel);
@@ -16433,6 +17095,7 @@ function RTE_Plugin_AIToolkit() {
         modeChip.className = "rte-ai-dialog-mode-chip is-detached";
         modeChip.setAttribute("aria-hidden", "true");
 
+        appendDemoNotice(dialoginner);
         var grid = append(dialoginner, "div", "", "demo-ai-dialog-grid");
         var dialogIdSuffix = String(Date.now()) + "-" + String(Math.floor(Math.random() * 1000000));
         var modeHelpId = "rte-ai-mode-help-" + dialogIdSuffix;
@@ -16441,11 +17104,11 @@ function RTE_Plugin_AIToolkit() {
         var guidanceId = "rte-ai-apply-guidance-" + dialogIdSuffix;
         var statusId = "rte-ai-dialog-status-" + dialogIdSuffix;
         grid.setAttribute("role", "form");
-        grid.setAttribute("aria-label", "Ask AI controls");
+        grid.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aid_controls", "Ask AI controls") : "Ask AI controls"));
 
         var compactControls = append(grid, "div", "", "demo-ai-compact-controls");
         compactControls.setAttribute("role", "group");
-        compactControls.setAttribute("aria-label", "Ask AI setup");
+        compactControls.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aid_setup", "Ask AI setup") : "Ask AI setup"));
 
         // 2026-05-08 compact pass: dropped the per-field uppercase mini-labels
         // ("Action" / "Language" / "Use" / blank-spacer) and the duplicate
@@ -16454,7 +17117,7 @@ function RTE_Plugin_AIToolkit() {
         // select's title attribute (still surfaced on hover).
         var actionField = append(compactControls, "div", "", "demo-ai-field demo-ai-action-field");
         var modeSelect = append(actionField, "select");
-        modeSelect.setAttribute("aria-label", "AI action");
+        modeSelect.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aid_action", "AI action") : "AI action"));
         // 2026-05-17 (v20260517a): the mode help line is back on-screen,
         // attached directly to the dialog grid (full-width row under the
         // controls strip). The prior hover-only `title` attribute meant
@@ -16481,7 +17144,7 @@ function RTE_Plugin_AIToolkit() {
 
         var languageField = append(compactControls, "div", "", "demo-ai-field demo-ai-language-field");
         var languageSelect = append(languageField, "select");
-        languageSelect.setAttribute("aria-label", "Translation target language");
+        languageSelect.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aid_targetlang", "Translation target language") : "Translation target language"));
         populateDialogModes();
         if (options.presetMode) {
             // 2026-05-19 (v20260519a): only honor presetMode when it
@@ -16532,11 +17195,11 @@ function RTE_Plugin_AIToolkit() {
         // can override with `.demo-ai-scope-select { display: none }` +
         // `.demo-ai-scope-row.is-detached { display: flex !important }`.
         var scopeSelect = append(scopeField, "select", "", "demo-ai-scope-select");
-        scopeSelect.setAttribute("aria-label", "Source for Ask AI");
+        scopeSelect.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aid_source", "Source for Ask AI") : "Source for Ask AI"));
         scopeSelect.setAttribute("data-rte-ai-dialog-action", "scope");
-        var scopeOptionSelection = append(scopeSelect, "option", "", "", "Selection");
+        var scopeOptionSelection = append(scopeSelect, "option", "", "", (obj.__aiT ? obj.__aiT("aid_selection", "Selection") : "Selection"));
         scopeOptionSelection.value = "selection";
-        var scopeOptionDocument = append(scopeSelect, "option", "", "", "Document");
+        var scopeOptionDocument = append(scopeSelect, "option", "", "", (obj.__aiT ? obj.__aiT("aid_document", "Document") : "Document"));
         scopeOptionDocument.value = "document";
 
         // 2026-06-01 (v20260601a): scope caption surfaced inline when only
@@ -16561,21 +17224,21 @@ function RTE_Plugin_AIToolkit() {
         var loadRow = scopeField.ownerDocument.createElement("div");
         loadRow.className = "demo-actions-row demo-ai-scope-row is-detached";
         loadRow.setAttribute("role", "group");
-        loadRow.setAttribute("aria-label", "Source scope");
+        loadRow.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aid_scope", "Source scope") : "Source scope"));
         var loadSelectionButton = scopeField.ownerDocument.createElement("button");
         loadSelectionButton.type = "button";
         loadSelectionButton.className = "is-icon-only";
         loadSelectionButton.setAttribute("data-rte-ai-dialog-action", "load-selection");
-        loadSelectionButton.title = "Use selection";
-        loadSelectionButton.setAttribute("aria-label", "Use selection");
+        loadSelectionButton.title = (obj.__aiT ? obj.__aiT("aid_usesel", "Use selection") : "Use selection");
+        loadSelectionButton.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aid_usesel", "Use selection") : "Use selection"));
         setReviewV2ButtonContent(loadSelectionButton, "cursorText", "");
         loadRow.appendChild(loadSelectionButton);
         var loadDocumentButton = scopeField.ownerDocument.createElement("button");
         loadDocumentButton.type = "button";
         loadDocumentButton.className = "secondary is-icon-only";
         loadDocumentButton.setAttribute("data-rte-ai-dialog-action", "load-document");
-        loadDocumentButton.title = "Use document";
-        loadDocumentButton.setAttribute("aria-label", "Use document");
+        loadDocumentButton.title = (obj.__aiT ? obj.__aiT("aid_usedoc", "Use document") : "Use document");
+        loadDocumentButton.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aid_usedoc", "Use document") : "Use document"));
         setReviewV2ButtonContent(loadDocumentButton, "document", "");
         loadRow.appendChild(loadDocumentButton);
         // 2026-05-17 (v20260523a): append the legacy scope row to
@@ -16589,20 +17252,20 @@ function RTE_Plugin_AIToolkit() {
         var runField = append(compactControls, "div", "", "demo-ai-field demo-ai-run-field");
         var runRow = append(runField, "div", "", "demo-actions-row demo-ai-run-row");
         runRow.setAttribute("role", "group");
-        runRow.setAttribute("aria-label", "Ask AI run actions");
+        runRow.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aid_run", "Ask AI run actions") : "Ask AI run actions"));
         var runButton = append(runRow, "button", "", "is-primary");
         runButton.type = "button";
         runButton.setAttribute("data-rte-ai-dialog-action", "run");
         // Sparkle glyph + "Generate" — same icon vocabulary as AI Chat
         // composer's Send and AI Review V2's Accept buttons.
-        setReviewV2ButtonContent(runButton, "sparkles", "Generate");
+        setReviewV2ButtonContent(runButton, "sparkles", (obj.__aiT ? obj.__aiT("aid_generate", "Generate") : "Generate"));
         // 2026-05-09 (v20260509j): surface the Ctrl/Cmd+Enter shortcut on
         // hover and to screen readers. Same idiom every modern AI surface
         // uses (ChatGPT Send: "Send (⌘↵)", Notion AI Generate: "Generate
         // (Ctrl+Enter)"). aria-keyshortcuts is the WAI-ARIA standard way
         // to advertise a keyboard shortcut so screen readers announce
         // "Generate, Control+Enter" alongside the button name.
-        runButton.title = "Generate AI suggestion (Ctrl+Enter)";
+        runButton.title = (obj.__aiT ? obj.__aiT("ai2_gentitle", "Generate AI suggestion (Ctrl+Enter)") : "Generate AI suggestion (Ctrl+Enter)");
         runButton.setAttribute("aria-keyshortcuts", "Control+Enter");
         // 2026-05-17 (v20260517a): visible Ctrl+↵ / ⌘↵ chip baked into
         // the Generate button. Pre-v20260517a the shortcut only lived in
@@ -16614,7 +17277,7 @@ function RTE_Plugin_AIToolkit() {
         // from navigator.platform so the hint matches the actual key
         // the user would press. */
         var isMacOs = /Mac|iPad|iPhone|iPod/i.test((navigator.platform || "") + " " + (navigator.userAgent || ""));
-        var runKbdLabel = isMacOs ? "⌘⏎" : "Ctrl ⏎";
+        var runKbdLabel = isMacOs ? "\u2318\u23ce" : "Ctrl \u23ce";
         function refreshRunKbdHint() {
             if (!runButton) return;
             var existing = runButton.querySelector(".demo-ai-kbd-hint");
@@ -16664,7 +17327,7 @@ function RTE_Plugin_AIToolkit() {
 
         var textGrid = append(grid, "div", "", "demo-ai-text-grid");
         textGrid.setAttribute("role", "group");
-        textGrid.setAttribute("aria-label", "Ask AI source and result");
+        textGrid.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aid_srcresult", "Ask AI source and result") : "Ask AI source and result"));
 
         // 2026-05-09 (v20260509j): dropped the "Source" / "Result"
         // text-tag spans. They had no CSS rule (the class was
@@ -16682,7 +17345,7 @@ function RTE_Plugin_AIToolkit() {
         // Pre-result it was already hidden (CSS .is-pre-result cascade); the
         // remaining showing case was post-result + source-expanded, but the
         // user only reaches that flow by clicking the "Edit" toggle pill —
-        // which already names the field's role ("Edit the prompt and retry").
+        // which already names the field's role ((obj.__aiT ? obj.__aiT("ai2_editretry", "Edit the prompt and retry") : "Edit the prompt and retry")).
         // Restating "Source" 4px above the textarea was a third copy of the
         // same fact (toggle label + textarea placeholder + this eyebrow).
         // Saves ~16px vertical when the user expands source for retry/refine.
@@ -16692,7 +17355,7 @@ function RTE_Plugin_AIToolkit() {
         var sourceHelp = append(sourceField, "span", "", "demo-ai-field-help is-detached", "Edit the source text or prompt that Ask AI will use.");
         sourceHelp.id = sourceHelpId;
         var sourceArea = append(sourceField, "textarea");
-        sourceArea.setAttribute("aria-label", "Source text for Ask AI");
+        sourceArea.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aid_srctext", "Source text for Ask AI") : "Source text for Ask AI"));
         sourceArea.setAttribute("aria-describedby", sourceHelpId + " " + modeHelpId);
         // 2026-05-26 (v20260526a): reparent the run-row (Generate + Copy
         // buttons) from the compact-controls strip INTO the source field,
@@ -16743,7 +17406,7 @@ function RTE_Plugin_AIToolkit() {
         // verb phrase, no inline shortcut hint.
         // Earlier baseline:
         //   v20260509j: 95 → 47 chars after the scope toggle landed.
-        sourceArea.placeholder = "Type or paste text…";
+        sourceArea.placeholder = (obj.__aiT ? obj.__aiT("aid_typeorpaste", "Type or paste text\u2026") : "Type or paste text\u2026");
 
         // 2026-06-03 (v20260603a): live character counter pinned to the
         // bottom-LEFT corner of the source textarea. Pre-pass users
@@ -16777,8 +17440,8 @@ function RTE_Plugin_AIToolkit() {
                 return;
             }
             var label = len > 999
-                ? (Math.round(len / 100) / 10) + "K chars"
-                : len + (len === 1 ? " char" : " chars");
+                ? (obj.__aiT ? obj.__aiT("aid_kchars", "{0}K chars", Math.round(len / 100) / 10) : (Math.round(len / 100) / 10) + "K chars")
+                : (len === 1 ? (obj.__aiT ? obj.__aiT("aid_char", "1 char") : "1 char") : (obj.__aiT ? obj.__aiT("aid_chars", "{0} chars", len) : len + " chars"));
             sourceCounter.textContent = label;
             sourceCounter.classList.add("is-visible");
         }
@@ -16832,9 +17495,9 @@ function RTE_Plugin_AIToolkit() {
         var copyClipboardButton = append(resultHead, "button", "", "demo-ai-clipboard-toggle");
         copyClipboardButton.type = "button";
         copyClipboardButton.setAttribute("data-rte-ai-dialog-action", "copy-clipboard");
-        copyClipboardButton.title = "Copy AI output to clipboard";
-        copyClipboardButton.setAttribute("aria-label", "Copy AI output to clipboard");
-        setReviewV2ButtonContent(copyClipboardButton, "clipboard", "Copy");
+        copyClipboardButton.title = (obj.__aiT ? obj.__aiT("ai2_copyclip", "Copy AI output to clipboard") : "Copy AI output to clipboard");
+        copyClipboardButton.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("ai2_copyclip", "Copy AI output to clipboard") : "Copy AI output to clipboard"));
+        setReviewV2ButtonContent(copyClipboardButton, "clipboard", (obj.__aiT ? obj.__aiT("ai2_copy", "Copy") : "Copy"));
         var copyClipboardResetTimer = null;
         copyClipboardButton.onclick = function (e) {
             if (e && e.stopPropagation) e.stopPropagation();
@@ -16846,13 +17509,13 @@ function RTE_Plugin_AIToolkit() {
                     return;
                 }
                 copyClipboardButton.classList.add("is-copied");
-                setReviewV2ButtonContent(copyClipboardButton, "check", "Copied");
+                setReviewV2ButtonContent(copyClipboardButton, "check", (obj.__aiT ? obj.__aiT("aic_copied", "Copied") : "Copied"));
                 if (copyClipboardResetTimer) {
                     clearTimeout(copyClipboardResetTimer);
                 }
                 copyClipboardResetTimer = setTimeout(function () {
                     copyClipboardButton.classList.remove("is-copied");
-                    setReviewV2ButtonContent(copyClipboardButton, "clipboard", "Copy");
+                    setReviewV2ButtonContent(copyClipboardButton, "clipboard", (obj.__aiT ? obj.__aiT("ai2_copy", "Copy") : "Copy"));
                     copyClipboardResetTimer = null;
                 }, 1400);
             });
@@ -16870,8 +17533,8 @@ function RTE_Plugin_AIToolkit() {
         var whyButton = append(resultHead, "button", "", "demo-ai-clipboard-toggle demo-ai-why-toggle");
         whyButton.type = "button";
         whyButton.setAttribute("data-rte-ai-dialog-action", "why");
-        whyButton.title = "Why this AI suggestion?";
-        whyButton.setAttribute("aria-label", "Show why this AI suggestion was generated");
+        whyButton.title = (obj.__aiT ? obj.__aiT("ai2_whytitle", "Why this AI suggestion?") : "Why this AI suggestion?");
+        whyButton.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("ai2_whyaria", "Show why this AI suggestion was generated") : "Show why this AI suggestion was generated"));
         whyButton.setAttribute("aria-expanded", "false");
         setReviewV2ButtonContent(whyButton, "info", "");
 
@@ -16890,12 +17553,12 @@ function RTE_Plugin_AIToolkit() {
         // saying the same thing twice (open the prompt + edit the prompt).
         // "Edit" preserves the verb-action shape Pass v20260513b adopted,
         // saves ~30px horizontal real estate in the result-head pill row,
-        // and the title attribute ("Edit the prompt and retry") still
+        // and the title attribute ((obj.__aiT ? obj.__aiT("ai2_editretry", "Edit the prompt and retry") : "Edit the prompt and retry")) still
         // surfaces the long form on hover + to screen readers via
         // aria-label.
-        sourceToggle.title = "Edit the prompt and retry";
-        sourceToggle.setAttribute("aria-label", "Edit the prompt and retry");
-        sourceToggle.innerText = "Edit";
+        sourceToggle.title = (obj.__aiT ? obj.__aiT("ai2_editretry", "Edit the prompt and retry") : "Edit the prompt and retry");
+        sourceToggle.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("ai2_editretry", "Edit the prompt and retry") : "Edit the prompt and retry"));
+        sourceToggle.innerText = (obj.__aiT ? obj.__aiT("ai2_edit", "Edit") : "Edit");
         sourceField.id = sourceToggle.getAttribute("aria-controls");
         sourceToggle.onclick = function (e) {
             if (e && e.stopPropagation) e.stopPropagation();
@@ -16905,7 +17568,7 @@ function RTE_Plugin_AIToolkit() {
         };
         var resultArea = append(resultField, "textarea");
         resultArea.readOnly = true;
-        resultArea.setAttribute("aria-label", "AI suggestion result");
+        resultArea.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("ai2_result", "AI suggestion result") : "AI suggestion result"));
         resultArea.setAttribute("aria-describedby", resultHelpId + " " + statusId);
         // 2026-05-17 (v20260520b): rows=1 lets the CSS min-height: 52px
         // floor (since v20260513a) actually bind. Browser default rows=2
@@ -16921,7 +17584,7 @@ function RTE_Plugin_AIToolkit() {
         // here." (20 chars). Same idiom Notion AI's inline composer
         // uses ("AI response..."). At 20 chars it never line-wraps
         // inside the textarea even at 320px viewport.
-        resultArea.placeholder = "Output appears here.";
+        resultArea.placeholder = (obj.__aiT ? obj.__aiT("ai2_outputph", "Output appears here.") : "Output appears here.");
 
         var oldPreview = document.createElement("pre");
         var newPreview = document.createElement("pre");
@@ -16970,19 +17633,19 @@ function RTE_Plugin_AIToolkit() {
         // setBusyState / focus-traversal walker keeps resolving.
         var refineRetryChip = append(refineRow, "button", "", "secondary demo-ai-refine-chip");
         refineRetryChip.type = "button";
-        refineRetryChip.title = "Re-run with the same prompt";
+        refineRetryChip.title = (obj.__aiT ? obj.__aiT("ai2_retrytitle", "Re-run with the same prompt") : "Re-run with the same prompt");
         refineRetryChip.setAttribute("data-rte-ai-dialog-action", "refine-retry");
-        setReviewV2ButtonContent(refineRetryChip, "refresh", "Try again");
+        setReviewV2ButtonContent(refineRetryChip, "refresh", (obj.__aiT ? obj.__aiT("ai2_tryagain", "Try again") : "Try again"));
         var refineShorterChip = append(refineRow, "button", "", "secondary demo-ai-refine-chip");
         refineShorterChip.type = "button";
-        refineShorterChip.title = "Make the suggestion shorter";
+        refineShorterChip.title = (obj.__aiT ? obj.__aiT("ai2_shortertitle", "Make the suggestion shorter") : "Make the suggestion shorter");
         refineShorterChip.setAttribute("data-rte-ai-dialog-action", "refine-shorter");
-        setReviewV2ButtonContent(refineShorterChip, "shrink", "Shorter");
+        setReviewV2ButtonContent(refineShorterChip, "shrink", (obj.__aiT ? obj.__aiT("ai2_shorter", "Shorter") : "Shorter"));
         var refineLongerChip = append(refineRow, "button", "", "secondary demo-ai-refine-chip");
         refineLongerChip.type = "button";
-        refineLongerChip.title = "Expand the suggestion with more detail";
+        refineLongerChip.title = (obj.__aiT ? obj.__aiT("ai2_longertitle", "Expand the suggestion with more detail") : "Expand the suggestion with more detail");
         refineLongerChip.setAttribute("data-rte-ai-dialog-action", "refine-longer");
-        setReviewV2ButtonContent(refineLongerChip, "expand", "Longer");
+        setReviewV2ButtonContent(refineLongerChip, "expand", (obj.__aiT ? obj.__aiT("ai2_longer", "Longer") : "Longer"));
         // 2026-05-29 (v20260529a): "Why" disclosure folded into the refine
         // chip row as a 4th ghost chip — the standalone Details toggle row
         // that previously sat on its own line between the chip strip and
@@ -17029,7 +17692,7 @@ function RTE_Plugin_AIToolkit() {
         refineWhyChip.type = "button";
         refineWhyChip.className = "secondary demo-ai-refine-chip demo-ai-refine-why-chip is-detached";
         refineWhyChip.innerText = "Why";
-        refineWhyChip.title = "Show why this AI suggestion was generated";
+        refineWhyChip.title = (obj.__aiT ? obj.__aiT("ai2_whyaria", "Show why this AI suggestion was generated") : "Show why this AI suggestion was generated");
         refineWhyChip.setAttribute("data-rte-ai-dialog-action", "refine-why");
         refineWhyChip.setAttribute("aria-expanded", "false");
 
@@ -17102,7 +17765,7 @@ function RTE_Plugin_AIToolkit() {
 
         var applyRow = append(grid, "div", "", "demo-actions-row demo-ai-apply-row");
         applyRow.setAttribute("role", "group");
-        applyRow.setAttribute("aria-label", "Ask AI apply actions");
+        applyRow.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("ai2_applyrow", "Ask AI apply actions") : "Ask AI apply actions"));
         var applyPlanButton = append(applyRow, "button", "", "is-primary");
         applyPlanButton.type = "button";
         applyPlanButton.disabled = true;
@@ -17114,34 +17777,34 @@ function RTE_Plugin_AIToolkit() {
         // dialog-level keydown handler (added below) fires this button
         // when the shortcut hits from anywhere in the dialog outside the
         // source textarea.
-        applyPlanButton.title = "Apply AI suggestion (Ctrl+Enter)";
+        applyPlanButton.title = (obj.__aiT ? obj.__aiT("ai2_applytitle", "Apply AI suggestion (Ctrl+Enter)") : "Apply AI suggestion (Ctrl+Enter)");
         applyPlanButton.setAttribute("aria-keyshortcuts", "Control+Enter");
-        setReviewV2ButtonContent(applyPlanButton, "check", "Apply");
+        setReviewV2ButtonContent(applyPlanButton, "check", (obj.__aiT ? obj.__aiT("ai2_apply", "Apply") : "Apply"));
         var acceptSelectionButton = append(applyRow, "button", "", "");
         acceptSelectionButton.type = "button";
         acceptSelectionButton.disabled = !snapshot.hasSelection;
         acceptSelectionButton.setAttribute("data-rte-ai-dialog-action", "selection");
-        setReviewV2ButtonContent(acceptSelectionButton, "check", "Replace selection");
+        setReviewV2ButtonContent(acceptSelectionButton, "check", (obj.__aiT ? obj.__aiT("ai2_replsel", "Replace selection") : "Replace selection"));
         var previewSelectionButton = append(applyRow, "button", "", "secondary");
         previewSelectionButton.type = "button";
         previewSelectionButton.disabled = !snapshot.hasSelection;
         previewSelectionButton.setAttribute("data-rte-ai-dialog-action", "preview");
-        setReviewV2ButtonContent(previewSelectionButton, "eyeOn", "Preview");
+        setReviewV2ButtonContent(previewSelectionButton, "eyeOn", (obj.__aiT ? obj.__aiT("ai2_preview", "Preview") : "Preview"));
         var acceptBelowButton = append(applyRow, "button", "", "secondary");
         acceptBelowButton.type = "button";
         acceptBelowButton.setAttribute("data-rte-ai-dialog-action", "insert");
-        setReviewV2ButtonContent(acceptBelowButton, "arrowRight", "Insert below");
+        setReviewV2ButtonContent(acceptBelowButton, "arrowRight", (obj.__aiT ? obj.__aiT("ai2_insbelow", "Insert below") : "Insert below"));
         var acceptDocumentButton = append(applyRow, "button", "", "secondary");
         acceptDocumentButton.type = "button";
         acceptDocumentButton.setAttribute("data-rte-ai-dialog-action", "document");
-        // 2026-05-20 (v20260520h): "Replace doc" → "Replace document". The
+        // 2026-05-20 (v20260520h): "Replace doc" → (obj.__aiT ? obj.__aiT("ai2_repldoc", "Replace document") : "Replace document"). The
         // abbreviation read as developer shorthand; the full word costs ~28px
         // of horizontal real estate at the apply row, but this button only
         // appears behind the ⋯ More toggle so the row's spare space is
         // available. Vocabulary now matches getOperationPlanButtonLabel's
-        // primary path ("Replace document") and the chat panel's secondary
-        // button ("Replace document").
-        setReviewV2ButtonContent(acceptDocumentButton, "checkAll", "Replace document");
+        // primary path ((obj.__aiT ? obj.__aiT("ai2_repldoc", "Replace document") : "Replace document")) and the chat panel's secondary
+        // button ((obj.__aiT ? obj.__aiT("ai2_repldoc", "Replace document") : "Replace document")).
+        setReviewV2ButtonContent(acceptDocumentButton, "checkAll", (obj.__aiT ? obj.__aiT("ai2_repldoc", "Replace document") : "Replace document"));
         // 2026-05-08 (v20260508t): "More" toggle pinned just before Discard.
         // Hides Replace selection / Preview / Insert below / Replace doc by
         // default so the default surface only shows Apply (smart primary) +
@@ -17165,8 +17828,8 @@ function RTE_Plugin_AIToolkit() {
         applyRowMoreToggle.type = "button";
         applyRowMoreToggle.setAttribute("data-rte-ai-dialog-action", "more");
         applyRowMoreToggle.setAttribute("aria-expanded", "false");
-        applyRowMoreToggle.title = "More apply options";
-        applyRowMoreToggle.setAttribute("aria-label", "More apply options");
+        applyRowMoreToggle.title = (obj.__aiT ? obj.__aiT("ai2_moreopts", "More apply options") : "More apply options");
+        applyRowMoreToggle.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("ai2_moreopts", "More apply options") : "More apply options"));
         setReviewV2ButtonContent(applyRowMoreToggle, "more", "");
         applyRowMoreToggle.onclick = function (e) {
             if (e && e.stopPropagation) e.stopPropagation();
@@ -17225,7 +17888,7 @@ function RTE_Plugin_AIToolkit() {
         applyGuidance.className = "demo-ai-apply-guidance";
         applyGuidance.style.display = "none";
         applyGuidance.setAttribute("role", "group");
-        applyGuidance.setAttribute("aria-label", "Best next step");
+        applyGuidance.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aid_bestnext", "Best next step") : "Best next step"));
         var applyGuidanceHeader = append(applyGuidance, "div", "", "demo-ai-apply-guidance-header");
         var applyGuidanceTitle = append(applyGuidanceHeader, "span", "", "demo-ai-apply-guidance-title", "Next");
         var applyGuidanceBadge = append(applyGuidanceHeader, "span", "", "demo-ai-apply-guidance-badge");
@@ -17405,7 +18068,7 @@ function RTE_Plugin_AIToolkit() {
             var languages = getTranslateLanguages();
             languageSelect.innerHTML = "";
             for (var index = 0; index < languages.length; index++) {
-                var option = append(languageSelect, "option", "", "", languages[index].label || languages[index].value);
+                var option = append(languageSelect, "option", "", "", getTranslateLanguageDisplay(languages[index]));
                 option.value = languages[index].value || languages[index].label;
             }
             if (options.presetLanguage) {
@@ -17481,7 +18144,7 @@ function RTE_Plugin_AIToolkit() {
             else {
                 scopeLabel = "Document";
             }
-            return scopeLabel + " · " + countLabel + " chars";
+            return scopeLabel + " \xb7 " + countLabel + " chars";
         }
 
         // 2026-05-19 (v20260519a): mirror the active AI mode into the
@@ -17588,7 +18251,7 @@ function RTE_Plugin_AIToolkit() {
             }
             titleSpan.innerText = resolvedLabel || base;
             if (dialoginner.setAttribute) {
-                dialoginner.setAttribute("aria-label", resolvedLabel ? (base + " · " + resolvedLabel) : base);
+                dialoginner.setAttribute("aria-label", resolvedLabel ? (base + " \xb7 " + resolvedLabel) : base);
             }
         }
 
@@ -17674,16 +18337,16 @@ function RTE_Plugin_AIToolkit() {
             if (sourceArea && !sourceArea.value) {
                 var modeId = modeSelect.value || "";
                 var placeholders = {
-                    proofread: "Paste text to proofread…",
-                    rewrite: "Paste text to rewrite…",
-                    shorten: "Paste text to shorten…",
-                    expand: "Paste text to expand…",
-                    summarize: "Paste text to summarize…",
-                    translate: "Paste text to translate…",
-                    justify: "Paste text to rewrite + explain…",
-                    explain: "Paste text to explain…"
+                    proofread: "Paste text to proofread\u2026",
+                    rewrite: "Paste text to rewrite\u2026",
+                    shorten: "Paste text to shorten\u2026",
+                    expand: "Paste text to expand\u2026",
+                    summarize: "Paste text to summarize\u2026",
+                    translate: "Paste text to translate\u2026",
+                    justify: "Paste text to rewrite + explain\u2026",
+                    explain: "Paste text to explain\u2026"
                 };
-                sourceArea.placeholder = placeholders[modeId] || "Type or paste text…";
+                sourceArea.placeholder = placeholders[modeId] || "Type or paste text\u2026";
             }
             // 2026-05-08 (v20260508s): refresh the header mode-name chip.
             // For Translate the chip carries the target language so users
@@ -17691,7 +18354,7 @@ function RTE_Plugin_AIToolkit() {
             if (modeChip) {
                 var chipLabel = modeLabel || "";
                 if (modeLabel && modeSelect.value === "translate") {
-                    chipLabel = modeLabel + " · " + getTranslateLanguageLabel(languageSelect.value || "spanish");
+                    chipLabel = modeLabel + " \xb7 " + getTranslateLanguageLabel(languageSelect.value || "spanish");
                 }
                 modeChip.innerText = chipLabel;
                 modeChip.style.display = chipLabel ? "" : "none";
@@ -17860,9 +18523,9 @@ function RTE_Plugin_AIToolkit() {
                 var docChars = snap ? (snap.wholeText || "").length : 0;
                 scopeOptionSelection.disabled = !hasSelection;
                 scopeOptionSelection.text = hasSelection
-                    ? "Selection"
-                    : "Selection (none)";
-                scopeOptionDocument.text = "Document";
+                    ? (obj.__aiT ? obj.__aiT("aid_selection", "Selection") : "Selection")
+                    : (obj.__aiT ? obj.__aiT("aid_selectionnone", "Selection (none)") : "Selection (none)");
+                scopeOptionDocument.text = (obj.__aiT ? obj.__aiT("aid_document", "Document") : "Document");
                 scopeSelect.value = activeScope === "selection" ? "selection" : "document";
                 scopeSelect.setAttribute("title", buildDialogScopeHint(snap, scope));
                 // 2026-06-01 (v20260601a): swap the <select> for a quiet inline
@@ -17877,7 +18540,7 @@ function RTE_Plugin_AIToolkit() {
                 // 2026-05-20 (v20260520i) — Pass 61: caption mirrors the option
                 // label — scope name only, no char-count suffix.
                 if (scopeCaption) {
-                    scopeCaption.innerText = "Document";
+                    scopeCaption.innerText = (obj.__aiT ? obj.__aiT("aid_document", "Document") : "Document");
                 }
                 if (compactControls && compactControls.classList) {
                     if (hasSelection) {
@@ -17892,8 +18555,8 @@ function RTE_Plugin_AIToolkit() {
 
         function formatDialogScopeCount(n) {
             if (!n) return "0";
-            if (n > 999) return (Math.round(n / 100) / 10) + "K chars";
-            return n + " chars";
+            if (n > 999) return (obj.__aiT ? obj.__aiT("aid_kchars", "{0}K chars", Math.round(n / 100) / 10) : (Math.round(n / 100) / 10) + "K chars");
+            return obj.__aiT ? obj.__aiT("aid_chars", "{0} chars", n) : n + " chars";
         }
 
         function markDialogSourceDetached() {
@@ -17940,11 +18603,11 @@ function RTE_Plugin_AIToolkit() {
         }
 
         function getDialogLanguageChangeMessage(language) {
-            return "Language → " + getTranslateLanguageLabel(language || "spanish") + ". Re-run to refresh.";
+            return "Language \u2192 " + getTranslateLanguageLabel(language || "spanish") + ". Re-run to refresh.";
         }
 
         function getDialogScopeChangeMessage(scope) {
-            return "Scope → " + (scope === "selection" ? "selection" : "document") + ". Re-run to refresh.";
+            return "Scope \u2192 " + (scope === "selection" ? "selection" : "document") + ". Re-run to refresh.";
         }
 
         function getDialogEditorReloadMessage(scope) {
@@ -18029,70 +18692,70 @@ function RTE_Plugin_AIToolkit() {
                     : "Select text in the editor, then reload it into Ask AI.";
             }
             if (actionId === "load-document") {
-                return "Reload the current editor document into Ask AI.";
+                return (obj.__aiT ? obj.__aiT("aid_reloaddesc", "Reload the current editor document into Ask AI.") : "Reload the current editor document into Ask AI.");
             }
             if (actionId === "run") {
                 return actionState.hasSource
-                    ? "Generate a new AI suggestion from the current source text using the selected mode."
-                    : "Load or type source text, then run Ask AI to generate a suggestion.";
+                    ? (obj.__aiT ? obj.__aiT("aid_gendesc", "Generate a new AI suggestion from the current source text using the selected mode.") : "Generate a new AI suggestion from the current source text using the selected mode.")
+                    : (obj.__aiT ? obj.__aiT("aid_loaddesc", "Load or type source text, then run Ask AI to generate a suggestion.") : "Load or type source text, then run Ask AI to generate a suggestion.");
             }
             if (actionId === "rerun") {
                 return actionState.staleAction === "source"
-                    ? "Refresh this suggestion from the current dialog source before applying it."
-                    : "Refresh this suggestion from the current editor state before applying it.";
+                    ? (obj.__aiT ? obj.__aiT("ai2_d_refreshsrc", "Refresh this suggestion from the current dialog source before applying it.") : "Refresh this suggestion from the current dialog source before applying it.")
+                    : (obj.__aiT ? obj.__aiT("ai2_d_refreshed", "Refresh this suggestion from the current editor state before applying it.") : "Refresh this suggestion from the current editor state before applying it.");
             }
             if (actionId === "copy-to-source") {
                 return actionState.hasResult
-                    ? "Copy the current AI result back into the source field before rerunning it."
-                    : "Run Ask AI first, then copy the generated result back into the source field.";
+                    ? (obj.__aiT ? obj.__aiT("ai2_d_copyback", "Copy the current AI result back into the source field before rerunning it.") : "Copy the current AI result back into the source field before rerunning it.")
+                    : (obj.__aiT ? obj.__aiT("ai2_d_copyfirst", "Run Ask AI first, then copy the generated result back into the source field.") : "Run Ask AI first, then copy the generated result back into the source field.");
             }
             if (actionId === "apply") {
                 if (actionState.pendingIndexes.length > 1) {
                     return actionState.pendingSelectionDependent && !actionState.hasSelection
-                        ? "Select text before applying this selection-based AI plan."
-                        : "Run the remaining " + actionState.pendingIndexes.length + "-step AI plan directly in the editor.";
+                        ? (obj.__aiT ? obj.__aiT("ai2_d_selectplan", "Select text before applying this selection-based AI plan.") : "Select text before applying this selection-based AI plan.")
+                        : (obj.__aiT ? obj.__aiT("ai2_d_steps", "Run the remaining {0}-step AI plan directly in the editor.", actionState.pendingIndexes.length) : "Run the remaining " + actionState.pendingIndexes.length + "-step AI plan directly in the editor.");
                 }
                 switch (actionState.pendingOperationType) {
                     case "preview-suggestion":
                         return actionState.hasSelection
-                            ? "Show the prepared inline diff in the editor before deciding it."
-                            : "Select text before previewing this prepared inline diff in the editor.";
+                            ? (obj.__aiT ? obj.__aiT("ai2_d_showdiff", "Show the prepared inline diff in the editor before deciding it.") : "Show the prepared inline diff in the editor before deciding it.")
+                            : (obj.__aiT ? obj.__aiT("ai2_d_selectdiff", "Select text before previewing this prepared inline diff in the editor.") : "Select text before previewing this prepared inline diff in the editor.");
                     case "replace-selection":
                         return actionState.hasSelection
-                            ? "Replace the current selection with this prepared draft."
-                            : "Select text before replacing it with this prepared draft.";
+                            ? (obj.__aiT ? obj.__aiT("ai2_d_replsel", "Replace the current selection with this prepared draft.") : "Replace the current selection with this prepared draft.")
+                            : (obj.__aiT ? obj.__aiT("ai2_d_selectrepl", "Select text before replacing it with this prepared draft.") : "Select text before replacing it with this prepared draft.");
                     case "replace-document":
-                        return "Replace the full document with this prepared draft.";
+                        return (obj.__aiT ? obj.__aiT("ai2_d_repldoc", "Replace the full document with this prepared draft.") : "Replace the full document with this prepared draft.");
                     case "insert-below":
                         return actionState.hasSelection
-                            ? "Insert this prepared draft below the current selection."
-                            : "Insert this prepared draft below the current content.";
+                            ? (obj.__aiT ? obj.__aiT("ai2_d_insbelowsel", "Insert this prepared draft below the current selection.") : "Insert this prepared draft below the current selection.")
+                            : (obj.__aiT ? obj.__aiT("ai2_d_insbelow", "Insert this prepared draft below the current content.") : "Insert this prepared draft below the current content.");
                     case "add-comment":
-                        return "Add this prepared AI comment without rewriting the document body.";
+                        return (obj.__aiT ? obj.__aiT("ai2_d_comment", "Add this prepared AI comment without rewriting the document body.") : "Add this prepared AI comment without rewriting the document body.");
                     default:
-                        return "Run the prepared AI plan directly in the editor.";
+                        return (obj.__aiT ? obj.__aiT("ai2_d_runplan", "Run the prepared AI plan directly in the editor.") : "Run the prepared AI plan directly in the editor.");
                 }
             }
             if (actionId === "selection") {
                 return actionState.hasSelection
-                    ? "Replace the current selection with this prepared draft."
-                    : "Select text before replacing it with this prepared draft.";
+                    ? (obj.__aiT ? obj.__aiT("ai2_d_replsel", "Replace the current selection with this prepared draft.") : "Replace the current selection with this prepared draft.")
+                    : (obj.__aiT ? obj.__aiT("ai2_d_selectrepl", "Select text before replacing it with this prepared draft.") : "Select text before replacing it with this prepared draft.");
             }
             if (actionId === "preview") {
                 return actionState.hasSelection
-                    ? "Show this change inline in the editor before deciding it."
-                    : "Select text to preview this change inline in the editor.";
+                    ? (obj.__aiT ? obj.__aiT("ai2_d_previewsel", "Show this change inline in the editor before deciding it.") : "Show this change inline in the editor before deciding it.")
+                    : (obj.__aiT ? obj.__aiT("ai2_d_previewselect", "Select text to preview this change inline in the editor.") : "Select text to preview this change inline in the editor.");
             }
             if (actionId === "insert") {
                 return actionState.hasSelection
-                    ? "Insert this prepared draft below the current selection."
-                    : "Insert this prepared draft below the current content.";
+                    ? (obj.__aiT ? obj.__aiT("ai2_d_insbelowsel", "Insert this prepared draft below the current selection.") : "Insert this prepared draft below the current selection.")
+                    : (obj.__aiT ? obj.__aiT("ai2_d_insbelow", "Insert this prepared draft below the current content.") : "Insert this prepared draft below the current content.");
             }
             if (actionId === "document") {
-                return "Replace the full document with this prepared draft.";
+                return (obj.__aiT ? obj.__aiT("ai2_d_repldoc", "Replace the full document with this prepared draft.") : "Replace the full document with this prepared draft.");
             }
             if (actionId === "reject") {
-                return "Dismiss this prepared suggestion without changing the document.";
+                return (obj.__aiT ? obj.__aiT("ai2_d_dismiss", "Dismiss this prepared suggestion without changing the document.") : "Dismiss this prepared suggestion without changing the document.");
             }
             return "";
         }
@@ -18180,22 +18843,22 @@ function RTE_Plugin_AIToolkit() {
             var pendingOperationType = actionState.pendingOperationType || "";
             if (actionState.actionScope === "selection") {
                 if (actionState.hasSelection && pendingOperationType !== "preview-suggestion") {
-                    addDialogReadyAlternative(alternatives, covered, "preview", "preview inline");
+                    addDialogReadyAlternative(alternatives, covered, "preview", (obj.__aiT ? obj.__aiT("ai2_alt_preview", "preview inline") : "preview inline"));
                 }
                 if (actionState.hasSelection && pendingOperationType !== "replace-selection") {
-                    addDialogReadyAlternative(alternatives, covered, "selection", "replace the selection");
+                    addDialogReadyAlternative(alternatives, covered, "selection", (obj.__aiT ? obj.__aiT("ai2_alt_selection", "replace the selection") : "replace the selection"));
                 }
                 if (actionState.canInsert && pendingOperationType !== "insert-below") {
-                    addDialogReadyAlternative(alternatives, covered, "insert", "insert below");
+                    addDialogReadyAlternative(alternatives, covered, "insert", (obj.__aiT ? obj.__aiT("ai2_alt_insert", "insert below") : "insert below"));
                 }
                 return alternatives;
             }
             if (actionState.actionScope === "document") {
                 if (actionState.canReplaceDocument && pendingOperationType !== "replace-document") {
-                    addDialogReadyAlternative(alternatives, covered, "document", "replace the document");
+                    addDialogReadyAlternative(alternatives, covered, "document", (obj.__aiT ? obj.__aiT("ai2_alt_document", "replace the document") : "replace the document"));
                 }
                 if (actionState.canInsert && pendingOperationType !== "insert-below") {
-                    addDialogReadyAlternative(alternatives, covered, "insert", "insert below");
+                    addDialogReadyAlternative(alternatives, covered, "insert", (obj.__aiT ? obj.__aiT("ai2_alt_insert", "insert below") : "insert below"));
                 }
             }
             return alternatives;
@@ -18213,10 +18876,10 @@ function RTE_Plugin_AIToolkit() {
                 ? (recommended.label || "").replace(/\s+/g, " ").trim()
                 : "";
             if (recommendedLabel) {
-                return "Ready · " + recommendedLabel;
+                return "Ready \xb7 " + recommendedLabel;
             }
             if (actionState.actionScope === "selection" && !actionState.hasSelection) {
-                return "Ready · Insert below";
+                return "Ready \xb7 Insert below";
             }
             return "Ready";
         }
@@ -18294,25 +18957,25 @@ function RTE_Plugin_AIToolkit() {
                 parts.push(detail);
             }
             if (alternativeText) {
-                parts.push("Other available actions: " + alternativeText + ".");
+                parts.push(obj.__aiT ? obj.__aiT("aid_otheractions", "Other available actions: {0}.", alternativeText) : "Other available actions: " + alternativeText + ".");
             }
             if (isRecommended) {
-                parts.push("Recommended next step.");
+                parts.push((obj.__aiT ? obj.__aiT("aid_recommended", "Recommended next step.") : "Recommended next step."));
                 button.setAttribute("data-rte-ai-dialog-recommended", "true");
             }
             else {
                 button.removeAttribute("data-rte-ai-dialog-recommended");
             }
-            button.setAttribute("aria-label", parts.join(". "));
+            button.setAttribute("aria-label", joinSentences(parts));
             var titleParts = [label];
             if (detail) {
                 titleParts.push(detail);
             }
             if (alternativeText) {
-                titleParts.push("Other available actions: " + alternativeText + ".");
+                titleParts.push(obj.__aiT ? obj.__aiT("aid_otheractions", "Other available actions: {0}.", alternativeText) : "Other available actions: " + alternativeText + ".");
             }
             if (isRecommended) {
-                titleParts.push("Recommended next step.");
+                titleParts.push((obj.__aiT ? obj.__aiT("aid_recommended", "Recommended next step.") : "Recommended next step."));
             }
             // 2026-05-22 (v20260522a): preserve any pre-set keyboard shortcut
             // hint on the button by reading aria-keyshortcuts (the WAI-ARIA
@@ -18322,7 +18985,7 @@ function RTE_Plugin_AIToolkit() {
             // shortcut would only be discoverable via screen-reader
             // announcement of aria-keyshortcuts and never via mouse hover.
             // Formatting matches the Generate button's pre-existing title
-            // suffix ("Generate AI suggestion (Ctrl+Enter)").
+            // suffix ((obj.__aiT ? obj.__aiT("ai2_gentitle", "Generate AI suggestion (Ctrl+Enter)") : "Generate AI suggestion (Ctrl+Enter)")).
             var keyHint = button.getAttribute && button.getAttribute("aria-keyshortcuts");
             if (keyHint) {
                 var keyHintLabel = keyHint
@@ -18379,7 +19042,7 @@ function RTE_Plugin_AIToolkit() {
                 return {
                     actionId: "run",
                     button: runButton,
-                    label: "Ask AI",
+                    label: (obj.__aiT ? obj.__aiT("aiassist", "Ask AI") : "Ask AI"),
                     detail: getDialogActionDetail("run", actionState)
                 };
             }
@@ -18411,7 +19074,7 @@ function RTE_Plugin_AIToolkit() {
                 return {
                     actionId: "document",
                     button: acceptDocumentButton,
-                    label: (acceptDocumentButton.innerText || acceptDocumentButton.textContent || "").replace(/\s+/g, " ").trim() || "Replace document",
+                    label: (acceptDocumentButton.innerText || acceptDocumentButton.textContent || "").replace(/\s+/g, " ").trim() || (obj.__aiT ? obj.__aiT("ai2_repldoc", "Replace document") : "Replace document"),
                     detail: getDialogActionDetail("document", actionState)
                 };
             }
@@ -18464,11 +19127,11 @@ function RTE_Plugin_AIToolkit() {
                 return;
             }
             applyGuidance.style.display = "";
-            applyGuidanceTitle.innerText = "Best next step";
+            applyGuidanceTitle.innerText = (obj.__aiT ? obj.__aiT("aid_bestnext", "Best next step") : "Best next step");
             applyGuidanceBadge.innerText = recommended.label || "";
             var summaryDetail = getDialogRecommendedSummaryDetail(actionState, recommended);
             applyGuidanceDetail.innerText = summaryDetail || "";
-            applyGuidance.setAttribute("aria-label", "Best next step: " + (recommended.label || "Action") + "." + (summaryDetail ? " " + summaryDetail : ""));
+            applyGuidance.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aid_bestnextaria", "Best next step: {0}.", recommended.label || "Action") : "Best next step: " + (recommended.label || "Action") + ".") + (summaryDetail ? " " + summaryDetail : ""));
         }
 
         function rerunDialogPlanFromEditor() {
@@ -18672,7 +19335,7 @@ function RTE_Plugin_AIToolkit() {
             // setBusyState(false) is called.
             if (isBusy) {
                 runButton.classList.add("is-busy");
-                setReviewV2ButtonContent(runButton, "spinner", "Thinking...");
+                setReviewV2ButtonContent(runButton, "spinner", (obj.__aiT ? obj.__aiT("aic_thinking", "Thinking...") : "Thinking..."));
             } else {
                 runButton.classList.remove("is-busy");
             }
@@ -18792,7 +19455,7 @@ function RTE_Plugin_AIToolkit() {
                 // hidden apply options on the kebab's title + aria-label so
                 // users discover *what's behind the dots* on hover or with a
                 // screen reader, instead of clicking blind. Pre-pass the
-                // tooltip read as "More apply options" — accurate but content-
+                // tooltip read as (obj.__aiT ? obj.__aiT("ai2_moreopts", "More apply options") : "More apply options") — accurate but content-
                 // free; now it reads "More apply options (3): Replace
                 // selection, Insert below, Replace doc" so the count + the
                 // names live where the affordance is. Same shape Notion AI's
@@ -18804,7 +19467,7 @@ function RTE_Plugin_AIToolkit() {
                 if (showsSelectionAction) moreOptionNames.push("Replace selection");
                 if (showsPreviewAction) moreOptionNames.push("Preview");
                 if (showsInsertAction) moreOptionNames.push("Insert below");
-                if (showsDocumentAction) moreOptionNames.push("Replace document");
+                if (showsDocumentAction) moreOptionNames.push((obj.__aiT ? obj.__aiT("ai2_repldoc", "Replace document") : "Replace document"));
                 var moreCount = moreOptionNames.length;
                 var anyMoreAvailable = moreCount > 0;
                 applyRowMoreToggle.style.display = anyMoreAvailable ? "" : "none";
@@ -18829,7 +19492,7 @@ function RTE_Plugin_AIToolkit() {
             // 2026-05-08 (v20260508s): clarify the run button — when a
             // result already exists the button re-runs the same source, so
             // call it Regenerate. Also flips when the plan goes stale.
-            var runLabel = (hasResult || isStale) ? "Regenerate" : "Generate";
+            var runLabel = (hasResult || isStale) ? (obj.__aiT ? obj.__aiT("aid_regenerate", "Regenerate") : "Regenerate") : (obj.__aiT ? obj.__aiT("aid_generate", "Generate") : "Generate");
             setReviewV2ButtonContent(runButton, "sparkles", runLabel);
             // 2026-05-17 (v20260517a): re-attach the keyboard hint chip,
             // since setReviewV2ButtonContent clears textContent and loses

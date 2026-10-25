@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "Ingiza";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "Mitindo";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "Mitindo ya maandishi";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "sw";	// this pack's locale (Intl names, e.g. the text-part language menu)

@@ -38,7 +38,9 @@ function RTE_Plugin_LocalDraft() {
         editor.clearLocalDraft = function () { try { store().removeItem(resolveKey()); } catch (e) {} hideBar(); return true; };
         editor.restoreLocalDraft = function () {
             var d = read(); if (!d) return false;
-            try { editor.setHTMLCode(d.html); } catch (e) { return false; }
+            // 2026-10-03 undoable: Ctrl+Z gives back exactly the document the draft replaced
+            // (tools/import/replace-undo-plugins.mjs)
+            try { editor.setHTMLCode(d.html, { undoable: true }); } catch (e) { return false; }
             try { if (typeof editor.fireChange === "function") editor.fireChange(); } catch (e) {}
             hideBar();
             return true;
@@ -92,12 +94,54 @@ function RTE_Plugin_LocalDraft() {
     function intervalMs() { var n = opts && +opts.intervalMs; return (n && n > 250) ? n : 2500; }
     function ttlMs() { var n = opts && +opts.ttlMs; return (n && n > 0) ? n : 14 * 24 * 60 * 60 * 1000; }
 
+    // 2026-10-02 The key names the EDITOR. It was the editing body's id - which the editor never
+    // sets - else the page path, so every editor on a page shared ONE draft: the last to save
+    // overwrote the other's, and after a reload Restore put one editor's text into the other (a
+    // form with a summary and a body editor lost the summary). Now: config key; else that body id
+    // (as before); else the replaced textarea's id or name; else the container's id; else the
+    // editor's place among the page's editors. The page's first editor with none of these keeps
+    // the old key (the page path), so a single editor's pending draft survives the upgrade; and
+    // when the page's only editor gets a new key, a draft under the old one moves to it (read).
+    // tools/autosave/local-draft-keys.mjs
+    var cachedKey = null;
+    function pagePath() {
+        try { return location.pathname; } catch (e) { return "default"; }
+    }
     function resolveKey() {
         if (opts && opts.key) return "rte-draft:" + opts.key;
+        if (cachedKey) return cachedKey;
         var id = "";
         try { var ed = editor.getEditable(); id = (ed && (ed.id || (ed.getAttribute && ed.getAttribute("data-rte-id")))) || ""; } catch (e) {}
-        if (!id) { try { id = location.pathname; } catch (e) { id = "default"; } }
-        return "rte-draft:" + id;
+        if (id) return (cachedKey = "rte-draft:" + id);
+        var name = "";
+        try {
+            var inp = editor.input;
+            if (inp) name = inp.id || inp.getAttribute("name") || "";
+            if (!name && editor.container && editor.container.id) name = editor.container.id;
+        } catch (e) {}
+        if (!name) {
+            var index = 0;
+            try {
+                var all = document.querySelectorAll(".richtexteditor");
+                for (var i = 0; i < all.length; i++) if (all[i] === editor.container) { index = i; break; }
+            } catch (e) {}
+            if (index > 0) name = "editor-" + index;
+        }
+        return (cachedKey = "rte-draft:" + pagePath() + (name ? "#" + name : ""));
+    }
+    // A draft saved under the old shared key belongs to this editor only when it is the page's
+    // only one; then it moves to this editor's key.
+    function takeLegacyDraft(k) {
+        var legacy = "rte-draft:" + pagePath();
+        if (legacy === k) return null;
+        try {
+            if (document.querySelectorAll(".richtexteditor").length !== 1) return null;
+            var raw = store().getItem(legacy);
+            if (!raw) return null;
+            store().setItem(k, raw);
+            store().removeItem(legacy);
+            return raw;
+        } catch (e) { return null; }
     }
 
     function store() { return window.localStorage; }
@@ -123,7 +167,7 @@ function RTE_Plugin_LocalDraft() {
 
     function read() {
         try {
-            var raw = store().getItem(resolveKey());
+            var raw = store().getItem(resolveKey()) || takeLegacyDraft(resolveKey());
             if (!raw) return null;
             var rec = JSON.parse(raw);
             if (!rec || typeof rec.html !== "string") return null;
@@ -165,9 +209,9 @@ function RTE_Plugin_LocalDraft() {
         bar.setAttribute("aria-live", "polite");
         var msg = document.createElement("span");
         msg.className = "rte-localdraft-message";
-        msg.textContent = "An unsaved draft" + (when ? (" from " + when) : "") + " was found.";
-        var restore = mkBtn("Restore", "primary");
-        var discard = mkBtn("Discard", "secondary");
+        msg.textContent = when ? ((typeof config !== "undefined" && config && config.text_ld_foundwhen) || "An unsaved draft from {0} was found.").split("{0}").join(when) : ((typeof config !== "undefined" && config && config.text_ld_found) || "An unsaved draft was found.");
+        var restore = mkBtn(((typeof config !== "undefined" && config && config.text_ld_restore) || "Restore"), "primary");
+        var discard = mkBtn(((typeof config !== "undefined" && config && config.text_ld_discard) || "Discard"), "secondary");
         restore.onclick = function () { editor.restoreLocalDraft(); };
         discard.onclick = function () { editor.clearLocalDraft(); };
         bar.appendChild(msg); bar.appendChild(restore); bar.appendChild(discard);

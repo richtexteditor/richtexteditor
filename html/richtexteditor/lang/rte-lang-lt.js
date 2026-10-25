@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "Įterpti";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "Stiliai";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "Teksto stiliai";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "lt";	// this pack's locale (Intl names, e.g. the text-part language menu)

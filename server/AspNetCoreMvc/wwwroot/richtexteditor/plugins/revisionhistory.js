@@ -75,7 +75,8 @@ function RTE_Plugin_RevisionHistory() {
 
         // Auto-snapshot on idle typing (opt-in).
         if (config.revisionHistoryAutoSnapshotMs > 0) {
-            editor.getDocument().addEventListener("input", function () {
+            // 2026-10-17 bound through the core (follows the live editing document). tools/keyboard/plugin-listeners-live.mjs
+            (editor.bindDocumentEvent ? function (fn) { editor.bindDocumentEvent("input", fn, true); } : function (fn) { editor.getDocument().addEventListener("input", fn, true); })(function () {
                 if (autoSnapshotTimer) clearTimeout(autoSnapshotTimer);
                 autoSnapshotTimer = setTimeout(function () {
                     var currentHtml = editor.getHTML();
@@ -83,16 +84,18 @@ function RTE_Plugin_RevisionHistory() {
                         snapshot("Auto", { auto: true });
                     }
                 }, config.revisionHistoryAutoSnapshotMs);
-            }, true);
+            });
         }
 
-        // Keyboard shortcut: Ctrl/Cmd + Shift + H opens the browser.
-        editor.getDocument().addEventListener("keydown", function (e) {
-            if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "H" || e.key === "h")) {
+        // Keyboard shortcut: Ctrl/Cmd + Alt + Shift + H opens the browser (Google Docs' version-history keys).
+        // 2026-10-15 it was Ctrl+Shift+H, which is also Highlight: highlighting opened this modal over the page and,
+        // once the dialog took focus, the highlight could not be toggled off. tools/keyboard/shortcut-collisions.mjs
+        (editor.bindDocumentEvent ? function (fn) { editor.bindDocumentEvent("keydown", fn, true); } : function (fn) { editor.getDocument().addEventListener("keydown", fn, true); })(function (e) {
+            if ((e.ctrlKey || e.metaKey) && e.altKey && e.shiftKey && (e.key === "H" || e.key === "h" || e.code === "KeyH")) {
                 e.preventDefault();
                 openDialog();
             }
-        }, true);
+        });
     };
 
     function appendToolbarCommand(toolbar, item) {
@@ -106,9 +109,50 @@ function RTE_Plugin_RevisionHistory() {
         return { id: "user", name: "User", color: "#64748b" };
     }
 
+    // 2026-10-03 One store per DOCUMENT. The key was "RTE.Revisions." + (aiToolkitPersistenceKey ||
+    // "default"), so without that key every editor and every document on a site shared one list: two
+    // editors on a page overwrote each other's saved versions, and a version taken on one document was
+    // listed - and restorable, replacing the content - on every other one (localdraft had the same
+    // defect). An explicit key wins (config.revisionHistoryKey, or aiToolkitPersistenceKey as
+    // before); otherwise the page (path + query, which tells /edit?id=1 from ?id=2) and, with several
+    // editors on it, the editor's own name. tools/revisions/revision-keys.mjs
+    var cachedStoreKey = null;
+    var LEGACY_STORE_KEY = "RTE.Revisions.default";
+
     function getStoreKey() {
-        var key = config.aiToolkitPersistenceKey || "default";
-        return "RTE.Revisions." + key;
+        if (config.revisionHistoryKey) return "RTE.Revisions." + config.revisionHistoryKey;
+        if (config.aiToolkitPersistenceKey) return "RTE.Revisions." + config.aiToolkitPersistenceKey;
+        if (cachedStoreKey) return cachedStoreKey;
+        var page = "default";
+        try { page = location.pathname + location.search; } catch (e) { }
+        var name = "";
+        try {
+            var inp = editor.input;
+            if (inp) name = inp.id || inp.getAttribute("name") || "";
+            if (!name && editor.container && editor.container.id) name = editor.container.id;
+            if (!name) {
+                var all = document.querySelectorAll(".richtexteditor");
+                for (var i = 1; i < all.length; i++) if (all[i] === editor.container) { name = "editor-" + i; break; }
+            }
+        } catch (e) { }
+        return (cachedStoreKey = "RTE.Revisions." + page + (name ? "#" + name : ""));
+    }
+
+    // Versions saved under the old shared key belong to this editor only when it is the page's only
+    // one (checked once every editor on the page exists); then they move to this editor's key.
+    function takeLegacyRevisions() {
+        if (config.revisionHistoryKey || config.aiToolkitPersistenceKey || getStore().length) return;
+        try {
+            if (!window.localStorage || document.querySelectorAll(".richtexteditor").length !== 1) return;
+            var key = getStoreKey(), raw = window.localStorage.getItem(LEGACY_STORE_KEY);
+            if (!raw || key === LEGACY_STORE_KEY || window.localStorage.getItem(key)) return;
+            var parsed = JSON.parse(raw);
+            if (!Array.isArray(parsed)) return;
+            window.localStorage.setItem(key, raw);
+            window.localStorage.removeItem(LEGACY_STORE_KEY);
+            editor.__revisions = parsed;
+            if (dialog && dialog.isConnected) renderDialog();
+        } catch (ignore) { }
     }
 
     function getStore() {
@@ -188,6 +232,9 @@ function RTE_Plugin_RevisionHistory() {
     }
 
     function restoreStore() {
+        // other editors on the page are created after this one: decide about the old shared
+        // versions once they all exist
+        setTimeout(takeLegacyRevisions, 0);
         try {
             if (!window.localStorage) return;
             var raw = window.localStorage.getItem(getStoreKey());
@@ -222,10 +269,16 @@ function RTE_Plugin_RevisionHistory() {
 
     // Prompt the user for a snapshot name via native window.prompt, then take a snapshot.
     // Returns the entry (or null if the user cancelled).
+    // 2026-10-18 the history's words read config.text_ keys (language packs), English as the fallback; {0} fills a
+    // template. tools/i18n/revision-history-language.mjs
+    function rhText(key, fallback, arg) {
+        var s = (config && config["text_" + key]) || fallback;
+        return arg === undefined ? s : s.split("{0}").join(String(arg));
+    }
     function promptAndSnapshot(defaultLabel) {
         var iframeDoc = editor.iframe ? editor.iframe.ownerDocument : document;
         var win = iframeDoc.defaultView || window;
-        var value = win.prompt("Name this version (e.g. \"Draft sent to legal\"):", defaultLabel || "");
+        var value = win.prompt(rhText("rh_nameversion", "Name this version (e.g. \"Draft sent to legal\"):"), defaultLabel || "");
         if (value === null) return null;
         var trimmed = (value || "").trim();
         if (!trimmed) return null;
@@ -277,13 +330,31 @@ function RTE_Plugin_RevisionHistory() {
         opts = opts || {};
         var entry = findById(id);
         if (!entry) return false;
+        // 2026-10-03 Restoring replaces the content with setHTMLCode, which is not an undo step, and saved
+        // nothing first - restoring a version by mistake threw away everything written since it, for
+        // good. The current content is now kept as a (named) version first, unless the newest version
+        // already holds it; config.revisionHistorySnapshotBeforeRestore: false for the old behaviour.
+        // tools/revisions/restore-safety.mjs
+        var keep = config.revisionHistorySnapshotBeforeRestore !== false;
         if (!opts.skipConfirm) {
             var doc = editor.iframe ? editor.iframe.ownerDocument : document;
-            if (!doc.defaultView.confirm("Restore this version? Your current content will be replaced (this itself is not auto-snapshotted).")) {
+            var message = keep
+                ? rhText("rh_restorekeep", "Restore this version? Your current content is kept as a version first, so you can go back to it.")
+                : rhText("rh_restorereplace", "Restore this version? Your current content will be replaced (this itself is not auto-snapshotted).");
+            if (!doc.defaultView.confirm(message)) {
                 return false;
             }
         }
-        if (editor.setHTMLCode) editor.setHTMLCode(entry.html);
+        if (keep) {
+            var current = editor.getHTML ? editor.getHTML() : (editor.getHTMLCode ? editor.getHTMLCode() : "");
+            var newest = null, store = getStore();
+            for (var i = 0; i < store.length; i++) if (!newest || (store[i].createdAt || 0) >= (newest.createdAt || 0)) newest = store[i];
+            if (current !== entry.html && (!newest || newest.html !== current)) {
+                snapshot(rhText("rh_beforerestore", "Before restoring {0}", entry.label), { beforeRestore: entry.id });
+            }
+        }
+        // undoable: Ctrl+Z after a restore gives back exactly the document it replaced (import-undo.mjs)
+        if (editor.setHTMLCode) editor.setHTMLCode(entry.html, { undoable: true });
         else if (editor.setHTML) editor.setHTML(entry.html);
         lastSnapshotHtml = entry.html;
         if (dialog && dialog.isConnected) closeDialog();
@@ -406,13 +477,68 @@ function RTE_Plugin_RevisionHistory() {
         panel.className = "rte-rev-panel";
         backdrop.appendChild(panel);
         dialog.appendChild(backdrop);
+        // 2026-10-15 keyboard: the dialog is modal, so focus moves in, Tab stays in, Escape closes, and focus goes back
+        // to where it was. Escape did nothing and the backdrop kept blocking the page. tools/a11y/revision-dialog-keyboard.mjs
+        dialogReturnFocus = host.activeElement;
+        dialog.addEventListener("keydown", onDialogKey, true);
         host.body.appendChild(dialog);
         renderDialog();
+        // the toolbar returns focus to the editor just after a command runs; move in after that, and once more
+        // if something took it back
+        setTimeout(focusFirstInDialog, 0);
+        setTimeout(function () { if (dialog && !dialog.contains(dialog.ownerDocument.activeElement)) focusFirstInDialog(); }, 250);
+    }
+
+    var dialogReturnFocus = null;
+    function dialogFocusables() {
+        if (!dialog) return [];
+        var all = dialog.querySelectorAll("button, input, select, textarea, a[href], [tabindex]:not([tabindex='-1'])");
+        var out = [];
+        for (var i = 0; i < all.length; i++) if (!all[i].disabled && all[i].offsetParent !== null) out.push(all[i]);
+        return out;
+    }
+    function focusFirstInDialog() {
+        var f = dialogFocusables();
+        if (f.length) { try { f[0].focus(); } catch (e) { /* ignore */ } }
+    }
+    // 2026-10-18 a dialog control runs its action on click, so Enter and Space work (they fire click, not mousedown;
+    // these ran on mousedown only and did nothing from the keyboard). mousedown still prevents default so a mouse
+    // press keeps the editor's selection. The action usually re-renders the dialog; after a keyboard press, focus
+    // goes back to the control with the same key. tools/a11y/revision-buttons-keyboard.mjs
+    function onActivate(el, key, fn) {
+        el.setAttribute("data-rte-rev-key", key);
+        el.addEventListener("mousedown", function (e) { e.preventDefault(); });
+        el.addEventListener("click", function (e) {
+            e.preventDefault();
+            var fromKeyboard = e.detail === 0;
+            fn();
+            if (!fromKeyboard || !dialog) return;
+            var all = dialog.querySelectorAll("[data-rte-rev-key]");
+            for (var i = 0; i < all.length; i++) {
+                if (all[i].getAttribute("data-rte-rev-key") === key) { try { all[i].focus(); } catch (x) { /* ignore */ } return; }
+            }
+            if (!dialog.contains(dialog.ownerDocument.activeElement)) focusFirstInDialog();
+        });
+    }
+    function onDialogKey(e) {
+        if (e.key === "Escape" || e.key === "Esc") { e.preventDefault(); e.stopPropagation(); closeDialog(); return; }
+        if (e.key !== "Tab") return;
+        var f = dialogFocusables();
+        if (!f.length) return;
+        var a = dialog.ownerDocument.activeElement, i = f.indexOf(a);
+        if (e.shiftKey && (i <= 0)) { e.preventDefault(); f[f.length - 1].focus(); }
+        else if (!e.shiftKey && (i === -1 || i === f.length - 1)) { e.preventDefault(); f[0].focus(); }
     }
 
     function closeDialog() {
         if (dialog && dialog.parentNode) dialog.parentNode.removeChild(dialog);
         dialog = null;
+        var back = dialogReturnFocus;
+        dialogReturnFocus = null;
+        try {
+            if (back && back.isConnected && back.tagName !== "IFRAME" && back !== back.ownerDocument.body) back.focus();
+            else if (typeof editor.focus === "function") editor.focus();
+        } catch (e) { /* ignore */ }
     }
 
     var dialogSelectedId = null;
@@ -433,17 +559,16 @@ function RTE_Plugin_RevisionHistory() {
         var title = host.createElement("div");
         title.id = "rte-rev-dialog-title";
         title.className = "rte-rev-title";
-        title.textContent = "Revision history";
+        title.textContent = rhText("revisionhistory", "Revision history");
         header.appendChild(title);
         var actions = host.createElement("div");
         actions.className = "rte-rev-header-actions";
         var snapBtn = host.createElement("button");
         snapBtn.type = "button";
         snapBtn.className = "rte-rev-btn rte-rev-btn-ghost";
-        snapBtn.textContent = "Save version now";
-        snapBtn.addEventListener("mousedown", function (e) {
-            e.preventDefault();
-            var label = host.defaultView.prompt("Label this version (optional):", "");
+        snapBtn.textContent = rhText("rh_savenow", "Save version now");
+        onActivate(snapBtn, "save", function () {
+            var label = host.defaultView.prompt(rhText("rh_labelversion", "Label this version (optional):"), "");
             if (label === null) return; // cancelled
             snapshot(label || "");
         });
@@ -451,9 +576,9 @@ function RTE_Plugin_RevisionHistory() {
         var closeBtn = host.createElement("button");
         closeBtn.type = "button";
         closeBtn.className = "rte-rev-btn rte-rev-btn-ghost";
-        closeBtn.textContent = "Close";
-        closeBtn.setAttribute("aria-label", "Close revision history");
-        closeBtn.addEventListener("mousedown", function (e) { e.preventDefault(); closeDialog(); });
+        closeBtn.textContent = rhText("close", "Close");
+        closeBtn.setAttribute("aria-label", rhText("rh_closehistory", "Close revision history"));
+        onActivate(closeBtn, "close", closeDialog);
         actions.appendChild(closeBtn);
         header.appendChild(actions);
         panel.appendChild(header);
@@ -464,13 +589,17 @@ function RTE_Plugin_RevisionHistory() {
         // Left: list
         var list = host.createElement("div");
         list.className = "rte-rev-list";
-        list.setAttribute("role", "listbox");
-        list.setAttribute("aria-label", "Saved revisions");
         var entries = editor.revisionHistory.list();
+        // 2026-10-15 a listbox only when it lists revisions: the empty message inside role=listbox left a listbox with
+        // no options (axe aria-required-children) that read as an empty list. tools/a11y/revision-list-roles.mjs
+        if (entries.length) {
+            list.setAttribute("role", "listbox");
+            list.setAttribute("aria-label", rhText("rh_saved", "Saved revisions"));
+        }
         if (!entries.length) {
             var empty = host.createElement("div");
             empty.className = "rte-rev-empty";
-            empty.textContent = "No revisions yet. Click \"Save version now\" to capture the current document.";
+            empty.textContent = rhText("rh_empty", "No revisions yet. Click \"Save version now\" to capture the current document.");
             list.appendChild(empty);
         } else {
             if (!dialogSelectedId || !findById(dialogSelectedId)) {
@@ -488,7 +617,7 @@ function RTE_Plugin_RevisionHistory() {
                     dot.style.background = (e.author && e.author.color) || "#64748b";
                     var who = host.createElement("div");
                     who.className = "rte-rev-row-who";
-                    who.textContent = (e.author && e.author.name) || "User";
+                    who.textContent = (e.author && e.author.name) || rhText("rh_user", "User");
                     var when = host.createElement("div");
                     when.className = "rte-rev-row-when";
                     when.textContent = formatDate(e.createdAt) + " \u00B7 " + (e.label || "");
@@ -498,8 +627,7 @@ function RTE_Plugin_RevisionHistory() {
                     col.appendChild(when);
                     row.appendChild(dot);
                     row.appendChild(col);
-                    row.addEventListener("mousedown", function (ev) {
-                        ev.preventDefault();
+                    onActivate(row, "row-" + e.id, function () {
                         dialogSelectedId = e.id;
                         renderDialog();
                     });
@@ -518,21 +646,21 @@ function RTE_Plugin_RevisionHistory() {
             var tabs = host.createElement("div");
             tabs.className = "rte-rev-tabs";
             tabs.setAttribute("role", "tablist");
-            tabs.setAttribute("aria-label", "Revision view");
+            tabs.setAttribute("aria-label", rhText("rh_view", "Revision view"));
             var tabPreview = host.createElement("button");
             tabPreview.type = "button";
             tabPreview.className = "rte-rev-tab" + (dialogView === "preview" ? " rte-rev-tab-active" : "");
             tabPreview.setAttribute("role", "tab");
             tabPreview.setAttribute("aria-selected", dialogView === "preview" ? "true" : "false");
-            tabPreview.textContent = "Preview";
-            tabPreview.addEventListener("mousedown", function (e) { e.preventDefault(); dialogView = "preview"; renderDialog(); });
+            tabPreview.textContent = rhText("rh_preview", "Preview");
+            onActivate(tabPreview, "tab-preview", function () { dialogView = "preview"; renderDialog(); });
             var tabDiff = host.createElement("button");
             tabDiff.type = "button";
             tabDiff.className = "rte-rev-tab" + (dialogView === "diff" ? " rte-rev-tab-active" : "");
             tabDiff.setAttribute("role", "tab");
             tabDiff.setAttribute("aria-selected", dialogView === "diff" ? "true" : "false");
-            tabDiff.textContent = "Diff vs current";
-            tabDiff.addEventListener("mousedown", function (e) { e.preventDefault(); dialogView = "diff"; renderDialog(); });
+            tabDiff.textContent = rhText("rh_diff", "Diff vs current");
+            onActivate(tabDiff, "tab-diff", function () { dialogView = "diff"; renderDialog(); });
             tabs.appendChild(tabPreview);
             tabs.appendChild(tabDiff);
             pane.appendChild(tabs);
@@ -542,7 +670,7 @@ function RTE_Plugin_RevisionHistory() {
             if (dialogView === "preview") {
                 var iframe = host.createElement("iframe");
                 iframe.className = "rte-rev-preview-frame";
-                iframe.setAttribute("title", "Revision preview");
+                iframe.setAttribute("title", rhText("rh_previewframe", "Revision preview"));
                 iframe.setAttribute("sandbox", "allow-same-origin");
                 content.appendChild(iframe);
                 // Write after appending so document is available.
@@ -576,18 +704,18 @@ function RTE_Plugin_RevisionHistory() {
             footer.className = "rte-rev-footer";
             var labelInfo = host.createElement("div");
             labelInfo.className = "rte-rev-footer-info";
-            labelInfo.textContent = selected.label ? "Label: " + selected.label : "";
+            labelInfo.textContent = selected.label ? rhText("rh_label", "Label: {0}", selected.label) : "";
             var footerBtns = host.createElement("div");
             footerBtns.className = "rte-rev-footer-btns";
             var delBtn = host.createElement("button");
             delBtn.type = "button";
             delBtn.className = "rte-rev-btn rte-rev-btn-danger";
-            delBtn.textContent = "Delete";
-            delBtn.addEventListener("mousedown", function (e) { e.preventDefault(); deleteEntry(selected.id); });
+            delBtn.textContent = rhText("delete", "Delete");
+            onActivate(delBtn, "delete", function () { deleteEntry(selected.id); });
             var restoreBtn = host.createElement("button");
             restoreBtn.type = "button";
             restoreBtn.className = "rte-rev-btn rte-rev-btn-primary";
-            restoreBtn.textContent = "Restore this version";
+            restoreBtn.textContent = rhText("rh_restore", "Restore this version");
             restoreBtn.addEventListener("mousedown", function (e) { e.preventDefault(); });
             restoreBtn.addEventListener("click", function (e) {
                 e.preventDefault();
@@ -599,7 +727,10 @@ function RTE_Plugin_RevisionHistory() {
             footer.appendChild(footerBtns);
             pane.appendChild(footer);
         }
-        body.appendChild(pane);
+        // 2026-10-18 nothing to preview: no empty pane (a blank half on desktop, a 360px block on a phone); the
+        // no-revisions message spans the dialog instead. tools/ui/revision-empty-state.mjs
+        if (entries.length) body.appendChild(pane);
+        else list.classList.add("rte-rev-list-solo");
         panel.appendChild(body);
     }
 
@@ -609,7 +740,7 @@ function RTE_Plugin_RevisionHistory() {
         var now = new Date();
         function pad(n) { return n < 10 ? "0" + n : "" + n; }
         var time = pad(d.getHours()) + ":" + pad(d.getMinutes());
-        if (d.toDateString() === now.toDateString()) return "Today " + time;
+        if (d.toDateString() === now.toDateString()) return rhText("rh_today", "Today {0}", time);
         return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + " " + time;
     }
 
@@ -646,6 +777,7 @@ function RTE_Plugin_RevisionHistory() {
             ".rte-rev-row-who{font-weight:720;font-size:12px;line-height:1.25;color:#172033}",
             ".rte-rev-row-when{margin-top:2px;font-size:11px;color:#637487;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
             ".rte-rev-pane{flex:1;display:flex;flex-direction:column;min-width:0;padding:10px}",
+            ".rte-rev-list.rte-rev-list-solo{flex:1 1 auto;width:auto;max-height:none;border-right:0;border-bottom:0}",
             ".rte-rev-tabs{display:flex;align-self:flex-start;gap:3px;padding:3px;margin:0 0 10px;border:1px solid rgba(117,137,163,.2);border-radius:7px;background:#eef3f8}",
             ".rte-rev-tab{padding:7px 12px;border:0;border-radius:6px;background:transparent;font:inherit;font-size:12px;font-weight:680;color:#637487;cursor:pointer}",
             ".rte-rev-tab:hover{color:#1d3557;background:rgba(255,255,255,.58)}",

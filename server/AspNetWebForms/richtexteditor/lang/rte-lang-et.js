@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "Lisa";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "Laadid";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "Tekstilaadid";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "et";	// this pack's locale (Intl names, e.g. the text-part language menu)

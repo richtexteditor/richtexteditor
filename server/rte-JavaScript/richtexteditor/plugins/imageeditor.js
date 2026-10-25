@@ -16,6 +16,12 @@ function RTE_Plugin_ImageEditor() {
 
 	obj.PluginName = "ImageEditor";
 
+	// 2026-10-18 the words read config.text_ keys (language packs), English as the fallback; {0} fills a template.
+	// tools/i18n/plugin-panels-language.mjs
+	function pText(key, fallback, arg) {
+	    var s = (config && config["text_" + key]) || fallback;
+	    return arg === undefined ? s : s.split("{0}").join(String(arg));
+	}
 	obj.InitConfig = function (argconfig) {
 		config = argconfig;
 	}
@@ -85,7 +91,7 @@ function RTE_Plugin_ImageEditor() {
 		if (!img)
 			return;
 
-		var dialoginner = editor.createDialog("ImageEditor", "rte-dialog-imageeditor");
+		var dialoginner = editor.createDialog(pText("ie_title", "Image editor"), "rte-dialog-imageeditor");
 
 		dialoginner.style.width = "90%";
 		dialoginner.style.height = "90%";
@@ -155,14 +161,14 @@ function RTE_Plugin_ImageEditor() {
 			var btns = win.document.querySelector('.tui-image-editor-header-buttons');
 			btns.innerHTML = '';
 			var savebtn = __Append(btns, "button", "");
-			savebtn.innerText = "Save";
+			savebtn.innerText = pText("ie_save", "Save");
 			var status = __Append(btns, "div", "margin-left:10px;font-size:12px;color:#b42318;", "rte-imageeditor-upload-status");
 			status.setAttribute("role", "status");
 			status.setAttribute("aria-live", "polite");
 			savebtn.onclick = function () {
 				status.innerText = "";
 				savebtn.disabled = true;
-				savebtn.innerText = "Saving...";
+				savebtn.innerText = pText("ie_saving", "Saving...");
 
 				var dataurl = imgeditor.toDataURL();
 				var uploadHandler = config.file_upload_handler || window.rte_file_upload_handler;
@@ -183,13 +189,13 @@ function RTE_Plugin_ImageEditor() {
 						return;
 					}
 					savebtn.disabled = false;
-					savebtn.innerText = "Save";
+					savebtn.innerText = pText("ie_save", "Save");
 					// Show what the server actually said. Blaming the connection sent
 					// people chasing a network problem when the real answer was a
 					// rejected file type or a size limit.
 					status.innerText = error
-						? ("Upload failed: " + error)
-						: "The upload did not return a file URL. Please try again.";
+						? pText("ie_uploadfailed", "Upload failed: {0}", error)
+						: pText("ie_nourl", "The upload did not return a file URL. Please try again.");
 				});
 
 

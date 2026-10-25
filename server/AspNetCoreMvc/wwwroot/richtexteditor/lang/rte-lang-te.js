@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "చేర్చు";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "శైలులు";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "వచన శైలులు";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "te";	// this pack's locale (Intl names, e.g. the text-part language menu)

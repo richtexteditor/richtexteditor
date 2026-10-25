@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "Вмъкване";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "Стилове";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "Текстови стилове";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "bg";	// this pack's locale (Intl names, e.g. the text-part language menu)

@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "Insert";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "Estil yo";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "Estil teks";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "ht";	// this pack's locale (Intl names, e.g. the text-part language menu)

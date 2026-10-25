@@ -16,6 +16,12 @@ function RTE_Plugin_ContentMinimap() {
 
     obj.PluginName = "ContentMinimap";
 
+    // 2026-10-18 the words read config.text_ keys (language packs), English as the fallback; {0} fills a template.
+    // tools/i18n/plugin-panels-language.mjs
+    function pText(key, fallback, arg) {
+        var s = (config && config["text_" + key]) || fallback;
+        return arg === undefined ? s : s.split("{0}").join(String(arg));
+    }
     obj.InitConfig = function (argconfig) {
         config = argconfig;
         if (config.contentMinimapEnabled === false) return;
@@ -23,12 +29,22 @@ function RTE_Plugin_ContentMinimap() {
         if (typeof config.contentMinimapAutoOpen !== "boolean") config.contentMinimapAutoOpen = false;
         if (typeof config.contentMinimapWidth !== "number") config.contentMinimapWidth = 168;
         if (typeof config.contentMinimapScale !== "number") config.contentMinimapScale = 0.14;
-        config.contentMinimapTitle = config.contentMinimapTitle || "Minimap";
-        config.contentMinimapHint = config.contentMinimapHint || "Keep your place in long documents and jump by clicking the miniature preview.";
-        config.contentMinimapEmptyText = config.contentMinimapEmptyText || "Start typing to build the document preview.";
+        config.contentMinimapTitle = config.contentMinimapTitle || pText("mm_title", "Minimap");
+        config.contentMinimapHint = config.contentMinimapHint || pText("mm_hint", "Keep your place in long documents and jump by clicking the miniature preview.");
+        config.contentMinimapEmptyText = config.contentMinimapEmptyText || pText("mm_empty", "Start typing to build the document preview.");
 
         appendToolbarCommand("toolbar_default", "#{contentminimap}");
         appendToolbarCommand("toolbar_full", "#{contentminimap}");
+        // 2026-10-03 Build the shell NOW, before the editor creates its iframe. ensureShell() moves the
+        // editor container; done in InitEditor it moved the live iframe, which then gets a fresh
+        // document - and every plugin that had already bound listeners to the old one went deaf (the
+        // slash menu, @mentions and emoji autocomplete, until they moved to editor.bindDocumentEvent;
+        // customer plugins binding the document directly still were). Nothing is loaded yet here.
+        // InitEditor's own ensureShell() call finds the shell and returns it.
+        // tools/keyboard/plugin-listeners.mjs
+        if (config.contentMinimapEnabled !== false && config.container && config.container.parentNode) {
+            try { ensureShell(); } catch (e) { /* InitEditor builds it */ }
+        }
     };
 
     obj.InitEditor = function (argeditor) {
@@ -58,6 +74,9 @@ function RTE_Plugin_ContentMinimap() {
         editor.attachEvent("change", function () {
             scheduleRefresh();
         });
+        // 2026-10-18 setHTMLCode fires no "change": a replaced document left the panel on the old one.
+        // tools/outline/panels-follow-sethtml.mjs
+        try { editor.attachEvent("aftersethtml", function () { scheduleRefresh(); }); } catch (e) { /* older cores */ }
 
         ensureShell();
         bindScroll();
@@ -138,7 +157,7 @@ function RTE_Plugin_ContentMinimap() {
         header.className = "rte-content-minimap-header";
         var kicker = hostDoc.createElement("div");
         kicker.className = "rte-content-minimap-kicker";
-        kicker.innerText = "Document";
+        kicker.innerText = pText("pn_document", "Document");
         var title = hostDoc.createElement("div");
         title.className = "rte-content-minimap-title";
         title.innerText = config.contentMinimapTitle;
@@ -157,8 +176,8 @@ function RTE_Plugin_ContentMinimap() {
         var close = hostDoc.createElement("button");
         close.type = "button";
         close.className = "rte-content-minimap-close";
-        close.innerText = "Hide";
-        close.setAttribute("aria-label", "Hide content minimap");
+        close.innerText = pText("pn_hide", "Hide");
+        close.setAttribute("aria-label", pText("mm_hidearia", "Hide content minimap"));
         close.onclick = function () { closePanel(); };
         toolbar.appendChild(meta);
         toolbar.appendChild(close);

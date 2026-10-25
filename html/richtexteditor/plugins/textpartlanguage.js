@@ -39,34 +39,34 @@ if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
 RTE_DefaultConfig.plugin_textpartlanguage = RTE_Plugin_TextPartLanguage;
 
 // The dropdown list. `dir` is only needed for right-to-left languages.
-if (typeof RTE_DefaultConfig.textPartLanguages === "undefined") {
-    RTE_DefaultConfig.textPartLanguages = [
-        { code: "ar", label: "Arabic", dir: "rtl" },
-        { code: "zh-Hans", label: "Chinese (Simplified)" },
-        { code: "zh-Hant", label: "Chinese (Traditional)" },
-        { code: "cs", label: "Czech" },
-        { code: "nl", label: "Dutch" },
-        { code: "en", label: "English" },
-        { code: "fr", label: "French" },
-        { code: "de", label: "German" },
-        { code: "el", label: "Greek" },
-        { code: "he", label: "Hebrew", dir: "rtl" },
-        { code: "hi", label: "Hindi" },
-        { code: "it", label: "Italian" },
-        { code: "ja", label: "Japanese" },
-        { code: "ko", label: "Korean" },
-        { code: "fa", label: "Persian", dir: "rtl" },
-        { code: "pl", label: "Polish" },
-        { code: "pt", label: "Portuguese" },
-        { code: "ru", label: "Russian" },
-        { code: "es", label: "Spanish" },
-        { code: "sv", label: "Swedish" },
-        { code: "tr", label: "Turkish" },
-        { code: "uk", label: "Ukrainian" },
-        { code: "ur", label: "Urdu", dir: "rtl" },
-        { code: "vi", label: "Vietnamese" }
-    ];
-}
+// Kept by name so the menu can tell a built-in entry (named in the page's language) from the application's own label.
+var RTE_TextPartLanguageDefaults = [
+    { code: "ar", label: "Arabic", dir: "rtl" },
+    { code: "zh-Hans", label: "Chinese (Simplified)" },
+    { code: "zh-Hant", label: "Chinese (Traditional)" },
+    { code: "cs", label: "Czech" },
+    { code: "nl", label: "Dutch" },
+    { code: "en", label: "English" },
+    { code: "fr", label: "French" },
+    { code: "de", label: "German" },
+    { code: "el", label: "Greek" },
+    { code: "he", label: "Hebrew", dir: "rtl" },
+    { code: "hi", label: "Hindi" },
+    { code: "it", label: "Italian" },
+    { code: "ja", label: "Japanese" },
+    { code: "ko", label: "Korean" },
+    { code: "fa", label: "Persian", dir: "rtl" },
+    { code: "pl", label: "Polish" },
+    { code: "pt", label: "Portuguese" },
+    { code: "ru", label: "Russian" },
+    { code: "es", label: "Spanish" },
+    { code: "sv", label: "Swedish" },
+    { code: "tr", label: "Turkish" },
+    { code: "uk", label: "Ukrainian" },
+    { code: "ur", label: "Urdu", dir: "rtl" },
+    { code: "vi", label: "Vietnamese" }
+];
+if (typeof RTE_DefaultConfig.textPartLanguages === "undefined") RTE_DefaultConfig.textPartLanguages = RTE_TextPartLanguageDefaults.slice();
 
 // Show marked phrases with a dotted underline while editing. Editor-only: the
 // rule lives in the editing document, never in the saved HTML.
@@ -80,6 +80,14 @@ function RTE_Plugin_TextPartLanguage() {
     obj.PluginName = "TextPartLanguage";
 
     obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    // record the change as its own undo step: seal the step before, run, save the snapshot, seal it
+    function undoStep(run) {
+        try { if (editor.commitBookmark) editor.commitBookmark(); } catch (er) { /* ignore */ }
+        var result = run();
+        try { if (editor.recordUndo) editor.recordUndo(); else if (editor.notifySelectionChange) editor.notifySelectionChange(); if (editor.commitBookmark) editor.commitBookmark(); } catch (er) { /* ignore */ }
+        return result;
+    }
 
     obj.InitEditor = function (argeditor) {
         editor = argeditor;
@@ -103,8 +111,9 @@ function RTE_Plugin_TextPartLanguage() {
         setTimeout(setup, 0);
 
         // Public API.
-        editor.setTextLanguage = function (code) { return obj.Apply(code); };
-        editor.removeTextLanguage = function () { return obj.Remove(); };
+        editor.setTextLanguage = function (code) { return undoStep(function () { return obj.Apply(code); }); };
+        // 2026-10-04 one undo step when called directly (it could not be undone). tools/api/plugin-api-undo.mjs
+        editor.removeTextLanguage = function () { return undoStep(function () { return obj.Remove(); }); };
         editor.getTextLanguage = function () { return obj.Current(); };
         editor.listTextLanguages = function () { return languages().slice(); };
         editor.getMarkedLanguages = function () { return obj.List(); };
@@ -122,6 +131,30 @@ function RTE_Plugin_TextPartLanguage() {
         var list = languages();
         for (var i = 0; i < list.length; i++) if (list[i].code === code) return list[i];
         return { code: code, label: code };
+    }
+
+    // 2026-10-18 The menu names languages in the page's language: a built-in entry is named by Intl.DisplayNames in
+    // the language pack's locale (text_uilocale); a label the application set is kept as written; an entry with no
+    // label (it showed "undefined") gets the English name, else its code. tools/i18n/text-language-names.mjs
+    var displayNames = {};
+    function nameIn(locale, code) {
+        try {
+            if (typeof Intl === "undefined" || !Intl.DisplayNames) return "";
+            if (!displayNames[locale]) displayNames[locale] = new Intl.DisplayNames([locale], { type: "language" });
+            var n = displayNames[locale].of(code);
+            return n && n !== code ? n : "";
+        } catch (e) { return ""; }
+    }
+    function displayLabel(item) {
+        var code = item && item.code;
+        if (!code) return "";
+        var builtIn = null;
+        var defs = typeof RTE_TextPartLanguageDefaults !== "undefined" ? RTE_TextPartLanguageDefaults : [];
+        for (var i = 0; i < defs.length; i++) if (defs[i].code === code) builtIn = defs[i].label;
+        if (item.label && item.label !== builtIn) return item.label;
+        var locale = config && config.text_uilocale;
+        if (locale && !/^en(-|$)/i.test(locale)) { var local = nameIn(locale, code); if (local) return local; }
+        return item.label || nameIn("en", code) || code;
     }
 
     // ---- state -----------------------------------------------------------
@@ -182,6 +215,8 @@ function RTE_Plugin_TextPartLanguage() {
         var doc = getDoc();
         var r = selectionRange();
         if (!doc || !r) return false;
+        // 2026-10-14 Suggesting mode: a language change is not tracked yet, so the track hook refuses it. tools/review/suggesting-structure-audit.mjs
+        if (editor.__trackHook && editor.__trackHook("refuse", { message: "Suggesting is on, so the language was not changed. Turn suggesting off to change it." }) === true) return false;
 
         // Re-picking the current language toggles it off.
         if (obj.Current() === code) return obj.Remove();
@@ -191,6 +226,43 @@ function RTE_Plugin_TextPartLanguage() {
             var host = langAncestor(r.startContainer);
             if (!host) return false;
             stamp(host, code);
+            fireChange();
+            return code;
+        }
+
+        // 2026-10-02 A selection that crosses blocks marks the selected text of EACH block. One
+        // span went AROUND the blocks: two paragraphs became four
+        // (<p>al</p><span lang="fr"><p>pha</p><p>be</p></span><p>ta</p>), list items and table cells
+        // got a span straight inside <ul> / <tr> and were split, a heading was split in two (with its
+        // id twice) - and removing the language left them split. CKEditor marks each block's text.
+        // tools/format/text-part-language.mjs
+        var runs = crossBlockRuns(doc, r);
+        if (runs) {
+            var spans = [];
+            // from the last run back: wrapping one never moves the text of a run still to come
+            for (var ri = runs.length - 1; ri >= 0; ri--) {
+                var sub = doc.createRange();
+                sub.setStart(runs[ri].sn, runs[ri].so);
+                sub.setEnd(runs[ri].en, runs[ri].eo);
+                widenToInlineEdges(sub, runs[ri].block);
+                var part = doc.createElement("span");
+                stamp(part, code);
+                part.appendChild(sub.extractContents());
+                sub.insertNode(part);
+                unwrapInner(part);
+                pruneEmptyText(part);
+                if (!part.firstChild) { part.parentNode.removeChild(part); continue; }
+                spans.unshift(mergeSiblings(part));
+            }
+            if (!spans.length) return false;
+            try {
+                var all = doc.createRange();
+                all.setStart(spans[0], 0);
+                all.setEnd(spans[spans.length - 1], spans[spans.length - 1].childNodes.length);
+                var sel = editor.getSelection();
+                sel.removeAllRanges();
+                sel.addRange(all);
+            } catch (e) {}
             fireChange();
             return code;
         }
@@ -222,6 +294,8 @@ function RTE_Plugin_TextPartLanguage() {
     };
 
     obj.Remove = function () {
+        // 2026-10-14 Suggesting mode: removing this is not tracked yet, so the track hook refuses it. tools/review/suggesting-structure-audit.mjs
+        if (editor.__trackHook && editor.__trackHook("remove", {}) === true) return false;
         var r = selectionRange();
         if (!r) return false;
         var ed = getEditable();
@@ -254,6 +328,59 @@ function RTE_Plugin_TextPartLanguage() {
             return range.compareBoundaryPoints(Range.END_TO_START, er) < 0 &&
                    range.compareBoundaryPoints(Range.START_TO_END, er) > 0;
         } catch (e) { return false; }
+    }
+
+    // The runs of selected text that share a block, when the selection crosses blocks; null when it
+    // starts and ends in one block (that keeps the single-span path). Whitespace-only runs (the line
+    // break between two blocks) are dropped; text inside a non-editable element moves with its run.
+    var BLOCK_RE = /^(P|DIV|LI|UL|OL|DL|DT|DD|TABLE|TBODY|THEAD|TFOOT|TR|TD|TH|CAPTION|H[1-6]|PRE|BLOCKQUOTE|ADDRESS|FIGURE|FIGCAPTION|SECTION|ARTICLE|ASIDE|HEADER|FOOTER|NAV|MAIN|DETAILS|SUMMARY|FORM|FIELDSET|LEGEND|HR|BODY)$/;
+    function blockOf(node) {
+        for (var n = node; n; n = n.parentNode)
+            if (n.nodeType === 1 && BLOCK_RE.test(n.nodeName)) return n;
+        return null;
+    }
+    function crossBlockRuns(doc, range) {
+        if (range.collapsed || blockOf(range.startContainer) === blockOf(range.endContainer)) return null;
+        var root = range.commonAncestorContainer;
+        if (root.nodeType !== 1) root = root.parentNode;
+        var runs = [], cur = null;
+        var w = doc.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+            acceptNode: function (n) { return n.nodeType === 1 && n.getAttribute("contenteditable") === "false" ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT; }
+        });
+        for (var n = w.nextNode(); n; n = w.nextNode()) {
+            if (n.nodeType === 1) {
+                if (BLOCK_RE.test(n.nodeName)) cur = null;
+                continue;
+            }
+            if (!range.intersectsNode(n)) continue;
+            var a = n === range.startContainer ? range.startOffset : 0, b = n === range.endContainer ? range.endOffset : n.data.length;
+            if (b <= a) continue;
+            var blk = blockOf(n);
+            if (!cur || cur.block !== blk) {
+                cur = { block: blk, sn: n, so: a, text: "" };
+                runs.push(cur);
+            }
+            cur.en = n;
+            cur.eo = b;
+            cur.text += n.data.substring(a, b);
+        }
+        var keep = [];
+        for (var i = 0; i < runs.length; i++) if (/\S/.test(runs[i].text)) keep.push(runs[i]);
+        return keep;
+    }
+    // A run starting or ending at the edge of an inline element (<b>) takes the whole element, so
+    // no empty <b></b> is left behind by extractContents.
+    function widenToInlineEdges(range, block) {
+        var n = range.startContainer;
+        if (n.nodeType === 3 && range.startOffset === 0) {
+            while (n.parentNode && n.parentNode !== block && !n.previousSibling && !BLOCK_RE.test(n.parentNode.nodeName)) n = n.parentNode;
+            range.setStartBefore(n);
+        }
+        n = range.endContainer;
+        if (n.nodeType === 3 && range.endOffset === n.data.length) {
+            while (n.parentNode && n.parentNode !== block && !n.nextSibling && !BLOCK_RE.test(n.parentNode.nodeName)) n = n.parentNode;
+            range.setEndAfter(n);
+        }
     }
 
     function stamp(el, code) {
@@ -350,7 +477,7 @@ function RTE_Plugin_TextPartLanguage() {
 
         for (var i = 0; i < list.length; i++) {
             (function (item) {
-                addRow(panel, item.label, item.code, current === item.code, function () { obj.Apply(item.code); });
+                addRow(panel, displayLabel(item), item.code, current === item.code, function () { obj.Apply(item.code); });
             })(list[i]);
         }
 
@@ -397,7 +524,9 @@ function RTE_Plugin_TextPartLanguage() {
 
         if (code) {
             var tag = doc.createElement("span");
-            tag.style.cssText = "opacity:.55;font-size:11px;";
+            // 2026-10-15 opacity .55 left the code at 4.06:1 in dark mode and 3.23:1 in light; .75 clears 4.5:1 in both.
+            // tools/a11y/dark-mode-contrast.mjs
+            tag.style.cssText = "opacity:.75;font-size:11px;";
             tag.appendChild(doc.createTextNode(code));
             row.appendChild(tag);
         }

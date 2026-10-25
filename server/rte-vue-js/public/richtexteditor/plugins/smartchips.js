@@ -23,6 +23,14 @@ function RTE_Plugin_SmartChips() {
     obj.PluginName = "SmartChips";
 
     obj.InitConfig = function (argconfig) { config = argconfig; };
+    // 2026-10-18 the dialogs' words read config.text_ keys (language packs), English as the fallback; {0} / {1} fill a
+    // template. The chip's own date text is document content and keeps its format.
+    // tools/i18n/smart-chips-language.mjs
+    function chText(key, fallback) {
+        var s = (config && config["text_" + key]) || fallback;
+        for (var i = 2; i < arguments.length; i++) s = s.split("{" + (i - 2) + "}").join(String(arguments[i]));
+        return s;
+    }
 
     obj.InitEditor = function (argeditor) {
         editor = argeditor;
@@ -46,6 +54,12 @@ function RTE_Plugin_SmartChips() {
     function fmtDate(d) {
         if (config.chipDateFormat && typeof config.chipDateFormat === "function") {
             try { return String(config.chipDateFormat(d)); } catch (e) { /* fall through */ }
+        }
+        // 2026-10-18 with a language pack the date is written in its locale (2026年10月18日, 18.10.2026); an English
+        // page keeps "Oct 18, 2026". tools/i18n/date-chip-locale.mjs
+        var locale = config && config.text_uilocale;
+        if (locale && !/^en(-|$)/i.test(locale) && typeof Intl !== "undefined" && Intl.DateTimeFormat) {
+            try { return new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric" }).format(d); } catch (e) { /* English */ }
         }
         return MONTHS[d.getMonth()] + " " + d.getDate() + ", " + d.getFullYear();
     }
@@ -74,7 +88,7 @@ function RTE_Plugin_SmartChips() {
     function insertChip(type, label, value, href) {
         injectStyles();
         // trailing zero-width space so the caret lands after the atomic pill
-        editor.insertHTML(chipHtml(type, label, value, href) + "​");
+        editor.insertHTML(chipHtml(type, label, value, href) + "\u200b");
         editor.focus();
     }
 
@@ -84,11 +98,11 @@ function RTE_Plugin_SmartChips() {
         var dlg = editor.createDialog((editor.getLangText && editor.getLangText("insertdatechiptitle")) || "Date", "rte-dialog-datechip");
         var close = typeof dlg.close === "function" ? function () { dlg.close(); } : function () { editor.closeCurrentPopup(); };
         var wrap = append(dlg, "div", "", "rte-chip-dialog rte-chip-date-dialog");
-        append(wrap, "div", "", "rte-chip-dialog-copy").textContent = "Choose a quick date or insert a custom date chip.";
+        append(wrap, "div", "", "rte-chip-dialog-copy").textContent = chText("ch_datecopy", "Choose a quick date or insert a custom date chip.");
 
         function quick(label, d) {
             var b = append(wrap, "button", "", "rte-chip-quick");
-            b.type = "button"; b.textContent = label + " — " + fmtDate(d);
+            b.type = "button"; b.textContent = label + " \u2014 " + fmtDate(d);
             b.onmouseover = function () { b.style.background = "#eef2ff"; };
             b.onmouseout = function () { b.style.background = "transparent"; };
             b.textContent = "";
@@ -96,23 +110,23 @@ function RTE_Plugin_SmartChips() {
             append(b, "span", "", "rte-chip-quick-value").textContent = fmtDate(d);
             b.onmouseover = null;
             b.onmouseout = null;
-            b.setAttribute("aria-label", "Insert " + label + ", " + fmtDate(d));
+            b.setAttribute("aria-label", chText("ch_insertlabel", "Insert {0}, {1}", label, fmtDate(d)));
             b.onclick = function () { close(); insertChip("date", fmtDate(d), isoDate(d)); };
             return b;
         }
         var now = new Date(editor.__chipNow || Date.now());
         function addDays(base, n) { var x = new Date(base.getTime()); x.setDate(x.getDate() + n); return x; }
-        quick("Today", now);
-        quick("Tomorrow", addDays(now, 1));
-        quick("Yesterday", addDays(now, -1));
-        quick("Next week", addDays(now, 7));
+        quick(chText("ch_today", "Today"), now);
+        quick(chText("ch_tomorrow", "Tomorrow"), addDays(now, 1));
+        quick(chText("ch_yesterday", "Yesterday"), addDays(now, -1));
+        quick(chText("ch_nextweek", "Next week"), addDays(now, 7));
 
         var pickRow = append(wrap, "div", "", "rte-chip-pick-row");
         var di = append(pickRow, "input", "", "rte-chip-input");
         di.type = "date"; di.value = isoDate(now);
-        di.setAttribute("aria-label", "Custom date");
+        di.setAttribute("aria-label", chText("ch_customdate", "Custom date"));
         var go = append(pickRow, "button", "", "rte-chip-action rte-chip-action-primary");
-        go.type = "button"; go.textContent = "Insert";
+        go.type = "button"; go.textContent = chText("insert", "Insert");
         go.onclick = function () {
             var parts = (di.value || "").split("-");
             if (parts.length === 3) {
@@ -129,12 +143,12 @@ function RTE_Plugin_SmartChips() {
         var dlg = editor.createDialog((editor.getLangText && editor.getLangText("insertchiptitle")) || "Insert chip", "rte-dialog-chip");
         var close = typeof dlg.close === "function" ? function () { dlg.close(); } : function () { editor.closeCurrentPopup(); };
         var wrap = append(dlg, "div", "", "rte-chip-dialog rte-chip-menu-dialog");
-        append(wrap, "div", "", "rte-chip-dialog-copy").textContent = "Insert a date, person, or link chip into the document.";
+        append(wrap, "div", "", "rte-chip-dialog-copy").textContent = chText("ch_chipcopy", "Insert a date, person, or link chip into the document.");
 
         var typeRow = append(wrap, "div", "", "rte-chip-type-tabs");
         typeRow.setAttribute("role", "tablist");
-        typeRow.setAttribute("aria-label", "Chip type");
-        var types = [["date", "Date"], ["person", "Person"], ["link", "Link"]];
+        typeRow.setAttribute("aria-label", chText("ch_chiptype", "Chip type"));
+        var types = [["date", chText("ch_date", "Date")], ["person", chText("ch_person", "Person")], ["link", chText("link", "Link")]];
         var current = "date";
         var body = append(wrap, "div", "", "rte-chip-dialog-body");
         var typeButtons = {};
@@ -158,24 +172,24 @@ function RTE_Plugin_SmartChips() {
             body.innerHTML = "";
             if (current === "date") {
                 var note = append(body, "div", "", "rte-chip-field-label");
-                note.textContent = "Insert a date chip:";
+                note.textContent = chText("ch_insertdate", "Insert a date chip:");
                 var di = append(body, "input", "", "rte-chip-input");
                 di.type = "date"; di.value = isoDate(new Date(editor.__chipNow || Date.now()));
-                di.setAttribute("aria-label", "Date chip value");
+                di.setAttribute("aria-label", chText("ch_datevalue", "Date chip value"));
                 addInsert(function () {
                     var p = (di.value || "").split("-");
                     if (p.length === 3) { var d = new Date(+p[0], +p[1] - 1, +p[2]); close(); insertChip("date", fmtDate(d), di.value); }
                 });
             } else {
                 var lbl = append(body, "div", "", "rte-chip-field-label");
-                lbl.textContent = current === "person" ? "Name (or search):" : "URL:";
+                lbl.textContent = current === "person" ? chText("ch_name", "Name (or search):") : chText("ch_url", "URL:");
                 var input = append(body, "input", "", "rte-chip-input");
                 input.type = current === "link" ? "url" : "text";
-                input.placeholder = current === "person" ? "Jane Doe" : "https://example.com";
-                input.setAttribute("aria-label", current === "person" ? "Person chip name" : "Link chip URL");
+                input.placeholder = current === "person" ? chText("ch_nameph", "Jane Doe") : "https://example.com";
+                input.setAttribute("aria-label", current === "person" ? chText("ch_personname", "Person chip name") : chText("ch_linkurl", "Link chip URL"));
                 var results = append(body, "div", "", "rte-chip-results");
                 results.setAttribute("role", "listbox");
-                results.setAttribute("aria-label", "Chip suggestions");
+                results.setAttribute("aria-label", chText("ch_suggestions", "Chip suggestions"));
                 // BYOK resolver: live suggestions
                 if (config.chipResolver && typeof config.chipResolver === "function") {
                     input.oninput = function () {
@@ -202,11 +216,11 @@ function RTE_Plugin_SmartChips() {
                         // Validate the URL: reject javascript:/data:/vbscript:/file:,
                         // prefix https:// only on bare domains, else refuse.
                         if (/^(javascript|data|vbscript|file):/i.test(v)) {
-                            input.style.borderColor = "#dc2626"; input.placeholder = "Enter a valid http(s) URL"; input.value = ""; return;
+                            input.style.borderColor = "#dc2626"; input.placeholder = chText("ch_invalidurl", "Enter a valid http(s) URL"); input.value = ""; return;
                         }
                         if (!/^https?:\/\//i.test(v)) {
                             if (/^[a-z0-9.-]+\.[a-z]{2,}([\/?#].*)?$/i.test(v)) v = "https://" + v;
-                            else { input.style.borderColor = "#dc2626"; input.placeholder = "Enter a valid http(s) URL"; input.value = ""; return; }
+                            else { input.style.borderColor = "#dc2626"; input.placeholder = chText("ch_invalidurl", "Enter a valid http(s) URL"); input.value = ""; return; }
                         }
                         close();
                         insertChip("link", v.replace(/^https?:\/\//i, "").replace(/\/$/, ""), v, v);
@@ -221,7 +235,7 @@ function RTE_Plugin_SmartChips() {
         function addInsert(fn) {
             var foot = append(body, "div", "", "rte-chip-dialog-footer");
             var ok = append(foot, "button", "", "rte-chip-action rte-chip-action-primary");
-            ok.type = "button"; ok.textContent = "Insert"; ok.onclick = fn;
+            ok.type = "button"; ok.textContent = chText("insert", "Insert"); ok.onclick = fn;
         }
         highlight(); renderBody();
     };

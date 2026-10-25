@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "Ievietot";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "Stili";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "Teksta stili";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "lv";	// this pack's locale (Intl names, e.g. the text-part language menu)

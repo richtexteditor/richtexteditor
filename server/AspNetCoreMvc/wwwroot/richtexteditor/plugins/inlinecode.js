@@ -240,7 +240,10 @@ function RTE_Plugin_InlineCode() {
         if (!range) return false;
         if (!editable.contains(range.startContainer)) return false;
 
+        // 2026-10-04 a caret is put back at its place in the word afterwards
+        var caretNode = range.collapsed ? range.startContainer : null, caretOff = range.startOffset, wordStart = 0;
         if (range.collapsed && !expandToWord(range)) return false;
+        if (caretNode) wordStart = range.startOffset;
 
         var nodes = selectedTextNodes(doc, range, editable);
         if (!nodes.length) return false;
@@ -264,6 +267,28 @@ function RTE_Plugin_InlineCode() {
             mergeAdjacent(editable);
         }
 
+        // 2026-10-04 The text stays selected (CKEditor Code). Wrapping/unwrapping moved the text nodes and
+        // dropped the selection - all of it in one paragraph, the first half across two - so a second
+        // press did nothing or un-coded only half. tools/formatting/inline-code-selection.mjs
+        try {
+            var first = nodes[0], last = nodes[nodes.length - 1];
+            if (editable.contains(first) && editable.contains(last)) {
+                var nr = doc.createRange();
+                if (caretNode) {
+                    // the word was split at its start, so the caret's offset is relative to it
+                    var at = caretNode === first ? caretOff : caretOff - wordStart;
+                    nr.setStart(first, Math.max(0, Math.min(at, first.data.length)));
+                    nr.collapse(true);
+                }
+                else {
+                    nr.setStart(first, 0);
+                    nr.setEnd(last, last.data.length);
+                }
+                var sel = doc.getSelection();
+                sel.removeAllRanges();
+                sel.addRange(nr);
+            }
+        } catch (e) { }
         try { editor.updateToolbarStatus && editor.updateToolbarStatus(); } catch (e) { }
         return true;
     };

@@ -58,6 +58,10 @@ function RTE_Plugin_KeyboardA11y() {
         // Public so plugins can report their own outcomes -- find/replace match
         // counts, what the paste filter removed, export completion.
         editor.announce = function (text, opts) { return announce(text, opts); };
+        // 2026-10-11 WCAG 4.1.3: the outcome of a formatting command is announced (see announceFormatOutcome).
+        try { editor.attachEvent("exec_command", function (state, cmd) { announceFormatOutcome(cmd); }); } catch (e) { }
+        // 2026-10-11 WCAG 4.1.3: a URL linked as it was typed is announced ("Link created: example.com"). rte.js fires "autolink".
+        try { editor.attachEvent("autolink", function (state, href, word) { announce((isSuggesting() ? "Link suggested: " : "Link created: ") + word); }); } catch (e) { }
         // setReadOnly() lives in the core and cannot call into a plugin, so wrap
         // it here rather than leaving the two states to drift apart.
         if (typeof editor.setReadOnly === "function" && !editor.setReadOnly.__a11yWrapped) {
@@ -162,6 +166,56 @@ function RTE_Plugin_KeyboardA11y() {
         return true;
     }
 
+    // 2026-10-11 WCAG 4.1.3 (Status Messages): a formatting shortcut or button turned bold, italic or underline on or
+    // off, and nothing was spoken - a sighted user reads the highlighted button, a screen reader user could not tell
+    // whether bold was on. The event fires before the command runs, so the state is read on the next tick, from the
+    // editor's own report (isCommandActive). Only these inline toggles are spoken; typing announces nothing.
+    // tools/a11y/format-announce.mjs
+    var FORMAT_ANNOUNCE = { bold: "Bold", italic: "Italic", underline: "Underline", strikethrough: "Strikethrough",
+        subscript: "Subscript", superscript: "Superscript" };
+    // 2026-10-11 WCAG 4.1.3: a list button turns a list on or off and a heading command sets a level, and neither was
+    // spoken. A list is read the same way as the inline toggles. A block change names the block the caret is now in
+    // ("Heading 2", "Paragraph"), read from the selection because the event carries no level.
+    // tools/a11y/block-announce.mjs
+    var LIST_ANNOUNCE = { insertunorderedlist: "Bulleted list", insertorderedlist: "Numbered list" };
+    function currentBlockName() {
+        var doc = editor.getDocument();
+        var sel = doc && doc.getSelection();
+        var n = sel && sel.anchorNode;
+        while (n && n.nodeType !== 1) n = n.parentNode;
+        while (n && n !== doc.body) {
+            if (/^H[1-6]$/.test(n.tagName)) return "Heading " + n.tagName.charAt(1);
+            if (n.tagName === "P") return "Paragraph";
+            n = n.parentNode;
+        }
+        return null;
+    }
+    // 2026-10-11 WCAG 4.1.3: in suggesting mode the change is only a suggestion until it is accepted, so it is announced as
+    // one ("Suggested: Bulleted list on"). Outside suggesting mode the wording is unchanged.
+    // tools/a11y/suggest-announce.mjs
+    function isSuggesting() {
+        try { return !!(editor.trackedChanges && editor.trackedChanges.isEnabled()); } catch (e) { return false; }
+    }
+    function suggestionPrefix() {
+        return isSuggesting() ? "Suggested: " : "";
+    }
+    function announceFormatOutcome(cmd) {
+        var key = String(cmd || "").toLowerCase();
+        var name = FORMAT_ANNOUNCE[key] || LIST_ANNOUNCE[key];
+        if (!name && key !== "formatblock") return;
+        setTimeout(function () {
+            var prefix = suggestionPrefix();
+            if (key === "formatblock") {
+                var block = currentBlockName();
+                if (block) announce(prefix + block);
+                return;
+            }
+            var on = false;
+            try { on = !!editor.isCommandActive(key); } catch (e) { return; }
+            announce(prefix + name + (on ? " on" : " off"));
+        }, 0);
+    }
+
     // ------------------------------------------------- 5. read-only state
     //
     // setReadOnly() flips designMode, which genuinely blocks editing -- but
@@ -221,6 +275,7 @@ function RTE_Plugin_KeyboardA11y() {
             doc.addEventListener("keydown", function (e) {
                 if (e.key !== "Escape" && e.keyCode !== 27) return;
                 if (anythingOpen()) return;           // let the panel close itself
+                if (e.defaultPrevented) return;       // 2026-10-17 already handled (the link card closed itself)
                 e.preventDefault();
                 e.stopPropagation();
                 if (!focusFirstToolbarButton()) focusAfterEditor();
@@ -261,11 +316,12 @@ function RTE_Plugin_KeyboardA11y() {
     // So: a host-supplied label still wins as the name; otherwise we supply a
     // real one and the hint follows it.
     function announceEscape(ed) {
-        var hint = config.a11yEscapeHint ||
+        // 2026-10-18 the default hint and name read the language pack. tools/i18n/plugin-default-keys.mjs
+        var hint = config.a11yEscapeHint || config.text_escleave ||
             "Press Escape to leave the editing area.";
         var label = ed.getAttribute("aria-label") || "";
         if (label.indexOf(hint) >= 0) return;
-        var name = label || config.a11yEditorLabel || "Rich text editor";
+        var name = label || config.a11yEditorLabel || config.text_editorname || "Rich text editor";
         ed.setAttribute("aria-label", name.replace(/\s*$/, "") + " " + hint);
     }
 
@@ -389,7 +445,9 @@ function RTE_Plugin_KeyboardA11y() {
     // which inserts a block rather than toggling the selection. They are kept —
     // harmless, and correct the moment a toolbar button is added — but they
     // cover nothing today, so do not read this list as evidence of coverage.
-    var TOGGLE_CMD = /^(bold|italic|underline|strikethrough|subscript|superscript|justifyleft|justifycenter|justifyright|justifyfull|insertorderedlist|insertunorderedlist|outdent|indent|insertblockquote|toggleborder|inlinecode|trackchanges|typewriter|focusmode|pagination|formattingmarks|linenumbers|permanentpen|rtlui)$/;
+    // 2026-10-15 the toolbar command is "strike", not "strikethrough", so Strikethrough never had aria-pressed;
+    // spellcheck is a toggle too. tools/a11y/toggle-pressed.mjs
+    var TOGGLE_CMD = /^(bold|italic|underline|strike|strikethrough|spellcheck|subscript|superscript|justifyleft|justifycenter|justifyright|justifyfull|insertorderedlist|insertunorderedlist|outdent|indent|insertblockquote|toggleborder|inlinecode|trackchanges|typewriter|focusmode|pagination|formattingmarks|linenumbers|permanentpen|rtlui)$/;
 
     function syncToggleStates(root) {
         var btns = [].slice.call(root.querySelectorAll('[role="button"][rte-cmd-name]'));
@@ -397,6 +455,11 @@ function RTE_Plugin_KeyboardA11y() {
             var cmd = (btns[i].getAttribute("rte-cmd-name") || "").toLowerCase();
             if (!TOGGLE_CMD.test(cmd)) continue;
             var active = btns[i].classList.contains("rte-command-active");
+            // 2026-10-15 a split button's inner half (the list buttons) is the control a screen reader lands on, but
+            // the active class goes on the outer rte-toolbar-splitbutton: it said not pressed inside a list.
+            // tools/a11y/toggle-pressed.mjs
+            var outer = btns[i].parentNode;
+            if (!active && outer && outer.nodeName === "RTE-TOOLBAR-SPLITBUTTON") active = outer.classList.contains("rte-command-active");
             var pressed = active ? "true" : "false";
             if (btns[i].getAttribute("aria-pressed") !== pressed) btns[i].setAttribute("aria-pressed", pressed);
         }

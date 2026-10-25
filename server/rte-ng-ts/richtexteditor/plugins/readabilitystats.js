@@ -26,6 +26,20 @@ function RTE_Plugin_ReadabilityStats() {
 
     obj.InitConfig = function (argconfig) { config = argconfig; };
 
+    // 2026-10-18 the dialog's words read config.text_ keys at the display site (getReadabilityStats keeps its English
+    // easeLabel / readingTimeText). The title read getLangText("readabilitytitle"), which returns the KEY when a pack
+    // lacks it, so every page showed "readabilitytitle". tools/i18n/readability-language.mjs
+    function rT(key, en, a) { var s = (config && config["text_" + key]) || en; return a === undefined ? s : s.split("{0}").join(String(a)); }
+    function easeText(ease) {
+        if (ease >= 90) return rT("rd_e90", "Very easy (5th grade)");
+        if (ease >= 80) return rT("rd_e80", "Easy (6th grade)");
+        if (ease >= 70) return rT("rd_e70", "Fairly easy (7th grade)");
+        if (ease >= 60) return rT("rd_e60", "Standard (8\u20139th grade)");
+        if (ease >= 50) return rT("rd_e50", "Fairly difficult (10\u201312th grade)");
+        if (ease >= 30) return rT("rd_e30", "Difficult (college)");
+        return rT("rd_e0", "Very difficult (college graduate)");
+    }
+
     obj.InitEditor = function (argeditor) {
         editor = argeditor;
         if (config.readabilityStats === false) return;
@@ -104,8 +118,8 @@ function RTE_Plugin_ReadabilityStats() {
         if (ease >= 90) return "Very easy (5th grade)";
         if (ease >= 80) return "Easy (6th grade)";
         if (ease >= 70) return "Fairly easy (7th grade)";
-        if (ease >= 60) return "Standard (8–9th grade)";
-        if (ease >= 50) return "Fairly difficult (10–12th grade)";
+        if (ease >= 60) return "Standard (8\u20139th grade)";
+        if (ease >= 50) return "Fairly difficult (10\u201312th grade)";
         if (ease >= 30) return "Difficult (college)";
         return "Very difficult (college graduate)";
     }
@@ -113,20 +127,20 @@ function RTE_Plugin_ReadabilityStats() {
     function openDialog() {
         var s = compute(currentText());
         try {
-            var d = editor.createDialog((editor.getLangText && editor.getLangText("readabilitytitle")) || "Readability statistics", "rte-dialog-readability");
+            var d = editor.createDialog(rT("readabilitytitle", "Readability statistics"), "rte-dialog-readability");
             var doc = d.ownerDocument;
             var wrap = doc.createElement("div");
             wrap.style.cssText = "padding:14px 18px;min-width:340px;font:13px -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#0f172a";
 
             var rows = [
-                ["Flesch Reading Ease", s.fleschReadingEase + "  —  " + s.easeLabel, true],
-                ["Flesch–Kincaid Grade", String(s.fleschKincaidGrade), false],
-                ["Reading time", s.readingTimeText, false],
-                ["Words", String(s.words), false],
-                ["Sentences", String(s.sentences), false],
-                ["Avg words / sentence", String(s.avgWordsPerSentence), false],
-                ["Avg syllables / word", String(s.avgSyllablesPerWord), false],
-                ["Characters (no spaces)", String(s.characters), false]
+                [rT("rd_ease", "Flesch Reading Ease"), s.fleschReadingEase + "  \u2014  " + easeText(s.fleschReadingEase), true],
+                [rT("rd_grade", "Flesch\u2013Kincaid Grade"), String(s.fleschKincaidGrade), false],
+                [rT("rd_time", "Reading time"), s.readingTimeMinutes < 1 ? rT("rd_sec", "{0} sec", Math.max(1, Math.round(s.readingTimeMinutes * 60))) : rT("rd_min", "{0} min", Math.round(s.readingTimeMinutes)), false],
+                [rT("rd_words", "Words"), String(s.words), false],
+                [rT("rd_sentences", "Sentences"), String(s.sentences), false],
+                [rT("rd_avgwords", "Avg words / sentence"), String(s.avgWordsPerSentence), false],
+                [rT("rd_avgsyll", "Avg syllables / word"), String(s.avgSyllablesPerWord), false],
+                [rT("rd_chars", "Characters (no spaces)"), String(s.characters), false]
             ];
             for (var i = 0; i < rows.length; i++) {
                 var r = doc.createElement("div");

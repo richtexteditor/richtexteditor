@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "درج";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "سبک‌ها";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "سبک‌های متن";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "fa";	// this pack's locale (Intl names, e.g. the text-part language menu)

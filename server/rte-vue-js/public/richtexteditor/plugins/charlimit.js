@@ -38,6 +38,23 @@ function RTE_Plugin_CharLimit() {
 
         if (!maxChars() && !maxWords()) return; // dormant unless a limit is configured
 
+        // The public insert obeys the cap too (a host's "insert snippet" button went straight past
+        // it). Over-long content is cut to what fits, as plain text, the same way a paste is.
+        if (config.charLimitEnforce !== false && typeof editor.insertHTML === "function") {
+            var origInsertHTML = editor.insertHTML;
+            editor.insertHTML = function (html) {
+                if (!maxChars()) return origInsertHTML.apply(this, arguments);
+                var probe = document.createElement("div");
+                probe.innerHTML = String(html == null ? "" : html);
+                var add = (probe.textContent || "").length;
+                var remaining = maxChars() - countChars() + selectionLength();
+                if (add <= remaining) return origInsertHTML.apply(this, arguments);
+                flash();
+                if (remaining <= 0) return false;
+                return origInsertHTML.call(this, escapeHtml((probe.textContent || "").slice(0, remaining)));
+            };
+        }
+
         // The iframe editable may not exist at InitEditor time — bind setup now
         // AND on "created", with an idempotency guard so we never double-bind.
         setup();
@@ -60,6 +77,7 @@ function RTE_Plugin_CharLimit() {
         if (config.charLimitEnforce !== false) {
             doc.addEventListener("beforeinput", onBeforeInput, true);
             doc.addEventListener("paste", onPaste, true);
+            doc.addEventListener("drop", onDrop, true);
         }
         doc.addEventListener("input", function () { refresh(); }, true);
         mountCounter();
@@ -71,12 +89,27 @@ function RTE_Plugin_CharLimit() {
 
     function plainText() {
         try {
+            // 2026-10-15 ask getText(): it leaves out page-break labels (a two-word page plus a break counted five
+            // words) and plugins' on-screen-only text. tools/wordcount/page-break-not-text.mjs
+            if (typeof editor.getText === "function") { var gt = editor.getText(); if (typeof gt === "string") return gt; }
             var ed = editor.getEditable();
             return ed ? (ed.innerText || ed.textContent || "") : "";
         } catch (e) { return ""; }
     }
     function countChars() { return plainText().replace(/\r\n/g, "\n").length; }
-    function countWords() { var t = plainText().trim(); return t ? t.split(/\s+/).length : 0; }
+    // Same rules as the core status bar: each CJK character is a word (those scripts have no
+    // spaces, so "你好世界" was 1), and a token of punctuation alone ("—", "!") is not a word.
+    function countWords() {
+        var t = plainText();
+        var cjk = /[\u3005\u3007\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/g;
+        var m = t.match(cjk);
+        var n = m ? m.length : 0;
+        var tokens = t.replace(cjk, " ").split(/\s+/);
+        for (var i = 0; i < tokens.length; i++) {
+            if (/[^!-\/:-@\[-`{-~\xa1-\xbf\u2000-\u206f\u3000-\u303f\uff01-\uff0f]/.test(tokens[i])) n++;
+        }
+        return n;
+    }
 
     function onBeforeInput(e) {
         var t = e.inputType || "";
@@ -102,7 +135,9 @@ function RTE_Plugin_CharLimit() {
     function onPaste(e) {
         if (!maxChars()) return;
         var remaining = maxChars() - countChars() + selectionLength();
-        if (remaining <= 0) { e.preventDefault(); flash(); return; }
+        // stopImmediatePropagation as well as preventDefault: the core paste handler inserts the
+        // clipboard itself and ignores defaultPrevented, so the full paste landed past the cap.
+        if (remaining <= 0) { e.preventDefault(); e.stopImmediatePropagation(); flash(); return; }
         var cd = e.clipboardData || window.clipboardData;
         if (!cd) return;
         var text = "";
@@ -110,9 +145,34 @@ function RTE_Plugin_CharLimit() {
         if (text.length > remaining) {
             // Truncate the paste to what fits.
             e.preventDefault();
+            e.stopImmediatePropagation();
             var fit = text.slice(0, remaining);
             try { if (typeof editor.insertHTML === "function") editor.insertHTML(escapeHtml(fit).replace(/\n/g, "<br>")); }
             catch (e2) {}
+            flash();
+        }
+    }
+
+    // A drop has no caret to truncate at, so content that would pass the cap is refused whole
+    // (the core drop handler inserts it itself, so the event must not reach it).
+    function onDrop(e) {
+        if (!maxChars()) return;
+        var dt = e.dataTransfer;
+        if (!dt) return;
+        var add = 0;
+        try {
+            var text = dt.getData("text/plain");
+            if (!text) {
+                var probe = document.createElement("div");
+                probe.innerHTML = dt.getData("text/html") || "";
+                text = probe.textContent || "";
+            }
+            add = text.length;
+        } catch (er) { return; }
+        if (!add) return;
+        if (countChars() + add > maxChars()) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
             flash();
         }
     }

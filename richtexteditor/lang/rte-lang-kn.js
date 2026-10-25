@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "ಸೇರಿಸಿ";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "ಶೈಲಿಗಳು";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "ಪಠ್ಯ ಶೈಲಿಗಳು";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "kn";	// this pack's locale (Intl names, e.g. the text-part language menu)

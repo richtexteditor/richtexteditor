@@ -26,6 +26,13 @@ function RTE_Plugin_SpellCheck() {
     obj.PluginName = "SpellCheck";
 
     obj.InitConfig = function (argconfig) { config = argconfig; };
+    // 2026-10-18 the words read config.text_ keys (language packs), English as the fallback; {0} / {1} fill a template.
+    // tools/i18n/plugin-bars-language.mjs
+    function pText(key, fallback) {
+        var s = (config && config["text_" + key]) || fallback;
+        for (var i = 2; i < arguments.length; i++) s = s.split("{" + (i - 2) + "}").join(String(arguments[i]));
+        return s;
+    }
 
     obj.InitEditor = function (argeditor) {
         editor = argeditor;
@@ -59,7 +66,9 @@ function RTE_Plugin_SpellCheck() {
         try { if (!editor.InvokeEventHook || !editor.InvokeEventHook("customdialog", "spellcheck", msg)) { /* fall through to toast */ } } catch (e) { }
         try {
             var editable = editor.getEditable();
-            var host = editable.ownerDocument;
+            // 2026-10-14 The toast is a message for the person, so it goes to the host page (where its stylesheet is),
+            // never into the editable's own body, where it would be saved with the content. tools/spellcheck/spellcheck-toast.mjs
+            var host = (editor && editor.iframe && editor.iframe.ownerDocument) || editable.ownerDocument;
             var t = host.createElement("div");
             t.className = "rte-spell-toast";
             t.setAttribute("role", "status");
@@ -100,13 +109,13 @@ function RTE_Plugin_SpellCheck() {
                 editable.setAttribute("spellcheck", "true");
                 editable.focus();
             } catch (e) { }
-            notify((editor.getLangText && editor.getLangText("spellchecknative")) || "Browser spell-check is on — misspellings are underlined as you type.");
+            notify((editor.getLangText && editor.getLangText("spellchecknative")) || "Browser spell-check is on \u2014 misspellings are underlined as you type.");
             return;
         }
 
         var text;
         try { text = editor.getEditable().innerText || ""; } catch (e) { text = ""; }
-        if (!text.trim()) { notify("Nothing to check."); return; }
+        if (!text.trim()) { notify(pText("sp_nothing", "Nothing to check.")); return; }
 
         var dlg = editor.createDialog(
             (editor.getLangText && editor.getLangText("spellchecktitle")) || "Spelling",
@@ -115,7 +124,7 @@ function RTE_Plugin_SpellCheck() {
         var close = typeof dlg.close === "function" ? function () { dlg.close(); } : function () { editor.closeCurrentPopup(); };
         var wrap = append(dlg, "div", "box-sizing:border-box;width:min(420px,calc(100vw - 32px));max-height:60vh;overflow:auto;padding:14px;font:13px -apple-system,Segoe UI,sans-serif");
         var status = append(wrap, "div", "color:#64748b;margin-bottom:8px");
-        status.innerText = "Checking…";
+        status.innerText = pText("sp_checking", "Checking\u2026");
         var list = append(wrap, "div", "");
 
         function renderIssues(issues) {
@@ -155,14 +164,14 @@ function RTE_Plugin_SpellCheck() {
         try {
             var p = config.spellCheckResolver(text);
             if (p && typeof p.then === "function") {
-                p.then(function (r) { finish(r || []); }, function () { status.innerText = "Spell-check service error."; });
-                setTimeout(function () { if (!done) { status.innerText = "Spell-check timed out."; done = true; } }, 12000);
+                p.then(function (r) { finish(r || []); }, function () { status.innerText = pText("sp_serviceerror", "Spell-check service error."); });
+                setTimeout(function () { if (!done) { status.innerText = pText("sp_timeout", "Spell-check timed out."); done = true; } }, 12000);
             } else { finish(p || []); }
-        } catch (e) { status.innerText = "Spell-check error."; }
+        } catch (e) { status.innerText = pText("sp_error", "Spell-check error."); }
 
         var footer = append(wrap, "div", "display:flex;justify-content:flex-end;margin-top:12px");
         var closeBtn = append(footer, "button", "padding:6px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;cursor:pointer");
-        closeBtn.type = "button"; closeBtn.textContent = "Done"; closeBtn.onclick = function () { close(); editor.focus(); };
+        closeBtn.type = "button"; closeBtn.textContent = pText("sp_done", "Done"); closeBtn.onclick = function () { close(); editor.focus(); };
     };
 
     function injectStyles() {

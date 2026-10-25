@@ -25,6 +25,12 @@ function RTE_Plugin_MathDialog() {
 
     obj.PluginName = "MathDialog";
 
+    // 2026-10-18 the words read config.text_ keys (language packs), English as the fallback; {0} fills a template.
+    // tools/i18n/plugin-panels-language.mjs
+    function pText(key, fallback, arg) {
+        var s = (config && config["text_" + key]) || fallback;
+        return arg === undefined ? s : s.split("{0}").join(String(arg));
+    }
     obj.InitConfig = function (argconfig) { config = argconfig; };
 
     obj.InitEditor = function (argeditor) {
@@ -105,7 +111,7 @@ function RTE_Plugin_MathDialog() {
 
         var renderer = getRenderer(win);
         if (!renderer) {
-            rendererNote.innerText = "No KaTeX/MathJax detected on the page — the equation is stored as markup and will render wherever a math renderer is loaded.";
+            rendererNote.innerText = pText("ma_norenderer", "No KaTeX/MathJax detected on the page \u2014 the equation is stored as markup and will render wherever a math renderer is loaded.");
         }
 
         function updatePreview() {
@@ -113,7 +119,7 @@ function RTE_Plugin_MathDialog() {
             if (!tex.trim()) { preview.textContent = ""; return; }
             if (renderer && renderer.kind === "katex") {
                 try { renderer.katex.render(tex, preview, { throwOnError: false, displayMode: false }); }
-                catch (e) { preview.textContent = "⚠ " + (e && e.message ? e.message : "render error"); }
+                catch (e) { preview.textContent = "\u26a0 " + (e && e.message ? e.message : "render error"); }
             } else if (renderer && renderer.kind === "mathjax") {
                 preview.textContent = "\\(" + tex + "\\)";
                 try { renderer.MathJax.typesetPromise([preview]); } catch (e) { /* ignore */ }
@@ -126,9 +132,9 @@ function RTE_Plugin_MathDialog() {
 
         var footer = append(wrap, "div", "display:flex;justify-content:flex-end;gap:8px;margin-top:14px");
         var cancel = append(footer, "button", "padding:6px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;cursor:pointer", "");
-        cancel.type = "button"; cancel.textContent = "Cancel"; cancel.onclick = close;
+        cancel.type = "button"; cancel.textContent = pText("cancel", "Cancel"); cancel.onclick = close;
         var ok = append(footer, "button", "padding:6px 14px;border:1px solid #1d67ba;border-radius:8px;background:#1d67ba;color:#fff;cursor:pointer", "");
-        ok.type = "button"; ok.textContent = existing ? "Update" : "Insert";
+        ok.type = "button"; ok.textContent = existing ? pText("update", "Update") : pText("insert", "Insert");
 
         ok.onclick = function () {
             var tex = ta.value.trim();
@@ -144,7 +150,7 @@ function RTE_Plugin_MathDialog() {
             }
             var safeTex = String(tex).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
             var safeText = String("$" + tex + "$").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-            editor.insertHTML('<span class="rte-math-inline" data-tex="' + safeTex + '">' + safeText + "</span>​");
+            editor.insertHTML('<span class="rte-math-inline" data-tex="' + safeTex + '">' + safeText + "</span>\u200b");
             close();
             if (editor.renderMath) editor.renderMath();
             editor.focus();

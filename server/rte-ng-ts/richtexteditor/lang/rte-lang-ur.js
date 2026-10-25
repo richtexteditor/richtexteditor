@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "داخل کریں";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "اسٹائلز";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "متن کے اسٹائلز";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "ur";	// this pack's locale (Intl names, e.g. the text-part language menu)

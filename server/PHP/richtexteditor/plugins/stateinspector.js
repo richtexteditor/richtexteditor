@@ -104,6 +104,16 @@ function RTE_Plugin_StateInspector() {
             appendToolbarCommand("toolbar_default", "#{stateinspector}");
             appendToolbarCommand("toolbar_full", "#{stateinspector}");
         }
+        // 2026-10-03 Build the shell NOW, before the editor creates its iframe. ensureShell() moves the
+        // editor container; done in InitEditor it moved the live iframe, which then gets a fresh
+        // document - and every plugin that had already bound listeners to the old one went deaf (the
+        // slash menu, @mentions and emoji autocomplete, until they moved to editor.bindDocumentEvent;
+        // customer plugins binding the document directly still were). Nothing is loaded yet here.
+        // InitEditor's own ensureShell() call finds the shell and returns it.
+        // tools/keyboard/plugin-listeners.mjs
+        if (config.stateInspectorEnabled !== false && config.container && config.container.parentNode) {
+            try { ensureShell(); } catch (e) { /* InitEditor builds it */ }
+        }
     };
 
     obj.InitEditor = function (argeditor) {
@@ -198,7 +208,7 @@ function RTE_Plugin_StateInspector() {
         if (!list) return attrs;
         for (var i = 0; i < list.length; i++) {
             var value = list[i].value;
-            attrs[list[i].name] = value.length > 220 ? value.substring(0, 220) + "…" : value;
+            attrs[list[i].name] = value.length > 220 ? value.substring(0, 220) + "\u2026" : value;
         }
         return attrs;
     }
@@ -211,7 +221,7 @@ function RTE_Plugin_StateInspector() {
             return {
                 type: "text",
                 length: text.length,
-                text: text.length > 80 ? text.substring(0, 80) + "…" : text
+                text: text.length > 80 ? text.substring(0, 80) + "\u2026" : text
             };
         }
         if (node.nodeType === 8) {
@@ -284,7 +294,7 @@ function RTE_Plugin_StateInspector() {
         try {
             var selected = String(range.toString() || "");
             info.textLength = selected.length;
-            info.text = selected.length > 120 ? selected.substring(0, 120) + "…" : selected;
+            info.text = selected.length > 120 ? selected.substring(0, 120) + "\u2026" : selected;
         } catch (e) {
             info.textLength = 0;
         }
@@ -716,9 +726,9 @@ function RTE_Plugin_StateInspector() {
             // Kept short on purpose: the toolbar row ellipsises, and "3 errors" is
             // the part that must survive the truncation. Full counts are in the
             // snapshot and the tree tab.
-            summaryEl.innerText = tree.counters.elements + " el · " +
+            summaryEl.innerText = tree.counters.elements + " el \xb7 " +
                 analysis.issues.length + " issue" + (analysis.issues.length === 1 ? "" : "s") +
-                (errors ? " · " + errors + " error" + (errors === 1 ? "" : "s") : "");
+                (errors ? " \xb7 " + errors + " error" + (errors === 1 ? "" : "s") : "");
         }
 
         clear(body);
@@ -747,7 +757,7 @@ function RTE_Plugin_StateInspector() {
             msg.innerText = item.message;
             var meta = hostDoc.createElement("div");
             meta.className = "rte-state-inspector-issue-meta";
-            meta.innerText = (item.detail || "(document root)") + "  ·  " + item.id;
+            meta.innerText = (item.detail || "(document root)") + "  \xb7  " + item.id;
             wrap.appendChild(msg);
             wrap.appendChild(meta);
             body.appendChild(wrap);
@@ -787,10 +797,10 @@ function RTE_Plugin_StateInspector() {
             for (var i = 0; i < keys.length && i < 4; i++) {
                 label += " " + keys[i] + "=" + JSON.stringify(node.attrs[keys[i]]);
             }
-            if (keys.length > 4) label += " …+" + (keys.length - 4);
+            if (keys.length > 4) label += " \u2026+" + (keys.length - 4);
         }
         label += ">";
-        if (node.truncated) label += "  … " + node.childCount + " children (depth limit)";
+        if (node.truncated) label += "  \u2026 " + node.childCount + " children (depth limit)";
         lines.push(label);
         for (var c = 0; c < (node.children || []).length; c++) {
             lines = lines.concat(formatTree(node.children[c], depth + 1));
@@ -821,7 +831,7 @@ function RTE_Plugin_StateInspector() {
         var out = boundary.node + " @ " + boundary.offset;
         if (typeof boundary.length === "number") out += " (len " + boundary.length + ")";
         if (typeof boundary.childCount === "number") out += " (" + boundary.childCount + " children)";
-        if (boundary.zeroLength) out += "  ← zero-length text node";
+        if (boundary.zeroLength) out += "  \u2190 zero-length text node";
         return out;
     }
 

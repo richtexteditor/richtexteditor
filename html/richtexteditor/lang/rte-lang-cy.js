@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "Insert";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "Arddulliau";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "Arddulliau testun";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "cy";	// this pack's locale (Intl names, e.g. the text-part language menu)

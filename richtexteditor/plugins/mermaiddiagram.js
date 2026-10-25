@@ -30,6 +30,12 @@ function RTE_Plugin_MermaidDiagram() {
 
     obj.PluginName = "MermaidDiagram";
 
+    // 2026-10-18 the words read config.text_ keys (language packs), English as the fallback; {0} fills a template.
+    // tools/i18n/plugin-panels-language.mjs
+    function pText(key, fallback, arg) {
+        var s = (config && config["text_" + key]) || fallback;
+        return arg === undefined ? s : s.split("{0}").join(String(arg));
+    }
     obj.InitConfig = function (argconfig) { config = argconfig; };
 
     obj.InitEditor = function (argeditor) {
@@ -245,7 +251,7 @@ function RTE_Plugin_MermaidDiagram() {
             "min-height:80px;padding:10px 12px;border:1px solid #e2e8f0;border-radius:8px;background:#fff;overflow:auto;text-align:center");
         var note = append(wrap, "div", "font-size:11px;color:#94a3b8;margin-top:4px");
         if (typeof config.diagramResolver !== "function" && !getMermaid(win)) {
-            note.innerText = "No Mermaid renderer detected on the page — the diagram is stored as source and will render wherever Mermaid (or config.diagramResolver) is available.";
+            note.innerText = pText("dg_norenderer", "No Mermaid renderer detected on the page \u2014 the diagram is stored as source and will render wherever Mermaid (or config.diagramResolver) is available.");
         }
 
         var previewTimer = null;
@@ -266,9 +272,9 @@ function RTE_Plugin_MermaidDiagram() {
 
         var footer = append(wrap, "div", "display:flex;justify-content:flex-end;gap:8px;margin-top:14px");
         var cancel = append(footer, "button", "padding:6px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;cursor:pointer");
-        cancel.type = "button"; cancel.textContent = "Cancel"; cancel.onclick = close;
+        cancel.type = "button"; cancel.textContent = pText("cancel", "Cancel"); cancel.onclick = close;
         var ok = append(footer, "button", "padding:6px 14px;border:1px solid #1d67ba;border-radius:8px;background:#1d67ba;color:#fff;cursor:pointer");
-        ok.type = "button"; ok.textContent = existing ? "Update" : "Insert";
+        ok.type = "button"; ok.textContent = existing ? pText("update", "Update") : pText("insert", "Insert");
 
         ok.onclick = function () {
             var src = ta.value.trim();

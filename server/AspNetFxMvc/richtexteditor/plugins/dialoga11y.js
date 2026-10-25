@@ -126,10 +126,24 @@ function RTE_Plugin_DialogA11y() {
     function enhancePanel(panel) {
         if (!panel || panel.nodeType !== 1 || !panel.querySelector) return;
         var headerEl = panel.querySelector("rte-dialog-header");
-        if (!headerEl) return; // only header-bearing panels are dialogs
+        if (!headerEl) {
+            // 2026-10-15 a headerless popup the core announced as a menu but that holds a text box (Emoji search, AI
+            // Assist) is a dialog: a menu may contain only menu items (axe aria-required-children). It keeps the name
+            // the core gave it. tools/a11y/popup-menu-roles.mjs
+            if (panel.getAttribute("role") === "menu") {
+                var fl = panel.querySelectorAll("input,select,textarea");
+                for (var j = 0; j < fl.length; j++) {
+                    if (fl[j].type === "hidden" || fl[j].offsetParent === null) continue;
+                    panel.setAttribute("role", "dialog");
+                    panel.removeAttribute("aria-orientation");
+                    break;
+                }
+            }
+            return; // only header-bearing panels get the rest
+        }
 
         var name = (headerEl.textContent || "").trim()
-            .replace(/\s*\((?:Ctrl|Cmd|Alt|Shift|⌘|⇧|⌥)[^)]*\)\s*$/i, "").trim();
+            .replace(/\s*\((?:Ctrl|Cmd|Alt|Shift|\u2318|\u21e7|\u2325)[^)]*\)\s*$/i, "").trim();
 
         // Name the element that IS the dialog. The float-style panels already
         // carry role="dialog" on an inner <rte-dialog-inner>; adding a second
@@ -144,7 +158,15 @@ function RTE_Plugin_DialogA11y() {
         // A titled, form-bearing popup is a dialog, not a menu — override the
         // core's default role="menu" (a menu must not contain text fields).
         var role = dialogEl.getAttribute("role");
-        if (!role || role === "menu") dialogEl.setAttribute("role", "dialog");
+        // 2026-10-15 ...but a titled popup that only LISTS commands (Paste, Insert Image) is a menu: as a dialog its
+        // menu items had no menu parent (axe aria-required-parent). A dialog never keeps the menu's aria-orientation
+        // (axe aria-allowed-attr). tools/a11y/popup-menu-roles.mjs
+        var hasField = false, fs0 = panel.querySelectorAll("input,select,textarea");
+        for (var k = 0; k < fs0.length; k++) if (fs0[k].type !== "hidden" && fs0[k].offsetParent !== null) { hasField = true; break; }
+        var commandList = dialogEl === panel && !hasField && !!panel.querySelector('[role="menuitem"]');
+        if (commandList) dialogEl.setAttribute("role", "menu");
+        else if (!role || role === "menu") dialogEl.setAttribute("role", "dialog");
+        if (dialogEl.getAttribute("role") === "dialog") dialogEl.removeAttribute("aria-orientation");
         if (name && !dialogEl.getAttribute("aria-label") && !dialogEl.getAttribute("aria-labelledby")) {
             dialogEl.setAttribute("aria-label", name);
         }
@@ -176,7 +198,7 @@ function RTE_Plugin_DialogA11y() {
         }
         if (lineEl && lineEl.querySelector) {
             var visEl = lineEl.querySelector("rte-dialog-input-label");
-            var vis = visEl ? (visEl.textContent || "").replace(/^\s+|\s+$/g, "").replace(/[:：]\s*$/, "") : "";
+            var vis = visEl ? (visEl.textContent || "").replace(/^\s+|\s+$/g, "").replace(/[:\uff1a]\s*$/, "") : "";
             if (vis) return vis;
         }
 

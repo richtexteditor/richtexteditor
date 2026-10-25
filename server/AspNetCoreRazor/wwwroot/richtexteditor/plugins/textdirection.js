@@ -43,14 +43,22 @@ function RTE_Plugin_TextDirection() {
 
     // Strongly right-to-left ranges: Hebrew, Arabic (+ supplement, extended),
     // Syriac, Thaana, NKo, Samaritan, Mandaic, and the Arabic presentation forms.
-    var RTL_RE = /[֐-׿؀-ۿ܀-ݏݐ-ݿހ-޿߀-߿ࠀ-࠿ࡀ-࡟ࢠ-ࣿיִ-﷿ﹰ-﻿]/;
+    var RTL_RE = /[\u0590-\u05ff\u0600-\u06ff\u0700-\u074f\u0750-\u077f\u0780-\u07bf\u07c0-\u07ff\u0800-\u083f\u0840-\u085f\u08a0-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]/;
     // Strongly left-to-right: Latin, Greek, Cyrillic, Armenian, and CJK/Kana
     // (which are LTR for bidi purposes).
-    var LTR_RE = /[A-Za-zÀ-ʯͰ-֏ऀ-႟Ḁ-῿Ⰰ-ⷿ⺀-꓏가-힯]/;
+    var LTR_RE = /[A-Za-z\xc0-\u02af\u0370-\u058f\u0900-\u109f\u1e00-\u1fff\u2c00-\u2dff\u2e80-\ua4cf\uac00-\ud7af]/;
 
     obj.PluginName = "TextDirection";
 
     obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    // record the change as its own undo step: seal the step before, run, save the snapshot, seal it
+    function undoStep(run) {
+        try { if (editor.commitBookmark) editor.commitBookmark(); } catch (er) { /* ignore */ }
+        var result = run();
+        try { if (editor.recordUndo) editor.recordUndo(); else if (editor.notifySelectionChange) editor.notifySelectionChange(); if (editor.commitBookmark) editor.commitBookmark(); } catch (er) { /* ignore */ }
+        return result;
+    }
 
     obj.InitEditor = function (argeditor) {
         editor = argeditor;
@@ -68,10 +76,12 @@ function RTE_Plugin_TextDirection() {
         setTimeout(function () { setup(); afterLoad(); }, 0);
 
         // Public API.
-        editor.setTextDirection = function (dir) { return obj.Apply(dir); };
-        editor.toggleTextDirection = function () { return obj.Toggle(); };
+        // 2026-10-04 one undo step when called directly (execCommand does this for the button; a direct
+        // call could not be undone). tools/api/plugin-api-undo.mjs
+        editor.setTextDirection = function (dir) { return undoStep(function () { return obj.Apply(dir); }); };
+        editor.toggleTextDirection = function () { return undoStep(function () { return obj.Toggle(); }); };
         editor.getTextDirection = function () { return obj.Current(); };
-        editor.setBaseDirection = function (dir) { return obj.Base(dir); };
+        editor.setBaseDirection = function (dir) { return undoStep(function () { return obj.Base(dir); }); };
         editor.getBaseDirection = function () {
             var ed = getEditable();
             return ed ? (ed.getAttribute("dir") || "ltr") : "ltr";
@@ -183,6 +193,9 @@ function RTE_Plugin_TextDirection() {
         dir = (dir === "rtl") ? "rtl" : (dir === "auto" ? "auto" : "ltr");
         var blocks = blocksInSelection();
         if (!blocks.length) return false;
+        // 2026-10-14 Suggesting mode: a direction change is not tracked yet, so the track hook refuses it.
+        // tools/review/suggesting-structure-audit.mjs
+        if (editor.__trackHook && editor.__trackHook("refuse", { message: "Suggesting is on, so the direction was not changed. Turn suggesting off to change it." }) === true) return false;
         for (var i = 0; i < blocks.length; i++) {
             var b = blocks[i];
             var was = b.getAttribute("dir") || "ltr";

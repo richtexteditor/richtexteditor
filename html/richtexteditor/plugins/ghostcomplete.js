@@ -246,7 +246,7 @@ function RTE_Plugin_GhostComplete() {
             var tip = (host.ownerDocument || document).createElement("div");
             tip.className = "rte-ghost-hint";
             tip.setAttribute("role", "status");
-            tip.textContent = "AI completion isn't configured — supply config.ghostTextResolver (or editor.setGhostTextResolver) to enable inline suggestions.";
+            tip.textContent = "AI completion isn't configured \u2014 supply config.ghostTextResolver (or editor.setGhostTextResolver) to enable inline suggestions.";
             tip.style.cssText = "position:absolute;left:50%;bottom:12px;transform:translateX(-50%);z-index:20;" +
                 "max-width:90%;padding:7px 14px;border-radius:8px;background:#1f2937;color:#f9fafb;" +
                 "font:12px/1.5 -apple-system,Segoe UI,sans-serif;box-shadow:0 4px 14px rgba(0,0,0,.25);pointer-events:none";

@@ -91,6 +91,16 @@ function RTE_Plugin_Footnotes() {
         editable.addEventListener("keyup", queueSync);
         editable.addEventListener("cut", queueSync);
         editable.addEventListener("paste", queueSync);
+        // 2026-10-13 A marker can arrive after the events above ran: an asynchronous paste or drop inserts it on a later
+        // tick, after the sync those events queued had already run, and a fast or synthetic paste had no keystroke after
+        // it. The observer resyncs after any change to the document outside the notes section. tools/footnotes/footnote-marker-arrives.mjs
+        try {
+            if (syncObserver) syncObserver.disconnect();
+            syncObserver = new MutationObserver(function () {
+                if (!syncRunning) queueSync();
+            });
+            syncObserver.observe(editable, { childList: true, subtree: true, characterData: true });
+        } catch (e) { /* no observer: the events above still resync */ }
         editable.addEventListener("drop", queueSync);
         // Clicking a marker jumps to its note, and clicking the backlink returns.
         editable.addEventListener("click", function (e) {
@@ -109,10 +119,21 @@ function RTE_Plugin_Footnotes() {
     // Coalesce bursts of edits into one renumber. setTimeout, not rAF: the
     // editor may live in a background tab or a hidden iframe, where rAF never
     // fires and the numbering would silently stop updating.
+    // 2026-10-13 runSync is the only place the queued renumber runs. The observer's own records from the sync are
+    // dropped, so the renumber does not queue itself again.
+    var syncObserver = null, syncRunning = false;
+    function runSync() {
+        syncRunning = true;
+        try { syncFootnotes(); }
+        finally {
+            if (syncObserver) { try { syncObserver.takeRecords(); } catch (e) { } }
+            syncRunning = false;
+        }
+    }
     function queueSync() {
         if (syncQueued) return;
         syncQueued = true;
-        setTimeout(function () { syncQueued = false; syncFootnotes(); }, 0);
+        setTimeout(function () { syncQueued = false; runSync(); }, 0);
     }
 
     function closestClass(node, cls, root) {
@@ -210,7 +231,7 @@ function RTE_Plugin_Footnotes() {
         back.setAttribute("data-fn-id", id);
         back.setAttribute("href", "#fnref-" + id);
         back.setAttribute("contenteditable", "false");
-        back.setAttribute("title", "Back to reference");
+        back.setAttribute("title", ((typeof config !== "undefined" && config && config.text_fn_backref) || "Back to reference"));
         back.textContent = "\u21a9";
         li.appendChild(back);
         note.appendChild(li);
@@ -265,6 +286,7 @@ function RTE_Plugin_Footnotes() {
         if (!list.length) {
             // Last marker went away: drop the section rather than leaving an
             // empty "Footnotes" heading in the saved HTML.
+            if (sec) keepNotes(sec.querySelectorAll("li.rte-fn-note"));
             if (sec && sec.parentNode) sec.parentNode.removeChild(sec);
             return [];
         }
@@ -280,7 +302,9 @@ function RTE_Plugin_Footnotes() {
             var id = ref.getAttribute("data-fn-id");
             // A copy/paste of a marker duplicates its id; re-key the duplicate so
             // the two markers do not fight over one note.
+            var dupOf = null;
             if (seen[id]) {
+                dupOf = id;
                 var fresh = newId();
                 ref.setAttribute("data-fn-id", fresh);
                 ref.setAttribute("id", "fnref-" + fresh);
@@ -296,14 +320,7 @@ function RTE_Plugin_Footnotes() {
             if (ref.getAttribute("id") !== "fnref-" + id) ref.setAttribute("id", "fnref-" + id);
 
             var note = ol.querySelector('li.rte-fn-note[data-fn-id="' + cssEscape(id) + '"]');
-            if (!note) {
-                // Marker with no note — a paste from elsewhere, or a note the
-                // user deleted by hand. Give it an empty note to write into.
-                note = doc.createElement("li");
-                note.className = "rte-fn-note";
-                note.setAttribute("data-fn-id", id);
-                note.setAttribute("id", "fn-" + id);
-            }
+            if (!note) note = noteFor(doc, ol, id, dupOf);
             note.setAttribute("data-fn-number", num);
             // Append in marker order — this both inserts new notes and re-sorts
             // existing ones to match a reordered document.
@@ -314,13 +331,50 @@ function RTE_Plugin_Footnotes() {
         // Drop notes whose marker is gone.
         var notes = Array.prototype.slice.call(ol.querySelectorAll("li.rte-fn-note"));
         for (var j = 0; j < notes.length; j++) {
-            if (!seen[notes[j].getAttribute("data-fn-id")]) ol.removeChild(notes[j]);
+            if (!seen[notes[j].getAttribute("data-fn-id")]) { keepNotes([notes[j]]); ol.removeChild(notes[j]); }
         }
 
         if (ol.getAttribute("data-numbering") !== config.footnotesNumbering) {
             ol.setAttribute("data-numbering", config.footnotesNumbering);
         }
         return out;
+    }
+
+    // 2026-10-03 A note is KEPT when its marker goes, so a marker that comes back - cut + paste, a
+    // drag - gets its text back; and a copied marker gets a copy of its note, as in Word. The pass
+    // deleted the note and gave the returning marker an EMPTY one: cutting "Beta.[2]" and pasting
+    // it earlier renumbered correctly but lost "note B" for good. Kept for the editor's lifetime,
+    // keyed by footnote id. tools/footnotes/footnotes-move.mjs
+    var keptNotes = {};
+    function keepNotes(list) {
+        for (var i = 0; i < list.length; i++) {
+            var id = list[i].getAttribute("data-fn-id");
+            if (id) keptNotes[id] = list[i];
+        }
+    }
+    function noteFor(doc, ol, id, dupOf) {
+        var note = keptNotes[id];
+        if (note) {
+            delete keptNotes[id];
+            return note;
+        }
+        var src = dupOf ? (ol.querySelector('li.rte-fn-note[data-fn-id="' + cssEscape(dupOf) + '"]') || keptNotes[dupOf]) : null;
+        if (src) {
+            note = src.cloneNode(true);
+            var backs = note.querySelectorAll("a.rte-fn-back");
+            for (var i = 0; i < backs.length; i++) {
+                backs[i].setAttribute("data-fn-id", id);
+                backs[i].setAttribute("href", "#fnref-" + id);
+            }
+        } else {
+            // Marker with no note anywhere - a paste from another document, or a note the user
+            // deleted by hand. Give it an empty note to write into.
+            note = doc.createElement("li");
+            note.className = "rte-fn-note";
+        }
+        note.setAttribute("data-fn-id", id);
+        note.setAttribute("id", "fn-" + id);
+        return note;
     }
 
     // Read the WHOLE <li> minus the backlink rather than one designated child.

@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "Chèn";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "Kiểu";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "Kiểu văn bản";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "vi";	// this pack's locale (Intl names, e.g. the text-part language menu)

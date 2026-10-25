@@ -194,8 +194,11 @@ function RTE_Plugin_DocxExport() {
             bold: inherited.bold, italic: inherited.italic, underline: inherited.underline,
             strike: inherited.strike, sizeHalfPoints: inherited.sizeHalfPoints,
             color: inherited.color, highlight: inherited.highlight, vertAlign: inherited.vertAlign,
-            mono: inherited.mono, font: inherited.font
+            mono: inherited.mono, font: inherited.font,
+            // 2026-10-15 small caps, letter spacing and the phrase's language were not exported. tools/docx/run-props.mjs
+            smallCaps: inherited.smallCaps, spacingTw: inherited.spacingTw, lang: inherited.lang
         };
+        if (node.getAttribute && node.getAttribute("lang")) s.lang = String(node.getAttribute("lang")).replace(/[^A-Za-z0-9-]/g, "");
         var tag = node.tagName ? node.tagName.toLowerCase() : "";
         if (tag === "b" || tag === "strong") s.bold = true;
         if (tag === "i" || tag === "em") s.italic = true;
@@ -223,6 +226,11 @@ function RTE_Plugin_DocxExport() {
             if (css.fontFamily) {
                 var fam = String(css.fontFamily).split(",")[0].replace(/^\s*['"]?|['"]?\s*$/g, "");
                 if (fam) s.font = fam;
+            }
+            if (/small-caps/.test(css.fontVariant || "") || /small-caps/.test(css.fontVariantCaps || "")) s.smallCaps = true;
+            if (css.letterSpacing && css.letterSpacing !== "normal") {
+                var lsm = /^\s*(-?[\d.]+)\s*(px|pt|em)?\s*$/.exec(css.letterSpacing);
+                if (lsm) { var lsPx = parseFloat(lsm[1]) * (lsm[2] === "pt" ? 4 / 3 : lsm[2] === "em" ? 16 : 1); s.spacingTw = Math.round(lsPx * 15); }
             }
             if (css.fontSize) {
                 var pt = cssToPoints(css.fontSize);
@@ -266,12 +274,15 @@ function RTE_Plugin_DocxExport() {
         if (fontName) p += '<w:rFonts w:ascii="' + esc(fontName) + '" w:hAnsi="' + esc(fontName) + '"/>';
         if (s.bold) p += "<w:b/>";
         if (s.italic) p += "<w:i/>";
+        if (s.smallCaps) p += "<w:smallCaps/>";
         if (s.underline) p += '<w:u w:val="single"/>';
         if (s.strike) p += "<w:strike/>";
         if (s.color) p += '<w:color w:val="' + s.color + '"/>';
+        if (s.spacingTw) p += '<w:spacing w:val="' + s.spacingTw + '"/>';
         if (s.highlight) p += '<w:shd w:val="clear" w:color="auto" w:fill="' + s.highlight + '"/>';
         if (s.vertAlign) p += '<w:vertAlign w:val="' + s.vertAlign + '"/>';
         if (s.sizeHalfPoints) p += '<w:sz w:val="' + s.sizeHalfPoints + '"/><w:szCs w:val="' + s.sizeHalfPoints + '"/>';
+        if (s.lang) p += '<w:lang w:val="' + s.lang + '"/>';
         return p ? "<w:rPr>" + p + "</w:rPr>" : "";
     }
 
@@ -388,7 +399,12 @@ function RTE_Plugin_DocxExport() {
     function noteBodyFor(doc, id) {
         try {
             var el = doc.querySelector('.rte-fn-note[data-fn-id="' + id + '"]');
-            return el ? (el.textContent || "").replace(/\s+/g, " ").trim() : "";
+            if (!el) return "";
+            // 2026-10-15 without the "back to reference" arrow link: it was written into the Word footnote, and every
+            // round trip added another arrow to the note. tools/docx/footnote-text.mjs
+            var copy = el.cloneNode(true), backs = copy.querySelectorAll(".rte-fn-back");
+            for (var i = 0; i < backs.length; i++) backs[i].parentNode.removeChild(backs[i]);
+            return (copy.textContent || "").replace(/\s+/g, " ").trim();
         } catch (e) { return ""; }
     }
     function noteRun(b, kind, text) {
@@ -404,8 +420,14 @@ function RTE_Plugin_DocxExport() {
         b.media.push({ name: name, bytes: data.bytes });
         var rid = b.rel("image", "media/" + name);
         // EMU: 914400 per inch, and a CSS pixel is 1/96 inch.
-        var cx = Math.round(data.width * 914400 / 96);
-        var cy = Math.round(data.height * 914400 / 96);
+        // 2026-10-15 the size on the page is the image's width / height (attribute, or a px style), not its natural
+        // pixels: a picture resized in the editor came back full size. One given: the other keeps the ratio.
+        // tools/docx/image-alt-size.mjs
+        var dw = cssPx(img.getAttribute("width")) || cssPx(img.style && img.style.width), dh = cssPx(img.getAttribute("height")) || cssPx(img.style && img.style.height);
+        if (dw && !dh) dh = dw * data.height / data.width;
+        if (dh && !dw) dw = dh * data.width / data.height;
+        var cx = Math.round((dw || data.width) * 914400 / 96);
+        var cy = Math.round((dh || data.height) * 914400 / 96);
         var docPrId = b.media.length;
         return '<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0" ' +
             'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">' +
@@ -420,6 +442,9 @@ function RTE_Plugin_DocxExport() {
             '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>' +
             "</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>";
     }
+
+    // a plain number or a px length; a percentage or em cannot be turned into a page size here
+    function cssPx(v) { var r = /^\s*([\d.]+)\s*(px)?\s*$/.exec(v == null ? "" : String(v)); return r ? parseFloat(r[1]) : 0; }
 
     function encodeImage(img) {
         try {
@@ -449,18 +474,18 @@ function RTE_Plugin_DocxExport() {
     // A compact LaTeX -> OMML writer, matching the reader in documentimport.js
     // so equations survive the round trip instead of arriving as their source.
     var TEX_GLYPH = {
-        alpha: "α", beta: "β", gamma: "γ", delta: "δ", epsilon: "ε", zeta: "ζ", eta: "η",
-        theta: "θ", iota: "ι", kappa: "κ", lambda: "λ", mu: "μ", nu: "ν", xi: "ξ", pi: "π",
-        rho: "ρ", sigma: "σ", tau: "τ", upsilon: "υ", phi: "φ", varphi: "φ", chi: "χ",
-        psi: "ψ", omega: "ω", Gamma: "Γ", Delta: "Δ", Theta: "Θ", Lambda: "Λ", Xi: "Ξ",
-        Pi: "Π", Sigma: "Σ", Phi: "Φ", Psi: "Ψ", Omega: "Ω",
-        pm: "±", mp: "∓", times: "×", div: "÷", cdot: "⋅", neq: "≠", leq: "≤", geq: "≥",
-        approx: "≈", equiv: "≡", propto: "∝", infty: "∞", partial: "∂", nabla: "∇",
-        to: "→", rightarrow: "→", leftarrow: "←", Rightarrow: "⇒", Leftrightarrow: "⇔",
-        "in": "∈", notin: "∉", subset: "⊂", subseteq: "⊆", cup: "∪", cap: "∩",
-        emptyset: "∅", forall: "∀", exists: "∃", neg: "¬", land: "∧", lor: "∨",
-        dots: "…", ldots: "…", cdots: "⋯", langle: "⟨", rangle: "⟩",
-        lfloor: "⌊", rfloor: "⌋", lceil: "⌈", rceil: "⌉", quad: " ", ",": " ", ";": " "
+        alpha: "\u03b1", beta: "\u03b2", gamma: "\u03b3", delta: "\u03b4", epsilon: "\u03b5", zeta: "\u03b6", eta: "\u03b7",
+        theta: "\u03b8", iota: "\u03b9", kappa: "\u03ba", lambda: "\u03bb", mu: "\u03bc", nu: "\u03bd", xi: "\u03be", pi: "\u03c0",
+        rho: "\u03c1", sigma: "\u03c3", tau: "\u03c4", upsilon: "\u03c5", phi: "\u03c6", varphi: "\u03c6", chi: "\u03c7",
+        psi: "\u03c8", omega: "\u03c9", Gamma: "\u0393", Delta: "\u0394", Theta: "\u0398", Lambda: "\u039b", Xi: "\u039e",
+        Pi: "\u03a0", Sigma: "\u03a3", Phi: "\u03a6", Psi: "\u03a8", Omega: "\u03a9",
+        pm: "\xb1", mp: "\u2213", times: "\xd7", div: "\xf7", cdot: "\u22c5", neq: "\u2260", leq: "\u2264", geq: "\u2265",
+        approx: "\u2248", equiv: "\u2261", propto: "\u221d", infty: "\u221e", partial: "\u2202", nabla: "\u2207",
+        to: "\u2192", rightarrow: "\u2192", leftarrow: "\u2190", Rightarrow: "\u21d2", Leftrightarrow: "\u21d4",
+        "in": "\u2208", notin: "\u2209", subset: "\u2282", subseteq: "\u2286", cup: "\u222a", cap: "\u2229",
+        emptyset: "\u2205", forall: "\u2200", exists: "\u2203", neg: "\xac", land: "\u2227", lor: "\u2228",
+        dots: "\u2026", ldots: "\u2026", cdots: "\u22ef", langle: "\u27e8", rangle: "\u27e9",
+        lfloor: "\u230a", rfloor: "\u230b", lceil: "\u2308", rceil: "\u2309", quad: " ", ",": " ", ";": " "
     };
     var TEX_FUNCS = /^(sin|cos|tan|cot|sec|csc|sinh|cosh|tanh|log|ln|lg|exp|det|dim|gcd|arg|max|min|sup|inf)$/;
 
@@ -508,7 +533,7 @@ function RTE_Plugin_DocxExport() {
                         "<m:deg>" + deg + "</m:deg><m:e>" + group() + "</m:e></m:rad>";
                 }
                 case "sum": case "prod": case "int": case "oint": case "bigcup": case "bigcap": {
-                    var chr = { sum: "∑", prod: "∏", "int": "∫", oint: "∮", bigcup: "⋃", bigcap: "⋂" }[name];
+                    var chr = { sum: "\u2211", prod: "\u220f", "int": "\u222b", oint: "\u222e", bigcup: "\u22c3", bigcap: "\u22c2" }[name];
                     var sub = "", sup = "";
                     for (var g = 0; g < 2; g++) {
                         skipWs();
@@ -543,7 +568,7 @@ function RTE_Plugin_DocxExport() {
                 case "operatorname":
                     return "<m:func><m:funcPr/><m:fName>" + group() + "</m:fName><m:e>" + group() + "</m:e></m:func>";
                 case "hat": case "vec": case "tilde": case "bar": case "overline": case "dot": case "ddot": {
-                    var mark = { hat: "̂", vec: "⃗", tilde: "̃", dot: "̇", ddot: "̈" }[name];
+                    var mark = { hat: "\u0302", vec: "\u20d7", tilde: "\u0303", dot: "\u0307", ddot: "\u0308" }[name];
                     if (name === "bar" || name === "overline") return "<m:bar><m:barPr><m:pos m:val=\"top\"/></m:barPr><m:e>" + group() + "</m:e></m:bar>";
                     return '<m:acc><m:accPr><m:chr m:val="' + mark + '"/></m:accPr><m:e>' + group() + "</m:e></m:acc>";
                 }
@@ -632,6 +657,14 @@ function RTE_Plugin_DocxExport() {
         // spelled <blockquote>, which dragged the Quote style along with it -
         // so indented body text arrived italic and accent-coloured.
         // 1px = 0.75pt and 1pt = 20 twips, hence px * 15.
+        // a signed CSS length in twips (1px = 15 twips); 0 when it is not a plain length
+        function lengthTwips(raw) {
+            var m = /^\s*(-?[\d.]+)\s*(px|pt|in|cm|mm|em|rem)?\s*$/i.exec(raw == null ? "" : String(raw));
+            if (!m) return 0;
+            var n = parseFloat(m[1]), u = (m[2] || "px").toLowerCase();
+            var px = u === "px" ? n : u === "pt" ? n * 4 / 3 : u === "in" ? n * 96 : u === "cm" ? n * 37.795 : u === "mm" ? n * 3.7795 : n * 16;
+            return Math.round(px * 15);
+        }
         function indentTwips(node) {
             if (!node || !node.style) return 0;
             var raw = node.style.marginLeft || node.style.paddingLeft || "";
@@ -656,13 +689,23 @@ function RTE_Plugin_DocxExport() {
             if (opts.heading) pr += '<w:pStyle w:val="Heading' + opts.heading + '"/>';
             if (opts.quote) pr += '<w:pStyle w:val="Quote"/><w:ind w:left="720"/>';
             if (opts.pre) pr += '<w:pStyle w:val="Code"/>';
+            if (opts.caption) pr += '<w:pStyle w:val="Caption"/>';
             if (opts.numId) pr += "<w:numPr><w:ilvl w:val=\"" + (opts.level || 0) + "\"/><w:numId w:val=\"" + opts.numId + "\"/></w:numPr>";
             if (opts.pageBreakBefore) pr += "<w:pageBreakBefore/>";
+            // 2026-10-15 direction, line height and first-line / hanging indent were not written (only the left indent
+            // and alignment were): an RTL paragraph came back left-to-right, double spacing came back single.
+            // pPr order is bidi, spacing, ind, jc. tools/docx/paragraph-props.mjs
+            if (node && node.getAttribute && (String(node.getAttribute("dir") || "").toLowerCase() === "rtl" || (node.style && node.style.direction === "rtl"))) pr += "<w:bidi/>";
+            var lhRaw = node && node.style ? String(node.style.lineHeight || "") : "", lhm;
+            if ((lhm = /^\s*([\d.]+)\s*$/.exec(lhRaw)) && parseFloat(lhm[1]) > 0) pr += '<w:spacing w:line="' + Math.round(parseFloat(lhm[1]) * 240) + '" w:lineRule="auto"/>';
+            else if ((lhm = /^\s*([\d.]+)%\s*$/.exec(lhRaw)) && parseFloat(lhm[1]) > 0) pr += '<w:spacing w:line="' + Math.round(parseFloat(lhm[1]) * 2.4) + '" w:lineRule="auto"/>';
+            else if ((lhm = /^\s*([\d.]+)(px|pt)\s*$/.exec(lhRaw)) && parseFloat(lhm[1]) > 0) pr += '<w:spacing w:line="' + Math.round(parseFloat(lhm[1]) * (lhm[2] === "pt" ? 20 : 15)) + '" w:lineRule="exact"/>';
             // Independent of the Quote style: a real blockquote already got
             // its w:ind above, so only emit this for everything else.
             if (!opts.quote) {
                 var indTw = indentTwips(node);
-                if (indTw > 0) pr += '<w:ind w:left="' + indTw + '"/>';
+                var tiTw = lengthTwips(node && node.style ? node.style.textIndent : "");
+                if (indTw > 0 || tiTw) pr += '<w:ind' + (indTw > 0 ? ' w:left="' + indTw + '"' : "") + (tiTw > 0 ? ' w:firstLine="' + tiTw + '"' : tiTw < 0 ? ' w:hanging="' + (-tiTw) + '"' : "") + '/>';
             }
             var align = node && node.style ? node.style.textAlign : "";
             if (align === "center" || align === "right") pr += '<w:jc w:val="' + align + '"/>';
@@ -672,11 +715,52 @@ function RTE_Plugin_DocxExport() {
         }
 
         function list(node, style, level, pendingBreak) {
+            // 2026-10-15 a task list: Word has no plain-text checklist, so each item is an indented paragraph that
+            // starts with a ballot box, open (U+2610) or ticked (U+2612), as Google Docs exports it. It went out as an
+            // ordinary bulleted list and every tick was lost. tools/docx/task-list.mjs
+            if (node.classList && node.classList.contains("rte-task-list")) {
+                var txml = "";
+                for (var ti = 0; ti < node.childNodes.length; ti++) {
+                    var tli = node.childNodes[ti];
+                    if (tli.nodeType !== 1 || tli.tagName.toLowerCase() !== "li") continue;
+                    var town = tli.ownerDocument.createElement("p");
+                    for (var tk = 0; tk < tli.childNodes.length; tk++) {
+                        var tch = tli.childNodes[tk];
+                        if (tch.nodeType === 1 && (/^(ul|ol)$/.test(tch.tagName.toLowerCase()) || (tch.classList && tch.classList.contains("rte-task-checkbox")))) continue;
+                        town.appendChild(tch.cloneNode(true));
+                    }
+                    var ticked = tli.getAttribute("data-checked") === "true";
+                    town.insertBefore(tli.ownerDocument.createTextNode((ticked ? "\u2612" : "\u2610") + " "), town.firstChild);
+                    town.style.marginLeft = (24 * (level + 1)) + "px";
+                    txml += para(town, styleFrom(tli, style), { pageBreakBefore: pendingBreak });
+                    pendingBreak = false;
+                    for (var tj = 0; tj < tli.childNodes.length; tj++) {
+                        var tsub = tli.childNodes[tj];
+                        if (tsub.nodeType === 1 && /^(ul|ol)$/.test(tsub.tagName.toLowerCase())) txml += list(tsub, style, Math.min(8, level + 1), false);
+                    }
+                }
+                return txml;
+            }
             var ordered = node.tagName.toLowerCase() === "ol";
             // One numId per list, so two adjacent lists restart rather than
             // continuing each other's numbering.
             var numId = ++b.numSeq;
             b.numbering[numId] = ordered ? "decimal" : "bullet";
+            // 2026-10-04 an <ol start> starts its level there (it was always 1, so a list continued
+            // after a paragraph restarted in Word). tools/docx/ordered-start.mjs
+            var startAt = ordered ? parseInt(node.getAttribute("start"), 10) : 1;
+            if (isNaN(startAt)) startAt = 1;
+            if (startAt !== 1) (b.numStart || (b.numStart = {}))[numId] = { level: level, start: startAt };
+            // 2026-10-04 a lettered / Roman list keeps its numbering style in Word (it was always decimal).
+            // tools/docx/list-formats.mjs
+            if (ordered) {
+                var lst = String((node.style && node.style.listStyleType) || "").toLowerCase(), typ = node.getAttribute("type") || "";
+                var wf = /^(lower-alpha|lower-latin)$/.test(lst) || typ === "a" ? "lowerLetter"
+                    : /^(upper-alpha|upper-latin)$/.test(lst) || typ === "A" ? "upperLetter"
+                    : lst === "lower-roman" || typ === "i" ? "lowerRoman"
+                    : lst === "upper-roman" || typ === "I" ? "upperRoman" : "";
+                if (wf) (b.numFmtAt || (b.numFmtAt = {}))[numId] = { level: level, fmt: wf };
+            }
             var xml = "";
             for (var i = 0; i < node.childNodes.length; i++) {
                 var li = node.childNodes[i];
@@ -703,14 +787,43 @@ function RTE_Plugin_DocxExport() {
             return xml;
         }
 
+        // 2026-10-15 the table's width and its column widths: a 30% / 70% layout came back as equal columns and a
+        // full-width table as shrink-to-fit. <col> widths (% of a 6.5in text column, or px) become <w:gridCol> twips;
+        // a % table width becomes <w:tblW w:type="pct"> (fiftieths of a percent). tools/docx/table-widths.mjs
+        var TEXT_TWIPS = 9360;
+        function tableGrid(node) {
+            var cols = [], kids = node.children;
+            for (var i = 0; i < kids.length; i++) if (kids[i].tagName && kids[i].tagName.toLowerCase() === "colgroup") {
+                for (var j = 0; j < kids[i].children.length; j++) if (kids[i].children[j].tagName.toLowerCase() === "col") cols.push(kids[i].children[j]);
+            }
+            if (!cols.length) return "";
+            var tw = [];
+            for (var k = 0; k < cols.length; k++) {
+                var w = (cols[k].style && cols[k].style.width) || cols[k].getAttribute("width") || "", m;
+                if ((m = /^\s*([\d.]+)%\s*$/.exec(w))) tw.push(Math.round(parseFloat(m[1]) / 100 * TEXT_TWIPS));
+                else if ((m = /^\s*([\d.]+)(px)?\s*$/.exec(w))) tw.push(Math.round(parseFloat(m[1]) * 15));
+                else return ""; // one column without a usable width: leave the layout to Word
+            }
+            return "<w:tblGrid>" + tw.map(function (t) { return '<w:gridCol w:w="' + t + '"/>'; }).join("") + "</w:tblGrid>";
+        }
+        function tableWidth(node) {
+            var m = /^\s*([\d.]+)%\s*$/.exec((node.style && node.style.width) || node.getAttribute("width") || "");
+            return m ? '<w:tblW w:w="' + Math.round(parseFloat(m[1]) * 50) + '" w:type="pct"/>' : '<w:tblW w:w="0" w:type="auto"/>';
+        }
         function table(node, style) {
-            var xml = '<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/>' +
+            var xml = '<w:tbl><w:tblPr>' + tableWidth(node) +
                 '<w:tblBorders>' +
                 ["top", "left", "bottom", "right", "insideH", "insideV"].map(function (s) {
                     return '<w:' + s + ' w:val="single" w:sz="4" w:space="0" w:color="BFBFBF"/>';
                 }).join("") +
-                "</w:tblBorders></w:tblPr>";
+                "</w:tblBorders></w:tblPr>" + tableGrid(node);
             var trs = node.getElementsByTagName("tr");
+            // 2026-10-15 rowspan: Word marks the first cell <w:vMerge w:val="restart"/> and puts an empty <w:vMerge/>
+            // continuation cell at the same grid column in every row it covers. It was not written at all, so a
+            // merged cell came back split. down[col] = { left: rows still covered, span: its colspan }.
+            // tools/docx/merged-cells.mjs
+            var down = {};
+            function continuation(col) { var d = down[col]; d.left--; var s = d.span; if (!d.left) delete down[col]; return '<w:tc><w:tcPr>' + (s > 1 ? '<w:gridSpan w:val="' + s + '"/>' : '') + '<w:vMerge/></w:tcPr><w:p/></w:tc>'; }
             for (var r = 0; r < trs.length; r++) {
                 var cells = [];
                 for (var c = 0; c < trs[r].childNodes.length; c++) {
@@ -724,8 +837,12 @@ function RTE_Plugin_DocxExport() {
                 // or the continuation arrives as unlabelled numbers.
                 var isHeader = cells.length && cells[0].header;
                 xml += "<w:tr>" + (isHeader ? "<w:trPr><w:tblHeader/></w:trPr>" : "");
+                var gcol = 0;
                 for (var k = 0; k < cells.length; k++) {
+                    while (down[gcol]) { var dspan = down[gcol].span; xml += continuation(gcol); gcol += dspan; }
                     var span = parseInt(cells[k].node.getAttribute("colspan") || "1", 10) || 1;
+                    var rspan = parseInt(cells[k].node.getAttribute("rowspan") || "1", 10) || 1;
+                    if (rspan > 1) down[gcol] = { left: rspan - 1, span: span };
                     var cs = styleFrom(cells[k].node, style);
                     if (cells[k].header) cs.bold = true;
                     var body = "";
@@ -738,9 +855,13 @@ function RTE_Plugin_DocxExport() {
                     if (!body) body = "<w:p/>";
                     xml += "<w:tc><w:tcPr>" +
                         (span > 1 ? '<w:gridSpan w:val="' + span + '"/>' : "") +
+                        (rspan > 1 ? '<w:vMerge w:val="restart"/>' : "") +
                         (cells[k].header ? '<w:shd w:val="clear" w:color="auto" w:fill="F1F3F7"/>' : "") +
                         "</w:tcPr>" + body + "</w:tc>";
+                    gcol += span;
                 }
+                // merges from above that reach past this row's last cell
+                for (var tail = gcol; tail < gcol + 64; tail++) { if (down[tail]) { var tspan = down[tail].span; xml += continuation(tail); tail += tspan - 1; } }
                 xml += "</w:tr>";
             }
             return xml + "</w:tbl><w:p/>";
@@ -761,11 +882,34 @@ function RTE_Plugin_DocxExport() {
 
                 if (c.getAttribute("data-rte-page-break") !== null || /always|page/.test((c.style && (c.style.pageBreakBefore || c.style.breakBefore)) || "")) {
                     pendingBreak = true;
+                    // 2026-10-15 the editor's marker is only a marker: its label ("Insert Page Break") was written
+                    // into the Word document as a paragraph of text. tools/docx/page-breaks.mjs
+                    if (c.getAttribute("data-rte-page-break") !== null) continue;
                 }
 
                 if (tag === "hr") { xml += '<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="C8CDD4"/></w:pBdr></w:pPr></w:p>'; continue; }
                 if (tag === "ul" || tag === "ol") { xml += list(c, style, 0, pendingBreak); pendingBreak = false; continue; }
-                if (tag === "table") { xml += table(c, style); continue; }
+                // 2026-10-04 captions are Word captions: a table's above it (it was dropped), an image's in its own
+                // paragraph after the picture (it ran on in the picture's). tools/docx/captions.mjs
+                if (tag === "table") {
+                    var tcap = c.caption; // its OWN caption, not a nested table's (2026-10-05 review)
+                    if (tcap && (tcap.textContent || "").replace(/\s+/g, "")) xml += para(tcap, styleFrom(tcap, style), { caption: true });
+                    xml += table(c, style); continue;
+                }
+                var ownFcap = null;
+                if (tag === "figure") for (var fci = 0; fci < c.children.length; fci++) if (c.children[fci].tagName.toLowerCase() === "figcaption") { ownFcap = c.children[fci]; break; }
+                if (tag === "figure" && ownFcap) {
+                    var fcap = ownFcap;
+                    // the caption is taken out for the picture's paragraph and put back (the image export
+                    // keys on the original <img>, so a clone lost the picture)
+                    var fcapParent = fcap.parentNode, fcapNext = fcap.nextSibling;
+                    fcapParent.removeChild(fcap);
+                    try { xml += para(c, styleFrom(c, style), { pageBreakBefore: pendingBreak }); }
+                    finally { fcapParent.insertBefore(fcap, fcapNext); }
+                    pendingBreak = false;
+                    if ((fcap.textContent || "").replace(/\s+/g, "")) xml += para(fcap, styleFrom(fcap, style), { caption: true });
+                    continue;
+                }
                 if (HEADING[tag]) { xml += para(c, styleFrom(c, style), { heading: HEADING[tag], pageBreakBefore: pendingBreak }); pendingBreak = false; continue; }
                 if (tag === "blockquote") { xml += para(c, styleFrom(c, style), { quote: true, pageBreakBefore: pendingBreak }); pendingBreak = false; continue; }
                 if (tag === "pre") { xml += para(c, styleFrom(c, style), { pre: true, pageBreakBefore: pendingBreak }); pendingBreak = false; continue; }
@@ -822,16 +966,39 @@ function RTE_Plugin_DocxExport() {
             '" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>';
     }
 
+    // 2026-10-04 The copy's <img> elements are NEW and have not loaded: exported straight after setHTMLCode()
+    // an image without width/height had naturalWidth 0 and was silently dropped. The copy is made first and
+    // its images are waited for (load or error, 5 s at most). tools/docx/unsized-image.mjs
     function buildDocx(options) {
+        // 2026-10-05 a failure here (getHTMLCode, the copy) rejects the promise instead of throwing (review)
+        try { return buildDocxPrepared(options); } catch (e) { return Promise.reject(e); }
+    }
+    function buildDocxPrepared(options) {
+        var host = document.createElement("div");
+        // getHTMLCode() is the serialized document: presentational
+        // plugins strip their own chrome from it, so page overlays,
+        // watermarks and formatting marks never reach the file.
+        host.innerHTML = editor.getHTMLCode() || "";
+        // Resolve class-based list styling in the editing document, before the
+        // export copy leaves the stylesheet's scope. Do not change saved HTML.
+        var liveLists = editor.getEditable().querySelectorAll("ol,ul"), exportLists = host.querySelectorAll("ol,ul");
+        if (liveLists.length === exportLists.length) for (var li = 0; li < liveLists.length; li++) {
+            var listStyle = liveLists[li].ownerDocument.defaultView.getComputedStyle(liveLists[li]).listStyleType;
+            if (listStyle) exportLists[li].style.listStyleType = listStyle;
+        }
+        document.body.appendChild(host);
+        host.style.cssText = "position:absolute;left:-99999px;top:0;width:800px;";
+        var pending = [].slice.call(host.querySelectorAll("img")).filter(function (im) { return !(im.complete && im.naturalWidth); });
+        var ready = !pending.length ? Promise.resolve() : Promise.all(pending.map(function (im) {
+            return new Promise(function (done) {
+                im.addEventListener("load", done); im.addEventListener("error", done); setTimeout(done, 5000);
+            });
+        }));
+        return ready.then(function () { return buildFromHost(host, options); });
+    }
+    function buildFromHost(host, options) {
         return new Promise(function (resolve, reject) {
             try {
-                var host = document.createElement("div");
-                // getHTMLCode() is the serialized document: presentational
-                // plugins strip their own chrome from it, so page overlays,
-                // watermarks and formatting marks never reach the file.
-                host.innerHTML = editor.getHTMLCode() || "";
-                document.body.appendChild(host);
-                host.style.cssText = "position:absolute;left:-99999px;top:0;width:800px;";
 
                 var b = new Builder();
                 var body = blocksXml(host, b);
@@ -916,7 +1083,11 @@ function RTE_Plugin_DocxExport() {
                 }
 
                 zip(files).then(resolve, reject);
-            } catch (e) { reject(e); }
+            } catch (e) {
+                // 2026-10-05 the hidden copy never stays in the page (review)
+                if (host && host.parentNode) host.parentNode.removeChild(host);
+                reject(e);
+            }
         });
     }
 
@@ -936,6 +1107,7 @@ function RTE_Plugin_DocxExport() {
             heads +
             '<w:style w:type="paragraph" w:styleId="Quote"><w:name w:val="Quote"/><w:basedOn w:val="Normal"/><w:rPr><w:i/><w:color w:val="4A5568"/></w:rPr></w:style>' +
             '<w:style w:type="paragraph" w:styleId="Code"><w:name w:val="Code"/><w:basedOn w:val="Normal"/><w:rPr><w:rFonts w:ascii="Consolas" w:hAnsi="Consolas"/></w:rPr></w:style>' +
+            '<w:style w:type="paragraph" w:styleId="Caption"><w:name w:val="caption"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/><w:rPr><w:i/><w:color w:val="44546A"/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr></w:style>' +
             "</w:styles>";
     }
 
@@ -949,8 +1121,8 @@ function RTE_Plugin_DocxExport() {
                 // Word distinguishes bullets from numbers ONLY here; the
                 // document body stores every list identically.
                 levels += '<w:lvl w:ilvl="' + lvl + '">' +
-                    '<w:start w:val="1"/>' +
-                    '<w:numFmt w:val="' + (fmt === "bullet" ? "bullet" : "decimal") + '"/>' +
+                    '<w:start w:val="' + (b.numStart && b.numStart[numId] && b.numStart[numId].level === lvl ? b.numStart[numId].start : 1) + '"/>' +
+                    '<w:numFmt w:val="' + (fmt === "bullet" ? "bullet" : (b.numFmtAt && b.numFmtAt[numId] && b.numFmtAt[numId].level === lvl ? b.numFmtAt[numId].fmt : "decimal")) + '"/>' +
                     '<w:lvlText w:val="' + (fmt === "bullet" ? "\uF0B7" : "%" + (lvl + 1) + ".") + '"/>' +
                     '<w:lvlJc w:val="left"/>' +
                     '<w:pPr><w:ind w:left="' + (720 * (lvl + 1)) + '" w:hanging="360"/></w:pPr>' +

@@ -59,13 +59,19 @@ function RTE_Plugin_SlashCommand() {
 
         injectStyles();
 
-        var editdoc = editor.getDocument();
-        editdoc.addEventListener("keydown", onEditDocKeyDown, true);
-        editdoc.addEventListener("input", onEditDocInput, true);
-        editdoc.addEventListener("compositionstart", function () { composing = true; });
-        editdoc.addEventListener("compositionend", function () { composing = false; });
-        editdoc.addEventListener("mousedown", function () { closePopup(); }, true);
-        editdoc.addEventListener("blur", function () { setTimeout(closePopup, 150); }, true);
+        // 2026-10-03 Bound through editor.bindDocumentEvent, so the listeners follow the live document:
+        // shell plugins move the iframe during the init loop, and listeners added to editdoc here stayed
+        // on the dead document (this feature never fired). tools/keyboard/plugin-listeners.mjs
+        var on = function (type, fn, capture) {
+            if (editor.bindDocumentEvent) editor.bindDocumentEvent(type, fn, capture);
+            else editor.getDocument().addEventListener(type, fn, capture);
+        };
+        on("keydown", onEditDocKeyDown, true);
+        on("input", onEditDocInput, true);
+        on("compositionstart", function () { composing = true; });
+        on("compositionend", function () { composing = false; });
+        on("mousedown", function () { closePopup(); }, true);
+        on("blur", function () { setTimeout(closePopup, 150); }, true);
 
         window.addEventListener("scroll", onHostScrollOrResize, true);
         window.addEventListener("resize", onHostScrollOrResize, true);
@@ -291,9 +297,9 @@ function RTE_Plugin_SlashCommand() {
         if (typeof editor.setTableLayoutMode === "function") {
             push("Insert", "layouttable", "Layout table", "Insert a borderless table for positioning content (role=presentation)", ["layout", "table", "grid", "email", "columns", "presentation"], iconTable(),
                 function () { editor.insertLayoutTable(2, 2); });
-            push("Tools", "tablelayoutmode", "Mark table as layout", "This table only positions content — stop screen readers announcing it as data", ["layout", "table", "presentation", "accessibility", "screen reader"], iconTable(),
+            push("Tools", "tablelayoutmode", "Mark table as layout", "This table only positions content \u2014 stop screen readers announcing it as data", ["layout", "table", "presentation", "accessibility", "screen reader"], iconTable(),
                 function () { editor.setTableLayoutMode("layout"); });
-            push("Tools", "tabledatamode", "Mark table as data", "This table states relationships — restore its header cells", ["data", "table", "header", "accessibility"], iconTable(),
+            push("Tools", "tabledatamode", "Mark table as data", "This table states relationships \u2014 restore its header cells", ["data", "table", "header", "accessibility"], iconTable(),
                 function () { editor.setTableLayoutMode("data", null, { promoteFirstRow: true }); });
         }
         if (typeof editor.moveBlockUp === "function") {
@@ -401,7 +407,7 @@ function RTE_Plugin_SlashCommand() {
         // this menu without any error. These checks are re-run by refreshDefaults()
         // after all plugins have initialised and again each time the menu opens.
         if (typeof editor.exportToPdf === "function") {
-            push("Tools", "exportpdf", "Export to PDF", "Real text, not a screenshot — selectable, searchable and screen-reader friendly", ["pdf", "export", "download", "save", "print", "text", "accessible", "searchable"], iconPdfText(),
+            push("Tools", "exportpdf", "Export to PDF", "Real text, not a screenshot \u2014 selectable, searchable and screen-reader friendly", ["pdf", "export", "download", "save", "print", "text", "accessible", "searchable"], iconPdfText(),
                 function () { editor.exportToPdf(); });
         }
         if (typeof editor.exportToDocx === "function") {
@@ -439,6 +445,8 @@ function RTE_Plugin_SlashCommand() {
                 function () { editor.copyAsMarkdown(); });
             push("Tools", "downloadmarkdown", "Download as Markdown", "Save the document as a .md file", ["markdown", "md", "download", "export", "save", "file"], iconMarkdown(),
                 function () { editor.downloadMarkdown(); });
+            push("Tools", "markdownmode", "Edit as Markdown", "Show the document as Markdown text, and back to the visual view", ["markdown", "md", "source", "text", "edit", "mode"], iconMarkdown(),
+                function () { editor.toggleMarkdownMode(); });
         }
         if (typeof editor.toggleTypewriterMode === "function") {
             push("Tools", "typewriter", "Typewriter mode", "Keep the caret line centred as you type", ["typewriter", "center", "scroll", "focus", "distraction", "zen"], iconTypewriter(),
@@ -451,6 +459,10 @@ function RTE_Plugin_SlashCommand() {
             function () { editor.execCommand("inserttable"); });
         push("Insert", "image", "Image", "Upload or embed an image", ["picture", "photo", "img"], iconImage(),
             function () { editor.execCommand("imageupload"); });
+        if (typeof editor.openImageGenerator === "function") {
+            push("Insert", "generate-image", "Generate image", "Describe an image and insert it (your own image provider)", ["picture", "generate", "ai", "draw", "image", "create"], iconImage(),
+                function () { editor.openImageGenerator(); });
+        }
         push("Insert", "link", "Link", "Insert a hyperlink", ["url", "anchor"], iconLink(),
             function () { editor.execCommand("insertlink"); });
         push("Insert", "emoji", "Emoji", "Insert an emoji", ["smiley", "icon"], iconEmoji(),
@@ -641,7 +653,7 @@ function RTE_Plugin_SlashCommand() {
             if (host && host.classList && host.classList.contains("rte-dark")) popupEl.className += " rte-slash-popup-dark";
         } catch (e) {}
         popupEl.setAttribute("role", "listbox");
-        popupEl.setAttribute("aria-label", "Slash commands");
+        popupEl.setAttribute("aria-label", (config && config.text_slash_aria) || "Slash commands");
         popupHost.body.appendChild(popupEl);
     }
 
@@ -652,7 +664,7 @@ function RTE_Plugin_SlashCommand() {
         if (!filtered.length) {
             var empty = popupHost.createElement("div");
             empty.className = "rte-slash-empty";
-            empty.textContent = "No matching commands";
+            empty.textContent = (config && config.text_slash_none) || "No matching commands";
             popupEl.appendChild(empty);
             return;
         }
@@ -799,8 +811,10 @@ function RTE_Plugin_SlashCommand() {
         var r = rects && rects.length ? rects[rects.length - 1] : null;
         if (!r) r = trigger.range.getBoundingClientRect();
 
-        var left = ir.left + (r.left || 0) + window.pageXOffset;
-        var top = ir.top + (r.bottom || r.top || 0) + window.pageYOffset + 4;
+        // the caret rect is in iframe pixels, scaled on screen inside a transform:scale() ancestor
+        var sk = iframe.offsetWidth && ir.width > 0 ? ir.width / iframe.offsetWidth : 1;
+        var left = ir.left + (r.left || 0) * sk + window.pageXOffset;
+        var top = ir.top + (r.bottom || r.top || 0) * sk + window.pageYOffset + 4;
 
         popupEl.style.position = "absolute";
         popupEl.style.left = left + "px";
@@ -809,8 +823,8 @@ function RTE_Plugin_SlashCommand() {
         // Flip up if would overflow viewport
         var vh = window.innerHeight || document.documentElement.clientHeight;
         var popupRect = popupEl.getBoundingClientRect();
-        if (popupRect.bottom > vh - 8 && (ir.top + (r.top || 0)) > popupRect.height + 16) {
-            popupEl.style.top = (ir.top + (r.top || 0) + window.pageYOffset - popupRect.height - 4) + "px";
+        if (popupRect.bottom > vh - 8 && (ir.top + (r.top || 0) * sk) > popupRect.height + 16) {
+            popupEl.style.top = (ir.top + (r.top || 0) * sk + window.pageYOffset - popupRect.height - 4) + "px";
         }
     }
 

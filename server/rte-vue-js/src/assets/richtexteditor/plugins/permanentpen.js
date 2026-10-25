@@ -131,7 +131,7 @@ function RTE_Plugin_PermanentPen() {
     function tidyRun(run) {
         if (!run) return;
         var text = run.textContent || "";
-        if (text.replace(/​/g, "") === "") {
+        if (text.replace(/\u200b/g, "") === "") {
             // Nothing was ever typed: remove the empty run entirely.
             if (run.parentNode) run.parentNode.removeChild(run);
             return;
@@ -139,7 +139,7 @@ function RTE_Plugin_PermanentPen() {
         var walker = run.ownerDocument.createTreeWalker(run, 4 /* SHOW_TEXT */, null, false);
         var n;
         while ((n = walker.nextNode())) {
-            if (n.nodeValue.indexOf("​") >= 0) n.nodeValue = n.nodeValue.replace(/​/g, "");
+            if (n.nodeValue.indexOf("\u200b") >= 0) n.nodeValue = n.nodeValue.replace(/\u200b/g, "");
         }
     }
 
@@ -173,7 +173,7 @@ function RTE_Plugin_PermanentPen() {
         // A zero-width space gives the caret something real to sit inside; an
         // empty inline element cannot hold a caret, so the first character would
         // land outside the span and the pen would appear not to work.
-        span.appendChild(doc.createTextNode("​"));
+        span.appendChild(doc.createTextNode("\u200b"));
 
         range.insertNode(span);
         var r = doc.createRange();

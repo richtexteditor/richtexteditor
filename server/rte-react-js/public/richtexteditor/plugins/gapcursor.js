@@ -137,6 +137,9 @@ function RTE_Plugin_GapCursor() {
         var ed = getEditable();
         var doc = getDoc();
         if (!ed || !doc) return null;
+        // 2026-10-14 Suggesting mode: an empty paragraph is not tracked yet, so the track hook refuses it.
+        // tools/review/suggesting-structure-audit.mjs
+        if (editor.__trackHook && editor.__trackHook("insert-block", {}) === true) return null;
         // Resolve against the hint-free list, then insert relative to that node.
         hideHint();
         var p = makeParagraph(doc);
@@ -151,6 +154,8 @@ function RTE_Plugin_GapCursor() {
         var ed = getEditable();
         var doc = getDoc();
         if (!ed || !doc || !el) return null;
+        // 2026-10-14 Suggesting mode: an empty paragraph is not tracked yet, so the track hook refuses it.
+        if (editor.__trackHook && editor.__trackHook("insert-block", {}) === true) return null;
         var p = makeParagraph(doc);
         if (after) el.parentNode.insertBefore(p, el.nextSibling);
         else el.parentNode.insertBefore(p, el);
@@ -182,8 +187,60 @@ function RTE_Plugin_GapCursor() {
         return (n && n.parentNode === ed) ? n : null;
     }
 
+    // 2026-10-03 Is the caret at the edge of a block it can be INSIDE (table, code block, figure)?
+    // Atomic blocks (rule, image, embed) hold no caret, so they always count as the edge.
+    // vertical: the first/last row (tables) and the first/last visual line; otherwise the very
+    // first/last character position. tools/keyboard/gapcursor-edges.mjs
+    function caretAtEdge(block, range, forward, vertical) {
+        if (!/^(TABLE|PRE|FIGURE)$/.test(block.nodeName)) return true;
+        var scope = block;
+        if (block.nodeName === "TABLE") {
+            var cell = range.startContainer;
+            while (cell && cell !== block && !/^(TD|TH)$/.test(cell.nodeName)) cell = cell.parentNode;
+            var rows = block.rows;
+            if (!cell || cell === block || !rows || !rows.length) return true;
+            var edgeRow = forward ? rows[rows.length - 1] : rows[0];
+            if (vertical) {
+                if (cell.parentNode !== edgeRow) return false;
+            } else {
+                var edgeCell = forward ? edgeRow.cells[edgeRow.cells.length - 1] : edgeRow.cells[0];
+                if (cell !== edgeCell) return false;
+            }
+            scope = cell;
+        }
+        var doc = scope.ownerDocument;
+        if (vertical) {
+            var rc = null;
+            try {
+                var rects = range.getClientRects();
+                rc = rects && rects.length ? rects[0] : null;
+                if (!rc || !rc.height) {
+                    var n = range.startContainer.nodeType === 3 ? range.startContainer.parentNode : range.startContainer;
+                    rc = n && n.getBoundingClientRect ? n.getBoundingClientRect() : null;
+                }
+            } catch (er) { rc = null; }
+            if (!rc || !rc.height) return true;
+            var sr = scope.getBoundingClientRect();
+            var lh = Math.max(rc.height, 12);
+            return forward ? (sr.bottom - rc.bottom < lh) : (rc.top - sr.top < lh);
+        }
+        var r = doc.createRange();
+        if (forward) { r.setStart(range.endContainer, range.endOffset); r.setEnd(scope, scope.childNodes.length); }
+        else { r.setStart(scope, 0); r.setEnd(range.startContainer, range.startOffset); }
+        if (r.toString().replace(/\u200b/g, "") !== "") return false;
+        // a line break or an object between the caret and the edge is still a position to travel to
+        // (a filler <br> as the scope's last child is not)
+        var objs = r.cloneContents().querySelectorAll("br,img,hr,video,iframe,svg,canvas");
+        for (var i = 0; i < objs.length; i++) if (!(forward && objs[i].nodeName === "BR" && i === objs.length - 1 && scope.lastChild && scope.lastChild.nodeName === "BR")) return false;
+        return true;
+    }
+
     function onKeyDown(e) {
         var key = e.key;
+        // 2026-10-02 A modified arrow is not caret travel: Alt+Up / Alt+Down move the block (or the
+        // table row), Shift+Arrow extends the selection - neither may insert a gap paragraph above or
+        // below a table at the document edge. tools/keyboard/move-block.mjs
+        if (e.altKey || e.shiftKey || e.ctrlKey || e.metaKey) return;
         var forward = (key === "ArrowDown" || key === "ArrowRight" || key === "End" || key === "PageDown");
         var back = (key === "ArrowUp" || key === "ArrowLeft" || key === "Home" || key === "PageUp");
         if (!forward && !back) return;
@@ -199,6 +256,9 @@ function RTE_Plugin_GapCursor() {
         var kids = blocks();
         var index = kids.indexOf(block);
         if (index < 0) return;
+        // Only from the block's EDGE in that direction: inside a table or code block the key must
+        // first travel there (Home in any cell, or ArrowUp from row 2, used to jump out of the table).
+        if (!caretAtEdge(block, sel.getRangeAt(0), forward, key === "ArrowUp" || key === "ArrowDown" || key === "PageUp" || key === "PageDown")) return;
 
         if (forward) {
             var next = kids[index + 1];

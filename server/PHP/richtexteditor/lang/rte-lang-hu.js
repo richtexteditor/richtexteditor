@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "Beszúrás";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "Stílusok";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "Szövegstílusok";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "hu";	// this pack's locale (Intl names, e.g. the text-part language menu)

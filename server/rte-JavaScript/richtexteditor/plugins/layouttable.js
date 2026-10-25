@@ -331,6 +331,26 @@ function RTE_Plugin_LayoutTable() {
     }
 
     function insertAtCaret(node, doc) {
+        // 2026-10-04 through the core's block placement: range.insertNode put the table INSIDE the
+        // paragraph (<p>one two<table>...</p>, invalid HTML). The caret then goes into the first cell.
+        // tools/tables/layout-table-placement.mjs
+        if (typeof editor.insertElement === "function") {
+            try {
+                editor.insertElement(node);
+                if (node.parentNode) {
+                    var cell = node.querySelector("td,th");
+                    var sel0 = editor.getSelection();
+                    if (cell && sel0) {
+                        var r0 = node.ownerDocument.createRange();
+                        r0.setStart(cell, 0);
+                        r0.collapse(true);
+                        sel0.removeAllRanges();
+                        sel0.addRange(r0);
+                    }
+                    return true;
+                }
+            } catch (e) { /* the plain insert below */ }
+        }
         var inserted = false;
         try {
             var sel = editor.getSelection();

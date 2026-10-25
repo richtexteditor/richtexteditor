@@ -64,7 +64,7 @@ function RTE_Plugin_WordExport() {
                 editor.slashCommands.register({
                     id: "export-word",
                     title: "Export to Word (legacy .doc)",
-                    description: "HTML wrapped for Word — use Export to Word (.docx) for a real OOXML file",
+                    description: "HTML wrapped for Word \u2014 use Export to Word (.docx) for a real OOXML file",
                     keywords: ["word", "doc", "legacy", "html", "export", "download"],
                     run: function () { editor.exportToWord(); }
                 });
@@ -185,7 +185,7 @@ function RTE_Plugin_WordExport() {
     function triggerDownload(text, filename) {
         try {
             // Prefix a UTF-8 BOM so Word reads the encoding correctly.
-            var blob = new Blob(["﻿", text], { type: "application/msword;charset=utf-8" });
+            var blob = new Blob(["\ufeff", text], { type: "application/msword;charset=utf-8" });
             var url = URL.createObjectURL(blob);
             var a = document.createElement("a");
             a.href = url;

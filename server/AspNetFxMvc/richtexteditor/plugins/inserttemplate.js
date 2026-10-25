@@ -7,6 +7,12 @@ function RTE_Plugin_InsertTemplate() {
 
     obj.PluginName = "InsertTemplate";
 
+    // 2026-10-18 the words read config.text_ keys (language packs), English as the fallback; {0} fills a template.
+    // tools/i18n/plugin-panels-language.mjs
+    function pText(key, fallback, arg) {
+        var s = (config && config["text_" + key]) || fallback;
+        return arg === undefined ? s : s.split("{0}").join(String(arg));
+    }
     obj.InitConfig = function (argconfig) {
         config = argconfig;
         if (!config.htmlTemplates) {
@@ -51,7 +57,7 @@ function RTE_Plugin_InsertTemplate() {
         if (item instanceof Array) {
             return {
                 id: "template-" + index,
-                title: item[0] || ("Template " + (index + 1)),
+                title: item[0] || pText("tp_template", "Template {0}", index + 1),
                 html: item[1] || "",
                 meta: item[2] || ""
             };
@@ -60,7 +66,7 @@ function RTE_Plugin_InsertTemplate() {
         if (item && typeof item === "object") {
             return {
                 id: item.id || ("template-" + index),
-                title: item.title || item.name || item.text || ("Template " + (index + 1)),
+                title: item.title || item.name || item.text || pText("tp_template", "Template {0}", index + 1),
                 html: item.html || item.content || "",
                 meta: item.meta || item.description || ""
             };
@@ -69,7 +75,7 @@ function RTE_Plugin_InsertTemplate() {
         if (typeof item === "string") {
             return {
                 id: "template-" + index,
-                title: "Template " + (index + 1),
+                title: pText("tp_template", "Template {0}", index + 1),
                 html: item,
                 meta: ""
             };
@@ -103,13 +109,13 @@ function RTE_Plugin_InsertTemplate() {
         // The outer dialog frame supplies the title bar — only render a subtitle here.
         var header = append(browser, "div", "", "rte-dialog-browser-header");
         var copy = append(header, "div", "", "rte-dialog-browser-copy");
-        copy.innerText = "Preview reusable layouts, search by name, and replace the current editor content with a selected template.";
+        copy.innerText = pText("tp_copy", "Preview reusable layouts, search by name, and replace the current editor content with a selected template.");
 
         var toolbar = append(browser, "div", "", "rte-dialog-browser-toolbar");
         var search = append(toolbar, "input", "", "rte-dialog-browser-search");
         search.type = "search";
-        search.placeholder = "Search templates";
-        search.setAttribute("aria-label", "Search templates");
+        search.placeholder = pText("tp_search", "Search templates");
+        search.setAttribute("aria-label", pText("tp_search", "Search templates"));
         var count = append(toolbar, "div", "", "rte-dialog-browser-count");
         count.setAttribute("role", "status");
         count.setAttribute("aria-live", "polite");
@@ -117,21 +123,21 @@ function RTE_Plugin_InsertTemplate() {
         var scrollpanel = append(browser, "div", "", "rte-dialog-browser-scrollpanel");
         var grid = append(scrollpanel, "div", "", "rte-dialog-browser-grid rte-template-grid");
         grid.setAttribute("role", "listbox");
-        grid.setAttribute("aria-label", "Available templates");
+        grid.setAttribute("aria-label", pText("tp_available", "Available templates"));
         var empty = append(scrollpanel, "div", "", "rte-dialog-browser-empty");
-        empty.innerText = "No templates match the current filter.";
+        empty.innerText = pText("tp_nomatch", "No templates match the current filter.");
 
         var footer = append(browser, "div", "", "rte-gallery-browser-footer");
         var footerText = append(footer, "div", "", "rte-gallery-browser-footer-text");
-        footerText.innerText = "Select a template to replace the current content.";
+        footerText.innerText = pText("tp_select", "Select a template to replace the current content.");
 
         var cancelButton = append(footer, "button", "", "rte-gallery-browser-button");
         cancelButton.type = "button";
-        cancelButton.innerText = "Cancel";
+        cancelButton.innerText = pText("cancel", "Cancel");
 
         var applyButton = append(footer, "button", "", "rte-gallery-browser-button rte-gallery-browser-button-primary");
         applyButton.type = "button";
-        applyButton.innerText = "Replace Content";
+        applyButton.innerText = pText("tp_replace", "Replace Content");
         applyButton.disabled = true;
 
         var selectedId = "";
@@ -174,10 +180,10 @@ function RTE_Plugin_InsertTemplate() {
                 }
             }
 
-            count.innerText = items.length + " template" + (items.length === 1 ? "" : "s");
+            count.innerText = items.length === 1 ? pText("tp_count1", "1 template") : pText("tp_countn", "{0} templates", items.length);
             footerText.innerText = selectedTemplate
-                ? ("Ready to replace the editor content with " + selectedTemplate.title + ".")
-                : "Select a template to replace the current content.";
+                ? pText("tp_ready", "Ready to replace the editor content with {0}.", selectedTemplate.title)
+                : pText("tp_select", "Select a template to replace the current content.");
             applyButton.disabled = !selectedTemplate;
         }
 
@@ -186,7 +192,9 @@ function RTE_Plugin_InsertTemplate() {
             var i;
             for (i = 0; i < items.length; i++) {
                 if (items[i].id === selectedId) {
-                    editor.setHTMLCode(items[i].html);
+                    // 2026-10-03 undoable: Ctrl+Z gives back exactly the document this replaced, edits made just
+                    // before included (tools/import/replace-undo-plugins.mjs)
+                    editor.setHTMLCode(items[i].html, { undoable: true });
                     closeDialog();
                     editor.focus();
                     return;
@@ -221,11 +229,19 @@ function RTE_Plugin_InsertTemplate() {
                     var title = append(footer, "div", "", "rte-template-card-title");
                     title.innerText = item.title;
                     var meta = append(footer, "div", "", "rte-template-card-meta");
-                    meta.innerText = item.meta || stripHtml(item.html).substring(0, 80) || "Reusable template";
+                    meta.innerText = item.meta || stripHtml(item.html).substring(0, 80) || pText("tp_reusable", "Reusable template");
 
+                    // 2026-10-03 Select IN PLACE: re-rendering every card here meant the second click of a
+                    // double-click hit a new element, so Firefox fired no dblclick and nothing was applied.
+                    // tools/templates/template-dblclick.mjs
                     card.onclick = function () {
                         selectedId = item.id;
-                        render();
+                        var cards = grid.querySelectorAll(".rte-dialog-browser-card");
+                        for (var c = 0; c < cards.length; c++) {
+                            cards[c].classList.toggle("is-selected", cards[c] === card);
+                            cards[c].setAttribute("aria-selected", cards[c] === card ? "true" : "false");
+                        }
+                        updateFooter(getFilteredTemplates());
                     };
 
                     card.ondblclick = function () {

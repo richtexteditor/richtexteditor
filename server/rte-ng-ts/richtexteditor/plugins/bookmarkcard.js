@@ -37,6 +37,13 @@ function RTE_Plugin_BookmarkCard() {
     obj.PluginName = "BookmarkCard";
 
     obj.InitConfig = function (argconfig) { config = argconfig; };
+    // 2026-10-18 the words read config.text_ keys (language packs), English as the fallback; {0} / {1} fill a template.
+    // tools/i18n/plugin-bars-language.mjs
+    function pText(key, fallback) {
+        var s = (config && config["text_" + key]) || fallback;
+        for (var i = 2; i < arguments.length; i++) s = s.split("{" + (i - 2) + "}").join(String(arguments[i]));
+        return s;
+    }
 
     obj.InitEditor = function (argeditor) {
         editor = argeditor;
@@ -175,22 +182,22 @@ function RTE_Plugin_BookmarkCard() {
         input.type = "url"; input.placeholder = "https://example.com/article";
 
         var status = append(wrap, "div", "font-size:11px;color:#94a3b8;margin-top:6px;min-height:14px");
-        if (!config.bookmarkResolver) status.innerText = "No metadata resolver configured — a basic card (favicon + domain) will be inserted. Wire config.bookmarkResolver for rich previews.";
+        if (!config.bookmarkResolver) status.innerText = pText("bm_noresolver", "No metadata resolver configured \u2014 a basic card (favicon + domain) will be inserted. Wire config.bookmarkResolver for rich previews.");
 
         var footer = append(wrap, "div", "display:flex;justify-content:flex-end;gap:8px;margin-top:14px");
         var cancel = append(footer, "button", "padding:6px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;cursor:pointer");
-        cancel.type = "button"; cancel.textContent = "Cancel"; cancel.onclick = close;
+        cancel.type = "button"; cancel.textContent = pText("cancel", "Cancel"); cancel.onclick = close;
         var ok = append(footer, "button", "padding:6px 14px;border:1px solid #1d67ba;border-radius:8px;background:#1d67ba;color:#fff;cursor:pointer");
-        ok.type = "button"; ok.textContent = "Insert";
+        ok.type = "button"; ok.textContent = pText("insert", "Insert");
 
         setTimeout(function () { input.focus(); }, 0);
         input.onkeydown = function (e) { if (e.key === "Enter") { e.preventDefault(); ok.click(); } };
 
         ok.onclick = function () {
             var url = normalizeUrl(input.value);
-            if (!url) { status.style.color = "#dc2626"; status.innerText = "Enter a valid http(s) URL."; return; }
+            if (!url) { status.style.color = "#dc2626"; status.innerText = pText("bminvalid", "Enter a valid http(s) URL."); return; }
             if (config.bookmarkResolver && typeof config.bookmarkResolver === "function") {
-                ok.disabled = true; status.style.color = "#94a3b8"; status.innerText = "Fetching preview…";
+                ok.disabled = true; status.style.color = "#94a3b8"; status.innerText = pText("bmfetching", "Fetching preview\u2026");
                 var done = false;
                 function finish(meta) { if (done) return; done = true; meta = meta || {}; meta.url = url; close(); insertCard(meta); }
                 try {

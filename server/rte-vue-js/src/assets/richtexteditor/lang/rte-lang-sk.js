@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "Vložiť";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "Štýly";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "Štýly textu";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "sk";	// this pack's locale (Intl names, e.g. the text-part language menu)

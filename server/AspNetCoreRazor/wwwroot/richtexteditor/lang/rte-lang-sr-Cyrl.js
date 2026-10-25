@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "Уметни";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "Стилови";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "Стилови текста";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "sr-Cyrl";	// this pack's locale (Intl names, e.g. the text-part language menu)

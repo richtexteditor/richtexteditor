@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "إدراج";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "الأنماط";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "أنماط النص";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "ar";	// this pack's locale (Intl names, e.g. the text-part language menu)

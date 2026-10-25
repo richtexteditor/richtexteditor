@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "Indsæt";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "Typografier";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "Teksttypografier";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "da";	// this pack's locale (Intl names, e.g. the text-part language menu)

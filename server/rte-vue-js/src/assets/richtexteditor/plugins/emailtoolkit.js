@@ -24,6 +24,13 @@ function RTE_Plugin_EmailToolkit() {
     obj.PluginName = "EmailToolkit";
 
     obj.InitConfig = function (argconfig) { config = argconfig; };
+    // 2026-10-18 the words read config.text_ keys (language packs), English as the fallback; {0} / {1} fill a template.
+    // tools/i18n/plugin-bars-language.mjs
+    function pText(key, fallback) {
+        var s = (config && config["text_" + key]) || fallback;
+        for (var i = 2; i < arguments.length; i++) s = s.split("{" + (i - 2) + "}").join(String(arguments[i]));
+        return s;
+    }
 
     obj.InitEditor = function (argeditor) {
         editor = argeditor;
@@ -113,12 +120,19 @@ function RTE_Plugin_EmailToolkit() {
         var editable = editor.getEditable();
         var editdoc = editor.getDocument();
         var win = (editdoc && editdoc.defaultView) || window;
-        var container = editdoc.createElement("div");
-        for (var i = 0; i < editable.childNodes.length; i++) {
-            var c = cloneInlined(editable.childNodes[i], win);
-            if (c) container.appendChild(c);
-        }
-        var inner = container.innerHTML;
+        // 2026-10-03 Built inside editor.runInSavedView: the inlining needs the LIVE DOM (computed
+        // styles), and the live DOM carries other plugins' on-screen state - with merge-field preview
+        // on, the e-mail got the SAMPLE data ("Dear Ada Lovelace") instead of the template's fields.
+        // tools/markdown/plugin-chrome-exports.mjs
+        var build = function () {
+            var container = editdoc.createElement("div");
+            for (var i = 0; i < editable.childNodes.length; i++) {
+                var c = cloneInlined(editable.childNodes[i], win);
+                if (c) container.appendChild(c);
+            }
+            return container.innerHTML;
+        };
+        var inner = typeof editor.runInSavedView === "function" ? editor.runInSavedView(build) : build();
         var wrap = options.wrap !== false;
         if (!wrap) return inner;
         var width = options.width || config.emailWrapWidth || 640;
@@ -136,30 +150,30 @@ function RTE_Plugin_EmailToolkit() {
         var close = typeof dlg.close === "function" ? function () { dlg.close(); } : function () { editor.closeCurrentPopup(); };
         var wrap = append(dlg, "div", "", "rte-email-export");
         append(wrap, "div", "", "rte-email-export-copy").innerText =
-            "Inline-styled HTML for email clients (class/style blocks resolved to inline styles). Copy and paste into your email tool.";
+            pText("em_copy", "Inline-styled HTML for email clients (class/style blocks resolved to inline styles). Copy and paste into your email tool.");
         var ta = append(wrap, "textarea", "", "rte-email-export-code");
         ta.value = html;
         ta.readOnly = true;
-        ta.setAttribute("aria-label", "Inline-styled email HTML");
+        ta.setAttribute("aria-label", pText("em_code", "Inline-styled email HTML"));
         var status = append(wrap, "div", "", "rte-email-export-status");
         status.setAttribute("role", "status");
         status.setAttribute("aria-live", "polite");
-        status.textContent = "Ready to copy " + html.length + " characters.";
+        status.textContent = pText("em_ready", "Ready to copy {0} characters.", html.length);
         var foot = append(wrap, "div", "", "rte-email-export-footer");
         var copyBtn = append(foot, "button", "", "rte-email-export-button rte-email-export-button-primary");
-        copyBtn.type = "button"; copyBtn.textContent = "Copy";
+        copyBtn.type = "button"; copyBtn.textContent = pText("copy", "Copy");
         copyBtn.onclick = function () {
             ta.select();
             try {
                 if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(ta.value); }
                 else { dlg.ownerDocument.execCommand("copy"); }
-                copyBtn.textContent = "Copied";
-                status.textContent = "Copied email HTML to the clipboard.";
-                setTimeout(function () { copyBtn.textContent = "Copy"; status.textContent = "Ready to copy " + html.length + " characters."; }, 1400);
+                copyBtn.textContent = pText("em_copied", "Copied");
+                status.textContent = pText("em_copieddone", "Copied email HTML to the clipboard.");
+                setTimeout(function () { copyBtn.textContent = pText("copy", "Copy"); status.textContent = pText("em_ready", "Ready to copy {0} characters.", html.length); }, 1400);
             } catch (e) { /* ignore */ }
         };
         var closeBtn = append(foot, "button", "", "rte-email-export-button");
-        closeBtn.type = "button"; closeBtn.textContent = "Close"; closeBtn.onclick = close;
+        closeBtn.type = "button"; closeBtn.textContent = pText("close", "Close"); closeBtn.onclick = close;
         setTimeout(function () { ta.focus(); }, 0);
     };
 }

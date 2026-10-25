@@ -40,7 +40,8 @@ function RTE_Plugin_A11yEnhance() {
     };
 
     function label() {
-        return config.contentAriaLabel || config.contentLabel || "Rich text editor. Editing area.";
+        // 2026-10-18 the default name reads the language pack (text_editingarea). tools/i18n/plugin-default-keys.mjs
+        return config.contentAriaLabel || config.contentLabel || config.text_editingarea || "Rich text editor. Editing area.";
     }
 
     function lang() {

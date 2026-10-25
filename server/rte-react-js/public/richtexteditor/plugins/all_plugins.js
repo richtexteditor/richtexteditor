@@ -40,7 +40,8 @@ function RTE_Plugin_A11yEnhance() {
     };
 
     function label() {
-        return config.contentAriaLabel || config.contentLabel || "Rich text editor. Editing area.";
+        // 2026-10-18 the default name reads the language pack (text_editingarea). tools/i18n/plugin-default-keys.mjs
+        return config.contentAriaLabel || config.contentLabel || config.text_editingarea || "Rich text editor. Editing area.";
     }
 
     function lang() {
@@ -105,20 +106,41 @@ function RTE_Plugin_AccessibilityChecker() {
     var refreshTimer = 0;
     var lastResult = null;
     var selectedIssueIndex = -1;
+    var destroyed = false;
 
     obj.PluginName = "AccessibilityChecker";
+
+    // 2026-10-18 the panel's words - its chrome, every rule's message and the repairs - read config.text_ keys with
+    // English as the fallback ({0} / {1} are filled in). The rule codes stay as identifiers.
+    // tools/i18n/a11y-checker-language.mjs
+    function aT(key, en, a, b) {
+        var s = (config && config["text_" + key]) || en;
+        if (a !== undefined) s = s.split("{0}").join(String(a));
+        if (b !== undefined) s = s.split("{1}").join(String(b));
+        return s;
+    }
 
     obj.InitConfig = function (argconfig) {
         config = argconfig;
         if (config.accessibilityCheckerEnabled === false) return;
 
         if (typeof config.accessibilityCheckerAutoOpen !== "boolean") config.accessibilityCheckerAutoOpen = false;
-        config.accessibilityCheckerTitle = config.accessibilityCheckerTitle || "Accessibility";
-        config.accessibilityCheckerHint = config.accessibilityCheckerHint || "Review heading structure, image alt text, and table headers without leaving the editor.";
-        config.accessibilityCheckerEmptyText = config.accessibilityCheckerEmptyText || "No accessibility issues found in the current document.";
+        config.accessibilityCheckerTitle = config.accessibilityCheckerTitle || config.text_a11yc_title || "Accessibility";
+        config.accessibilityCheckerHint = config.accessibilityCheckerHint || config.text_a11yc_hint || "Review heading structure, image alt text, and table headers without leaving the editor.";
+        config.accessibilityCheckerEmptyText = config.accessibilityCheckerEmptyText || config.text_a11yc_empty || "No accessibility issues found in the current document.";
 
         appendToolbarCommand("toolbar_default", "#{accessibilitychecker}");
         appendToolbarCommand("toolbar_full", "#{accessibilitychecker}");
+        // 2026-10-03 Build the shell NOW, before the editor creates its iframe. ensureShell() moves the
+        // editor container; done in InitEditor it moved the live iframe, which then gets a fresh
+        // document - and every plugin that had already bound listeners to the old one went deaf (the
+        // slash menu, @mentions and emoji autocomplete, until they moved to editor.bindDocumentEvent;
+        // customer plugins binding the document directly still were). Nothing is loaded yet here.
+        // InitEditor's own ensureShell() call finds the shell and returns it.
+        // tools/keyboard/plugin-listeners.mjs
+        if (config.accessibilityCheckerEnabled !== false && config.container && config.container.parentNode) {
+            try { ensureShell(); } catch (e) { /* InitEditor builds it */ }
+        }
     };
 
     obj.InitEditor = function (argeditor) {
@@ -150,6 +172,14 @@ function RTE_Plugin_AccessibilityChecker() {
         editor.attachEvent("change", function () {
             scheduleRefresh();
         });
+        // 2026-10-18 setHTMLCode fires no "change": a document loaded or replaced that way kept the previous audit
+        // ("Ready to publish" over a document with six issues). tools/a11y/checker-opens-fresh.mjs
+        try { editor.attachEvent("aftersethtml", function () { scheduleRefresh(); }); } catch (e) { /* older cores */ }
+        editor.attachEvent("destroy", function () {
+            destroyed = true;
+            clearTimeout(refreshTimer);
+            refreshTimer = 0;
+        });
 
         ensureShell();
         runAudit();
@@ -171,7 +201,7 @@ function RTE_Plugin_AccessibilityChecker() {
             ".rte-a11y-shell{display:flex;align-items:stretch;gap:10px;}",
             ".rte-a11y-shell>.rte-a11y-host{flex:1 1 auto;min-width:0;}",
             "/* 2026-07-12 accessibility panel precision */",
-            ".rte-a11y-panel{display:none;flex:0 0 310px;min-width:270px;max-width:min(360px,32vw);border:1px solid rgba(148,163,184,.22);border-radius:8px;background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(248,251,255,.96));box-shadow:0 14px 32px rgba(29,78,216,.1),0 2px 8px rgba(15,23,42,.06);overflow:hidden;color:#172033;font-family:Aptos,'Segoe UI',sans-serif;}",
+            ".rte-a11y-panel{display:none;flex:0 0 310px;min-width:270px;max-width:min(360px,32vw);border:1px solid rgba(148,163,184,.22);border-radius:8px;background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(248,251,255,.96));box-shadow:0 14px 32px rgba(29,78,216,.1),0 2px 8px rgba(15,23,42,.06);overflow:hidden;color:#172033;font-family:Aptos,'Segoe UI',sans-serif;}.rte-a11y-locked-note{margin:6px 10px;padding:6px 8px;border:1px solid #e3b341;border-radius:6px;background:#fff8e1;color:#5c3d00;font-size:12px;}",
             ".rte-a11y-shell.is-open>.rte-a11y-panel{display:flex;flex-direction:column;}",
             ".rte-a11y-header{padding:12px 12px 9px 14px;border-bottom:1px solid rgba(148,163,184,.16);background:rgba(255,255,255,.72);}",
             ".rte-a11y-kicker{font-size:10px;line-height:1.3;letter-spacing:.08em;text-transform:uppercase;color:#52657e;font-weight:850;}",
@@ -204,6 +234,17 @@ function RTE_Plugin_AccessibilityChecker() {
             ".rte-a11y-button{appearance:none;border:1px solid #1d67ba;border-radius:7px;background:#1d67ba;color:#fff;padding:8px 12px;font-size:12px;font-weight:750;cursor:pointer;box-shadow:0 6px 14px rgba(29,103,186,.16);}",
             ".rte-a11y-button-secondary{background:#fff;color:#315277;border-color:rgba(100,116,139,.18);box-shadow:none;}",
             ".rte-a11y-button:hover,.rte-a11y-button:focus-visible{transform:translateY(-1px);}",
+            ".rte-a11y-panel.rte-a11y-dark{background:linear-gradient(180deg,#1e293b,#0f172a);border-color:#334155;color:#e2e8f0;box-shadow:0 18px 40px rgba(0,0,0,.45);}",
+            ".rte-a11y-dark .rte-a11y-header,.rte-a11y-dark .rte-a11y-toolbar{background:rgba(15,23,42,.6);border-color:#334155;}",
+            ".rte-a11y-dark .rte-a11y-kicker,.rte-a11y-dark .rte-a11y-copy,.rte-a11y-dark .rte-a11y-count,.rte-a11y-dark .rte-a11y-detail-copy,.rte-a11y-dark .rte-a11y-label{color:#94a3b8;}",
+            ".rte-a11y-dark .rte-a11y-code{color:#a5b4c8;}",
+            ".rte-a11y-dark .rte-a11y-title,.rte-a11y-dark .rte-a11y-message,.rte-a11y-dark .rte-a11y-detail-title{color:#f1f5f9;}",
+            ".rte-a11y-dark .rte-a11y-item,.rte-a11y-dark .rte-a11y-detail,.rte-a11y-dark .rte-a11y-empty{background:rgba(15,23,42,.72);border-color:#334155;color:#e2e8f0;}",
+            ".rte-a11y-dark .rte-a11y-link,.rte-a11y-dark .rte-a11y-button-secondary{background:#0f172a;color:#bfdbfe;border-color:#475569;}",
+            ".rte-a11y-dark .rte-a11y-input{background:#0f172a;color:#e2e8f0;border-color:#475569;}",
+            ".rte-a11y-dark .rte-a11y-badge-warning{background:#422006;color:#fde68a;border-color:#92400e;}",
+            ".rte-a11y-dark .rte-a11y-badge-error{background:#4c0519;color:#fecdd3;border-color:#9f1239;}",
+            ".rte-a11y-dark .rte-a11y-locked-note{background:#422006;color:#fde68a;border-color:#92400e;}",
             ".rte-a11y-empty{padding:14px;border-radius:8px;background:#fff;color:#52657e;font-size:13px;font-weight:700;line-height:1.55;border:1px dashed rgba(148,163,184,.34);}",
             "@media (max-width: 1420px){.rte-a11y-shell{display:block;}.rte-a11y-panel{margin-top:12px;max-width:none;width:100%;}.rte-a11y-body{max-height:360px;}}"
         ].join("");
@@ -236,16 +277,22 @@ function RTE_Plugin_AccessibilityChecker() {
         panel.className = "rte-a11y-panel";
         panel.setAttribute("aria-label", config.accessibilityCheckerTitle);
         panel.setAttribute("role", "complementary");
+        // 2026-10-17 drag / arrow-key resizable (tools/ui/panel-resize.mjs)
+        setTimeout(function () { if (editor && typeof editor.makePanelResizable === "function") editor.makePanelResizable(panel, { label: aT("a11yc_resize", "Resize accessibility panel") }); }, 0);
 
         var header = hostDoc.createElement("div");
         header.className = "rte-a11y-header";
-        header.innerHTML = '<div class="rte-a11y-kicker">Accessibility</div><div class="rte-a11y-title"></div><div class="rte-a11y-copy"></div>';
+        header.innerHTML = '<div class="rte-a11y-kicker"></div><div class="rte-a11y-title"></div><div class="rte-a11y-copy"></div>';
+        header.querySelector(".rte-a11y-kicker").innerText = aT("a11yc_title", "Accessibility");
         header.querySelector(".rte-a11y-title").innerText = config.accessibilityCheckerTitle;
         header.querySelector(".rte-a11y-copy").innerText = config.accessibilityCheckerHint;
 
         var toolbar = hostDoc.createElement("div");
         toolbar.className = "rte-a11y-toolbar";
-        toolbar.innerHTML = '<div class="rte-a11y-count" data-rte-a11y-count="1"></div><div class="rte-a11y-actions"><button type="button" class="rte-a11y-link" data-rte-a11y-refresh="1">Refresh</button><button type="button" class="rte-a11y-link" data-rte-a11y-close="1" aria-label="Hide accessibility checker">Hide</button></div>';
+        toolbar.innerHTML = '<div class="rte-a11y-count" data-rte-a11y-count="1"></div><div class="rte-a11y-actions"><button type="button" class="rte-a11y-link" data-rte-a11y-refresh="1"></button><button type="button" class="rte-a11y-link" data-rte-a11y-close="1"></button></div>';
+        toolbar.querySelector("[data-rte-a11y-refresh]").innerText = aT("a11yc_refresh", "Refresh");
+        toolbar.querySelector("[data-rte-a11y-close]").innerText = aT("a11yc_hide", "Hide");
+        toolbar.querySelector("[data-rte-a11y-close]").setAttribute("aria-label", aT("a11yc_hidearia", "Hide accessibility checker"));
         toolbar.querySelector("[data-rte-a11y-refresh]").onclick = function () { runAudit(); };
         toolbar.querySelector("[data-rte-a11y-close]").onclick = function () { closePanel(); };
 
@@ -274,10 +321,20 @@ function RTE_Plugin_AccessibilityChecker() {
         else openPanel();
     }
 
+    // 2026-10-17 the panel sits beside the editor's element, so rte-dark could not reach it: mirrored (and
+    // rte-auto-dark under a dark system setting). tools/a11y/checker-panel-dark.mjs
+    function editorIsDark() {
+        try {
+            var k = editor.container && editor.container.classList;
+            return !!k && (k.contains("rte-dark") || (k.contains("rte-auto-dark") && !k.contains("rte-light") && !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches)));
+        } catch (x) { return false; }
+    }
     function openPanel() {
         ensureShell();
+        if (panel && panel.classList) { if (editorIsDark()) panel.classList.add("rte-a11y-dark"); else panel.classList.remove("rte-a11y-dark"); }
         shell.classList.add("is-open");
-        renderPanel();
+        // audit what is shown now, not what was there at the last change event
+        runAudit();
         notifyResize();
     }
 
@@ -308,6 +365,7 @@ function RTE_Plugin_AccessibilityChecker() {
     }
 
     function scheduleRefresh() {
+        if (destroyed) return;
         clearTimeout(refreshTimer);
         refreshTimer = setTimeout(function () {
             runAudit();
@@ -315,6 +373,7 @@ function RTE_Plugin_AccessibilityChecker() {
     }
 
     function runAudit() {
+        if (destroyed) return lastResult || { document: null, issues: [], valid: true, source: "dom" };
         ensureShell();
         var ctor = window.RichTextEditor;
         var documentModel = editor.getJSON ? editor.getJSON() : null;
@@ -327,7 +386,30 @@ function RTE_Plugin_AccessibilityChecker() {
         return lastResult;
     }
 
+    // 2026-10-17 a locked document stays locked: the fixes edit the DOM directly (neither insertHTML's nor
+    // setHTMLCode's lock reaches them) and the checker's button stays enabled in comments-only mode. A repair is
+    // refused while the editor is read-only or comments-only, and the panel says so. tools/a11y/checker-repair-locked.mjs
+    function checkerLocked() {
+        try { return !!((editor.getReadOnly && editor.getReadOnly()) || (editor.getCommentsOnly && editor.getCommentsOnly())); } catch (e) { return false; }
+    }
+
+    function showLockedNote() {
+        if (!panel) return;
+        var note = panel.querySelector(".rte-a11y-locked-note");
+        if (!note) {
+            note = panel.ownerDocument.createElement("div");
+            note.className = "rte-a11y-locked-note";
+            note.setAttribute("role", "status");
+            panel.insertBefore(note, panel.children[1] || null);
+        }
+        note.textContent = "";
+        var text = (config && config.text_a11ycheckerlocked) || "This document is read-only, so the fix was not applied.";
+        setTimeout(function () { note.textContent = text; }, 30);
+        note.textContent = text;
+    }
+
     function repairIssue(issueIndex, options) {
+        if (checkerLocked()) { showLockedNote(); return lastResult || runAudit(); }
         if (!lastResult || !lastResult.issues || !lastResult.issues[issueIndex]) return runAudit();
         var ctor = window.RichTextEditor;
         // An issue carrying `_target` came from the DOM audit and is addressed
@@ -380,16 +462,16 @@ function RTE_Plugin_AccessibilityChecker() {
     // document, and the reverse). We flag only what we can be certain of —
     // a checker that cries wolf gets switched off.
     var SCRIPTS = [
-        { name: "Hebrew",   lang: "he", re: /[֐-׿]/g },
-        { name: "Arabic",   lang: "ar", re: /[؀-ۿݐ-ݿﭐ-﷿ﹰ-﻿]/g },
-        { name: "Greek",    lang: "el", re: /[Ͱ-Ͽἀ-῿]/g },
-        { name: "Cyrillic", lang: "ru", re: /[Ѐ-ӿ]/g },
-        { name: "Han",      lang: "zh", re: /[㐀-䶿一-鿿]/g },
-        { name: "Kana",     lang: "ja", re: /[぀-ゟ゠-ヿ]/g },
-        { name: "Hangul",   lang: "ko", re: /[가-힯ᄀ-ᇿ]/g },
-        { name: "Devanagari", lang: "hi", re: /[ऀ-ॿ]/g },
-        { name: "Thai",     lang: "th", re: /[฀-๿]/g },
-        { name: "Latin",    lang: "en", re: /[A-Za-zÀ-ɏ]/g }
+        { name: "Hebrew",   lang: "he", re: /[\u0590-\u05ff]/g },
+        { name: "Arabic",   lang: "ar", re: /[\u0600-\u06ff\u0750-\u077f\ufb50-\ufdff\ufe70-\ufeff]/g },
+        { name: "Greek",    lang: "el", re: /[\u0370-\u03ff\u1f00-\u1fff]/g },
+        { name: "Cyrillic", lang: "ru", re: /[\u0400-\u04ff]/g },
+        { name: "Han",      lang: "zh", re: /[\u3400-\u4dbf\u4e00-\u9fff]/g },
+        { name: "Kana",     lang: "ja", re: /[\u3040-\u309f\u30a0-\u30ff]/g },
+        { name: "Hangul",   lang: "ko", re: /[\uac00-\ud7af\u1100-\u11ff]/g },
+        { name: "Devanagari", lang: "hi", re: /[\u0900-\u097f]/g },
+        { name: "Thai",     lang: "th", re: /[\u0e00-\u0e7f]/g },
+        { name: "Latin",    lang: "en", re: /[A-Za-z\xc0-\u024f]/g }
     ];
 
     // Below this, a "run" is more likely a stray glyph, a maths symbol or a
@@ -453,8 +535,7 @@ function RTE_Plugin_AccessibilityChecker() {
                 issues.push({
                     code: "language-of-parts",
                     severity: "warning",
-                    message: script.name + " text is not marked with a language. Select the phrase and set its " +
-                             "language so assistive technology pronounces it correctly (WCAG 3.1.2).",
+                    message: aT("a11yc_m_lang", "{0} text is not marked with a language. Select the phrase and set its language so assistive technology pronounces it correctly (WCAG 3.1.2).", aT("a11yc_script_" + script.lang, script.name)),
                     path: path + ".lang",
                     _target: block,
                     _lang: script.lang,
@@ -489,7 +570,7 @@ function RTE_Plugin_AccessibilityChecker() {
                     issues.push({
                         code: "heading-empty",
                         severity: "warning",
-                        message: "Heading is empty. Add a concise label or remove the heading.",
+                        message: aT("a11yc_m_hempty", "Heading is empty. Add a concise label or remove the heading."),
                         path: path,
                         _target: node
                     });
@@ -498,7 +579,7 @@ function RTE_Plugin_AccessibilityChecker() {
                     issues.push({
                         code: "heading-level-skip",
                         severity: "warning",
-                        message: "Heading jumps from H" + previousHeadingLevel + " to H" + level + ". Use the next heading level for a clearer outline.",
+                        message: aT("a11yc_m_hskip", "Heading jumps from H{0} to H{1}. Use the next heading level for a clearer outline.", previousHeadingLevel, level),
                         path: path + ".attrs.level",
                         _target: node
                     });
@@ -519,7 +600,7 @@ function RTE_Plugin_AccessibilityChecker() {
                     issues.push({
                         code: "image-missing-alt",
                         severity: "error",
-                        message: "Image is missing alt text. Describe the image or mark it decorative in your content workflow.",
+                        message: aT("a11yc_m_alt", "Image is missing alt text. Describe the image or mark it decorative in your content workflow."),
                         path: path + ".image[" + imageIndex + "]",
                         _target: image
                     });
@@ -543,7 +624,7 @@ function RTE_Plugin_AccessibilityChecker() {
                 issues.push({
                     code: "link-empty",
                     severity: "error",
-                    message: "Link has no text, so it is announced only as \"link\". Add link text, an aria-label, or alt text on the image inside it.",
+                    message: aT("a11yc_m_linkempty", "Link has no text, so it is announced only as \"link\". Add link text, an aria-label, or alt text on the image inside it."),
                     path: path + ".link[" + linkIndex + "]",
                     _target: link
                 });
@@ -568,7 +649,7 @@ function RTE_Plugin_AccessibilityChecker() {
                         issues.push({
                             code: "layout-table-semantics",
                             severity: "error",
-                            message: "Layout table still carries data-table markup (header cells, scope or a caption). A screen reader will announce relationships this table does not have.",
+                            message: aT("a11yc_m_layouttable", "Layout table still carries data-table markup (header cells, scope or a caption). A screen reader will announce relationships this table does not have."),
                             path: path + ".table[" + tableIndex + "]",
                             _target: table
                         });
@@ -578,7 +659,7 @@ function RTE_Plugin_AccessibilityChecker() {
                     issues.push({
                         code: "table-missing-header",
                         severity: "warning",
-                        message: "Table has no header cells. Promote the first row to headers, or mark it as a layout table when it only positions content.",
+                        message: aT("a11yc_m_noheader", "Table has no header cells. Promote the first row to headers, or mark it as a layout table when it only positions content."),
                         path: path + ".table[" + tableIndex + "]",
                         _target: table
                     });
@@ -612,7 +693,7 @@ function RTE_Plugin_AccessibilityChecker() {
                         issues.push({
                             code: "table-header-empty",
                             severity: "error",
-                            message: "Header cell is empty, so the column or row it labels is announced with no name. Give it text, or make it a normal cell if it labels nothing.",
+                            message: aT("a11yc_m_headerempty", "Header cell is empty, so the column or row it labels is announced with no name. Give it text, or make it a normal cell if it labels nothing."),
                             path: path + ".table[" + tableIndex + "].th[" + headerIndex + "]",
                             _target: headerCell
                         });
@@ -653,10 +734,9 @@ function RTE_Plugin_AccessibilityChecker() {
                     issues.push({
                         code: "contrast-insufficient",
                         severity: "error",
-                        message: "Text contrast is " + ratio.toFixed(2) + ":1 against " +
-                            (bg.assumed ? "an assumed white background" : "its background") +
-                            ", below the " + need + ":1 needed for " +
-                            (large ? "large text" : "body text") + " (WCAG 1.4.3).",
+                        message: aT("a11yc_m_contrast_" + (bg.assumed ? "w" : "b") + (large ? "l" : "b"),
+                            "Text contrast is {0}:1 against " + (bg.assumed ? "an assumed white background" : "its background") +
+                            ", below the {1}:1 needed for " + (large ? "large text" : "body text") + " (WCAG 1.4.3).", ratio.toFixed(2), need),
                         path: path + ".contrast[" + cIndex + "]",
                         _target: cEl
                     });
@@ -687,7 +767,7 @@ function RTE_Plugin_AccessibilityChecker() {
                     issues.push({
                         code: "blockquote-as-indent",
                         severity: "warning",
-                        message: "This looks like indentation, not a quotation: a <blockquote> with a left margin and no quote styling. Screen readers announce it as a quotation. Use the indent button instead.",
+                        message: aT("a11yc_m_bqindent", "This looks like indentation, not a quotation: a <blockquote> with a left margin and no quote styling. Screen readers announce it as a quotation. Use the indent button instead."),
                         path: path + ".blockquote[" + qIndex + "]",
                         _target: q
                     });
@@ -707,7 +787,7 @@ function RTE_Plugin_AccessibilityChecker() {
                     issues.push({
                         code: "link-ambiguous-text",
                         severity: "warning",
-                        message: "Link text \"" + aName + "\" does not say where it goes. Out of context a screen reader announces only this text.",
+                        message: aT("a11yc_m_ambig", "Link text \"{0}\" does not say where it goes. Out of context a screen reader announces only this text.", aName),
                         path: path + ".link[" + aIndex + "]",
                         _target: aEl
                     });
@@ -736,7 +816,7 @@ function RTE_Plugin_AccessibilityChecker() {
                     issues.push({
                         code: "duplicate-id",
                         severity: "error",
-                        message: "id \"" + dupId + "\" is used more than once. Any aria-labelledby, aria-describedby or label pointing at it resolves to only the first element.",
+                        message: aT("a11yc_m_dupid", "id \"{0}\" is used more than once. Any aria-labelledby, aria-describedby or label pointing at it resolves to only the first element.", dupId),
                         path: "document.id[" + dupIndex + "]",
                         _target: allWithIds[dupIndex]
                     });
@@ -768,7 +848,7 @@ function RTE_Plugin_AccessibilityChecker() {
                 issues.push({
                     code: "paragraph-as-heading",
                     severity: "warning",
-                    message: "\"" + pText + "\" looks like a heading (bold, large, on its own line) but is a paragraph. Screen-reader users cannot jump to it. Use a heading level instead.",
+                    message: aT("a11yc_m_pheading", "\"{0}\" looks like a heading (bold, large, on its own line) but is a paragraph. Screen-reader users cannot jump to it. Use a heading level instead.", pText),
                     path: "document.p[" + pi + "]",
                     _target: pEl
                 });
@@ -780,7 +860,7 @@ function RTE_Plugin_AccessibilityChecker() {
                 if (!el || String(el.nodeName).toLowerCase() !== "p") return null;
                 var t = getText(el);
                 if (/^\d{1,3}[.)]\s+\S/.test(t)) return "ol";
-                if (/^[-*•▪●]\s+\S/.test(t)) return "ul";
+                if (/^[-*\u2022\u25aa\u25cf]\s+\S/.test(t)) return "ul";
                 return null;
             };
             var kids = editable.children;
@@ -793,7 +873,7 @@ function RTE_Plugin_AccessibilityChecker() {
                     issues.push({
                         code: "fake-list",
                         severity: "warning",
-                        message: run + " paragraphs are typed as a " + (kind === "ol" ? "numbered" : "bulleted") + " list. Screen readers do not announce them as a list or say how many items it has. Use the list button instead.",
+                        message: aT("a11yc_m_fakelist_" + (kind === "ol" ? "ol" : "ul"), "{0} paragraphs are typed as a " + (kind === "ol" ? "numbered" : "bulleted") + " list. Screen readers do not announce them as a list or say how many items it has. Use the list button instead.", run),
                         path: "content[" + ki + "]",
                         _target: kids[ki]
                     });
@@ -811,7 +891,7 @@ function RTE_Plugin_AccessibilityChecker() {
                     issues.push({
                         code: "image-alt-filename",
                         severity: "error",
-                        message: "Alt text \"" + alt + "\" is a file name, which describes nothing. Say what the image shows.",
+                        message: aT("a11yc_m_altfile", "Alt text \"{0}\" is a file name, which describes nothing. Say what the image shows.", alt),
                         path: "document.img[" + ii + "]",
                         _target: imgs[ii]
                     });
@@ -819,7 +899,7 @@ function RTE_Plugin_AccessibilityChecker() {
                     issues.push({
                         code: "image-alt-too-long",
                         severity: "warning",
-                        message: "Alt text is " + alt.length + " characters. Keep it to a short description; put longer detail in the text or a caption.",
+                        message: aT("a11yc_m_altlong", "Alt text is {0} characters. Keep it to a short description; put longer detail in the text or a caption.", alt.length),
                         path: "document.img[" + ii + "]",
                         _target: imgs[ii]
                     });
@@ -841,7 +921,7 @@ function RTE_Plugin_AccessibilityChecker() {
                     issues.push({
                         code: "link-adjacent-duplicate",
                         severity: "warning",
-                        message: "Two links next to each other go to the same place, so it is announced twice. Combine them into one link.",
+                        message: aT("a11yc_m_adjlinks", "Two links next to each other go to the same place, so it is announced twice. Combine them into one link."),
                         path: "document.link[" + li + "]",
                         _target: cur
                     });
@@ -857,7 +937,7 @@ function RTE_Plugin_AccessibilityChecker() {
                 issues.push({
                     code: "table-missing-caption",
                     severity: "warning",
-                    message: "Data table has no caption. A short caption lets screen-reader users know what the table is before they enter it.",
+                    message: aT("a11yc_m_nocaption", "Data table has no caption. A short caption lets screen-reader users know what the table is before they enter it."),
                     path: "document.table[" + ti + "]",
                     _target: tb
                 });
@@ -870,6 +950,13 @@ function RTE_Plugin_AccessibilityChecker() {
     function repairDomIssue(issue, options) {
         if (!issue || !issue._target) return runAudit();
         var target = issue._target;
+        // 2026-10-05 a target edited away since the audit: re-audit (the repair threw half-way, leaving the
+        // undo step open). tools/review/plugin-review-20261005.mjs
+        var liveRoot = editor.getEditable ? editor.getEditable() : null;
+        if (!target.parentNode || (liveRoot && !liveRoot.contains(target))) return runAudit();
+        // 2026-10-04 every repair is one undo step: the state before it is recorded first, the result after.
+        // Undo skipped a repair entirely. tools/a11y/checker-action-repairs.mjs
+        commitUndo();
 
         if (issue.code === "image-missing-alt") {
             target.setAttribute("alt", String(options.altText || "").replace(/^\s+|\s+$/g, ""));
@@ -906,11 +993,18 @@ function RTE_Plugin_AccessibilityChecker() {
                 target.parentNode.replaceChild(cell, target);
             }
         }
-        else if (issue.code === "link-empty") {
+        else if (issue.code === "link-empty" || issue.code === "link-ambiguous-text") {
             // Prefer real text: an aria-label is invisible, so a sighted editor
             // cannot see what the link says and it drifts out of date.
             var linkText = String((options && options.linkText) || "").replace(/^\s+|\s+$/g, "");
-            if (linkText) target.textContent = linkText;
+            // 2026-10-05 only the link's TEXT is replaced: an image or formatting inside it stays (textContent
+            // wiped them). tools/review/plugin-review-20261005.mjs
+            if (linkText) {
+                var lw = target.ownerDocument.createTreeWalker(target, 4, null, false), ltn, ltexts = [];
+                while ((ltn = lw.nextNode())) if (/\S/.test(ltn.data)) ltexts.push(ltn);
+                if (!ltexts.length) { if (target.firstChild && target.firstChild.nodeType === 1) target.appendChild(target.ownerDocument.createTextNode(" ")); target.appendChild(target.ownerDocument.createTextNode(linkText)); }
+                else { ltexts[0].data = linkText; for (var lti = 1; lti < ltexts.length; lti++) ltexts[lti].data = ""; }
+            }
             else {
                 var linkLabel = String((options && options.linkLabel) || "").replace(/^\s+|\s+$/g, "");
                 if (linkLabel) target.setAttribute("aria-label", linkLabel);
@@ -920,6 +1014,34 @@ function RTE_Plugin_AccessibilityChecker() {
             markLanguageRuns(target, options && options.lang ? options.lang : issue._lang, issue._script);
         }
 
+        else if (issue.code === "duplicate-id") {
+            // 2026-10-04 the first element keeps the id (links and labels already resolve to it); the repeat
+            // loses it. tools/a11y/checker-action-repairs.mjs
+            target.removeAttribute("id");
+        }
+        else if (issue.code === "blockquote-as-indent") {
+            // the quote goes; its left margin moves onto each block it held (bare text becomes a paragraph)
+            var ml = target.style.marginLeft, qd = target.ownerDocument, qp = target.parentNode, run = null;
+            while (target.firstChild) {
+                var qc = target.firstChild;
+                // 2026-10-05 every block tag (a rule or a section was wrapped in a <p>), margins ADD (a 20px
+                // paragraph in a 40px quote is 60px), and a space between inline words stays (it was dropped:
+                // "Helloworld"). tools/review/plugin-review-20261005.mjs
+                var isBlock = qc.nodeType === 1 && /^(P|DIV|H[1-6]|UL|OL|DL|PRE|TABLE|BLOCKQUOTE|FIGURE|ADDRESS|HR|SECTION|ARTICLE|ASIDE|NAV|HEADER|FOOTER|DETAILS|FIELDSET|FORM)$/.test(qc.nodeName);
+                if (isBlock) {
+                    run = null;
+                    if (ml && qc.nodeName !== "HR") {
+                        var own = qc.style.marginLeft, ownPx = /^([\d.]+)px$/.exec(own || ""), qPx = /^([\d.]+)px$/.exec(ml);
+                        qc.style.marginLeft = !own ? ml : (ownPx && qPx ? (parseFloat(ownPx[1]) + parseFloat(qPx[1])) + "px" : "calc(" + ml + " + " + own + ")");
+                    }
+                    qp.insertBefore(qc, target); continue;
+                }
+                if (qc.nodeType === 3 && !/\S/.test(qc.data) && !run) { target.removeChild(qc); continue; }
+                if (!run) { run = qd.createElement("p"); if (ml) run.style.marginLeft = ml; qp.insertBefore(run, target); }
+                run.appendChild(qc);
+            }
+            qp.removeChild(target);
+        }
         else if (issue.code === "paragraph-as-heading") {
             var lvl = Math.max(1, Math.min(6, parseInt(options && options.targetLevel, 10) || 2));
             var h = target.ownerDocument.createElement("h" + lvl);
@@ -937,7 +1059,7 @@ function RTE_Plugin_AccessibilityChecker() {
             var node = target;
             while (node && node.nodeName === "P") {
                 var t = (node.textContent || "").replace(/^\s+/, "");
-                var m = ordered ? /^\d{1,3}[.)]\s+([\s\S]*)$/.exec(t) : /^[-*•▪●]\s+([\s\S]*)$/.exec(t);
+                var m = ordered ? /^\d{1,3}[.)]\s+([\s\S]*)$/.exec(t) : /^[-*\u2022\u25aa\u25cf]\s+([\s\S]*)$/.exec(t);
                 if (!m) break;
                 var li = d.createElement("li");
                 li.textContent = m[1].replace(/\s+$/, "");
@@ -970,8 +1092,19 @@ function RTE_Plugin_AccessibilityChecker() {
             target.setAttribute("alt", String((options && options.altText) || "").replace(/^\s+|\s+$/g, ""));
         }
         selectedIssueIndex = 0;
+        recordUndo();
         scheduleEditorChange();
         return runAudit();
+    }
+
+    // record the repaired document as its own step (notifySelectionChange saves the undo snapshot), then
+    // seal it so the next edit starts a new one
+    function recordUndo() {
+        try { if (editor.recordUndo) editor.recordUndo(); else if (editor.notifySelectionChange) editor.notifySelectionChange(); if (editor.commitBookmark) editor.commitBookmark(); } catch (er) { /* ignore */ }
+        commitUndo();
+    }
+    function commitUndo() {
+        if (typeof editor.commitBookmark === "function") { try { editor.commitBookmark(); } catch (er) { /* ignore */ } }
     }
 
     // Wrap the offending script's runs in <span lang> — the same markup
@@ -1012,8 +1145,8 @@ function RTE_Plugin_AccessibilityChecker() {
                 var text = m[0];
                 // Trim the neutrals the greedy match pulled in at the edges;
                 // they belong to the surrounding sentence, not the phrase.
-                var lead = text.length - text.replace(/^[\s.,;:!?'"()‐-‧«»“”]+/, "").length;
-                var trail = text.length - text.replace(/[\s.,;:!?'"()‐-‧«»“”]+$/, "").length;
+                var lead = text.length - text.replace(/^[\s.,;:!?'"()\u2010-\u2027\xab\xbb\u201c\u201d]+/, "").length;
+                var trail = text.length - text.replace(/[\s.,;:!?'"()\u2010-\u2027\xab\xbb\u201c\u201d]+$/, "").length;
                 var start = m.index + lead;
                 var end = m.index + text.length - trail;
                 if (end - start < MIN_SCRIPT_RUN) continue;
@@ -1183,8 +1316,8 @@ function RTE_Plugin_AccessibilityChecker() {
         var count = panel.querySelector("[data-rte-a11y-count]");
         if (count) {
             count.innerText = issues.length
-                ? (issues.length + " issue" + (issues.length === 1 ? "" : "s") + " to review")
-                : "Ready to publish";
+                ? (issues.length === 1 ? aT("a11yc_count1", "{0} issue to review", 1) : aT("a11yc_countn", "{0} issues to review", issues.length))
+                : aT("a11yc_ready", "Ready to publish");
         }
 
         empty.style.display = issues.length ? "none" : "block";
@@ -1197,11 +1330,12 @@ function RTE_Plugin_AccessibilityChecker() {
                 button.setAttribute("aria-selected", issueIndex === selectedIssueIndex ? "true" : "false");
                 button.innerHTML =
                     '<div class="rte-a11y-item-top">' +
-                    '<span class="rte-a11y-badge rte-a11y-badge-' + issue.severity + '">' + issue.severity + '</span>' +
+                    '<span class="rte-a11y-badge rte-a11y-badge-' + issue.severity + '"></span>' +
                     '<span class="rte-a11y-code">' + issue.code + '</span>' +
                     "</div>" +
                     '<div class="rte-a11y-message"></div>';
                 button.querySelector(".rte-a11y-message").innerText = issue.message;
+                button.querySelector(".rte-a11y-badge").innerText = aT("a11yc_sev_" + issue.severity, issue.severity);
                 button.onclick = function () {
                     selectedIssueIndex = issueIndex;
                     focusIssue(issue);
@@ -1219,7 +1353,9 @@ function RTE_Plugin_AccessibilityChecker() {
 
         var issues = lastResult && lastResult.issues ? lastResult.issues : [];
         if (!issues.length || selectedIssueIndex < 0 || !issues[selectedIssueIndex]) {
-            detail.innerHTML = '<div class="rte-a11y-detail-title">No fixes pending</div><div class="rte-a11y-detail-copy">Run the checker again after major content changes to keep headings, image descriptions, and tables in shape.</div>';
+            detail.innerHTML = '<div class="rte-a11y-detail-title"></div><div class="rte-a11y-detail-copy"></div>';
+            detail.querySelector(".rte-a11y-detail-title").innerText = aT("a11yc_nofixes", "No fixes pending");
+            detail.querySelector(".rte-a11y-detail-copy").innerText = aT("a11yc_nofixeshint", "Run the checker again after major content changes to keep headings, image descriptions, and tables in shape.");
             return;
         }
 
@@ -1234,14 +1370,68 @@ function RTE_Plugin_AccessibilityChecker() {
         detail.appendChild(copy);
 
         if (issue.code === "image-missing-alt") {
-            renderTextRepair("Alt text", "Describe the image for screen-reader users.", function (value) {
+            renderTextRepair(aT("a11yc_f_alt", "Alt text"), aT("a11yc_f_althint", "Describe the image for screen-reader users."), function (value) {
                 repairIssue(selectedIssueIndex, { altText: value });
             });
             return;
         }
 
+        // 2026-10-04 Every repair that takes text gets a field here. These repairs existed (repairDomIssue)
+        // but the panel showed only the message for them. tools/a11y/checker-text-repairs.mjs
+        var TEXT_REPAIRS = {
+            "table-missing-caption": [aT("a11yc_f_caption", "Caption"), aT("a11yc_f_captionhint", "Say what the table shows, e.g. \"Sales by quarter\"."), "captionText"],
+            "table-header-empty": [aT("a11yc_f_header", "Header text"), aT("a11yc_f_headerhint", "Name the column or row this cell labels."), "headerText"],
+            "link-empty": [aT("a11yc_f_link", "Link text"), aT("a11yc_f_linkhint", "Say where the link goes."), "linkText"],
+            "link-ambiguous-text": [aT("a11yc_f_link", "Link text"), aT("a11yc_f_linkambighint", "Say where the link goes, not \"click here\"."), "linkText"],
+            "image-alt-filename": [aT("a11yc_f_alt", "Alt text"), aT("a11yc_f_altfilehint", "Describe what the image shows."), "altText"],
+            "image-alt-too-long": [aT("a11yc_f_alt", "Alt text"), aT("a11yc_f_altlonghint", "A short description; keep detail in the text."), "altText"]
+        };
+        if (TEXT_REPAIRS[issue.code]) {
+            var tr = TEXT_REPAIRS[issue.code];
+            renderTextRepair(tr[0], tr[1], function (value) {
+                var o = {}; o[tr[2]] = value;
+                repairIssue(selectedIssueIndex, o);
+            });
+            return;
+        }
+
+        // ...and every repair that needs no typing gets a button (they too showed only the message).
+        // tools/a11y/checker-action-repairs.mjs
+        var ACTION_REPAIRS = {
+            "fake-list": [aT("a11yc_a_list", "Make it a list"), function () { return {}; }],
+            "paragraph-as-heading": [aT("a11yc_a_heading", "Make it a heading"), function () {
+                // one level below the heading before it (H2 when there is none)
+                var before = 1, t = issue._target, all = t && t.ownerDocument ? t.ownerDocument.querySelectorAll("h1,h2,h3,h4,h5,h6") : [];
+                for (var hi = 0; hi < all.length; hi++) if (all[hi].compareDocumentPosition(t) & 4) before = parseInt(all[hi].nodeName.charAt(1), 10);
+                return { targetLevel: Math.min(6, before + 1) };
+            }],
+            "layout-table-semantics": [aT("a11yc_a_layout", "Remove table semantics"), function () { return {}; }],
+            "link-adjacent-duplicate": [aT("a11yc_a_merge", "Merge the links"), function () { return {}; }],
+            "duplicate-id": [aT("a11yc_a_dupid", "Remove the repeated id"), function () { return {}; }],
+            "blockquote-as-indent": [aT("a11yc_a_indent", "Make it indentation"), function () { return {}; }]
+        };
+        if (ACTION_REPAIRS[issue.code]) {
+            var ar = ACTION_REPAIRS[issue.code];
+            var arRow = detail.ownerDocument.createElement("div");
+            arRow.className = "rte-a11y-row";
+            var arDo = detail.ownerDocument.createElement("button");
+            arDo.type = "button";
+            arDo.className = "rte-a11y-button";
+            arDo.innerText = ar[0];
+            arDo.onclick = function () { repairIssue(selectedIssueIndex, ar[1]()); };
+            var arFocus = detail.ownerDocument.createElement("button");
+            arFocus.type = "button";
+            arFocus.className = "rte-a11y-button rte-a11y-button-secondary";
+            arFocus.innerText = aT("a11yc_focus", "Focus issue");
+            arFocus.onclick = function () { focusIssue(issue); };
+            arRow.appendChild(arDo);
+            arRow.appendChild(arFocus);
+            detail.appendChild(arRow);
+            return;
+        }
+
         if (issue.code === "heading-empty") {
-            renderTextRepair("Heading text", "Add a concise heading label before publishing.", function (value) {
+            renderTextRepair(aT("a11yc_f_heading", "Heading text"), aT("a11yc_f_headinghint", "Add a concise heading label before publishing."), function (value) {
                 repairIssue(selectedIssueIndex, { headingText: value });
             });
             return;
@@ -1254,14 +1444,14 @@ function RTE_Plugin_AccessibilityChecker() {
             var normalize = detail.ownerDocument.createElement("button");
             normalize.type = "button";
             normalize.className = "rte-a11y-button";
-            normalize.innerText = "Normalize to H" + suggestedLevel;
+            normalize.innerText = aT("a11yc_normalize", "Normalize to H{0}", suggestedLevel);
             normalize.onclick = function () {
                 repairIssue(selectedIssueIndex, { targetLevel: suggestedLevel });
             };
             var focus = detail.ownerDocument.createElement("button");
             focus.type = "button";
             focus.className = "rte-a11y-button rte-a11y-button-secondary";
-            focus.innerText = "Focus issue";
+            focus.innerText = aT("a11yc_focus", "Focus issue");
             focus.onclick = function () { focusIssue(issue); };
             row.appendChild(normalize);
             row.appendChild(focus);
@@ -1275,14 +1465,14 @@ function RTE_Plugin_AccessibilityChecker() {
             var promote = detail.ownerDocument.createElement("button");
             promote.type = "button";
             promote.className = "rte-a11y-button";
-            promote.innerText = "Promote first row to headers";
+            promote.innerText = aT("a11yc_promote", "Promote first row to headers");
             promote.onclick = function () {
                 repairIssue(selectedIssueIndex, {});
             };
             var review = detail.ownerDocument.createElement("button");
             review.type = "button";
             review.className = "rte-a11y-button rte-a11y-button-secondary";
-            review.innerText = "Focus issue";
+            review.innerText = aT("a11yc_focus", "Focus issue");
             review.onclick = function () { focusIssue(issue); };
             actionRow.appendChild(promote);
             actionRow.appendChild(review);
@@ -1296,12 +1486,12 @@ function RTE_Plugin_AccessibilityChecker() {
             var mark = detail.ownerDocument.createElement("button");
             mark.type = "button";
             mark.className = "rte-a11y-button";
-            mark.innerText = "Mark as " + issue._script;
+            mark.innerText = aT("a11yc_markas", "Mark as {0}", aT("a11yc_script_" + issue._lang, issue._script));
             mark.onclick = function () { repairIssue(selectedIssueIndex, { lang: issue._lang }); };
             var look = detail.ownerDocument.createElement("button");
             look.type = "button";
             look.className = "rte-a11y-button rte-a11y-button-secondary";
-            look.innerText = "Focus issue";
+            look.innerText = aT("a11yc_focus", "Focus issue");
             look.onclick = function () { focusIssue(issue); };
             langRow.appendChild(mark);
             langRow.appendChild(look);
@@ -1309,7 +1499,10 @@ function RTE_Plugin_AccessibilityChecker() {
             return;
         }
 
-        detail.innerHTML += '<div class="rte-a11y-detail-copy">This issue is visible here, but does not have an automatic repair action yet.</div>';
+        var noRepair = detail.ownerDocument.createElement("div");
+        noRepair.className = "rte-a11y-detail-copy";
+        noRepair.innerText = aT("a11yc_norepair", "This issue is visible here, but does not have an automatic repair action yet.");
+        detail.appendChild(noRepair);
     }
 
     function renderTextRepair(labelText, hintText, apply) {
@@ -1327,7 +1520,7 @@ function RTE_Plugin_AccessibilityChecker() {
         var button = detail.ownerDocument.createElement("button");
         button.type = "button";
         button.className = "rte-a11y-button";
-        button.innerText = "Apply fix";
+        button.innerText = aT("a11yc_applyfix", "Apply fix");
         button.onclick = function () {
             var value = String(input.value || "").replace(/^\s+|\s+$/g, "");
             if (!value) return;
@@ -1336,7 +1529,7 @@ function RTE_Plugin_AccessibilityChecker() {
         var focus = detail.ownerDocument.createElement("button");
         focus.type = "button";
         focus.className = "rte-a11y-button rte-a11y-button-secondary";
-        focus.innerText = "Focus issue";
+        focus.innerText = aT("a11yc_focus", "Focus issue");
         focus.onclick = function () {
             var issues = lastResult && lastResult.issues ? lastResult.issues : [];
             if (issues[selectedIssueIndex]) focusIssue(issues[selectedIssueIndex]);
@@ -1400,7 +1593,10 @@ if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
     var scripts = document.getElementsByTagName("script");
     for (var j = scripts.length - 1; j >= 0; j--) {
         var src = scripts[j].getAttribute("src") || "";
-        if (/(?:^|\/)(?:aitoolkit|all_plugins)\.js(?:\?.*)?$/i.test(src)) {
+        // 2026-10-17 the .min names too: a page loading all_plugins.min.js matched nothing and fell back to the fixed
+        // /richtexteditor path - the drive root over file://, so the AI stylesheet never loaded from a download opened
+        // from disk. tools/ai/aitoolkit-css-location.mjs
+        if (/(?:^|\/)(?:aitoolkit|all_plugins)(?:\.min)?\.js(?:[?#].*)?$/i.test(src)) {
             ourScript = scripts[j];
             break;
         }
@@ -1411,11 +1607,13 @@ if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
     // paying for it. The readable .css is still shipped and still the one to edit
     // or override; this only changes what gets fetched by default.
     function resolve(name) {
-        return srcAttr
-            ? srcAttr.replace(/[^/]+$/, name)
-            : (((window.RTE_DefaultConfig && window.RTE_DefaultConfig.url_base) || "/richtexteditor") + "/plugins/" + name);
+        if (srcAttr) return srcAttr.replace(/[?#].*$/, "").replace(/[^/]+$/, name);
+        // no plugin script of ours (bundled into an app script): the folder rte.js was loaded from, then the old default
+        var base = (typeof RichTextEditor !== "undefined" && RichTextEditor.__scriptBase) ||
+            (window.RTE_DefaultConfig && window.RTE_DefaultConfig.url_base) || "/richtexteditor";
+        return base + "/plugins/" + name;
     }
-    function bust(href) { return href.indexOf("?") < 0 ? href + "?v=20260830a" : href; }
+    function bust(href) { return href.indexOf("?") < 0 ? href + "?v=20261018a" : href; }
 
     var link = document.createElement("link");
     link.rel = "stylesheet";
@@ -1505,26 +1703,26 @@ function RTE_Plugin_AIToolkit() {
         // in a later pass. Customer overrides via `aiToolkitActions` keep
         // any legacy long-form labels untouched.
         config.aiToolkitActions = config.aiToolkitActions || [
-            { id: "chat-panel", section: "Start", icon: "chat", title: "Chat", description: "Ask follow-up questions about this document.", target: "chat-panel" },
-            { id: "open-dialog", section: "Start", icon: "open_dialog", title: "Draft", description: "Generate, rewrite, translate, or summarize before applying.", target: "dialog" },
-            { id: "review-panel", section: "Start", icon: "review", title: "Review", description: "Accept or reject prepared AI edits.", target: "review-panel" },
-            { id: "proofread", section: "Quick edit", icon: "proofread", title: "Proofread", description: "Check grammar, spacing, and clarity.", resolverMode: "proofread", target: "selection-preview" },
-            { id: "rewrite", section: "Quick edit", icon: "rewrite", title: "Rewrite", description: "Improve clarity without changing intent.", resolverMode: "rewrite", target: "selection-preview" },
-            { id: "translate", section: "Quick edit", icon: "translate", title: "Translate", description: "Choose a language and preview the result.", resolverMode: "translate", target: "dialog", autoRun: false },
-            { id: "justify", section: "Quick edit", icon: "justify", title: "Explain", description: "Rewrite and show why it changed.", resolverMode: "justify", target: "dialog", autoRun: false },
-            { id: "comment", section: "Insert", icon: "comment", title: "Add note", description: "Insert a short comment near the selection.", resolverMode: "comment", target: "comment" },
-            { id: "paragraph", section: "Insert", icon: "paragraph", title: "Add paragraph", description: "Draft a supporting paragraph below.", resolverMode: "paragraph", target: "insert" }
+            { id: "chat-panel", section: aiT("aia_sec_start", "Start"), icon: "chat", title: aiT("aia_chat_panel_t", "Chat"), description: aiT("aia_chat_panel_d", "Ask follow-up questions about this document."), target: "chat-panel" },
+            { id: "open-dialog", section: aiT("aia_sec_start", "Start"), icon: "open_dialog", title: aiT("aia_open_dialog_t", "Draft"), description: aiT("aia_open_dialog_d", "Generate, rewrite, translate, or summarize before applying."), target: "dialog" },
+            { id: "review-panel", section: aiT("aia_sec_start", "Start"), icon: "review", title: aiT("aia_review_panel_t", "Review"), description: aiT("aia_review_panel_d", "Accept or reject prepared AI edits."), target: "review-panel" },
+            { id: "proofread", section: aiT("aia_sec_quick", "Quick edit"), icon: "proofread", title: aiT("aia_proofread_t", "Proofread"), description: aiT("aia_proofread_d", "Check grammar, spacing, and clarity."), resolverMode: "proofread", target: "selection-preview" },
+            { id: "rewrite", section: aiT("aia_sec_quick", "Quick edit"), icon: "rewrite", title: aiT("aia_rewrite_t", "Rewrite"), description: aiT("aia_rewrite_d", "Improve clarity without changing intent."), resolverMode: "rewrite", target: "selection-preview" },
+            { id: "translate", section: aiT("aia_sec_quick", "Quick edit"), icon: "translate", title: aiT("aia_translate_t", "Translate"), description: aiT("aia_translate_d", "Choose a language and preview the result."), resolverMode: "translate", target: "dialog", autoRun: false },
+            { id: "justify", section: aiT("aia_sec_quick", "Quick edit"), icon: "justify", title: aiT("aia_justify_t", "Explain"), description: aiT("aia_justify_d", "Rewrite and show why it changed."), resolverMode: "justify", target: "dialog", autoRun: false },
+            { id: "comment", section: aiT("aia_sec_insert", "Insert"), icon: "comment", title: aiT("aia_comment_t", "Add note"), description: aiT("aia_comment_d", "Insert a short comment near the selection."), resolverMode: "comment", target: "comment" },
+            { id: "paragraph", section: aiT("aia_sec_insert", "Insert"), icon: "paragraph", title: aiT("aia_paragraph_t", "Add paragraph"), description: aiT("aia_paragraph_d", "Draft a supporting paragraph below."), resolverMode: "paragraph", target: "insert" }
         ];
         // 2026-05-09 (v20260509j): single-verb default chip labels matching
         // the toolbar dropdown idiom — chips render on one line at the
         // default 390px chat panel width. Customer overrides via
         // aiToolkitChatPrompts keep their own labels untouched.
         config.aiToolkitChatPrompts = config.aiToolkitChatPrompts || [
-            { id: "summarize", label: "Summarize", prompt: "Summarize the current content and suggest the clearest next edit." },
-            { id: "proofread", label: "Proofread", prompt: "Proofread the current content and prepare a cleaner version I can review." },
-            { id: "translate", label: "Translate", prompt: "Translate the current content into Spanish and prepare a reviewable version." },
-            { id: "headings", label: "Headings", prompt: "Suggest better section titles and subheadings for this content." },
-            { id: "expand", label: "Expand", prompt: "Add a short supporting paragraph that strengthens this content." }
+            { id: "summarize", label: aiT("aip_summarize", "Summarize"), prompt: "Summarize the current content and suggest the clearest next edit." },
+            { id: "proofread", label: aiT("aip_proofread", "Proofread"), prompt: "Proofread the current content and prepare a cleaner version I can review." },
+            { id: "translate", label: aiT("aip_translate", "Translate"), prompt: "Translate the current content into Spanish and prepare a reviewable version." },
+            { id: "headings", label: aiT("aip_headings", "Headings"), prompt: "Suggest better section titles and subheadings for this content." },
+            { id: "expand", label: aiT("aip_expand", "Expand"), prompt: "Add a short supporting paragraph that strengthens this content." }
         ];
         // 2026-05-20 (v20260520c): descriptions trimmed to ~5-8 words so
         // each fits the one-line mode caption without wrapping at the 480px
@@ -1543,16 +1741,23 @@ function RTE_Plugin_AIToolkit() {
         // on narrow viewports. Same brevity Notion AI inline composer subtitles
         // ship — "Improve writing", "Make shorter" — single 2-4 word verb
         // phrases.
+        // 2026-10-18 the Ask AI dialog's words read config.text_ keys where they are SHOWN (English as the fallback);
+        // labels that also feed logic (Document / Selection) are translated at the display sites only.
+        // tools/i18n/ask-ai-language.mjs
+        function aiT(key, fallback, arg) { var s = (config && config["text_" + key]) || fallback; return arg === undefined ? s : s.split("{0}").join(String(arg)); }
+        obj.__aiT = aiT;
         config.aiToolkitDialogModes = config.aiToolkitDialogModes || [
-            { id: "proofread", title: "Proofread", description: "Fix grammar & clarity." },
-            { id: "rewrite", title: "Rewrite", description: "Rewrite for clarity." },
-            { id: "translate", title: "Translate", description: "Translate to a language." },
-            { id: "justify", title: "Explain rewrite", description: "Rewrite and explain why." },
-            { id: "shorten", title: "Shorten", description: "Compress to be shorter." },
-            { id: "expand", title: "Expand", description: "Add supporting detail." },
-            { id: "summarize", title: "Summarize", description: "Summarize the source." }
+            { id: "proofread", title: aiT("aim_proofread_t", "Proofread"), description: aiT("aim_proofread_d", "Fix grammar & clarity.") },
+            { id: "rewrite", title: aiT("aim_rewrite_t", "Rewrite"), description: aiT("aim_rewrite_d", "Rewrite for clarity.") },
+            { id: "translate", title: aiT("aim_translate_t", "Translate"), description: aiT("aim_translate_d", "Translate to a language.") },
+            { id: "justify", title: aiT("aim_justify_t", "Explain rewrite"), description: aiT("aim_justify_d", "Rewrite and explain why.") },
+            { id: "shorten", title: aiT("aim_shorten_t", "Shorten"), description: aiT("aim_shorten_d", "Compress to be shorter.") },
+            { id: "expand", title: aiT("aim_expand_t", "Expand"), description: aiT("aim_expand_d", "Add supporting detail.") },
+            { id: "summarize", title: aiT("aim_summarize_t", "Summarize"), description: aiT("aim_summarize_d", "Summarize the source.") }
         ];
         config.aiToolkitResolver = config.aiToolkitResolver || null;
+        // 2026-10-13 image generation: the host's provider call, bring your own key. null = not configured.
+        config.aiToolkitImageResolver = config.aiToolkitImageResolver || null;
         config.aiToolkitOperationHandlers = config.aiToolkitOperationHandlers || {};
         config.aiToolkitPersistenceKey = config.aiToolkitPersistenceKey || "";
         config.aiToolkitReviewSyncInterval = config.aiToolkitReviewSyncInterval || 15000;
@@ -1578,10 +1783,129 @@ function RTE_Plugin_AIToolkit() {
 
     obj.InitEditor = function (argeditor) {
         editor = argeditor;
+
+        // 2026-10-13 Image generation (tools/ai/image-generation.mjs). The host supplies the provider call through
+        // config.aiToolkitImageResolver, so the editor makes no outbound request of its own. What comes back is checked
+        // before anything is inserted: an image data URL (png, jpeg, webp or gif) or an https address, at most 6 million
+        // characters.
+        var IMAGE_SRC_MAX = 6000000;
+        function checkGeneratedImageSrc(src) {
+            var s = typeof src === "string" ? src.replace(/^\s+|\s+$/g, "") : "";
+            if (!s) throw new Error("The image generator returned no image.");
+            if (s.length > IMAGE_SRC_MAX) throw new Error("The generated image is too large to insert.");
+            if (/^data:image\/(png|jpe?g|webp|gif);base64,[A-Za-z0-9+\/=]+$/i.test(s)) return s;
+            if (/^https:\/\/[^\s"'<>]+$/i.test(s)) return s;
+            throw new Error("The image generator returned something that is not an image address.");
+        }
+        function generateImage(prompt) {
+            var text = String(prompt || "").replace(/^\s+|\s+$/g, "");
+            if (!text) return Promise.reject(new Error("Describe the image first."));
+            var resolver = config.aiToolkitImageResolver;
+            if (typeof resolver !== "function") {
+                return Promise.reject(new Error("No image generator is configured (config.aiToolkitImageResolver)."));
+            }
+            return Promise.resolve().then(function () { return resolver(text); }).then(checkGeneratedImageSrc);
+        }
+        function insertGeneratedImage(src, alt) {
+            editor.insertHTML('<img src="' + escapeAttribute(src) + '" alt="' + escapeAttribute(alt || "") + '">');
+            try { if (typeof editor.fireChange === "function") editor.fireChange(); } catch (e) { /* ignore */ }
+        }
+        var imageComposer = null;
+        function closeImageComposer() {
+            // 2026-10-14 Focus inside the card (Escape, Cancel) goes back to the editor when it closes, so a
+            // keyboard user does not land on the page body (WCAG 2.4.3). tools/ai/image-generator-focus.mjs
+            var hadFocus = false;
+            try { hadFocus = !!(imageComposer && imageComposer.contains(imageComposer.ownerDocument.activeElement)); } catch (e) { /* ignore */ }
+            if (imageComposer && imageComposer.parentNode) imageComposer.parentNode.removeChild(imageComposer);
+            imageComposer = null;
+            if (hadFocus) { try { editor.focus(); } catch (e) { /* ignore */ } }
+        }
+        // A small prompt card over the editor. Generate inserts the image at the caret and closes the card; Cancel and
+        // Escape close it without inserting anything.
+        function openImageComposer() {
+            closeImageComposer();
+            var frame = editor.iframe;
+            if (!frame || !frame.ownerDocument) return;
+            var host = frame.ownerDocument;
+            var box = host.createElement("div");
+            box.className = "rte-image-gen";
+            box.setAttribute("role", "dialog");
+            box.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aig_title", "Generate an image") : "Generate an image"));
+            var bs = box.style;
+            bs.position = "fixed"; bs.zIndex = "2147483000"; bs.width = "320px"; bs.padding = "12px";
+            bs.background = "#fff"; bs.border = "1px solid rgba(0,0,0,.15)"; bs.borderRadius = "8px";
+            bs.boxShadow = "0 8px 24px rgba(15,23,42,.18)"; bs.font = "13px/1.4 system-ui, sans-serif"; bs.color = "#1f2937";
+            var fr = frame.getBoundingClientRect();
+            bs.left = Math.round(fr.left + 16) + "px";
+            bs.top = Math.round(fr.top + 16) + "px";
+            var label = host.createElement("label");
+            label.textContent = (obj.__aiT ? obj.__aiT("aig_describe", "Describe the image") : "Describe the image");
+            label.style.display = "block";
+            label.style.marginBottom = "6px";
+            var area = host.createElement("textarea");
+            area.rows = 3;
+            area.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aig_describe", "Describe the image") : "Describe the image"));
+            area.style.width = "100%"; area.style.boxSizing = "border-box"; area.style.font = "inherit";
+            var status = host.createElement("div");
+            status.className = "rte-image-gen-status";
+            status.setAttribute("aria-live", "polite");
+            status.style.minHeight = "18px"; status.style.margin = "6px 0"; status.style.color = "#b91c1c";
+            var row = host.createElement("div");
+            row.style.textAlign = "right";
+            var cancel = host.createElement("button");
+            cancel.type = "button";
+            cancel.className = "rte-image-gen-cancel";
+            cancel.textContent = (obj.__aiT ? obj.__aiT("aig_cancel", "Cancel") : "Cancel");
+            cancel.style.marginRight = "6px";
+            var go = host.createElement("button");
+            go.type = "button";
+            go.className = "rte-image-gen-go";
+            go.textContent = (obj.__aiT ? obj.__aiT("aig_generate", "Generate") : "Generate");
+            go.style.background = "#1d67ba"; go.style.color = "#fff"; go.style.border = "0";
+            go.style.borderRadius = "4px"; go.style.padding = "4px 12px";
+            go.addEventListener("click", function () {
+                var text = area.value.replace(/^\s+|\s+$/g, "");
+                if (!text) { status.textContent = (obj.__aiT ? obj.__aiT("aig_describefirst", "Describe the image first.") : "Describe the image first."); return; }
+                go.disabled = true;
+                status.style.color = "#475569";
+                status.textContent = (obj.__aiT ? obj.__aiT("aig_generating", "Generating...") : "Generating...");
+                generateImage(text).then(function (src) {
+                    insertGeneratedImage(src, text);
+                    closeImageComposer();
+                    // the Generate button was disabled while it ran, which moved focus out of the card: return it here
+                    try { editor.focus(); } catch (e) { /* ignore */ }
+                }, function (err) {
+                    go.disabled = false;
+                    status.style.color = "#b91c1c";
+                    status.textContent = (err && err.message) || (obj.__aiT ? obj.__aiT("aig_failed", "The image could not be generated.") : "The image could not be generated.");
+                });
+            });
+            cancel.addEventListener("click", closeImageComposer);
+            box.addEventListener("keydown", function (e) {
+                if (e.key === "Escape" || e.key === "Esc") { e.preventDefault(); closeImageComposer(); }
+            });
+            row.appendChild(cancel);
+            row.appendChild(go);
+            box.appendChild(label);
+            box.appendChild(area);
+            box.appendChild(status);
+            box.appendChild(row);
+            host.body.appendChild(box);
+            imageComposer = box;
+            try { area.focus(); } catch (e) { /* focus is best effort */ }
+        }
+        editor.generateImage = function (prompt) {
+            return generateImage(prompt).then(function (src) { insertGeneratedImage(src, prompt); return true; });
+        };
+        editor.openImageGenerator = function () { openImageComposer(); };
+
         editor.aiToolkit = {
+            generateImage: generateImage,
+            setImageResolver: function (fn) { config.aiToolkitImageResolver = typeof fn === "function" ? fn : null; },
             normalizeText: normalizeText,
             ensureSentence: ensureSentence,
             buildDemoResult: buildDemoResult,
+            isDemoMode: isDemoMode,
             getTranslateLanguages: getTranslateLanguages,
             getTranslateLanguageLabel: getTranslateLanguageLabel,
             getOperationContract: getOperationContract,
@@ -2068,6 +2392,21 @@ function RTE_Plugin_AIToolkit() {
         config[key] = current ? current + token : token;
     }
 
+    // 2026-10-15 with no resolver the toolkit answers from built-in samples, and nothing said so: an evaluating
+    // customer reported the AI feature as "not working". The dialog and the chat panel now carry a notice while
+    // no resolver is set. tools/ai/demo-mode-notice.mjs
+    function isDemoMode() {
+        return typeof config.aiToolkitResolver !== "function";
+    }
+
+    function appendDemoNotice(parent) {
+        if (!isDemoMode()) return null;
+        var notice = append(parent, "div", "", "rte-ai-demo-notice",
+            config.text_aitoolkitdemonotice || "Demo mode: these are built-in sample results, not a real AI model. Connect an AI provider with the aiToolkitResolver setting to get real suggestions.");
+        notice.setAttribute("role", "note");
+        return notice;
+    }
+
     function append(parent, tagName, cssText, className, text) {
         var node = parent.ownerDocument.createElement(tagName);
         if (cssText) {
@@ -2478,7 +2817,9 @@ function RTE_Plugin_AIToolkit() {
                 if (mode === "insert" && editor && editor.insertHTML) {
                     editor.insertHTML(html);
                 } else if (editor && editor.setHTMLCode) {
-                    editor.setHTMLCode(html);
+                    // undoable: Ctrl+Z gives back exactly the document this replaced
+                    // (tools/import/replace-undo-plugins.mjs)
+                    editor.setHTMLCode(html, { undoable: true });
                 }
                 return html;
             }).catch(function (err) {
@@ -2515,6 +2856,385 @@ function RTE_Plugin_AIToolkit() {
             .trim();
     }
 
+    // 2026-10-18 Spoken labels are phrases joined into sentences. A phrase that already ended one ("... is ready.")
+    // gave "ready.. Document thread"; after such a phrase the next follows with a space. tools/ai/aria-double-period.mjs
+    function joinSentences(parts) {
+        var out = "";
+        for (var i = 0; i < parts.length; i++) {
+            var s = String(parts[i] == null ? "" : parts[i]).replace(/[ \t\r\n]+$/, "");
+            if (!s) continue;
+            out += !out ? s : (/[.?!\u2026\u3002\uff01\uff1f]$/.test(out) ? " " : ". ") + s;
+        }
+        return out;
+    }
+
+    // 2026-10-18 The inline AI suggestion card and the AI chat compose most of their words - shown and announced -
+    // from many small builders. With a language pack loaded, this catalog translates them where they are displayed:
+    // a whole string, else sentence by sentence, with patterns for the counts ("Queue 1 of 2"). Text a person wrote
+    // (the card's Current / Suggested compare, the chat's messages) is never touched; anything not catalogued stays
+    // as it is; an English page does nothing here. tools/i18n/ai-card-chat-language.mjs
+    var AIQ_EXACT = [
+        ["air_accept", "Accept"],
+        ["air_reject", "Reject"],
+        ["air_current", "Current"],
+        ["air_suggested", "Suggested"],
+        ["air_why", "Why"],
+        ["air_scope_sel", "Selection"],
+        ["air_scope_doc", "Document"],
+        ["air_type_proofread", "Proofread"],
+        ["air_type_rewrite", "Rewrite"],
+        ["air_type_translate", "Translate"],
+        ["air_type_comment", "Comment"],
+        ["air_type_paragraph", "Paragraph"],
+        ["air_type_summarize", "Summarize"],
+        ["air_type_expand", "Expand"],
+        ["air_type_shorten", "Shorten"],
+        ["aip_headings", "Headings"],
+        ["aichat", "AI Chat"],
+        ["aic_newchat", "Start a fresh chat"],
+        ["aic_closechat", "Close AI chat"],
+        ["aic_close", "Close"],
+        ["aic_usesel", "Use selection"],
+        ["aic_usedoc", "Use document"],
+        ["aic_copymsg", "Copy message text"],
+        ["aic_copy", "Copy"],
+        ["aic_regen", "Regenerate response"],
+        ["aid_regenerate", "Regenerate"],
+        ["aic_actions", "AI chat actions"],
+        ["aic_send", "Send"],
+        ["aic_starttitle", "Start with AI Chat"],
+        ["aic_pill_doc", "Document context"],
+        ["aic_pill_sel", "Selection context"],
+        ["aic_compose_doc", "Compose next AI request for the current document"],
+        ["aic_compose_sel", "Compose next AI request for the current selection"],
+        ["aic_emptytitle_doc", "Type a prompt or load a starter for the current document first"],
+        ["aic_emptytitle_sel", "Type a prompt or load a starter for the current selection first"],
+        ["aic_empty_doc", "Ask anything about the current document"],
+        ["aic_empty_sel", "Ask anything about the current selection"],
+        ["air_focusaria", "Focus the current AI review item"],
+        ["aiq_preview", "AI suggestion preview"],
+        ["aiq_proposed", "Proposed edit"],
+        ["aiq_curandsug", "Current and suggested text"],
+        ["aiq_curtext", "Current text"],
+        ["aiq_sugtext", "Suggested text"],
+        ["aiq_ready", "Ready to review"],
+        ["aiq_curfocus", "Current focus"],
+        ["aiq_seldraft", "Selection draft"],
+        ["aiq_docdraft", "Document draft"],
+        ["aiq_prepdraft", "Prepared draft"],
+        ["aiq_customdraft", "Custom draft"],
+        ["aiq_draftready", "Draft ready"],
+        ["aiq_glance", "Change at a glance"],
+        ["aiq_surface", "Surface edit"],
+        ["aiq_textrewrite", "Text rewrite"],
+        ["aiq_textchange", "Text change"],
+        ["aiq_langchange", "Language change"],
+        ["aiq_reviewchange", "Reviewable change"],
+        ["aiq_acceptedchange", "Accepted change"],
+        ["aiq_rejectedchange", "Rejected change"],
+        ["aiq_lowimpact", "Low impact"],
+        ["aiq_medimpact", "Medium impact"],
+        ["aiq_highimpact", "High impact"],
+        ["aiq_whatnext", "What happens next"],
+        ["aiq_qcomplete", "Queue complete"],
+        ["aiq_qopened", "Queue opened"],
+        ["aiq_qhandoff", "Queue handoff"],
+        ["aiq_qstate", "Queue state"],
+        ["aiq_recready", "Recovery ready"],
+        ["aiq_recavail", "Recovery available"],
+        ["aiq_finalitem", "Accepting or rejecting this final pending item finishes the current review run"],
+        ["aiq_moveson", "Accepting or rejecting this item moves review straight to the next pending suggestion"],
+        ["aiq_nolater", "No later pending items remain in this queue"],
+        ["aiq_thenrec", "Then recovery and next queues appear"],
+        ["aiq_thencomplete", "Then queue complete"],
+        ["aiq_undolast", "Undo the last decision or open another queue"],
+        ["aiq_afterfinal", "After reviewing the final pending item, recovery and next queues appear"],
+        ["aiq_afterdec", "After this decision"],
+        ["aiq_handoff", "Action handoff"],
+        ["aiq_decidelane", "Decide lane"],
+        ["aiq_curlane", "Current lane"],
+        ["aiq_curactionlane", "Current action lane"],
+        ["aiq_kblane", "Keyboard lane"],
+        ["aiq_curenter", "Current Enter target"],
+        ["aiq_spaceact", "Enter or Space activates this action"],
+        ["aiq_acceptfinish", "Accept & finish"],
+        ["aiq_rejectfinish", "Reject & finish"],
+        ["aiq_acceptnext", "Accept & next"],
+        ["aiq_rejectnext", "Reject & next"],
+        ["aiq_accfinishdesc", "Accept & finish this AI change and finish the current review queue"],
+        ["aiq_rejfinishdesc", "Reject & finish this AI change and finish the current review queue"],
+        ["aiq_open", "Open"],
+        ["aiq_review", "Review"],
+        ["aiq_move", "Move"],
+        ["aiq_previous", "Previous"],
+        ["aiq_next", "Next"],
+        ["aiq_decide", "Decide"],
+        ["aiq_recover", "Recover"],
+        ["aiq_actions", "AI suggestion actions"],
+        ["aiq_openactions", "Open actions"],
+        ["aiq_moveactions", "Move actions"],
+        ["aiq_decideactions", "Decide actions"],
+        ["aiq_recoveractions", "Recover actions"],
+        ["aiq_whysug", "Why this suggestion"],
+        ["aiq_upnext", "Up next"],
+        ["aiq_upnextcur", "Up next becomes current"],
+        ["aiq_follows", "This follows after the current decision"],
+        ["aiq_nextitem", "Next item"],
+        ["aiq_reviewnow", "Review this item now"],
+        ["aiq_reopen", "Reopen this suggestion in the current review lane"],
+        ["aiq_jump", "Jump earlier or later in this queue before deciding"],
+        ["aiq_previtem", "Previous AI review item"],
+        ["aiq_nextitemai", "Next AI review item"],
+        ["aiq_noprev", "No previous AI review item in the current queue"],
+        ["aiq_nonext", "No next AI review item in the current queue"],
+        ["aiq_shortcuts", "Inline AI review shortcuts"],
+        ["aiq_kbguide", "Keyboard guide"],
+        ["aiq_move_l", "move"],
+        ["aiq_jump_l", "jump"],
+        ["aiq_enter", "Enter"],
+        ["aiq_custom", "Custom"],
+        ["aiq_reason_proof", "Normalizes spacing, punctuation, and capitalization while keeping the original meaning intact"],
+        ["aiq_reason_rewrite", "Tightens the wording by removing filler phrases so the point comes through faster"],
+        ["aiq_c_ready", "Ready"],
+        ["aiq_c_docfocus", "Document focus"],
+        ["aiq_c_selfocus", "Selection focus"],
+        ["aiq_c_inplace", "Ask, rewrite, or review the current document in place"],
+        ["aiq_c_docthread", "Document thread"],
+        ["aiq_c_selthread", "Selection thread"],
+        ["aiq_c_newask", "Ready for a new ask"],
+        ["aiq_c_latest", "Latest reply is ready"],
+        ["aiq_c_context", "Context"],
+        ["aiq_c_docactive", "Document active"],
+        ["aiq_c_selactive", "Selection active"],
+        ["aiq_c_nosel", "No current selection"],
+        ["aiq_c_selready", "Selection ready"],
+        ["aiq_c_wholedoc", "Using the whole document as the active source"],
+        ["aiq_c_narrow", "Select text any time to narrow the ask"],
+        ["aiq_c_snapshot", "Document snapshot"],
+        ["aiq_c_scopeswitch", "Context scope switch"],
+        ["aiq_c_unavail", "Unavailable until text is selected"],
+        ["aiq_c_activescope", "Active scope"],
+        ["aiq_c_usingwhole", "AI Chat is using the whole document"],
+        ["aiq_c_quickstarts", "Quick starts"],
+        ["aiq_c_readychoose", "Ready to choose"],
+        ["aiq_c_choosestarter", "Choose a starter for the current document or keep typing your own prompt in Compose"],
+        ["aiq_c_starterbtns", "Starter buttons for the current document"],
+        ["aiq_c_loadsstarter", "Loads this starter into Compose for the current document"],
+        ["aiq_c_summarystarter", "Summary starter"],
+        ["aiq_c_reviewstarter", "Review starter"],
+        ["aiq_c_langstarter", "Language starter"],
+        ["aiq_c_structstarter", "Structure starter"],
+        ["aiq_c_expandstarter", "Expand starter"],
+        ["aiq_c_starterready", "Starter ready"],
+        ["aiq_c_p_summarize", "Summarize the current content and suggest the clearest next edit"],
+        ["aiq_c_p_proofread", "Proofread the current content and prepare a cleaner version I can review"],
+        ["aiq_c_p_translate", "Translate the current content into Spanish and prepare a reviewable version"],
+        ["aiq_c_p_headings", "Suggest better section titles and subheadings for this content"],
+        ["aiq_c_p_expand", "Add a short supporting paragraph that strengthens this content"],
+        ["aiq_c_conversation", "Conversation"],
+        ["aiq_c_firstex", "First exchange"],
+        ["aiq_c_waitfirst", "Waiting for first ask"],
+        ["aiq_c_firstanswer", "Your first answer, draft, or reviewable change for the current document will appear here"],
+        ["aiq_c_askexplore", "Ask and explore"],
+        ["aiq_c_getanswers", "Get answers, summaries, headings, or rewrite direction grounded in the current context"],
+        ["aiq_c_prepedits", "Prepare reviewable edits"],
+        ["aiq_c_previewinline", "Preview inline changes, apply structured plans, or turn responses into review-ready suggestions"],
+        ["aiq_c_usestarters", "Use starters or type your own"],
+        ["aiq_c_choosecurated", "Choose one of the curated quick starts above or write a custom prompt in the composer below"],
+        ["aiq_c_compose", "Compose"],
+        ["aiq_c_readyask", "Ready to ask about the current document"],
+        ["aiq_c_entersends", "Enter sends"],
+        ["aiq_c_composeactions", "Compose actions"],
+        ["aiq_c_openask", "Open Ask AI"],
+        ["aiq_c_senddisabled", "Send disabled"],
+        ["aiq_c_responseready", "AI response ready"],
+        ["aiq_c_replyready", "Reply ready"],
+        ["aiq_c_textchange", "This is a text change"],
+        ["aiq_c_exchange", "AI chat exchange"],
+        ["aiq_c_customex", "Custom exchange"],
+        ["aiq_c_request", "Request"],
+        ["aiq_c_curexchange", "Current exchange"],
+        ["aiq_c_you", "You"],
+        ["aiq_c_prompt", "Prompt"],
+        ["aiq_c_promptsent", "Prompt sent"],
+        ["aiq_c_waitingai", "Waiting on AI for the current document context"],
+        ["aiq_c_whatyouasked", "What you asked"],
+        ["aiq_c_usingdoc", "Using current document"],
+        ["aiq_c_response", "Response"],
+        ["aiq_c_answer", "Answer"],
+        ["aiq_c_answerready", "Answer ready"],
+        ["aiq_c_readanswer", "Read the answer grounded in the current document context"],
+        ["aiq_c_copyonly", "Copy only"],
+        ["aiq_c_copyonlygroup", "Copy only group"],
+        ["aiq_c_copyprep", "Copy this prepared reply without changing the document"],
+        ["aiq_c_copyprepai", "Copy this prepared AI reply without changing the document"],
+        ["aiq_c_copytext", "Copy text"],
+        ["aiq_c_actions", "Actions"],
+        ["aiq_c_ai", "AI"]
+    ];
+    var AIQ_PATTERNS = [
+        ["aiq_p_queue", new RegExp("^Queue (\\d+) of (\\d+)$")],
+        ["aiq_p_step", new RegExp("^(\\d+) steps?$")],
+        ["aiq_p_keeps", new RegExp("^Keeps (\\d+) words? across (\\d+) sentences?$")],
+        ["aiq_p_queuein", new RegExp("^It is queue (\\d+) of (\\d+) in this view$")],
+        ["aiq_p_enterfocuses", new RegExp("^Enter focuses (.+)$")],
+        ["aiq_p_entercolon", new RegExp("^Enter: (.+)$")],
+        ["aiq_p_focus", new RegExp("^[Ff]ocus (.+)$")],
+        ["aiq_p_reviewopens", new RegExp("^Review opens on (.+)$")],
+        ["aiq_p_openfocus", new RegExp("^Open this AI suggestion in review and focus (.+)$")],
+        ["aiq_p_auses", new RegExp("^A uses (.+)$")],
+        ["aiq_p_ruses", new RegExp("^R uses (.+)$")],
+        ["aiq_p_exchanges", new RegExp("^(\\d+) exchanges?$")],
+        ["aiq_p_messages", new RegExp("^(\\d+) messages?$")],
+        ["aiq_p_words", new RegExp("^(\\d+) words?$")],
+        ["aid_chars", new RegExp("^(\\d+) chars?$")],
+        ["aiq_p_paragraphs", new RegExp("^(\\d+) paragraphs?$")],
+        ["aic_pill_starters", new RegExp("^(\\d+) starters?$")],
+        ["aic_pill_words", new RegExp("^(\\d+) words in scope$")],
+        ["aiq_p_exchangen", new RegExp("^Exchange (\\d+)$")],
+        ["aiq_p_turn", new RegExp("^Turn (\\d+)$")],
+        ["aiq_p_convdoc", new RegExp("^(\\d+) exchanges?, (\\d+) messages? in this conversation for the current document$")],
+        ["aiq_p_convsel", new RegExp("^(\\d+) exchanges?, (\\d+) messages? in this conversation for the current selection$")],
+        ["aiq_p_threaddoc", new RegExp("^(\\d+) exchanges?, (\\d+) messages? in this document thread$")],
+        ["aiq_p_threadsel", new RegExp("^(\\d+) exchanges?, (\\d+) messages? in this selection thread$")],
+        ["aiq_p_responding", new RegExp("^Responding to (.+) request$")],
+        ["aiq_p_actions", new RegExp("^Actions: (.+)$")]
+    ];
+    var aiqIndex = null;
+    function aiqLocale() {
+        var l = config && config.text_uilocale;
+        return l && !/^en(-|$)/i.test(l) ? l : "";
+    }
+    function aiqCjk() { return /^(zh|ja)/i.test(aiqLocale()); }
+    function aiqExact(s) {
+        if (!aiqIndex) {
+            aiqIndex = {};
+            for (var i = 0; i < AIQ_EXACT.length; i++) {
+                var en = AIQ_EXACT[i][1];
+                if (!aiqIndex["=" + en]) aiqIndex["=" + en] = AIQ_EXACT[i][0];
+                if (!aiqIndex["~" + en.toLowerCase()]) aiqIndex["~" + en.toLowerCase()] = AIQ_EXACT[i][0];
+            }
+        }
+        var key = aiqIndex["=" + s] || aiqIndex["~" + s.toLowerCase()];
+        return (key && config["text_" + key]) || null;
+    }
+    // a phrase without its closing stop: the catalog, then the patterns (a word capture must translate too)
+    function aiqCore(s) {
+        var v = aiqExact(s);
+        if (v) return v;
+        for (var i = 0; i < AIQ_PATTERNS.length; i++) {
+            var m = AIQ_PATTERNS[i][1].exec(s);
+            if (!m) continue;
+            var tpl = config["text_" + AIQ_PATTERNS[i][0]];
+            if (!tpl) return null;
+            var out = tpl;
+            for (var j = 1; j < m.length; j++) {
+                var cap = m[j], tr = /^[0-9]+$/.test(cap) ? cap : aiqCore(cap);
+                if (tr == null) return null;
+                out = out.split("{" + (j - 1) + "}").join(tr);
+            }
+            return out;
+        }
+        return null;
+    }
+    function aiqPiece(piece) {
+        var body = piece, punct = "";
+        var last = body.charAt(body.length - 1);
+        if (last === "." || last === ":") { punct = last; body = body.substring(0, body.length - 1); }
+        var v = aiqCore(body);
+        if (v == null) return null;
+        if (punct) {
+            var end = v.charAt(v.length - 1);
+            var closed = ".:!?".indexOf(end) >= 0 || end === String.fromCharCode(0x3002) || end === String.fromCharCode(0xff1a);
+            if (!closed) v += aiqCjk() ? String.fromCharCode(punct === ":" ? 0xff1a : 0x3002) : punct;
+        }
+        return v;
+    }
+    function aiqText(text) {
+        var t = String(text == null ? "" : text).replace(/^\s+|\s+$/g, "");
+        if (!t || !/[A-Za-z]/.test(t)) return null;
+        var whole = aiqPiece(t);
+        if (whole != null) return whole;
+        var dash = t.indexOf(" - ");
+        if (dash > 0) {
+            var a = aiqText(t.substring(0, dash)), b = aiqText(t.substring(dash + 3));
+            if (a != null || b != null) return (a != null ? a : t.substring(0, dash)) + " - " + (b != null ? b : t.substring(dash + 3));
+        }
+        var pieces = t.match(/[^.:!?]+[.:!?]*/g);
+        if (!pieces || pieces.length < 2) return null;
+        var out = "", prevTranslated = false, changed = false;
+        for (var i = 0; i < pieces.length; i++) {
+            var p = pieces[i].replace(/^\s+|\s+$/g, "");
+            if (!p) continue;
+            var tr = aiqPiece(p);
+            if (tr != null) changed = true;
+            var local = tr != null || !/[A-Za-z]/.test(p);
+            var cur = tr != null ? tr : p;
+            out += !out ? cur : ((local && prevTranslated && aiqCjk()) ? "" : " ") + cur;
+            prevTranslated = local;
+        }
+        return changed ? out : null;
+    }
+    var aiqCjkStop = null, aiqCjkGap = null;
+    function aiqFinish(s) {
+        if (s == null || !aiqCjk()) return s;
+        if (!aiqCjkStop) {
+            var cjk = String.fromCharCode(0x4e00) + "-" + String.fromCharCode(0x9fff) + String.fromCharCode(0x3040) + "-" + String.fromCharCode(0x30ff) + String.fromCharCode(0x201d) + String.fromCharCode(0x300d);
+            aiqCjkStop = new RegExp("([" + cjk + "])\\.", "g");
+            aiqCjkGap = new RegExp("([" + String.fromCharCode(0x3002) + String.fromCharCode(0xff1a) + "])\\s+(?=[^A-Za-z0-9\\s])", "g");
+        }
+        return s.replace(aiqCjkStop, "$1" + String.fromCharCode(0x3002)).replace(aiqCjkGap, "$1");
+    }
+    var AIQ_SKIP = ".rte-ai-inline-preview-compare-text, .rte-ai-chat-message-text, .rte-ai-chat-message-request-body, textarea, input, script, style, svg";
+    function aiqLocalize(root) {
+        if (!root || !aiqLocale()) return;
+        var stack = [root];
+        while (stack.length) {
+            var el = stack.pop();
+            if (el.nodeType !== 1) continue;
+            if (el !== root && el.matches && el.matches(AIQ_SKIP)) continue;
+            for (var a = 0; a < 3; a++) {
+                var name = a === 0 ? "aria-label" : (a === 1 ? "title" : "placeholder");
+                var val = el.getAttribute(name);
+                if (val) { var tv = aiqFinish(aiqText(val) || val); if (tv !== val) el.setAttribute(name, tv); }
+            }
+            for (var c = el.firstChild; c; c = c.nextSibling) {
+                if (c.nodeType === 1) stack.push(c);
+                else if (c.nodeType === 3 && /[A-Za-z.]/.test(c.data)) {
+                    var tt = aiqFinish(aiqText(c.data) || c.data.replace(/^\s+|\s+$/g, ""));
+                    if (tt) {
+                        var lead = /^\s*/.exec(c.data)[0], trail = /\s*$/.exec(c.data)[0];
+                        if (lead + tt + trail !== c.data) c.data = lead + tt + trail;
+                    }
+                }
+            }
+        }
+    }
+    // keep a root localized as the toolkit rebuilds it (idempotent: a translated string has nothing left to match)
+    function aiqWatch(root, select) {
+        if (!root || !aiqLocale() || root.__aiqWatched) return;
+        root.__aiqWatched = true;
+        var run = function () {
+            if (!select) { aiqLocalize(root); return; }
+            var list = root.querySelectorAll(select);
+            for (var i = 0; i < list.length; i++) aiqLocalize(list[i]);
+        };
+        run();
+        var win = root.ownerDocument && root.ownerDocument.defaultView;
+        var MO = win && win.MutationObserver;
+        if (!MO) return;
+        var pending = false;
+        new MO(function () {
+            if (pending) return;
+            pending = true;
+            win.setTimeout(function () { pending = false; run(); }, 0);
+        }).observe(root, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["aria-label", "title", "placeholder"] });
+    }
+    function aiqWatchCards() {
+        var editable = editor.getEditable ? editor.getEditable() : null;
+        if (editable) aiqWatch(editable, ".rte-ai-inline-preview");
+    }
+
     function ensureSentence(text) {
         var clean = normalizeText(text);
         if (!clean) {
@@ -2533,6 +3253,24 @@ function RTE_Plugin_AIToolkit() {
 
     function normalizeLanguageValue(language) {
         return normalizeText(language || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+    }
+
+    // 2026-10-18 the Translate-to list names the built-in languages in the page's language (Intl.DisplayNames in the
+    // pack's locale, text_uilocale) at the display site only; values and the language a request names are unchanged,
+    // and an application's own label is kept. tools/i18n/ai-translate-languages.mjs
+    var TRANSLATE_BUILTIN = { spanish: ["es", "Spanish"], french: ["fr", "French"], german: ["de", "German"], italian: ["it", "Italian"], portuguese: ["pt", "Portuguese"], japanese: ["ja", "Japanese"] };
+    function getTranslateLanguageDisplay(entry) {
+        var label = entry.label || entry.value;
+        var builtIn = TRANSLATE_BUILTIN[normalizeLanguageValue(entry.value)];
+        var locale = config && config.text_uilocale;
+        if (!builtIn || label !== builtIn[1] || !locale || /^en(-|$)/i.test(locale)) return label;
+        try {
+            if (typeof Intl !== "undefined" && Intl.DisplayNames) {
+                var n = new Intl.DisplayNames([locale], { type: "language" }).of(builtIn[0]);
+                if (n && n !== builtIn[0]) return n;
+            }
+        } catch (e) { /* the English label */ }
+        return label;
     }
 
     function getTranslateLanguageLabel(language) {
@@ -2565,27 +3303,27 @@ function RTE_Plugin_AIToolkit() {
     function getSuggestionTypeLabel(type) {
         switch (getSuggestionTypeValue(type)) {
             case "proofread":
-                return "Proofread";
+                return (obj.__aiT ? obj.__aiT("air_type_proofread", "Proofread") : "Proofread");
             case "rewrite":
-                return "Rewrite";
+                return (obj.__aiT ? obj.__aiT("air_type_rewrite", "Rewrite") : "Rewrite");
             case "translate":
-                return "Translate";
+                return (obj.__aiT ? obj.__aiT("air_type_translate", "Translate") : "Translate");
             case "justify":
-                return "Justify";
+                return (obj.__aiT ? obj.__aiT("air_type_justify", "Justify") : "Justify");
             case "summarize":
-                return "Summarize";
+                return (obj.__aiT ? obj.__aiT("air_type_summarize", "Summarize") : "Summarize");
             case "shorten":
-                return "Shorten";
+                return (obj.__aiT ? obj.__aiT("air_type_shorten", "Shorten") : "Shorten");
             case "expand":
-                return "Expand";
+                return (obj.__aiT ? obj.__aiT("air_type_expand", "Expand") : "Expand");
             case "comment":
-                return "Comment";
+                return (obj.__aiT ? obj.__aiT("air_type_comment", "Comment") : "Comment");
             case "paragraph":
-                return "Paragraph";
+                return (obj.__aiT ? obj.__aiT("air_type_paragraph", "Paragraph") : "Paragraph");
             case "chat":
-                return "Chat";
+                return (obj.__aiT ? obj.__aiT("air_type_chat", "Chat") : "Chat");
             default:
-                return "Other";
+                return (obj.__aiT ? obj.__aiT("air_type_other", "Other") : "Other");
         }
     }
 
@@ -2736,7 +3474,7 @@ function RTE_Plugin_AIToolkit() {
         if (options.redoNextLabel) {
             parts.push(options.redoNextLabel);
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildSuggestionSourceLabel(type, snapshot, language, scope) {
@@ -2761,11 +3499,11 @@ function RTE_Plugin_AIToolkit() {
         var languageValue = getTranslateLanguageValue(language);
         var languageLabel = getTranslateLanguageLabel(languageValue);
         var leadMap = {
-            spanish: "Version en español",
-            french: "Version française",
+            spanish: "Version en espa\xf1ol",
+            french: "Version fran\xe7aise",
             german: "Deutsche Fassung",
             italian: "Versione italiana",
-            portuguese: "Versão em português",
+            portuguese: "Vers\xe3o em portugu\xeas",
             japanese: "Japanese draft"
         };
         var lead = leadMap[languageValue] || (languageLabel + " version");
@@ -2780,20 +3518,29 @@ function RTE_Plugin_AIToolkit() {
         }
 
         var words = clean.split(/\s+/);
+        // 2026-10-18 an in-place edit ends like the selection it replaces: one that stops before the end of its
+        // paragraph gains no closing stop, one that starts mid-sentence keeps its first letter. Proofreading "Hello world"
+        // in "Hello world, this is a test." gave "Hello world., this is a test.". tools/ai/demo-proofread-fragment.mjs
+        function finishEdit(text) {
+            var s = normalizeText(text);
+            if (!s) return s;
+            if (!options.midStart) s = s.charAt(0).toUpperCase() + s.substring(1);
+            if (!options.midEnd && !/[.!?]$/.test(s)) s += ".";
+            return s;
+        }
         switch (mode) {
             case "proofread":
                 var proofed = clean
                     .replace(/\s{2,}/g, " ")
                     .replace(/\s+([,.;:!?])/g, "$1")
                     .replace(/([,.;:!?])([^\s"'\)\]])/g, "$1 $2")
-                    .replace(/\.{2,}(?!\.)/g, ".")
-                    .replace(/^(.)/, function (m) { return m.toUpperCase(); });
-                return ensureSentence(proofed);
+                    .replace(/\.{2,}(?!\.)/g, ".");
+                return finishEdit(proofed);
             case "rewrite":
-                return ensureSentence(clean
-                    .replace(/\bvery\s+/gi, "")
-                    .replace(/\breally\s+/gi, "")
-                    .replace(/\bjust\s+/gi, "")
+                return finishEdit(clean
+                    .replace(/\bvery\b\s*/gi, "")
+                    .replace(/\breally\b\s*/gi, "")
+                    .replace(/\bjust\b\s*/gi, "")
                     .replace(/\bin order to\b/gi, "to")
                     .replace(/\bdue to the fact that\b/gi, "because")
                     .replace(/\s{2,}/g, " "));
@@ -2823,7 +3570,7 @@ function RTE_Plugin_AIToolkit() {
         if (!clean) {
             return "Additional paragraph: This section adds a concise supporting explanation so the reader gets more context without losing momentum.";
         }
-        return ensureSentence("Additional paragraph: This section adds a concise supporting explanation that reinforces " + clean.split(/\s+/).slice(0, 10).join(" ") + " for the reader.");
+        return ensureSentence("Additional paragraph: This section adds a concise supporting explanation that reinforces " + clean.split(/\s+/).slice(0, 10).join(" ").replace(/[.!?;:,]+$/, "") + " for the reader.");
     }
 
     function truncateText(text, maxLength) {
@@ -2835,7 +3582,9 @@ function RTE_Plugin_AIToolkit() {
     }
 
     function buildChatAnswer(prompt, source) {
-        var focus = truncateText(source, 160) || "the current document";
+        // 2026-10-18 the quoted text loses its own closing stop, or the reply read "this is a test.. Ask me" and
+        // "test., I would". tools/ai/aria-double-period.mjs
+        var focus = String(truncateText(source, 160) || "").replace(/[ \t\r\n.!?;:,]+$/, "") || "the current document";
         if (/\b(headings?|titles?)\b/.test(prompt)) {
             return "You could tighten the structure by using shorter headings that mirror the main claims in " + focus + ". Ask me to draft heading options and I can turn them into reviewable suggestions.";
         }
@@ -3374,7 +4123,7 @@ function RTE_Plugin_AIToolkit() {
         if (unavailableReason) {
             parts.push(unavailableReason);
         }
-        button.setAttribute("aria-label", parts.join(". "));
+        button.setAttribute("aria-label", joinSentences(parts));
         button.title = detail
             ? (label || "Action") + " - " + detail + (unavailableReason ? " " + unavailableReason : "")
             : (label || "Action") + (unavailableReason ? " - " + unavailableReason : "");
@@ -3389,13 +4138,34 @@ function RTE_Plugin_AIToolkit() {
         }, action, request);
     }
 
+    // Whether a selection starts mid-sentence (text before it in its block that does not end a sentence) and ends
+    // before its block does (text after it). Only for a selection; a document-wide request is a whole text.
+    function selectionSentenceContext(request) {
+        var out = { midStart: false, midEnd: false };
+        try {
+            var snap = request && request.snapshot;
+            var r = snap && snap.hasSelection && request.scope !== "document" ? snap.range : null;
+            if (!r) return out;
+            var doc = r.startContainer.ownerDocument;
+            var blockOf = function (n) {
+                var el = n && n.nodeType === 1 ? n : (n && n.parentNode);
+                while (el && el.nodeType === 1 && !/^(P|LI|TD|TH|H[1-6]|DIV|BLOCKQUOTE|PRE|BODY)$/.test(el.nodeName)) el = el.parentNode;
+                return el && el.nodeType === 1 ? el : null;
+            };
+            var b1 = blockOf(r.startContainer), b2 = blockOf(r.endContainer);
+            if (b1) { var pre = doc.createRange(); pre.selectNodeContents(b1); pre.setEnd(r.startContainer, r.startOffset); var before = pre.toString(); out.midStart = /\S/.test(before) && !/[.!?]["'\u201d)\]]*\s*$/.test(before); }
+            if (b2) { var post = doc.createRange(); post.selectNodeContents(b2); post.setStart(r.endContainer, r.endOffset); out.midEnd = /\S/.test(post.toString()); }
+        } catch (e) { /* a whole text */ }
+        return out;
+    }
+
     function defaultResolveAction(request) {
         switch (request.mode) {
             case "proofread":
                 var proofReason = "Normalizes spacing, punctuation, and capitalization while keeping the original meaning intact.";
                 return {
                     operations: [
-                        buildLegacyOperation(request.action && request.action.target ? request.action.target : "selection-preview", buildDemoResult("proofread", request.source), { reason: proofReason }, request, request.action)
+                        buildLegacyOperation(request.action && request.action.target ? request.action.target : "selection-preview", buildDemoResult("proofread", request.source, selectionSentenceContext(request)), { reason: proofReason }, request, request.action)
                     ],
                     reason: proofReason
                 };
@@ -3403,7 +4173,7 @@ function RTE_Plugin_AIToolkit() {
                 var rewriteReason = "Tightens the wording by removing filler phrases so the point comes through faster.";
                 return {
                     operations: [
-                        buildLegacyOperation(request.action && request.action.target ? request.action.target : "selection-preview", buildDemoResult("rewrite", request.source), { reason: rewriteReason }, request, request.action)
+                        buildLegacyOperation(request.action && request.action.target ? request.action.target : "selection-preview", buildDemoResult("rewrite", request.source, selectionSentenceContext(request)), { reason: rewriteReason }, request, request.action)
                     ],
                     reason: rewriteReason
                 };
@@ -3426,7 +4196,7 @@ function RTE_Plugin_AIToolkit() {
                     operations: [
                         {
                             type: "preview-suggestion",
-                            text: buildDemoResult("rewrite", request.source),
+                            text: buildDemoResult("rewrite", request.source, selectionSentenceContext(request)),
                             reason: "This rewrite reduces filler language, clarifies the main point, and makes the sentence easier to review before accepting."
                         }
                     ],
@@ -3912,6 +4682,8 @@ function RTE_Plugin_AIToolkit() {
             scope: suggestion.snapshot && suggestion.snapshot.hasSelection ? "selection" : "document",
             text: suggestion.text || "",
             blockPath: suggestion.blockPath || "",
+            mentions: cleanLedgerMentions(suggestion.mentions),
+            reactions: cleanLedgerReactions(suggestion.reactions),
             replies: Array.isArray(suggestion.replies) ? suggestion.replies : []
         };
     }
@@ -3938,6 +4710,33 @@ function RTE_Plugin_AIToolkit() {
         }
         return doc.body.innerHTML;
     }
+    // 2026-10-12 comment mentions: the { id, name } pairs a comment names, kept with the comment in the shared store.
+    function cleanLedgerMentions(list) {
+        var out = [];
+        if (!Array.isArray(list)) return out;
+        for (var i = 0; i < list.length; i++) {
+            var m = list[i];
+            if (m && m.id != null && m.name) out.push({ id: String(m.id), name: String(m.name) });
+        }
+        return out;
+    }
+    // 2026-10-15 comment reactions: [{ emoji, users: [id] }], kept with the comment like mentions.
+    function cleanLedgerReactions(list) {
+        var out = [];
+        if (!Array.isArray(list)) return out;
+        for (var i = 0; i < list.length && out.length < 20; i++) {
+            var r = list[i];
+            if (!r || typeof r.emoji !== "string" || !r.emoji || r.emoji.length > 8 || !Array.isArray(r.users)) continue;
+            var users = [];
+            for (var j = 0; j < r.users.length; j++) {
+                var u = r.users[j] == null ? "" : String(r.users[j]);
+                if (u && users.indexOf(u) < 0) users.push(u);
+            }
+            if (users.length) out.push({ emoji: r.emoji, users: users });
+        }
+        return out;
+    }
+
 
     function normalizeLedgerEntry(raw) {
         if (!raw || !raw.id) return null;
@@ -3970,6 +4769,8 @@ function RTE_Plugin_AIToolkit() {
             sourceLabel: raw.sourceLabel || "",
             snapshot: raw.snapshot || { hasSelection: raw.scope === "selection" },
             text: raw.text || "",
+            mentions: cleanLedgerMentions(raw.mentions),
+            reactions: cleanLedgerReactions(raw.reactions),
             blockPath: raw.blockPath || "",
             replies: Array.isArray(raw.replies) ? raw.replies : []
         };
@@ -4012,6 +4813,8 @@ function RTE_Plugin_AIToolkit() {
                 hasSelection: raw.scope === "selection"
             },
             text: raw.text || "",
+            mentions: cleanLedgerMentions(raw.mentions),
+            reactions: cleanLedgerReactions(raw.reactions),
             blockPath: raw.blockPath || "",
             replies: Array.isArray(raw.replies) ? raw.replies : []
         };
@@ -4067,6 +4870,8 @@ function RTE_Plugin_AIToolkit() {
             createdAt: suggestion.createdAt || 0,
             decidedAt: suggestion.decidedAt || 0,
             sourceLabel: suggestion.sourceLabel || "",
+            mentions: cleanLedgerMentions(suggestion.mentions),
+            reactions: cleanLedgerReactions(suggestion.reactions),
             snapshot: {
                 hasSelection: !!(suggestion.snapshot && suggestion.snapshot.hasSelection)
             }
@@ -6320,13 +7125,13 @@ function RTE_Plugin_AIToolkit() {
         var bodyNode = ownerDocument.createElement("span");
         bodyNode.className = "rte-ai-inline-preview-shortcuts-body";
         shortcutsChip.appendChild(bodyNode);
-        var pieces = String(text || "").split(/(\s+·\s+|\s+-\s+)/);
+        var pieces = String(text || "").split(/(\s+\xb7\s+|\s+-\s+)/);
         for (var pieceIndex = 0; pieceIndex < pieces.length; pieceIndex++) {
             var piece = pieces[pieceIndex];
             if (!piece) {
                 continue;
             }
-            if (/^\s+[·-]\s+$/.test(piece)) {
+            if (/^\s+[\xb7-]\s+$/.test(piece)) {
                 var separator = ownerDocument.createElement("span");
                 separator.className = "rte-ai-inline-preview-shortcuts-separator";
                 separator.innerText = piece.replace(/^\s+|\s+$/g, "");
@@ -6519,13 +7324,13 @@ function RTE_Plugin_AIToolkit() {
     function getSuggestionStatusLabel(status) {
         switch (status) {
             case "accepted":
-                return "Accepted";
+                return (obj.__aiT ? obj.__aiT("air_status_accepted", "Accepted") : "Accepted");
             case "rejected":
-                return "Rejected";
+                return (obj.__aiT ? obj.__aiT("air_status_rejected", "Rejected") : "Rejected");
             case "stale":
-                return "Needs refresh";
+                return (obj.__aiT ? obj.__aiT("air_status_stale", "Needs refresh") : "Needs refresh");
             default:
-                return "Pending";
+                return (obj.__aiT ? obj.__aiT("air_status_pending", "Pending") : "Pending");
         }
     }
 
@@ -6785,7 +7590,7 @@ function RTE_Plugin_AIToolkit() {
         if (summaryData.detail) {
             parts.push(summaryData.detail);
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function createInlinePreviewActionSummaryHtml(previewState) {
@@ -6944,10 +7749,10 @@ function RTE_Plugin_AIToolkit() {
             }
             var ariaLabel = label ? (label + " actions") : "AI suggestion actions";
             if (detailText) {
-                ariaLabel += ". " + detailText;
+                ariaLabel = joinSentences([ariaLabel, detailText]);
             }
             if (isCurrentGroup && badgeText) {
-                ariaLabel += ". Current lane. " + badgeText;
+                ariaLabel = joinSentences([ariaLabel, "Current lane", badgeText]);
             }
             groupNode.setAttribute("aria-label", ariaLabel);
         }
@@ -6996,7 +7801,7 @@ function RTE_Plugin_AIToolkit() {
                 button.setAttribute("aria-keyshortcuts", shortcutKey ? ("Enter Space " + shortcutKey) : "Enter Space");
                 button.setAttribute("data-rte-ai-enter-target-label", "Enter");
                 if (ariaLabel && !/current enter target/i.test(ariaLabel)) {
-                    button.setAttribute("aria-label", ariaLabel + ". Current Enter target.");
+                    button.setAttribute("aria-label", joinSentences([ariaLabel, "Current Enter target."]));
                 }
                 if (title && !/enter or space activates this action/i.test(title)) {
                     title += ". Enter or Space activates this action";
@@ -7005,7 +7810,7 @@ function RTE_Plugin_AIToolkit() {
                     }
                 }
                 if (title && !/current enter target/i.test(title)) {
-                    button.title = title + ". Current Enter target.";
+                    button.title = joinSentences([title, "Current Enter target."]);
                 }
             }
             else {
@@ -7539,7 +8344,32 @@ function RTE_Plugin_AIToolkit() {
             + "</" + resolvedTag + ">";
     }
 
+    // 2026-10-18 The card is inserted into the editing document - an iframe by default - but the toolkit's stylesheet
+    // was linked into the host page only, so every card rendered as unstyled run-on text. The host page's copy is
+    // linked into the editing document once (never into the saved HTML). tools/ai/inline-card-styled.mjs
+    function ensureCardStylesheet() {
+        try {
+            var editable = editor.getEditable ? editor.getEditable() : null;
+            var doc = editable && editable.ownerDocument;
+            if (!doc || doc === document || doc.querySelector("link[data-rte-ai-card-css]")) return;
+            var src = document.querySelector("link[data-rte-auto-injected=aitoolkit]");
+            if (!src) {
+                var all = document.querySelectorAll("link[rel=stylesheet]");
+                for (var i = 0; i < all.length; i++) {
+                    if (/(?:^|\/)aitoolkit(?:\.min)?\.css(?:[?#].*)?$/i.test(all[i].getAttribute("href") || "")) { src = all[i]; break; }
+                }
+            }
+            if (!src || !src.href) return;
+            var link = doc.createElement("link");
+            link.rel = "stylesheet";
+            link.href = src.href;
+            link.setAttribute("data-rte-ai-card-css", "1");
+            (doc.head || doc.documentElement).appendChild(link);
+        } catch (e) { /* the card stays unstyled, as before */ }
+    }
+
     function createInlinePreviewHtml(previewState) {
+        ensureCardStylesheet();
         var isBlock = !!previewState.isBlock;
         var wrapperTag = isBlock ? "div" : "span";
         var partTag = isBlock ? "div" : "span";
@@ -7617,6 +8447,7 @@ function RTE_Plugin_AIToolkit() {
             editor.__aiBindInlinePreviewEventHandlers();
         }
         editor.insertHTML(createInlinePreviewHtml(previewState));
+        aiqWatchCards();
         persistSuggestionStore();
         emitReviewLogEvent("suggestion-created", previewState);
         if (editor.__aiReviewPanel && editor.__aiReviewPanel.isConnected) {
@@ -7704,8 +8535,8 @@ function RTE_Plugin_AIToolkit() {
         var searchInput = panel.ownerDocument.createElement("input");
         searchInput.type = "text";
         searchInput.className = "rte-ai-menu-search-input";
-        searchInput.placeholder = "Filter actions…";
-        searchInput.setAttribute("aria-label", "Filter AI actions");
+        searchInput.placeholder = (obj.__aiT ? obj.__aiT("aia_filter", "Filter actions\u2026") : "Filter actions\u2026");
+        searchInput.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aia_filteraria", "Filter AI actions") : "Filter AI actions"));
         searchInput.setAttribute("autocomplete", "off");
         searchInput.setAttribute("spellcheck", "false");
         searchRow.appendChild(searchInput);
@@ -7765,7 +8596,7 @@ function RTE_Plugin_AIToolkit() {
                 // 26px row floor and 2-col grid measure identically.
                 if (action.description) {
                     button.title = action.description;
-                    button.setAttribute("aria-label", (action.title || action.id) + " — " + action.description);
+                    button.setAttribute("aria-label", (action.title || action.id) + " \u2014 " + action.description);
                 }
                 var icon = append(button, "span", "", "rte-ai-menu-item-icon");
                 icon.innerHTML = getActionIconSvg(action);
@@ -7833,7 +8664,7 @@ function RTE_Plugin_AIToolkit() {
                 if (!searchRow.__aiEmptyHint) {
                     var hint = panel.ownerDocument.createElement("div");
                     hint.className = "rte-ai-menu-empty-hint";
-                    hint.textContent = "No actions match.";
+                    hint.textContent = (obj.__aiT ? obj.__aiT("aia_nomatch", "No actions match.") : "No actions match.");
                     panel.appendChild(hint);
                     searchRow.__aiEmptyHint = hint;
                 }
@@ -8022,6 +8853,19 @@ function RTE_Plugin_AIToolkit() {
         });
     }
 
+    // 2026-10-17 a locked document stays locked: in read-only mode (Ask AI opened through the API) and in comments-only
+    // mode (its button stays enabled there) "Replace document", applyResult() and executeResolvedAction() rewrote the
+    // document. Text-changing operations are refused and the refusal is announced; opening a panel and adding a
+    // comment still work. tools/ai/ai-locked.mjs
+    function documentLocked() {
+        try { return !!((editor.getReadOnly && editor.getReadOnly()) || (editor.getCommentsOnly && editor.getCommentsOnly())); } catch (e) { return false; }
+    }
+
+    function refuseLocked() {
+        announceReviewStatus(config.text_aitoolkitlocked || "This document is read-only, so the AI result was not applied.");
+        return false;
+    }
+
     function executeOperations(operations, options) {
         options = options || {};
         var snapshot = options.snapshot || captureSelectionSnapshot();
@@ -8058,6 +8902,7 @@ function RTE_Plugin_AIToolkit() {
             });
         }
 
+        if (documentLocked() && !/^open-|comment/i.test(String(operation.type))) return refuseLocked();
         switch (operation.type) {
             case "open-chat-panel":
                 openChatPanel({ focusComposer: true });
@@ -8269,6 +9114,7 @@ function RTE_Plugin_AIToolkit() {
     }
 
     function applyResult(result, options) {
+        if (documentLocked()) return refuseLocked();
         var clean = normalizeText(result);
         if (!clean) {
             return false;
@@ -8281,7 +9127,9 @@ function RTE_Plugin_AIToolkit() {
         var snapshot = options.snapshot || captureSelectionSnapshot();
 
         if (mode === "document") {
-            editor.setHTMLCode(textToHtml(clean));
+            // 2026-10-03 undoable: an AI rewrite of the whole document is one Ctrl+Z back to exactly
+            // what was there, edits made just before included (tools/import/replace-undo-plugins.mjs)
+            editor.setHTMLCode(textToHtml(clean), { undoable: true });
             syncSuggestionStates();
             persistSuggestionStore();
             if (editor.__aiReviewPanel && editor.__aiReviewPanel.isConnected) {
@@ -8494,7 +9342,7 @@ function RTE_Plugin_AIToolkit() {
         if (options.redoNextLabel) {
             parts.push(options.redoNextLabel);
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildReviewQueuePositionData(visibleSuggestions, activeSuggestionId, suggestion) {
@@ -9275,7 +10123,7 @@ function RTE_Plugin_AIToolkit() {
                 parts.push(options.queueTransitionData.followupDetail);
             }
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function updateReviewCondensedPreviewAria(item, suggestion, panel) {
@@ -9600,7 +10448,7 @@ function RTE_Plugin_AIToolkit() {
                         focusActionLabel: getReviewFocusActionDisplayLabel(findSuggestionById(nextOverallPendingId), preferredQueueFocusAction)
                     } : null,
                     undoAction,
-                    { id: "all-types", label: "All types" },
+                    { id: "all-types", label: (obj.__aiT ? obj.__aiT("air_alltypes", "All types") : "All types") },
                     hasResolved && !showResolved ? { id: "show-resolved", label: "Show resolved" } : null,
                     { id: "open-chat", label: "AI Chat" }
                 ])
@@ -9628,7 +10476,7 @@ function RTE_Plugin_AIToolkit() {
             announceMessage: "",
             actions: [
                 undoAction,
-                typeFilter !== "all" ? { id: "all-types", label: "All types" } : null,
+                typeFilter !== "all" ? { id: "all-types", label: (obj.__aiT ? obj.__aiT("air_alltypes", "All types") : "All types") } : null,
                 hasResolved && !showResolved ? { id: "show-resolved", label: "Show resolved" } : null,
                 { id: "open-chat", label: "AI Chat" }
             ]
@@ -10794,7 +11642,7 @@ function RTE_Plugin_AIToolkit() {
         if (contextCardData.copy) {
             parts.push(contextCardData.copy);
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function getChatMessageStateTitle(message) {
@@ -11007,7 +11855,7 @@ function RTE_Plugin_AIToolkit() {
         if (isRecommended) {
             parts.push("Recommended next step.");
         }
-        button.setAttribute("aria-label", parts.join(". "));
+        button.setAttribute("aria-label", joinSentences(parts));
         button.title = detail
             ? label + " - " + detail + (isRecommended ? " Recommended next step." : "")
             : label + (isRecommended ? " - Recommended next step." : "");
@@ -11242,7 +12090,7 @@ function RTE_Plugin_AIToolkit() {
         if (actionLabels.length) {
             parts.push("Actions: " + actionLabels.join(", "));
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function syncChatActionAccessibility(actionsNode, recommendedActionId, message, currentSnapshot) {
@@ -11252,8 +12100,8 @@ function RTE_Plugin_AIToolkit() {
         var recommendedLabel = getChatRecommendedActionLabel(recommendedActionId);
         actionsNode.setAttribute("role", "group");
         actionsNode.setAttribute("aria-label", recommendedLabel
-            ? "AI chat actions. Recommended next step: " + recommendedLabel + "."
-            : "AI chat actions");
+            ? (obj.__aiT ? obj.__aiT("aic_actionsrec", "AI chat actions. Recommended next step: {0}.", recommendedLabel) : "AI chat actions. Recommended next step: " + recommendedLabel + ".")
+            : (obj.__aiT ? obj.__aiT("aic_actions", "AI chat actions") : "AI chat actions"));
         var groupNodes = actionsNode.querySelectorAll(".rte-ai-chat-message-action-group");
         for (var groupIndex = 0; groupIndex < groupNodes.length; groupIndex++) {
             var groupNode = groupNodes[groupIndex];
@@ -11379,7 +12227,7 @@ function RTE_Plugin_AIToolkit() {
         if (planItem.detail) {
             parts.push(planItem.detail);
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildChatPreviewPlanItems(message, recommendedActionId, currentSnapshot) {
@@ -11506,7 +12354,7 @@ function RTE_Plugin_AIToolkit() {
                 parts.push("+" + resolvedPreview.hiddenPlanCount + " more");
             }
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function summarizeChatPromptCopy(text) {
@@ -11605,7 +12453,7 @@ function RTE_Plugin_AIToolkit() {
         if (message.text) {
             parts.push(message.text);
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildChatAssistantRequestCardAriaLabel(requestCardData, exchangeLabel) {
@@ -11628,7 +12476,7 @@ function RTE_Plugin_AIToolkit() {
         if (requestCardData.promptText) {
             parts.push(requestCardData.promptText);
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildChatMessageAriaLabel(messages, messageIndex, currentSnapshot) {
@@ -11700,7 +12548,7 @@ function RTE_Plugin_AIToolkit() {
                 parts.push(actionSummary.title);
             }
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildChatMessageStateCardAriaLabel(message) {
@@ -11720,7 +12568,7 @@ function RTE_Plugin_AIToolkit() {
         if (stateDetail) {
             parts.push(stateDetail);
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function getChatMessageThreadRole(messages, messageIndex) {
@@ -11874,7 +12722,7 @@ function RTE_Plugin_AIToolkit() {
         if (bannerData.detail) {
             parts.push(bannerData.detail);
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildChatExchangeGroupAriaLabel(messages, requestIndex, currentSnapshot) {
@@ -11930,7 +12778,7 @@ function RTE_Plugin_AIToolkit() {
         if (bannerData && bannerData.isCurrent) {
             parts.push("Current exchange");
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildChatExchangeOutcomeData(messages, messageIndex, currentSnapshot) {
@@ -12014,7 +12862,7 @@ function RTE_Plugin_AIToolkit() {
         if (outcomeData.detail) {
             parts.push(outcomeData.detail);
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function getChatContextWordCount(text) {
@@ -12157,46 +13005,51 @@ function RTE_Plugin_AIToolkit() {
                 }
             }
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildChatSendActionData(state, context, activePrompt) {
         var scopeLabel = context && context.scope === "selection" ? "selection" : "document";
+        // 2026-10-18 every sentence reads a config.text_ key per scope (word order and gender differ by language);
+        // the English fallbacks are the sentences this built before. tools/i18n/ai-chat-language.mjs
+        var sc = scopeLabel === "selection" ? "sel" : "doc";
+        var L = function (key, en, arg) { var s = (obj.__aiT ? obj.__aiT(key, en) : en); return arg === undefined ? s : s.split("{0}").join(String(arg)); };
+        var LS = function (key, enSel, enDoc, arg) { return L(key + "_" + sc, sc === "sel" ? enSel : enDoc, arg); };
         var hasCustomDraft = !!normalizeText(state && state.draft ? state.draft : "");
         if (state && state.busy) {
             return {
-                text: "Thinking...",
+                text: L("aic_thinking", "Thinking..."),
                 disabled: true,
-                ariaLabel: "Send disabled while AI Chat is thinking about the current " + scopeLabel + ".",
-                title: "AI Chat is thinking about the current " + scopeLabel + "."
+                ariaLabel: LS("aic_busyaria", "Send disabled while AI Chat is thinking about the current selection.", "Send disabled while AI Chat is thinking about the current document."),
+                title: LS("aic_busytitle", "AI Chat is thinking about the current selection.", "AI Chat is thinking about the current document.")
             };
         }
         if (activePrompt && activePrompt.label) {
             return {
-                text: "Send starter",
+                text: L("aic_sendstarter", "Send starter"),
                 disabled: false,
-                ariaLabel: "Send starter. Send the " + activePrompt.label + " starter for the current " + scopeLabel + ".",
-                title: "Send the " + activePrompt.label + " starter for the current " + scopeLabel + "."
+                ariaLabel: LS("aic_starteraria", "Send starter. Send the {0} starter for the current selection.", "Send starter. Send the {0} starter for the current document.", activePrompt.label),
+                title: LS("aic_startertitle", "Send the {0} starter for the current selection.", "Send the {0} starter for the current document.", activePrompt.label)
             };
         }
         if (hasCustomDraft) {
             return {
-                text: "Send prompt",
+                text: L("aic_sendprompt", "Send prompt"),
                 disabled: false,
-                ariaLabel: "Send prompt. Send the custom prompt for the current " + scopeLabel + ".",
-                title: "Send the custom prompt for the current " + scopeLabel + "."
+                ariaLabel: LS("aic_promptaria", "Send prompt. Send the custom prompt for the current selection.", "Send prompt. Send the custom prompt for the current document."),
+                title: LS("aic_prompttitle", "Send the custom prompt for the current selection.", "Send the custom prompt for the current document.")
             };
         }
         return {
-            text: "Send",
+            text: L("aic_send", "Send"),
             disabled: true,
-            ariaLabel: "Send disabled. Type a prompt or load a starter for the current " + scopeLabel + " first.",
-            title: "Type a prompt or load a starter for the current " + scopeLabel + " first."
+            ariaLabel: LS("aic_emptyaria", "Send disabled. Type a prompt or load a starter for the current selection first.", "Send disabled. Type a prompt or load a starter for the current document first."),
+            title: LS("aic_emptytitle", "Type a prompt or load a starter for the current selection first.", "Type a prompt or load a starter for the current document first.")
         };
     }
 
     function buildChatComposerActionsAriaLabel(sendActionData) {
-        return "Compose actions. Open Ask AI. " + (sendActionData && sendActionData.ariaLabel ? sendActionData.ariaLabel : "Send.");
+        return (obj.__aiT ? obj.__aiT("aic_composeactions", "Compose actions. Open Ask AI.") : "Compose actions. Open Ask AI.") + " " + (sendActionData && sendActionData.ariaLabel ? sendActionData.ariaLabel : (obj.__aiT ? obj.__aiT("aic_sendp", "Send.") : "Send."));
     }
 
     function getLatestChatMessage(state) {
@@ -12410,7 +13263,7 @@ function RTE_Plugin_AIToolkit() {
                 parts.push(summaryData.changeGlance.detail);
             }
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildChatFeedIntroData(state, context, activePrompt) {
@@ -12482,7 +13335,7 @@ function RTE_Plugin_AIToolkit() {
         if (feedIntroData.detail) {
             parts.push(feedIntroData.detail);
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildChatFeedSectionAriaLabel(state, context, activePrompt) {
@@ -12511,7 +13364,7 @@ function RTE_Plugin_AIToolkit() {
             if (summaryData && summaryData.detail) {
                 parts.push(summaryData.detail);
             }
-            return parts.join(". ");
+            return joinSentences(parts);
         }
         var feedIntroData = buildChatFeedIntroData(state, context, activePrompt);
         if (feedIntroData.title) {
@@ -12527,7 +13380,7 @@ function RTE_Plugin_AIToolkit() {
         if (feedIntroData.detail) {
             parts.push(feedIntroData.detail);
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function getChatConversationSummaryTitle(state, context) {
@@ -12634,7 +13487,7 @@ function RTE_Plugin_AIToolkit() {
             parts.push(titleText);
         }
         if (!headerData) {
-            return parts.join(". ");
+            return joinSentences(parts);
         }
         if (headerData.statusLabel) {
             parts.push(headerData.statusLabel);
@@ -12652,7 +13505,7 @@ function RTE_Plugin_AIToolkit() {
                 }
             }
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildChatContextData(context) {
@@ -12732,7 +13585,7 @@ function RTE_Plugin_AIToolkit() {
         if (contextData.previewSummary) {
             parts.push(contextData.previewSummary);
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildChatContextBarAriaLabel(contextData) {
@@ -12747,7 +13600,7 @@ function RTE_Plugin_AIToolkit() {
                 }
             }
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildChatContextScopeButtonAriaLabel(scopeId, contextData) {
@@ -12783,7 +13636,7 @@ function RTE_Plugin_AIToolkit() {
         if (contextData.previewSummary) {
             parts.push(contextData.previewSummary);
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildChatQuickStartData(state, prompts, activePrompt, context) {
@@ -12836,7 +13689,7 @@ function RTE_Plugin_AIToolkit() {
         if (quickStartData.detail) {
             parts.push(quickStartData.detail);
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildChatQuickButtonAriaLabel(prompt, isActivePrompt, context) {
@@ -12855,7 +13708,7 @@ function RTE_Plugin_AIToolkit() {
         parts.push(isActivePrompt
             ? "Current starter loaded in Compose for the current " + scopeLabel
             : "Loads this starter into Compose for the current " + scopeLabel);
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildChatQuickRowAriaLabel(context) {
@@ -12890,21 +13743,21 @@ function RTE_Plugin_AIToolkit() {
         // The capability-cards data is still attached to emptyStateData.aria
         // so screen-reader users hear the long form via the aria-label.
         return {
-            title: "Start with AI Chat",
-            detail: context.scope === "selection"
-                ? "Ask anything about the current selection."
-                : "Ask anything about the current document.",
+            title: (obj.__aiT ? obj.__aiT("aic_starttitle", "Start with AI Chat") : "Start with AI Chat"),
+            detail: (context.scope === "selection"
+                ? (obj.__aiT ? obj.__aiT("aic_empty_sel", "Ask anything about the current selection") : "Ask anything about the current selection")
+                : (obj.__aiT ? obj.__aiT("aic_empty_doc", "Ask anything about the current document") : "Ask anything about the current document")) + ".",
             metaPills: [
                 {
-                    text: context.scope === "selection" ? "Selection context" : "Document context",
+                    text: context.scope === "selection" ? (obj.__aiT ? obj.__aiT("aic_pill_sel", "Selection context") : "Selection context") : (obj.__aiT ? obj.__aiT("aic_pill_doc", "Document context") : "Document context"),
                     className: "is-scope"
                 },
                 {
-                    text: (prompts && prompts.length ? prompts.length : 0) + " starters",
+                    text: (obj.__aiT ? obj.__aiT("aic_pill_starters", "{0} starters", prompts && prompts.length ? prompts.length : 0) : (prompts && prompts.length ? prompts.length : 0) + " starters"),
                     className: "is-prompts"
                 },
                 {
-                    text: getChatContextWordCount(context.source) + " words in scope",
+                    text: (obj.__aiT ? obj.__aiT("aic_pill_words", "{0} words in scope", getChatContextWordCount(context.source)) : getChatContextWordCount(context.source) + " words in scope"),
                     className: "is-size"
                 }
             ],
@@ -12923,7 +13776,7 @@ function RTE_Plugin_AIToolkit() {
         if (capabilityCard.copy) {
             parts.push(capabilityCard.copy);
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function buildChatEmptyStateAriaLabel(emptyStateData) {
@@ -12949,7 +13802,7 @@ function RTE_Plugin_AIToolkit() {
                 parts.push(buildChatEmptyCapabilityAriaLabel(emptyStateData.capabilityCards[cardIndex]));
             }
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function clearChatNode(node) {
@@ -13308,6 +14161,8 @@ function RTE_Plugin_AIToolkit() {
         panel.setAttribute("aria-label", config.text_aichat || "AI Chat");
         panel.tabIndex = -1;
         editor.__aiChatPanel = panel;
+        aiqWatch(panel);
+        appendDemoNotice(panel);
         panel.onkeydown = function (e) {
             if (e.key === "Escape") {
                 e.preventDefault();
@@ -13349,8 +14204,8 @@ function RTE_Plugin_AIToolkit() {
         var clearButton = append(headerActions, "button", "", "secondary rte-ai-chat-header-button is-icon-only");
         clearButton.type = "button";
         clearButton.setAttribute("data-rte-ai-chat-header-action", "new-chat");
-        clearButton.title = "Start a fresh chat";
-        clearButton.setAttribute("aria-label", "Start a fresh chat");
+        clearButton.title = (obj.__aiT ? obj.__aiT("aic_newchat", "Start a fresh chat") : "Start a fresh chat");
+        clearButton.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aic_newchat", "Start a fresh chat") : "Start a fresh chat"));
         setReviewV2ButtonContent(clearButton, "refresh", "");
         clearButton.onclick = function () {
             resetChatConversationState(state, "Started a fresh AI chat.");
@@ -13359,8 +14214,8 @@ function RTE_Plugin_AIToolkit() {
         var closeButton = append(headerActions, "button", "", "rte-ai-panel-close-button");
         closeButton.type = "button";
         closeButton.setAttribute("data-rte-ai-chat-header-action", "close");
-        closeButton.setAttribute("aria-label", "Close AI chat");
-        closeButton.title = "Close";
+        closeButton.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aic_closechat", "Close AI chat") : "Close AI chat"));
+        closeButton.title = (obj.__aiT ? obj.__aiT("aic_close", "Close") : "Close");
         closeButton.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>';
         closeButton.onclick = function () {
             closeChatPanel({ restoreFocus: true });
@@ -13404,7 +14259,7 @@ function RTE_Plugin_AIToolkit() {
         selectionButton.disabled = !context.snapshot.hasSelection;
         selectionButton.setAttribute("data-rte-ai-chat-scope-target", "selection");
         selectionButton.setAttribute("aria-label", buildChatContextScopeButtonAriaLabel("selection", contextData));
-        selectionButton.title = "Use selection";
+        selectionButton.title = (obj.__aiT ? obj.__aiT("aic_usesel", "Use selection") : "Use selection");
         setReviewV2ButtonContent(selectionButton, "cursorText", "");
         selectionButton.onclick = function () {
             var currentSnapshot = captureSelectionSnapshot();
@@ -13416,7 +14271,7 @@ function RTE_Plugin_AIToolkit() {
         documentButton.type = "button";
         documentButton.setAttribute("data-rte-ai-chat-scope-target", "document");
         documentButton.setAttribute("aria-label", buildChatContextScopeButtonAriaLabel("document", contextData));
-        documentButton.title = "Use document";
+        documentButton.title = (obj.__aiT ? obj.__aiT("aic_usedoc", "Use document") : "Use document");
         setReviewV2ButtonContent(documentButton, "document", "");
         documentButton.onclick = function () {
             state.scope = "document";
@@ -13471,7 +14326,7 @@ function RTE_Plugin_AIToolkit() {
         if (recentSessions.length > 1) {
             var historySection = append(panel, "div", "", "rte-ai-chat-stack rte-ai-chat-history-shell is-minimal");
             historySection.setAttribute("role", "group");
-            historySection.setAttribute("aria-label", "Recent AI chats");
+            historySection.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aic_recent", "Recent AI chats") : "Recent AI chats"));
             var historyRow = append(historySection, "div", "", "rte-ai-chat-quick-row rte-ai-chat-history-row");
             for (var s = 0; s < recentSessions.length; s++) {
                 (function (session, index) {
@@ -13538,10 +14393,10 @@ function RTE_Plugin_AIToolkit() {
             // reference drops with the chips.
             var hasQuickStarts = !!(prompts && prompts.length);
             var emptyHintBase = context.scope === "selection"
-                ? "Ask anything about the current selection"
-                : "Ask anything about the current document";
+                ? (obj.__aiT ? obj.__aiT("aic_empty_sel", "Ask anything about the current selection") : "Ask anything about the current selection")
+                : (obj.__aiT ? obj.__aiT("aic_empty_doc", "Ask anything about the current document") : "Ask anything about the current document");
             append(emptyState, "div", "", "rte-ai-chat-empty-detail",
-                hasQuickStarts ? (emptyHintBase + " — or tap a quick start above.") : (emptyHintBase + "."));
+                hasQuickStarts ? (emptyHintBase + (obj.__aiT ? obj.__aiT("aic_orquick", " \u2014 or tap a quick start above.") : " \u2014 or tap a quick start above.")) : (emptyHintBase + "."));
         }
         var activeExchangeGroup = null;
         var activeExchangeIndex = 0;
@@ -13693,8 +14548,8 @@ function RTE_Plugin_AIToolkit() {
                     var msgActions = append(item, "div", "", "rte-ai-chat-message-actions-row");
                     var msgCopyBtn = append(msgActions, "button", "", "rte-ai-chat-message-action is-copy");
                     msgCopyBtn.type = "button";
-                    msgCopyBtn.title = "Copy message text";
-                    setReviewV2ButtonContent(msgCopyBtn, "checkAll", "Copy");
+                    msgCopyBtn.title = (obj.__aiT ? obj.__aiT("aic_copymsg", "Copy message text") : "Copy message text");
+                    setReviewV2ButtonContent(msgCopyBtn, "checkAll", (obj.__aiT ? obj.__aiT("aic_copy", "Copy") : "Copy"));
                     msgCopyBtn.onclick = (function (text, btn) {
                         return function (e) {
                             if (e && e.stopPropagation) e.stopPropagation();
@@ -13719,10 +14574,10 @@ function RTE_Plugin_AIToolkit() {
                             }
                             if (copied) {
                                 btn.classList.add("is-just-copied");
-                                setReviewV2ButtonContent(btn, "check", "Copied");
+                                setReviewV2ButtonContent(btn, "check", (obj.__aiT ? obj.__aiT("aic_copied", "Copied") : "Copied"));
                                 setTimeout(function () {
                                     btn.classList.remove("is-just-copied");
-                                    setReviewV2ButtonContent(btn, "checkAll", "Copy");
+                                    setReviewV2ButtonContent(btn, "checkAll", (obj.__aiT ? obj.__aiT("aic_copy", "Copy") : "Copy"));
                                 }, 1400);
                             }
                         };
@@ -13740,8 +14595,8 @@ function RTE_Plugin_AIToolkit() {
                     if (precedingUserPrompt) {
                         var msgRegenBtn = append(msgActions, "button", "", "rte-ai-chat-message-action is-regen");
                         msgRegenBtn.type = "button";
-                        msgRegenBtn.title = "Regenerate response";
-                        setReviewV2ButtonContent(msgRegenBtn, "refresh", "Regenerate");
+                        msgRegenBtn.title = (obj.__aiT ? obj.__aiT("aic_regen", "Regenerate response") : "Regenerate response");
+                        setReviewV2ButtonContent(msgRegenBtn, "refresh", (obj.__aiT ? obj.__aiT("aid_regenerate", "Regenerate") : "Regenerate"));
                         msgRegenBtn.onclick = (function (prompt) {
                             return function (e) {
                                 if (e && e.stopPropagation) e.stopPropagation();
@@ -14000,7 +14855,7 @@ function RTE_Plugin_AIToolkit() {
                         moreToggle.type = "button";
                         moreToggle.setAttribute("data-rte-ai-chat-action", "more");
                         moreToggle.setAttribute("aria-expanded", "false");
-                        moreToggle.title = "More apply options";
+                        moreToggle.title = (obj.__aiT ? obj.__aiT("ai2_moreopts", "More apply options") : "More apply options");
                         setReviewV2ButtonContent(moreToggle, "more", "More");
                         moreToggle.onclick = (function (host) {
                             return function (e) {
@@ -14089,8 +14944,8 @@ function RTE_Plugin_AIToolkit() {
         // 51 chars → 14 chars. Same shape Claude composer ("Ask
         // anything") / ChatGPT composer ("Message ChatGPT") / Notion AI
         // ("Tell AI what to do…") ship.
-        composerArea.placeholder = "Ask anything…";
-        composerArea.setAttribute("aria-label", "Compose next AI request for the current " + (context.scope === "selection" ? "selection" : "document"));
+        composerArea.placeholder = (obj.__aiT ? obj.__aiT("aic_askanything", "Ask anything\u2026") : "Ask anything\u2026");
+        composerArea.setAttribute("aria-label", context.scope === "selection" ? (obj.__aiT ? obj.__aiT("aic_compose_sel", "Compose next AI request for the current selection") : "Compose next AI request for the current selection") : (obj.__aiT ? obj.__aiT("aic_compose_doc", "Compose next AI request for the current document") : "Compose next AI request for the current document"));
         composerArea.value = state.draft || "";
         composerArea.disabled = !!state.busy;
         composerArea.oninput = function () {
@@ -14217,7 +15072,7 @@ function RTE_Plugin_AIToolkit() {
     }
 
     function getReviewTypeOptions(suggestions) {
-        var map = { all: "All types" };
+        var map = { all: (obj.__aiT ? obj.__aiT("air_alltypes", "All types") : "All types") };
         for (var i = 0; i < suggestions.length; i++) {
             var typeValue = getSuggestionTypeValue(suggestions[i] && suggestions[i].suggestionType || "");
             if (!map[typeValue]) {
@@ -15160,7 +16015,7 @@ function RTE_Plugin_AIToolkit() {
         if (summaryData.detail) {
             parts.push(summaryData.detail);
         }
-        return parts.join(". ");
+        return joinSentences(parts);
     }
 
     function syncActiveReviewActionSummary(preferredAction) {
@@ -15383,10 +16238,10 @@ function RTE_Plugin_AIToolkit() {
             if (isTarget) {
                 button.setAttribute("data-rte-ai-review-enter-target-label", "Enter");
                 if (ariaLabel && !/current enter target/i.test(ariaLabel)) {
-                    button.setAttribute("aria-label", ariaLabel + ". Current Enter target.");
+                    button.setAttribute("aria-label", joinSentences([ariaLabel, "Current Enter target."]));
                 }
                 if (title && !/current enter target/i.test(title)) {
-                    button.title = title + ". Current Enter target.";
+                    button.title = joinSentences([title, "Current Enter target."]);
                 }
             }
             else {
@@ -16171,8 +17026,8 @@ function RTE_Plugin_AIToolkit() {
         // header pill would have duplicated that signal.
         var closeBtn = append(header, "button", "", "rte-ai-review-v2-close");
         closeBtn.type = "button";
-        closeBtn.setAttribute("aria-label", "Close AI review");
-        closeBtn.title = "Close";
+        closeBtn.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("air_closearia", "Close AI review") : "Close AI review"));
+        closeBtn.title = (obj.__aiT ? obj.__aiT("air_close", "Close") : "Close");
         closeBtn.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>';
         closeBtn.onclick = function () {
             closeReviewPanel();
@@ -16218,9 +17073,9 @@ function RTE_Plugin_AIToolkit() {
             return tab;
         }
 
-        makeTab("pending", "inbox", "To review", pendingCountForTabs);
-        makeTab("resolved", "history", "History", resolvedCountForTabs);
-        makeTab("all", "filter", "All", counts.total);
+        makeTab("pending", "inbox", (obj.__aiT ? obj.__aiT("air_tab_pending", "To review") : "To review"), pendingCountForTabs);
+        makeTab("resolved", "history", (obj.__aiT ? obj.__aiT("air_tab_history", "History") : "History"), resolvedCountForTabs);
+        makeTab("all", "filter", (obj.__aiT ? obj.__aiT("air_tab_all", "All") : "All"), counts.total);
 
         // Toolbar: type filter + (on Pending tab only) Accept all / Reject all
         var toolbar = append(panel, "div", "", "rte-ai-review-v2-toolbar");
@@ -16250,14 +17105,14 @@ function RTE_Plugin_AIToolkit() {
             var acceptAllBtn = append(toolbar, "button", "", "rte-ai-review-v2-batch is-accept");
             acceptAllBtn.type = "button";
             acceptAllBtn.disabled = !pendingForBatch;
-            setReviewV2ButtonContent(acceptAllBtn, "checkAll", "Accept all");
+            setReviewV2ButtonContent(acceptAllBtn, "checkAll", (obj.__aiT ? obj.__aiT("air_acceptall", "Accept all") : "Accept all"));
             acceptAllBtn.onclick = function () {
                 if (acceptPendingSuggestionsByType(typeFilter)) renderReviewPanelV2(true);
             };
             var rejectAllBtn = append(toolbar, "button", "", "rte-ai-review-v2-batch is-reject");
             rejectAllBtn.type = "button";
             rejectAllBtn.disabled = !pendingForBatch;
-            setReviewV2ButtonContent(rejectAllBtn, "x", "Reject all");
+            setReviewV2ButtonContent(rejectAllBtn, "x", (obj.__aiT ? obj.__aiT("air_rejectall", "Reject all") : "Reject all"));
             rejectAllBtn.onclick = function () {
                 if (rejectPendingSuggestionsByType(typeFilter)) renderReviewPanelV2(true);
             };
@@ -16301,11 +17156,11 @@ function RTE_Plugin_AIToolkit() {
         }
         var activeV2Suggestion = findSuggestionById(activeId);
         var resolvedProgress = counts.total ? Math.max(0, Math.min(100, Math.round((resolvedCountForTabs / counts.total) * 100))) : 0;
-        var queueScopeLabel = typeFilter === "all" ? "All types" : getSuggestionTypeLabel(typeFilter);
+        var queueScopeLabel = typeFilter === "all" ? (obj.__aiT ? obj.__aiT("air_alltypes", "All types") : "All types") : getSuggestionTypeLabel(typeFilter);
         var v2Center = append(panel, "div", "", "rte-ai-review-v2-center");
         panel.insertBefore(v2Center, body);
         v2Center.setAttribute("role", "group");
-        v2Center.setAttribute("aria-label", "AI review summary");
+        v2Center.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("air_summary", "AI review summary") : "AI review summary"));
         function appendReviewV2CenterTile(className, label, value, detail) {
             var tile = append(v2Center, "div", "", "rte-ai-review-v2-center-tile " + className);
             append(tile, "span", "", "rte-ai-review-v2-center-label", label);
@@ -16313,19 +17168,19 @@ function RTE_Plugin_AIToolkit() {
             append(tile, "span", "", "rte-ai-review-v2-center-detail", detail);
             return tile;
         }
-        appendReviewV2CenterTile("is-queue", "Queue", pendingForBatch + " pending", queueScopeLabel + (activeTab === "pending" ? " to review" : " filter"));
-        appendReviewV2CenterTile("is-progress", "Progress", resolvedProgress + "% done", resolvedCountForTabs + " resolved of " + counts.total);
+        appendReviewV2CenterTile("is-queue", (obj.__aiT ? obj.__aiT("air_queue", "Queue") : "Queue"), (obj.__aiT ? obj.__aiT("air_npending", "{0} pending", pendingForBatch) : pendingForBatch + " pending"), activeTab === "pending" ? (obj.__aiT ? obj.__aiT("air_toreview", "{0} to review", queueScopeLabel) : queueScopeLabel + " to review") : (obj.__aiT ? obj.__aiT("air_filter", "{0} filter", queueScopeLabel) : queueScopeLabel + " filter"));
+        appendReviewV2CenterTile("is-progress", (obj.__aiT ? obj.__aiT("air_progress", "Progress") : "Progress"), (obj.__aiT ? obj.__aiT("air_pctdone", "{0}% done", resolvedProgress) : resolvedProgress + "% done"), (obj.__aiT ? obj.__aiT("air_resolvedof", "{0} resolved of {1}").split("{0}").join(String(resolvedCountForTabs)).split("{1}").join(String(counts.total)) : resolvedCountForTabs + " resolved of " + counts.total));
         var nextV2Value = activeV2Suggestion
-            ? ((activeV2Suggestion.status === "pending" || activeV2Suggestion.status === "stale") ? "Review current" : "Inspect item")
-            : (pendingForBatch ? "Pick an item" : (counts.total ? "All caught up" : "Start with Ask AI"));
+            ? ((activeV2Suggestion.status === "pending" || activeV2Suggestion.status === "stale") ? (obj.__aiT ? obj.__aiT("air_reviewcurrent", "Review current") : "Review current") : (obj.__aiT ? obj.__aiT("air_inspect", "Inspect item") : "Inspect item"))
+            : (pendingForBatch ? (obj.__aiT ? obj.__aiT("air_pick", "Pick an item") : "Pick an item") : (counts.total ? (obj.__aiT ? obj.__aiT("air_caughtup", "All caught up") : "All caught up") : (obj.__aiT ? obj.__aiT("air_startask", "Start with Ask AI") : "Start with Ask AI")));
         var nextV2Detail = activeV2Suggestion
             ? summarizeSuggestionText(activeV2Suggestion.originalText || activeV2Suggestion.resultText || "AI suggestion", 72)
-            : (pendingForBatch ? "Select a card below to compare the change." : (counts.total ? "History keeps accepted and rejected changes." : "AI suggestions will appear here."));
-        var nextV2Tile = appendReviewV2CenterTile("is-next", "Next step", nextV2Value, nextV2Detail);
+            : (pendingForBatch ? (obj.__aiT ? obj.__aiT("air_d_pick", "Select a card below to compare the change.") : "Select a card below to compare the change.") : (counts.total ? (obj.__aiT ? obj.__aiT("air_d_history", "History keeps accepted and rejected changes.") : "History keeps accepted and rejected changes.") : (obj.__aiT ? obj.__aiT("air_d_empty", "AI suggestions will appear here.") : "AI suggestions will appear here.")));
+        var nextV2Tile = appendReviewV2CenterTile("is-next", (obj.__aiT ? obj.__aiT("air_next", "Next step") : "Next step"), nextV2Value, nextV2Detail);
         if (activeV2Suggestion) {
-            var focusV2Button = append(nextV2Tile, "button", "", "rte-ai-review-v2-center-action", "Focus");
+            var focusV2Button = append(nextV2Tile, "button", "", "rte-ai-review-v2-center-action", (obj.__aiT ? obj.__aiT("air_focus", "Focus") : "Focus"));
             focusV2Button.type = "button";
-            focusV2Button.setAttribute("aria-label", "Focus the current AI review item");
+            focusV2Button.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("air_focusaria", "Focus the current AI review item") : "Focus the current AI review item"));
             focusV2Button.onclick = function () {
                 setActiveSuggestionId(activeId);
                 renderReviewPanelV2(true);
@@ -16337,19 +17192,19 @@ function RTE_Plugin_AIToolkit() {
             if (counts.total === 0) {
                 // Truly empty store — guide the user to AI Chat / Ask AI.
                 append(empty, "div", "", "rte-ai-review-v2-empty-art is-prompt");
-                append(empty, "div", "", "rte-ai-review-v2-empty-title", "No AI suggestions yet");
-                append(empty, "div", "", "rte-ai-review-v2-empty-detail", "Ask AI or AI Chat will drop suggestions here for you to accept or reject.");
+                append(empty, "div", "", "rte-ai-review-v2-empty-title", (obj.__aiT ? obj.__aiT("air_e_none_t", "No AI suggestions yet") : "No AI suggestions yet"));
+                append(empty, "div", "", "rte-ai-review-v2-empty-detail", (obj.__aiT ? obj.__aiT("air_e_none_d", "Ask AI or AI Chat will drop suggestions here for you to accept or reject.") : "Ask AI or AI Chat will drop suggestions here for you to accept or reject."));
             } else if (activeTab === "pending") {
                 // History exists but Pending is empty — celebrate.
                 append(empty, "div", "", "rte-ai-review-v2-empty-art is-clear");
-                append(empty, "div", "", "rte-ai-review-v2-empty-title", "Nothing to review");
-                append(empty, "div", "", "rte-ai-review-v2-empty-detail", "You're all caught up. Switch to History to see past decisions.");
+                append(empty, "div", "", "rte-ai-review-v2-empty-title", (obj.__aiT ? obj.__aiT("air_e_done_t", "Nothing to review") : "Nothing to review"));
+                append(empty, "div", "", "rte-ai-review-v2-empty-detail", (obj.__aiT ? obj.__aiT("air_e_done_d", "You're all caught up. Switch to History to see past decisions.") : "You're all caught up. Switch to History to see past decisions."));
             } else if (activeTab === "resolved") {
-                append(empty, "div", "", "rte-ai-review-v2-empty-title", "No history yet");
-                append(empty, "div", "", "rte-ai-review-v2-empty-detail", "Decisions you make on the To review tab will show up here.");
+                append(empty, "div", "", "rte-ai-review-v2-empty-title", (obj.__aiT ? obj.__aiT("air_e_nohist_t", "No history yet") : "No history yet"));
+                append(empty, "div", "", "rte-ai-review-v2-empty-detail", (obj.__aiT ? obj.__aiT("air_e_nohist_d", "Decisions you make on the To review tab will show up here.") : "Decisions you make on the To review tab will show up here."));
             } else {
-                append(empty, "div", "", "rte-ai-review-v2-empty-title", "No suggestions match this filter");
-                append(empty, "div", "", "rte-ai-review-v2-empty-detail", "Try a different type, or pick a different tab.");
+                append(empty, "div", "", "rte-ai-review-v2-empty-title", (obj.__aiT ? obj.__aiT("air_e_nomatch_t", "No suggestions match this filter") : "No suggestions match this filter"));
+                append(empty, "div", "", "rte-ai-review-v2-empty-detail", (obj.__aiT ? obj.__aiT("air_e_nomatch_d", "Try a different type, or pick a different tab.") : "Try a different type, or pick a different tab."));
             }
         } else {
             for (var vi = 0; vi < visible.length; vi++) {
@@ -16364,9 +17219,9 @@ function RTE_Plugin_AIToolkit() {
                         append(head, "span", "", "rte-ai-review-v2-item-type", getSuggestionTypeLabel(sug.suggestionType));
                     }
                     if (sug.snapshot && sug.snapshot.hasSelection) {
-                        append(head, "span", "", "rte-ai-review-v2-item-scope", "Selection");
+                        append(head, "span", "", "rte-ai-review-v2-item-scope", (obj.__aiT ? obj.__aiT("air_scope_sel", "Selection") : "Selection"));
                     } else {
-                        append(head, "span", "", "rte-ai-review-v2-item-scope", "Document");
+                        append(head, "span", "", "rte-ai-review-v2-item-scope", (obj.__aiT ? obj.__aiT("air_scope_doc", "Document") : "Document"));
                     }
 
                     var titleText = summarizeSuggestionText(sug.originalText || sug.resultText || "AI suggestion", 120);
@@ -16376,7 +17231,7 @@ function RTE_Plugin_AIToolkit() {
                         if (sug.originalText && sug.resultText && normalizeText(sug.originalText) !== normalizeText(sug.resultText)) {
                             var compare = append(item, "div", "", "rte-ai-review-v2-compare");
                             var before = append(compare, "div", "", "rte-ai-review-v2-before");
-                            append(before, "span", "", "rte-ai-review-v2-compare-label", "Current");
+                            append(before, "span", "", "rte-ai-review-v2-compare-label", (obj.__aiT ? obj.__aiT("air_current", "Current") : "Current"));
                             append(before, "div", "", "rte-ai-review-v2-compare-text", normalizeText(sug.originalText));
                             // Decorative arrow on the centerline of the
                             // grid pointing from Current -> Suggested.
@@ -16384,7 +17239,7 @@ function RTE_Plugin_AIToolkit() {
                             compareArrow.setAttribute("aria-hidden", "true");
                             compareArrow.innerHTML = REVIEW_V2_ICONS.arrowRight;
                             var after = append(compare, "div", "", "rte-ai-review-v2-after");
-                            append(after, "span", "", "rte-ai-review-v2-compare-label", "Suggested");
+                            append(after, "span", "", "rte-ai-review-v2-compare-label", (obj.__aiT ? obj.__aiT("air_suggested", "Suggested") : "Suggested"));
                             append(after, "div", "", "rte-ai-review-v2-compare-text", normalizeText(sug.resultText));
                         }
                         if (sug.reason) {
@@ -16396,14 +17251,14 @@ function RTE_Plugin_AIToolkit() {
                             bulbWrap.innerHTML = REVIEW_V2_ICONS.bulb;
                             reasonLabel.appendChild(bulbWrap);
                             var reasonLabelText = reason.ownerDocument.createElement("span");
-                            reasonLabelText.textContent = "Why";
+                            reasonLabelText.textContent = (obj.__aiT ? obj.__aiT("air_why", "Why") : "Why");
                             reasonLabel.appendChild(reasonLabelText);
                             append(reason, "span", "", "rte-ai-review-v2-reason-text", sug.reason);
                         }
                         var actions = append(item, "div", "", "rte-ai-review-v2-actions");
                         var locateBtn = append(actions, "button", "", "rte-ai-review-v2-action is-locate");
                         locateBtn.type = "button";
-                        setReviewV2ButtonContent(locateBtn, "target", "Locate");
+                        setReviewV2ButtonContent(locateBtn, "target", (obj.__aiT ? obj.__aiT("air_locate", "Locate") : "Locate"));
                         locateBtn.onclick = function (e) {
                             if (e && e.stopPropagation) e.stopPropagation();
                             locateSuggestion(sug.id);
@@ -16411,14 +17266,14 @@ function RTE_Plugin_AIToolkit() {
                         if (sug.status === "pending" || sug.status === "stale") {
                             var acceptBtn = append(actions, "button", "", "rte-ai-review-v2-action is-accept");
                             acceptBtn.type = "button";
-                            setReviewV2ButtonContent(acceptBtn, "check", "Accept");
+                            setReviewV2ButtonContent(acceptBtn, "check", (obj.__aiT ? obj.__aiT("air_accept", "Accept") : "Accept"));
                             acceptBtn.onclick = function (e) {
                                 if (e && e.stopPropagation) e.stopPropagation();
                                 applyReviewDecision(sug.id, "accept", { focusAction: "accept" });
                             };
                             var rejectBtn = append(actions, "button", "", "rte-ai-review-v2-action is-reject");
                             rejectBtn.type = "button";
-                            setReviewV2ButtonContent(rejectBtn, "x", "Reject");
+                            setReviewV2ButtonContent(rejectBtn, "x", (obj.__aiT ? obj.__aiT("air_reject", "Reject") : "Reject"));
                             rejectBtn.onclick = function (e) {
                                 if (e && e.stopPropagation) e.stopPropagation();
                                 applyReviewDecision(sug.id, "reject", { focusAction: "reject" });
@@ -17281,7 +18136,7 @@ function RTE_Plugin_AIToolkit() {
                         if (previewItem.reasonText) {
                             previewAriaParts.push("Why this next: " + previewItem.reasonText);
                         }
-                        previewRow.setAttribute("aria-label", previewAriaParts.join(". "));
+                        previewRow.setAttribute("aria-label", joinSentences(previewAriaParts));
                         previewRow.setAttribute("data-rte-ai-primary-label", previewItem.actionLabel || previewItem.label || "Open next queue");
                         if (previewItem.focusActionLabel) {
                             previewRow.setAttribute("data-rte-ai-empty-focus-label", previewItem.focusActionLabel);
@@ -17811,6 +18666,7 @@ function RTE_Plugin_AIToolkit() {
         modeChip.className = "rte-ai-dialog-mode-chip is-detached";
         modeChip.setAttribute("aria-hidden", "true");
 
+        appendDemoNotice(dialoginner);
         var grid = append(dialoginner, "div", "", "demo-ai-dialog-grid");
         var dialogIdSuffix = String(Date.now()) + "-" + String(Math.floor(Math.random() * 1000000));
         var modeHelpId = "rte-ai-mode-help-" + dialogIdSuffix;
@@ -17819,11 +18675,11 @@ function RTE_Plugin_AIToolkit() {
         var guidanceId = "rte-ai-apply-guidance-" + dialogIdSuffix;
         var statusId = "rte-ai-dialog-status-" + dialogIdSuffix;
         grid.setAttribute("role", "form");
-        grid.setAttribute("aria-label", "Ask AI controls");
+        grid.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aid_controls", "Ask AI controls") : "Ask AI controls"));
 
         var compactControls = append(grid, "div", "", "demo-ai-compact-controls");
         compactControls.setAttribute("role", "group");
-        compactControls.setAttribute("aria-label", "Ask AI setup");
+        compactControls.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aid_setup", "Ask AI setup") : "Ask AI setup"));
 
         // 2026-05-08 compact pass: dropped the per-field uppercase mini-labels
         // ("Action" / "Language" / "Use" / blank-spacer) and the duplicate
@@ -17832,7 +18688,7 @@ function RTE_Plugin_AIToolkit() {
         // select's title attribute (still surfaced on hover).
         var actionField = append(compactControls, "div", "", "demo-ai-field demo-ai-action-field");
         var modeSelect = append(actionField, "select");
-        modeSelect.setAttribute("aria-label", "AI action");
+        modeSelect.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aid_action", "AI action") : "AI action"));
         // 2026-05-17 (v20260517a): the mode help line is back on-screen,
         // attached directly to the dialog grid (full-width row under the
         // controls strip). The prior hover-only `title` attribute meant
@@ -17859,7 +18715,7 @@ function RTE_Plugin_AIToolkit() {
 
         var languageField = append(compactControls, "div", "", "demo-ai-field demo-ai-language-field");
         var languageSelect = append(languageField, "select");
-        languageSelect.setAttribute("aria-label", "Translation target language");
+        languageSelect.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aid_targetlang", "Translation target language") : "Translation target language"));
         populateDialogModes();
         if (options.presetMode) {
             // 2026-05-19 (v20260519a): only honor presetMode when it
@@ -17910,11 +18766,11 @@ function RTE_Plugin_AIToolkit() {
         // can override with `.demo-ai-scope-select { display: none }` +
         // `.demo-ai-scope-row.is-detached { display: flex !important }`.
         var scopeSelect = append(scopeField, "select", "", "demo-ai-scope-select");
-        scopeSelect.setAttribute("aria-label", "Source for Ask AI");
+        scopeSelect.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aid_source", "Source for Ask AI") : "Source for Ask AI"));
         scopeSelect.setAttribute("data-rte-ai-dialog-action", "scope");
-        var scopeOptionSelection = append(scopeSelect, "option", "", "", "Selection");
+        var scopeOptionSelection = append(scopeSelect, "option", "", "", (obj.__aiT ? obj.__aiT("aid_selection", "Selection") : "Selection"));
         scopeOptionSelection.value = "selection";
-        var scopeOptionDocument = append(scopeSelect, "option", "", "", "Document");
+        var scopeOptionDocument = append(scopeSelect, "option", "", "", (obj.__aiT ? obj.__aiT("aid_document", "Document") : "Document"));
         scopeOptionDocument.value = "document";
 
         // 2026-06-01 (v20260601a): scope caption surfaced inline when only
@@ -17939,21 +18795,21 @@ function RTE_Plugin_AIToolkit() {
         var loadRow = scopeField.ownerDocument.createElement("div");
         loadRow.className = "demo-actions-row demo-ai-scope-row is-detached";
         loadRow.setAttribute("role", "group");
-        loadRow.setAttribute("aria-label", "Source scope");
+        loadRow.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aid_scope", "Source scope") : "Source scope"));
         var loadSelectionButton = scopeField.ownerDocument.createElement("button");
         loadSelectionButton.type = "button";
         loadSelectionButton.className = "is-icon-only";
         loadSelectionButton.setAttribute("data-rte-ai-dialog-action", "load-selection");
-        loadSelectionButton.title = "Use selection";
-        loadSelectionButton.setAttribute("aria-label", "Use selection");
+        loadSelectionButton.title = (obj.__aiT ? obj.__aiT("aid_usesel", "Use selection") : "Use selection");
+        loadSelectionButton.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aid_usesel", "Use selection") : "Use selection"));
         setReviewV2ButtonContent(loadSelectionButton, "cursorText", "");
         loadRow.appendChild(loadSelectionButton);
         var loadDocumentButton = scopeField.ownerDocument.createElement("button");
         loadDocumentButton.type = "button";
         loadDocumentButton.className = "secondary is-icon-only";
         loadDocumentButton.setAttribute("data-rte-ai-dialog-action", "load-document");
-        loadDocumentButton.title = "Use document";
-        loadDocumentButton.setAttribute("aria-label", "Use document");
+        loadDocumentButton.title = (obj.__aiT ? obj.__aiT("aid_usedoc", "Use document") : "Use document");
+        loadDocumentButton.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aid_usedoc", "Use document") : "Use document"));
         setReviewV2ButtonContent(loadDocumentButton, "document", "");
         loadRow.appendChild(loadDocumentButton);
         // 2026-05-17 (v20260523a): append the legacy scope row to
@@ -17967,20 +18823,20 @@ function RTE_Plugin_AIToolkit() {
         var runField = append(compactControls, "div", "", "demo-ai-field demo-ai-run-field");
         var runRow = append(runField, "div", "", "demo-actions-row demo-ai-run-row");
         runRow.setAttribute("role", "group");
-        runRow.setAttribute("aria-label", "Ask AI run actions");
+        runRow.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aid_run", "Ask AI run actions") : "Ask AI run actions"));
         var runButton = append(runRow, "button", "", "is-primary");
         runButton.type = "button";
         runButton.setAttribute("data-rte-ai-dialog-action", "run");
         // Sparkle glyph + "Generate" — same icon vocabulary as AI Chat
         // composer's Send and AI Review V2's Accept buttons.
-        setReviewV2ButtonContent(runButton, "sparkles", "Generate");
+        setReviewV2ButtonContent(runButton, "sparkles", (obj.__aiT ? obj.__aiT("aid_generate", "Generate") : "Generate"));
         // 2026-05-09 (v20260509j): surface the Ctrl/Cmd+Enter shortcut on
         // hover and to screen readers. Same idiom every modern AI surface
         // uses (ChatGPT Send: "Send (⌘↵)", Notion AI Generate: "Generate
         // (Ctrl+Enter)"). aria-keyshortcuts is the WAI-ARIA standard way
         // to advertise a keyboard shortcut so screen readers announce
         // "Generate, Control+Enter" alongside the button name.
-        runButton.title = "Generate AI suggestion (Ctrl+Enter)";
+        runButton.title = (obj.__aiT ? obj.__aiT("ai2_gentitle", "Generate AI suggestion (Ctrl+Enter)") : "Generate AI suggestion (Ctrl+Enter)");
         runButton.setAttribute("aria-keyshortcuts", "Control+Enter");
         // 2026-05-17 (v20260517a): visible Ctrl+↵ / ⌘↵ chip baked into
         // the Generate button. Pre-v20260517a the shortcut only lived in
@@ -17992,7 +18848,7 @@ function RTE_Plugin_AIToolkit() {
         // from navigator.platform so the hint matches the actual key
         // the user would press. */
         var isMacOs = /Mac|iPad|iPhone|iPod/i.test((navigator.platform || "") + " " + (navigator.userAgent || ""));
-        var runKbdLabel = isMacOs ? "⌘⏎" : "Ctrl ⏎";
+        var runKbdLabel = isMacOs ? "\u2318\u23ce" : "Ctrl \u23ce";
         function refreshRunKbdHint() {
             if (!runButton) return;
             var existing = runButton.querySelector(".demo-ai-kbd-hint");
@@ -18042,7 +18898,7 @@ function RTE_Plugin_AIToolkit() {
 
         var textGrid = append(grid, "div", "", "demo-ai-text-grid");
         textGrid.setAttribute("role", "group");
-        textGrid.setAttribute("aria-label", "Ask AI source and result");
+        textGrid.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aid_srcresult", "Ask AI source and result") : "Ask AI source and result"));
 
         // 2026-05-09 (v20260509j): dropped the "Source" / "Result"
         // text-tag spans. They had no CSS rule (the class was
@@ -18060,7 +18916,7 @@ function RTE_Plugin_AIToolkit() {
         // Pre-result it was already hidden (CSS .is-pre-result cascade); the
         // remaining showing case was post-result + source-expanded, but the
         // user only reaches that flow by clicking the "Edit" toggle pill —
-        // which already names the field's role ("Edit the prompt and retry").
+        // which already names the field's role ((obj.__aiT ? obj.__aiT("ai2_editretry", "Edit the prompt and retry") : "Edit the prompt and retry")).
         // Restating "Source" 4px above the textarea was a third copy of the
         // same fact (toggle label + textarea placeholder + this eyebrow).
         // Saves ~16px vertical when the user expands source for retry/refine.
@@ -18070,7 +18926,7 @@ function RTE_Plugin_AIToolkit() {
         var sourceHelp = append(sourceField, "span", "", "demo-ai-field-help is-detached", "Edit the source text or prompt that Ask AI will use.");
         sourceHelp.id = sourceHelpId;
         var sourceArea = append(sourceField, "textarea");
-        sourceArea.setAttribute("aria-label", "Source text for Ask AI");
+        sourceArea.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aid_srctext", "Source text for Ask AI") : "Source text for Ask AI"));
         sourceArea.setAttribute("aria-describedby", sourceHelpId + " " + modeHelpId);
         // 2026-05-26 (v20260526a): reparent the run-row (Generate + Copy
         // buttons) from the compact-controls strip INTO the source field,
@@ -18121,7 +18977,7 @@ function RTE_Plugin_AIToolkit() {
         // verb phrase, no inline shortcut hint.
         // Earlier baseline:
         //   v20260509j: 95 → 47 chars after the scope toggle landed.
-        sourceArea.placeholder = "Type or paste text…";
+        sourceArea.placeholder = (obj.__aiT ? obj.__aiT("aid_typeorpaste", "Type or paste text\u2026") : "Type or paste text\u2026");
 
         // 2026-06-03 (v20260603a): live character counter pinned to the
         // bottom-LEFT corner of the source textarea. Pre-pass users
@@ -18155,8 +19011,8 @@ function RTE_Plugin_AIToolkit() {
                 return;
             }
             var label = len > 999
-                ? (Math.round(len / 100) / 10) + "K chars"
-                : len + (len === 1 ? " char" : " chars");
+                ? (obj.__aiT ? obj.__aiT("aid_kchars", "{0}K chars", Math.round(len / 100) / 10) : (Math.round(len / 100) / 10) + "K chars")
+                : (len === 1 ? (obj.__aiT ? obj.__aiT("aid_char", "1 char") : "1 char") : (obj.__aiT ? obj.__aiT("aid_chars", "{0} chars", len) : len + " chars"));
             sourceCounter.textContent = label;
             sourceCounter.classList.add("is-visible");
         }
@@ -18210,9 +19066,9 @@ function RTE_Plugin_AIToolkit() {
         var copyClipboardButton = append(resultHead, "button", "", "demo-ai-clipboard-toggle");
         copyClipboardButton.type = "button";
         copyClipboardButton.setAttribute("data-rte-ai-dialog-action", "copy-clipboard");
-        copyClipboardButton.title = "Copy AI output to clipboard";
-        copyClipboardButton.setAttribute("aria-label", "Copy AI output to clipboard");
-        setReviewV2ButtonContent(copyClipboardButton, "clipboard", "Copy");
+        copyClipboardButton.title = (obj.__aiT ? obj.__aiT("ai2_copyclip", "Copy AI output to clipboard") : "Copy AI output to clipboard");
+        copyClipboardButton.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("ai2_copyclip", "Copy AI output to clipboard") : "Copy AI output to clipboard"));
+        setReviewV2ButtonContent(copyClipboardButton, "clipboard", (obj.__aiT ? obj.__aiT("ai2_copy", "Copy") : "Copy"));
         var copyClipboardResetTimer = null;
         copyClipboardButton.onclick = function (e) {
             if (e && e.stopPropagation) e.stopPropagation();
@@ -18224,13 +19080,13 @@ function RTE_Plugin_AIToolkit() {
                     return;
                 }
                 copyClipboardButton.classList.add("is-copied");
-                setReviewV2ButtonContent(copyClipboardButton, "check", "Copied");
+                setReviewV2ButtonContent(copyClipboardButton, "check", (obj.__aiT ? obj.__aiT("aic_copied", "Copied") : "Copied"));
                 if (copyClipboardResetTimer) {
                     clearTimeout(copyClipboardResetTimer);
                 }
                 copyClipboardResetTimer = setTimeout(function () {
                     copyClipboardButton.classList.remove("is-copied");
-                    setReviewV2ButtonContent(copyClipboardButton, "clipboard", "Copy");
+                    setReviewV2ButtonContent(copyClipboardButton, "clipboard", (obj.__aiT ? obj.__aiT("ai2_copy", "Copy") : "Copy"));
                     copyClipboardResetTimer = null;
                 }, 1400);
             });
@@ -18248,8 +19104,8 @@ function RTE_Plugin_AIToolkit() {
         var whyButton = append(resultHead, "button", "", "demo-ai-clipboard-toggle demo-ai-why-toggle");
         whyButton.type = "button";
         whyButton.setAttribute("data-rte-ai-dialog-action", "why");
-        whyButton.title = "Why this AI suggestion?";
-        whyButton.setAttribute("aria-label", "Show why this AI suggestion was generated");
+        whyButton.title = (obj.__aiT ? obj.__aiT("ai2_whytitle", "Why this AI suggestion?") : "Why this AI suggestion?");
+        whyButton.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("ai2_whyaria", "Show why this AI suggestion was generated") : "Show why this AI suggestion was generated"));
         whyButton.setAttribute("aria-expanded", "false");
         setReviewV2ButtonContent(whyButton, "info", "");
 
@@ -18268,12 +19124,12 @@ function RTE_Plugin_AIToolkit() {
         // saying the same thing twice (open the prompt + edit the prompt).
         // "Edit" preserves the verb-action shape Pass v20260513b adopted,
         // saves ~30px horizontal real estate in the result-head pill row,
-        // and the title attribute ("Edit the prompt and retry") still
+        // and the title attribute ((obj.__aiT ? obj.__aiT("ai2_editretry", "Edit the prompt and retry") : "Edit the prompt and retry")) still
         // surfaces the long form on hover + to screen readers via
         // aria-label.
-        sourceToggle.title = "Edit the prompt and retry";
-        sourceToggle.setAttribute("aria-label", "Edit the prompt and retry");
-        sourceToggle.innerText = "Edit";
+        sourceToggle.title = (obj.__aiT ? obj.__aiT("ai2_editretry", "Edit the prompt and retry") : "Edit the prompt and retry");
+        sourceToggle.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("ai2_editretry", "Edit the prompt and retry") : "Edit the prompt and retry"));
+        sourceToggle.innerText = (obj.__aiT ? obj.__aiT("ai2_edit", "Edit") : "Edit");
         sourceField.id = sourceToggle.getAttribute("aria-controls");
         sourceToggle.onclick = function (e) {
             if (e && e.stopPropagation) e.stopPropagation();
@@ -18283,7 +19139,7 @@ function RTE_Plugin_AIToolkit() {
         };
         var resultArea = append(resultField, "textarea");
         resultArea.readOnly = true;
-        resultArea.setAttribute("aria-label", "AI suggestion result");
+        resultArea.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("ai2_result", "AI suggestion result") : "AI suggestion result"));
         resultArea.setAttribute("aria-describedby", resultHelpId + " " + statusId);
         // 2026-05-17 (v20260520b): rows=1 lets the CSS min-height: 52px
         // floor (since v20260513a) actually bind. Browser default rows=2
@@ -18299,7 +19155,7 @@ function RTE_Plugin_AIToolkit() {
         // here." (20 chars). Same idiom Notion AI's inline composer
         // uses ("AI response..."). At 20 chars it never line-wraps
         // inside the textarea even at 320px viewport.
-        resultArea.placeholder = "Output appears here.";
+        resultArea.placeholder = (obj.__aiT ? obj.__aiT("ai2_outputph", "Output appears here.") : "Output appears here.");
 
         var oldPreview = document.createElement("pre");
         var newPreview = document.createElement("pre");
@@ -18348,19 +19204,19 @@ function RTE_Plugin_AIToolkit() {
         // setBusyState / focus-traversal walker keeps resolving.
         var refineRetryChip = append(refineRow, "button", "", "secondary demo-ai-refine-chip");
         refineRetryChip.type = "button";
-        refineRetryChip.title = "Re-run with the same prompt";
+        refineRetryChip.title = (obj.__aiT ? obj.__aiT("ai2_retrytitle", "Re-run with the same prompt") : "Re-run with the same prompt");
         refineRetryChip.setAttribute("data-rte-ai-dialog-action", "refine-retry");
-        setReviewV2ButtonContent(refineRetryChip, "refresh", "Try again");
+        setReviewV2ButtonContent(refineRetryChip, "refresh", (obj.__aiT ? obj.__aiT("ai2_tryagain", "Try again") : "Try again"));
         var refineShorterChip = append(refineRow, "button", "", "secondary demo-ai-refine-chip");
         refineShorterChip.type = "button";
-        refineShorterChip.title = "Make the suggestion shorter";
+        refineShorterChip.title = (obj.__aiT ? obj.__aiT("ai2_shortertitle", "Make the suggestion shorter") : "Make the suggestion shorter");
         refineShorterChip.setAttribute("data-rte-ai-dialog-action", "refine-shorter");
-        setReviewV2ButtonContent(refineShorterChip, "shrink", "Shorter");
+        setReviewV2ButtonContent(refineShorterChip, "shrink", (obj.__aiT ? obj.__aiT("ai2_shorter", "Shorter") : "Shorter"));
         var refineLongerChip = append(refineRow, "button", "", "secondary demo-ai-refine-chip");
         refineLongerChip.type = "button";
-        refineLongerChip.title = "Expand the suggestion with more detail";
+        refineLongerChip.title = (obj.__aiT ? obj.__aiT("ai2_longertitle", "Expand the suggestion with more detail") : "Expand the suggestion with more detail");
         refineLongerChip.setAttribute("data-rte-ai-dialog-action", "refine-longer");
-        setReviewV2ButtonContent(refineLongerChip, "expand", "Longer");
+        setReviewV2ButtonContent(refineLongerChip, "expand", (obj.__aiT ? obj.__aiT("ai2_longer", "Longer") : "Longer"));
         // 2026-05-29 (v20260529a): "Why" disclosure folded into the refine
         // chip row as a 4th ghost chip — the standalone Details toggle row
         // that previously sat on its own line between the chip strip and
@@ -18407,7 +19263,7 @@ function RTE_Plugin_AIToolkit() {
         refineWhyChip.type = "button";
         refineWhyChip.className = "secondary demo-ai-refine-chip demo-ai-refine-why-chip is-detached";
         refineWhyChip.innerText = "Why";
-        refineWhyChip.title = "Show why this AI suggestion was generated";
+        refineWhyChip.title = (obj.__aiT ? obj.__aiT("ai2_whyaria", "Show why this AI suggestion was generated") : "Show why this AI suggestion was generated");
         refineWhyChip.setAttribute("data-rte-ai-dialog-action", "refine-why");
         refineWhyChip.setAttribute("aria-expanded", "false");
 
@@ -18480,7 +19336,7 @@ function RTE_Plugin_AIToolkit() {
 
         var applyRow = append(grid, "div", "", "demo-actions-row demo-ai-apply-row");
         applyRow.setAttribute("role", "group");
-        applyRow.setAttribute("aria-label", "Ask AI apply actions");
+        applyRow.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("ai2_applyrow", "Ask AI apply actions") : "Ask AI apply actions"));
         var applyPlanButton = append(applyRow, "button", "", "is-primary");
         applyPlanButton.type = "button";
         applyPlanButton.disabled = true;
@@ -18492,34 +19348,34 @@ function RTE_Plugin_AIToolkit() {
         // dialog-level keydown handler (added below) fires this button
         // when the shortcut hits from anywhere in the dialog outside the
         // source textarea.
-        applyPlanButton.title = "Apply AI suggestion (Ctrl+Enter)";
+        applyPlanButton.title = (obj.__aiT ? obj.__aiT("ai2_applytitle", "Apply AI suggestion (Ctrl+Enter)") : "Apply AI suggestion (Ctrl+Enter)");
         applyPlanButton.setAttribute("aria-keyshortcuts", "Control+Enter");
-        setReviewV2ButtonContent(applyPlanButton, "check", "Apply");
+        setReviewV2ButtonContent(applyPlanButton, "check", (obj.__aiT ? obj.__aiT("ai2_apply", "Apply") : "Apply"));
         var acceptSelectionButton = append(applyRow, "button", "", "");
         acceptSelectionButton.type = "button";
         acceptSelectionButton.disabled = !snapshot.hasSelection;
         acceptSelectionButton.setAttribute("data-rte-ai-dialog-action", "selection");
-        setReviewV2ButtonContent(acceptSelectionButton, "check", "Replace selection");
+        setReviewV2ButtonContent(acceptSelectionButton, "check", (obj.__aiT ? obj.__aiT("ai2_replsel", "Replace selection") : "Replace selection"));
         var previewSelectionButton = append(applyRow, "button", "", "secondary");
         previewSelectionButton.type = "button";
         previewSelectionButton.disabled = !snapshot.hasSelection;
         previewSelectionButton.setAttribute("data-rte-ai-dialog-action", "preview");
-        setReviewV2ButtonContent(previewSelectionButton, "eyeOn", "Preview");
+        setReviewV2ButtonContent(previewSelectionButton, "eyeOn", (obj.__aiT ? obj.__aiT("ai2_preview", "Preview") : "Preview"));
         var acceptBelowButton = append(applyRow, "button", "", "secondary");
         acceptBelowButton.type = "button";
         acceptBelowButton.setAttribute("data-rte-ai-dialog-action", "insert");
-        setReviewV2ButtonContent(acceptBelowButton, "arrowRight", "Insert below");
+        setReviewV2ButtonContent(acceptBelowButton, "arrowRight", (obj.__aiT ? obj.__aiT("ai2_insbelow", "Insert below") : "Insert below"));
         var acceptDocumentButton = append(applyRow, "button", "", "secondary");
         acceptDocumentButton.type = "button";
         acceptDocumentButton.setAttribute("data-rte-ai-dialog-action", "document");
-        // 2026-05-20 (v20260520h): "Replace doc" → "Replace document". The
+        // 2026-05-20 (v20260520h): "Replace doc" → (obj.__aiT ? obj.__aiT("ai2_repldoc", "Replace document") : "Replace document"). The
         // abbreviation read as developer shorthand; the full word costs ~28px
         // of horizontal real estate at the apply row, but this button only
         // appears behind the ⋯ More toggle so the row's spare space is
         // available. Vocabulary now matches getOperationPlanButtonLabel's
-        // primary path ("Replace document") and the chat panel's secondary
-        // button ("Replace document").
-        setReviewV2ButtonContent(acceptDocumentButton, "checkAll", "Replace document");
+        // primary path ((obj.__aiT ? obj.__aiT("ai2_repldoc", "Replace document") : "Replace document")) and the chat panel's secondary
+        // button ((obj.__aiT ? obj.__aiT("ai2_repldoc", "Replace document") : "Replace document")).
+        setReviewV2ButtonContent(acceptDocumentButton, "checkAll", (obj.__aiT ? obj.__aiT("ai2_repldoc", "Replace document") : "Replace document"));
         // 2026-05-08 (v20260508t): "More" toggle pinned just before Discard.
         // Hides Replace selection / Preview / Insert below / Replace doc by
         // default so the default surface only shows Apply (smart primary) +
@@ -18543,8 +19399,8 @@ function RTE_Plugin_AIToolkit() {
         applyRowMoreToggle.type = "button";
         applyRowMoreToggle.setAttribute("data-rte-ai-dialog-action", "more");
         applyRowMoreToggle.setAttribute("aria-expanded", "false");
-        applyRowMoreToggle.title = "More apply options";
-        applyRowMoreToggle.setAttribute("aria-label", "More apply options");
+        applyRowMoreToggle.title = (obj.__aiT ? obj.__aiT("ai2_moreopts", "More apply options") : "More apply options");
+        applyRowMoreToggle.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("ai2_moreopts", "More apply options") : "More apply options"));
         setReviewV2ButtonContent(applyRowMoreToggle, "more", "");
         applyRowMoreToggle.onclick = function (e) {
             if (e && e.stopPropagation) e.stopPropagation();
@@ -18603,7 +19459,7 @@ function RTE_Plugin_AIToolkit() {
         applyGuidance.className = "demo-ai-apply-guidance";
         applyGuidance.style.display = "none";
         applyGuidance.setAttribute("role", "group");
-        applyGuidance.setAttribute("aria-label", "Best next step");
+        applyGuidance.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aid_bestnext", "Best next step") : "Best next step"));
         var applyGuidanceHeader = append(applyGuidance, "div", "", "demo-ai-apply-guidance-header");
         var applyGuidanceTitle = append(applyGuidanceHeader, "span", "", "demo-ai-apply-guidance-title", "Next");
         var applyGuidanceBadge = append(applyGuidanceHeader, "span", "", "demo-ai-apply-guidance-badge");
@@ -18783,7 +19639,7 @@ function RTE_Plugin_AIToolkit() {
             var languages = getTranslateLanguages();
             languageSelect.innerHTML = "";
             for (var index = 0; index < languages.length; index++) {
-                var option = append(languageSelect, "option", "", "", languages[index].label || languages[index].value);
+                var option = append(languageSelect, "option", "", "", getTranslateLanguageDisplay(languages[index]));
                 option.value = languages[index].value || languages[index].label;
             }
             if (options.presetLanguage) {
@@ -18859,7 +19715,7 @@ function RTE_Plugin_AIToolkit() {
             else {
                 scopeLabel = "Document";
             }
-            return scopeLabel + " · " + countLabel + " chars";
+            return scopeLabel + " \xb7 " + countLabel + " chars";
         }
 
         // 2026-05-19 (v20260519a): mirror the active AI mode into the
@@ -18966,7 +19822,7 @@ function RTE_Plugin_AIToolkit() {
             }
             titleSpan.innerText = resolvedLabel || base;
             if (dialoginner.setAttribute) {
-                dialoginner.setAttribute("aria-label", resolvedLabel ? (base + " · " + resolvedLabel) : base);
+                dialoginner.setAttribute("aria-label", resolvedLabel ? (base + " \xb7 " + resolvedLabel) : base);
             }
         }
 
@@ -19052,16 +19908,16 @@ function RTE_Plugin_AIToolkit() {
             if (sourceArea && !sourceArea.value) {
                 var modeId = modeSelect.value || "";
                 var placeholders = {
-                    proofread: "Paste text to proofread…",
-                    rewrite: "Paste text to rewrite…",
-                    shorten: "Paste text to shorten…",
-                    expand: "Paste text to expand…",
-                    summarize: "Paste text to summarize…",
-                    translate: "Paste text to translate…",
-                    justify: "Paste text to rewrite + explain…",
-                    explain: "Paste text to explain…"
+                    proofread: "Paste text to proofread\u2026",
+                    rewrite: "Paste text to rewrite\u2026",
+                    shorten: "Paste text to shorten\u2026",
+                    expand: "Paste text to expand\u2026",
+                    summarize: "Paste text to summarize\u2026",
+                    translate: "Paste text to translate\u2026",
+                    justify: "Paste text to rewrite + explain\u2026",
+                    explain: "Paste text to explain\u2026"
                 };
-                sourceArea.placeholder = placeholders[modeId] || "Type or paste text…";
+                sourceArea.placeholder = placeholders[modeId] || "Type or paste text\u2026";
             }
             // 2026-05-08 (v20260508s): refresh the header mode-name chip.
             // For Translate the chip carries the target language so users
@@ -19069,7 +19925,7 @@ function RTE_Plugin_AIToolkit() {
             if (modeChip) {
                 var chipLabel = modeLabel || "";
                 if (modeLabel && modeSelect.value === "translate") {
-                    chipLabel = modeLabel + " · " + getTranslateLanguageLabel(languageSelect.value || "spanish");
+                    chipLabel = modeLabel + " \xb7 " + getTranslateLanguageLabel(languageSelect.value || "spanish");
                 }
                 modeChip.innerText = chipLabel;
                 modeChip.style.display = chipLabel ? "" : "none";
@@ -19238,9 +20094,9 @@ function RTE_Plugin_AIToolkit() {
                 var docChars = snap ? (snap.wholeText || "").length : 0;
                 scopeOptionSelection.disabled = !hasSelection;
                 scopeOptionSelection.text = hasSelection
-                    ? "Selection"
-                    : "Selection (none)";
-                scopeOptionDocument.text = "Document";
+                    ? (obj.__aiT ? obj.__aiT("aid_selection", "Selection") : "Selection")
+                    : (obj.__aiT ? obj.__aiT("aid_selectionnone", "Selection (none)") : "Selection (none)");
+                scopeOptionDocument.text = (obj.__aiT ? obj.__aiT("aid_document", "Document") : "Document");
                 scopeSelect.value = activeScope === "selection" ? "selection" : "document";
                 scopeSelect.setAttribute("title", buildDialogScopeHint(snap, scope));
                 // 2026-06-01 (v20260601a): swap the <select> for a quiet inline
@@ -19255,7 +20111,7 @@ function RTE_Plugin_AIToolkit() {
                 // 2026-05-20 (v20260520i) — Pass 61: caption mirrors the option
                 // label — scope name only, no char-count suffix.
                 if (scopeCaption) {
-                    scopeCaption.innerText = "Document";
+                    scopeCaption.innerText = (obj.__aiT ? obj.__aiT("aid_document", "Document") : "Document");
                 }
                 if (compactControls && compactControls.classList) {
                     if (hasSelection) {
@@ -19270,8 +20126,8 @@ function RTE_Plugin_AIToolkit() {
 
         function formatDialogScopeCount(n) {
             if (!n) return "0";
-            if (n > 999) return (Math.round(n / 100) / 10) + "K chars";
-            return n + " chars";
+            if (n > 999) return (obj.__aiT ? obj.__aiT("aid_kchars", "{0}K chars", Math.round(n / 100) / 10) : (Math.round(n / 100) / 10) + "K chars");
+            return obj.__aiT ? obj.__aiT("aid_chars", "{0} chars", n) : n + " chars";
         }
 
         function markDialogSourceDetached() {
@@ -19318,11 +20174,11 @@ function RTE_Plugin_AIToolkit() {
         }
 
         function getDialogLanguageChangeMessage(language) {
-            return "Language → " + getTranslateLanguageLabel(language || "spanish") + ". Re-run to refresh.";
+            return "Language \u2192 " + getTranslateLanguageLabel(language || "spanish") + ". Re-run to refresh.";
         }
 
         function getDialogScopeChangeMessage(scope) {
-            return "Scope → " + (scope === "selection" ? "selection" : "document") + ". Re-run to refresh.";
+            return "Scope \u2192 " + (scope === "selection" ? "selection" : "document") + ". Re-run to refresh.";
         }
 
         function getDialogEditorReloadMessage(scope) {
@@ -19407,70 +20263,70 @@ function RTE_Plugin_AIToolkit() {
                     : "Select text in the editor, then reload it into Ask AI.";
             }
             if (actionId === "load-document") {
-                return "Reload the current editor document into Ask AI.";
+                return (obj.__aiT ? obj.__aiT("aid_reloaddesc", "Reload the current editor document into Ask AI.") : "Reload the current editor document into Ask AI.");
             }
             if (actionId === "run") {
                 return actionState.hasSource
-                    ? "Generate a new AI suggestion from the current source text using the selected mode."
-                    : "Load or type source text, then run Ask AI to generate a suggestion.";
+                    ? (obj.__aiT ? obj.__aiT("aid_gendesc", "Generate a new AI suggestion from the current source text using the selected mode.") : "Generate a new AI suggestion from the current source text using the selected mode.")
+                    : (obj.__aiT ? obj.__aiT("aid_loaddesc", "Load or type source text, then run Ask AI to generate a suggestion.") : "Load or type source text, then run Ask AI to generate a suggestion.");
             }
             if (actionId === "rerun") {
                 return actionState.staleAction === "source"
-                    ? "Refresh this suggestion from the current dialog source before applying it."
-                    : "Refresh this suggestion from the current editor state before applying it.";
+                    ? (obj.__aiT ? obj.__aiT("ai2_d_refreshsrc", "Refresh this suggestion from the current dialog source before applying it.") : "Refresh this suggestion from the current dialog source before applying it.")
+                    : (obj.__aiT ? obj.__aiT("ai2_d_refreshed", "Refresh this suggestion from the current editor state before applying it.") : "Refresh this suggestion from the current editor state before applying it.");
             }
             if (actionId === "copy-to-source") {
                 return actionState.hasResult
-                    ? "Copy the current AI result back into the source field before rerunning it."
-                    : "Run Ask AI first, then copy the generated result back into the source field.";
+                    ? (obj.__aiT ? obj.__aiT("ai2_d_copyback", "Copy the current AI result back into the source field before rerunning it.") : "Copy the current AI result back into the source field before rerunning it.")
+                    : (obj.__aiT ? obj.__aiT("ai2_d_copyfirst", "Run Ask AI first, then copy the generated result back into the source field.") : "Run Ask AI first, then copy the generated result back into the source field.");
             }
             if (actionId === "apply") {
                 if (actionState.pendingIndexes.length > 1) {
                     return actionState.pendingSelectionDependent && !actionState.hasSelection
-                        ? "Select text before applying this selection-based AI plan."
-                        : "Run the remaining " + actionState.pendingIndexes.length + "-step AI plan directly in the editor.";
+                        ? (obj.__aiT ? obj.__aiT("ai2_d_selectplan", "Select text before applying this selection-based AI plan.") : "Select text before applying this selection-based AI plan.")
+                        : (obj.__aiT ? obj.__aiT("ai2_d_steps", "Run the remaining {0}-step AI plan directly in the editor.", actionState.pendingIndexes.length) : "Run the remaining " + actionState.pendingIndexes.length + "-step AI plan directly in the editor.");
                 }
                 switch (actionState.pendingOperationType) {
                     case "preview-suggestion":
                         return actionState.hasSelection
-                            ? "Show the prepared inline diff in the editor before deciding it."
-                            : "Select text before previewing this prepared inline diff in the editor.";
+                            ? (obj.__aiT ? obj.__aiT("ai2_d_showdiff", "Show the prepared inline diff in the editor before deciding it.") : "Show the prepared inline diff in the editor before deciding it.")
+                            : (obj.__aiT ? obj.__aiT("ai2_d_selectdiff", "Select text before previewing this prepared inline diff in the editor.") : "Select text before previewing this prepared inline diff in the editor.");
                     case "replace-selection":
                         return actionState.hasSelection
-                            ? "Replace the current selection with this prepared draft."
-                            : "Select text before replacing it with this prepared draft.";
+                            ? (obj.__aiT ? obj.__aiT("ai2_d_replsel", "Replace the current selection with this prepared draft.") : "Replace the current selection with this prepared draft.")
+                            : (obj.__aiT ? obj.__aiT("ai2_d_selectrepl", "Select text before replacing it with this prepared draft.") : "Select text before replacing it with this prepared draft.");
                     case "replace-document":
-                        return "Replace the full document with this prepared draft.";
+                        return (obj.__aiT ? obj.__aiT("ai2_d_repldoc", "Replace the full document with this prepared draft.") : "Replace the full document with this prepared draft.");
                     case "insert-below":
                         return actionState.hasSelection
-                            ? "Insert this prepared draft below the current selection."
-                            : "Insert this prepared draft below the current content.";
+                            ? (obj.__aiT ? obj.__aiT("ai2_d_insbelowsel", "Insert this prepared draft below the current selection.") : "Insert this prepared draft below the current selection.")
+                            : (obj.__aiT ? obj.__aiT("ai2_d_insbelow", "Insert this prepared draft below the current content.") : "Insert this prepared draft below the current content.");
                     case "add-comment":
-                        return "Add this prepared AI comment without rewriting the document body.";
+                        return (obj.__aiT ? obj.__aiT("ai2_d_comment", "Add this prepared AI comment without rewriting the document body.") : "Add this prepared AI comment without rewriting the document body.");
                     default:
-                        return "Run the prepared AI plan directly in the editor.";
+                        return (obj.__aiT ? obj.__aiT("ai2_d_runplan", "Run the prepared AI plan directly in the editor.") : "Run the prepared AI plan directly in the editor.");
                 }
             }
             if (actionId === "selection") {
                 return actionState.hasSelection
-                    ? "Replace the current selection with this prepared draft."
-                    : "Select text before replacing it with this prepared draft.";
+                    ? (obj.__aiT ? obj.__aiT("ai2_d_replsel", "Replace the current selection with this prepared draft.") : "Replace the current selection with this prepared draft.")
+                    : (obj.__aiT ? obj.__aiT("ai2_d_selectrepl", "Select text before replacing it with this prepared draft.") : "Select text before replacing it with this prepared draft.");
             }
             if (actionId === "preview") {
                 return actionState.hasSelection
-                    ? "Show this change inline in the editor before deciding it."
-                    : "Select text to preview this change inline in the editor.";
+                    ? (obj.__aiT ? obj.__aiT("ai2_d_previewsel", "Show this change inline in the editor before deciding it.") : "Show this change inline in the editor before deciding it.")
+                    : (obj.__aiT ? obj.__aiT("ai2_d_previewselect", "Select text to preview this change inline in the editor.") : "Select text to preview this change inline in the editor.");
             }
             if (actionId === "insert") {
                 return actionState.hasSelection
-                    ? "Insert this prepared draft below the current selection."
-                    : "Insert this prepared draft below the current content.";
+                    ? (obj.__aiT ? obj.__aiT("ai2_d_insbelowsel", "Insert this prepared draft below the current selection.") : "Insert this prepared draft below the current selection.")
+                    : (obj.__aiT ? obj.__aiT("ai2_d_insbelow", "Insert this prepared draft below the current content.") : "Insert this prepared draft below the current content.");
             }
             if (actionId === "document") {
-                return "Replace the full document with this prepared draft.";
+                return (obj.__aiT ? obj.__aiT("ai2_d_repldoc", "Replace the full document with this prepared draft.") : "Replace the full document with this prepared draft.");
             }
             if (actionId === "reject") {
-                return "Dismiss this prepared suggestion without changing the document.";
+                return (obj.__aiT ? obj.__aiT("ai2_d_dismiss", "Dismiss this prepared suggestion without changing the document.") : "Dismiss this prepared suggestion without changing the document.");
             }
             return "";
         }
@@ -19558,22 +20414,22 @@ function RTE_Plugin_AIToolkit() {
             var pendingOperationType = actionState.pendingOperationType || "";
             if (actionState.actionScope === "selection") {
                 if (actionState.hasSelection && pendingOperationType !== "preview-suggestion") {
-                    addDialogReadyAlternative(alternatives, covered, "preview", "preview inline");
+                    addDialogReadyAlternative(alternatives, covered, "preview", (obj.__aiT ? obj.__aiT("ai2_alt_preview", "preview inline") : "preview inline"));
                 }
                 if (actionState.hasSelection && pendingOperationType !== "replace-selection") {
-                    addDialogReadyAlternative(alternatives, covered, "selection", "replace the selection");
+                    addDialogReadyAlternative(alternatives, covered, "selection", (obj.__aiT ? obj.__aiT("ai2_alt_selection", "replace the selection") : "replace the selection"));
                 }
                 if (actionState.canInsert && pendingOperationType !== "insert-below") {
-                    addDialogReadyAlternative(alternatives, covered, "insert", "insert below");
+                    addDialogReadyAlternative(alternatives, covered, "insert", (obj.__aiT ? obj.__aiT("ai2_alt_insert", "insert below") : "insert below"));
                 }
                 return alternatives;
             }
             if (actionState.actionScope === "document") {
                 if (actionState.canReplaceDocument && pendingOperationType !== "replace-document") {
-                    addDialogReadyAlternative(alternatives, covered, "document", "replace the document");
+                    addDialogReadyAlternative(alternatives, covered, "document", (obj.__aiT ? obj.__aiT("ai2_alt_document", "replace the document") : "replace the document"));
                 }
                 if (actionState.canInsert && pendingOperationType !== "insert-below") {
-                    addDialogReadyAlternative(alternatives, covered, "insert", "insert below");
+                    addDialogReadyAlternative(alternatives, covered, "insert", (obj.__aiT ? obj.__aiT("ai2_alt_insert", "insert below") : "insert below"));
                 }
             }
             return alternatives;
@@ -19591,10 +20447,10 @@ function RTE_Plugin_AIToolkit() {
                 ? (recommended.label || "").replace(/\s+/g, " ").trim()
                 : "";
             if (recommendedLabel) {
-                return "Ready · " + recommendedLabel;
+                return "Ready \xb7 " + recommendedLabel;
             }
             if (actionState.actionScope === "selection" && !actionState.hasSelection) {
-                return "Ready · Insert below";
+                return "Ready \xb7 Insert below";
             }
             return "Ready";
         }
@@ -19672,25 +20528,25 @@ function RTE_Plugin_AIToolkit() {
                 parts.push(detail);
             }
             if (alternativeText) {
-                parts.push("Other available actions: " + alternativeText + ".");
+                parts.push(obj.__aiT ? obj.__aiT("aid_otheractions", "Other available actions: {0}.", alternativeText) : "Other available actions: " + alternativeText + ".");
             }
             if (isRecommended) {
-                parts.push("Recommended next step.");
+                parts.push((obj.__aiT ? obj.__aiT("aid_recommended", "Recommended next step.") : "Recommended next step."));
                 button.setAttribute("data-rte-ai-dialog-recommended", "true");
             }
             else {
                 button.removeAttribute("data-rte-ai-dialog-recommended");
             }
-            button.setAttribute("aria-label", parts.join(". "));
+            button.setAttribute("aria-label", joinSentences(parts));
             var titleParts = [label];
             if (detail) {
                 titleParts.push(detail);
             }
             if (alternativeText) {
-                titleParts.push("Other available actions: " + alternativeText + ".");
+                titleParts.push(obj.__aiT ? obj.__aiT("aid_otheractions", "Other available actions: {0}.", alternativeText) : "Other available actions: " + alternativeText + ".");
             }
             if (isRecommended) {
-                titleParts.push("Recommended next step.");
+                titleParts.push((obj.__aiT ? obj.__aiT("aid_recommended", "Recommended next step.") : "Recommended next step."));
             }
             // 2026-05-22 (v20260522a): preserve any pre-set keyboard shortcut
             // hint on the button by reading aria-keyshortcuts (the WAI-ARIA
@@ -19700,7 +20556,7 @@ function RTE_Plugin_AIToolkit() {
             // shortcut would only be discoverable via screen-reader
             // announcement of aria-keyshortcuts and never via mouse hover.
             // Formatting matches the Generate button's pre-existing title
-            // suffix ("Generate AI suggestion (Ctrl+Enter)").
+            // suffix ((obj.__aiT ? obj.__aiT("ai2_gentitle", "Generate AI suggestion (Ctrl+Enter)") : "Generate AI suggestion (Ctrl+Enter)")).
             var keyHint = button.getAttribute && button.getAttribute("aria-keyshortcuts");
             if (keyHint) {
                 var keyHintLabel = keyHint
@@ -19757,7 +20613,7 @@ function RTE_Plugin_AIToolkit() {
                 return {
                     actionId: "run",
                     button: runButton,
-                    label: "Ask AI",
+                    label: (obj.__aiT ? obj.__aiT("aiassist", "Ask AI") : "Ask AI"),
                     detail: getDialogActionDetail("run", actionState)
                 };
             }
@@ -19789,7 +20645,7 @@ function RTE_Plugin_AIToolkit() {
                 return {
                     actionId: "document",
                     button: acceptDocumentButton,
-                    label: (acceptDocumentButton.innerText || acceptDocumentButton.textContent || "").replace(/\s+/g, " ").trim() || "Replace document",
+                    label: (acceptDocumentButton.innerText || acceptDocumentButton.textContent || "").replace(/\s+/g, " ").trim() || (obj.__aiT ? obj.__aiT("ai2_repldoc", "Replace document") : "Replace document"),
                     detail: getDialogActionDetail("document", actionState)
                 };
             }
@@ -19842,11 +20698,11 @@ function RTE_Plugin_AIToolkit() {
                 return;
             }
             applyGuidance.style.display = "";
-            applyGuidanceTitle.innerText = "Best next step";
+            applyGuidanceTitle.innerText = (obj.__aiT ? obj.__aiT("aid_bestnext", "Best next step") : "Best next step");
             applyGuidanceBadge.innerText = recommended.label || "";
             var summaryDetail = getDialogRecommendedSummaryDetail(actionState, recommended);
             applyGuidanceDetail.innerText = summaryDetail || "";
-            applyGuidance.setAttribute("aria-label", "Best next step: " + (recommended.label || "Action") + "." + (summaryDetail ? " " + summaryDetail : ""));
+            applyGuidance.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aid_bestnextaria", "Best next step: {0}.", recommended.label || "Action") : "Best next step: " + (recommended.label || "Action") + ".") + (summaryDetail ? " " + summaryDetail : ""));
         }
 
         function rerunDialogPlanFromEditor() {
@@ -20050,7 +20906,7 @@ function RTE_Plugin_AIToolkit() {
             // setBusyState(false) is called.
             if (isBusy) {
                 runButton.classList.add("is-busy");
-                setReviewV2ButtonContent(runButton, "spinner", "Thinking...");
+                setReviewV2ButtonContent(runButton, "spinner", (obj.__aiT ? obj.__aiT("aic_thinking", "Thinking...") : "Thinking..."));
             } else {
                 runButton.classList.remove("is-busy");
             }
@@ -20170,7 +21026,7 @@ function RTE_Plugin_AIToolkit() {
                 // hidden apply options on the kebab's title + aria-label so
                 // users discover *what's behind the dots* on hover or with a
                 // screen reader, instead of clicking blind. Pre-pass the
-                // tooltip read as "More apply options" — accurate but content-
+                // tooltip read as (obj.__aiT ? obj.__aiT("ai2_moreopts", "More apply options") : "More apply options") — accurate but content-
                 // free; now it reads "More apply options (3): Replace
                 // selection, Insert below, Replace doc" so the count + the
                 // names live where the affordance is. Same shape Notion AI's
@@ -20182,7 +21038,7 @@ function RTE_Plugin_AIToolkit() {
                 if (showsSelectionAction) moreOptionNames.push("Replace selection");
                 if (showsPreviewAction) moreOptionNames.push("Preview");
                 if (showsInsertAction) moreOptionNames.push("Insert below");
-                if (showsDocumentAction) moreOptionNames.push("Replace document");
+                if (showsDocumentAction) moreOptionNames.push((obj.__aiT ? obj.__aiT("ai2_repldoc", "Replace document") : "Replace document"));
                 var moreCount = moreOptionNames.length;
                 var anyMoreAvailable = moreCount > 0;
                 applyRowMoreToggle.style.display = anyMoreAvailable ? "" : "none";
@@ -20207,7 +21063,7 @@ function RTE_Plugin_AIToolkit() {
             // 2026-05-08 (v20260508s): clarify the run button — when a
             // result already exists the button re-runs the same source, so
             // call it Regenerate. Also flips when the plan goes stale.
-            var runLabel = (hasResult || isStale) ? "Regenerate" : "Generate";
+            var runLabel = (hasResult || isStale) ? (obj.__aiT ? obj.__aiT("aid_regenerate", "Regenerate") : "Regenerate") : (obj.__aiT ? obj.__aiT("aid_generate", "Generate") : "Generate");
             setReviewV2ButtonContent(runButton, "sparkles", runLabel);
             // 2026-05-17 (v20260517a): re-attach the keyboard hint chip,
             // since setReviewV2ButtonContent clears textContent and loses
@@ -20664,20 +21520,20 @@ function RTE_Plugin_Autocorrect() {
 
     // Multi-character sequences replaced the moment they are completed.
     var SEQUENCES = [
-        { from: "...", to: "…" },        // ellipsis
-        { from: "-->", to: "⟶" },        // long right arrow
-        { from: "->", to: "→" },
-        { from: "<-", to: "←" },
-        { from: "<=", to: "≤" },
-        { from: ">=", to: "≥" },
-        { from: "!=", to: "≠" },
-        { from: "(c)", to: "©" },
-        { from: "(r)", to: "®" },
-        { from: "(tm)", to: "™" },
-        { from: "1/2", to: "½" },
-        { from: "1/4", to: "¼" },
-        { from: "3/4", to: "¾" },
-        { from: "+-", to: "±" }
+        { from: "...", to: "\u2026" },        // ellipsis
+        { from: "-->", to: "\u27f6" },        // long right arrow
+        { from: "->", to: "\u2192" },
+        { from: "<-", to: "\u2190" },
+        { from: "<=", to: "\u2264" },
+        { from: ">=", to: "\u2265" },
+        { from: "!=", to: "\u2260" },
+        { from: "(c)", to: "\xa9" },
+        { from: "(r)", to: "\xae" },
+        { from: "(tm)", to: "\u2122" },
+        { from: "1/2", to: "\xbd" },
+        { from: "1/4", to: "\xbc" },
+        { from: "3/4", to: "\xbe" },
+        { from: "+-", to: "\xb1" }
     ];
 
     obj.PluginName = "Autocorrect";
@@ -20777,7 +21633,10 @@ function RTE_Plugin_Autocorrect() {
     // ---- the Backspace escape hatch --------------------------------------
 
     function onKeyDown(e) {
-        if (e.key !== "Backspace" || !lastFix) return;
+        // Ctrl/Cmd+Z straight after a correction reverts just the correction (Word, CKEditor),
+        // where the editor's own undo would also throw away the typing it was grouped with.
+        var isUndo = (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && (e.code === "KeyZ" || e.key === "z" || e.key === "Z");
+        if ((e.key !== "Backspace" && !isUndo) || !lastFix) return;
         var c = caret();
         if (!c || c.node !== lastFix.node) { lastFix = null; return; }
         // Only when the caret is still exactly where the correction left it —
@@ -20808,7 +21667,7 @@ function RTE_Plugin_Autocorrect() {
     }
 
     function isBoundary(ch) {
-        return ch === " " || ch === " " || ".,;:!?)]}\"'’”".indexOf(ch) >= 0;
+        return ch === " " || ch === "\xa0" || ".,;:!?)]}\"'\u2019\u201d".indexOf(ch) >= 0;
     }
 
     // Substitutions that resolve as soon as the triggering character lands.
@@ -20820,8 +21679,8 @@ function RTE_Plugin_Autocorrect() {
         // whitespace or an opening bracket it opens, otherwise it closes.
         if (ch === '"' || ch === "'") {
             var prev = at >= 2 ? text.charAt(at - 2) : "";
-            var opening = !prev || /[\s(\[{—–\-]/.test(prev);
-            var repl = ch === '"' ? (opening ? "“" : "”") : (opening ? "‘" : "’");
+            var opening = !prev || /[\s(\[{\u2014\u2013\-]/.test(prev);
+            var repl = ch === '"' ? (opening ? "\u201c" : "\u201d") : (opening ? "\u2018" : "\u2019");
             return replaceRange(c, at - 1, at, repl, ch);
         }
 
@@ -20831,9 +21690,9 @@ function RTE_Plugin_Autocorrect() {
         // start of a line and a "--flag" are left alone.
         if (ch === "-" && at >= 2 && text.charAt(at - 2) === "-") {
             var before = at >= 3 ? text.charAt(at - 3) : "";
-            var ok = /[\w\)\]"'’]/.test(before);
-            if (!ok && /\s/.test(before)) ok = /[\w\)\]"'’]\s*$/.test(text.slice(0, at - 3));
-            if (ok) return replaceRange(c, at - 2, at, "—", "--");
+            var ok = /[\w\)\]"'\u2019]/.test(before);
+            if (!ok && /\s/.test(before)) ok = /[\w\)\]"'\u2019]\s*$/.test(text.slice(0, at - 3));
+            if (ok) return replaceRange(c, at - 2, at, "\u2014", "--");
         }
 
         for (var i = 0; i < SEQUENCES.length; i++) {
@@ -20854,9 +21713,17 @@ function RTE_Plugin_Autocorrect() {
         var text = c.node.nodeValue;
         var end = c.offset - 1;               // the boundary char we just typed
         var start = end;
-        while (start > 0 && /[A-Za-z'’]/.test(text.charAt(start - 1))) start--;
+        while (start > 0 && /[A-Za-z'\u2019]/.test(text.charAt(start - 1))) start--;
         if (start === end) return;
         var word = text.substring(start, end);
+        // a single letter followed by "." is the start of "i.e." / "e.g." - the "." is typed before
+        // the rest of the abbreviation exists, so leave it (it became "I.e.")
+        if (ch === "." && word.length === 1) return;
+        // 2026-10-03 A dotted abbreviation ("i.e.", "e.g.") keeps its case: "i.e." became "I.e.".
+        // tools/autolink/autolink.mjs
+        var tokEnd = end;
+        while (tokEnd < text.length && !/\s/.test(text.charAt(tokEnd))) tokEnd++;
+        if (/^[a-z]\.[a-z]\.?$/i.test(text.substring(start, tokEnd))) return;
 
         // Spelling THEN capitalisation, applied in sequence to the same word.
         // Treating them as alternatives means "teh cat" opening a sentence comes
@@ -20868,9 +21735,11 @@ function RTE_Plugin_Autocorrect() {
             // The table stores plain apostrophes so it stays easy to extend, but
             // typing ' produces a curly one — emit the same character here or
             // "don't" ends up with a different apostrophe than "it's".
-            if (config.autocorrectTypography !== false) fixed = fixed.replace(/'/g, "’");
+            if (config.autocorrectTypography !== false) fixed = fixed.replace(/'/g, "\u2019");
         }
-        if (config.autocorrectCapitalize !== false && startsSentence(text, start, c.node)) {
+        // A word inside a web address or email ("www.", "me@x.org", "https://a.example.org/path")
+        // is never a sentence start: capitalising it corrupts the link built from that text.
+        if (config.autocorrectCapitalize !== false && !inAddress(text, start, end) && startsSentence(text, start, c.node)) {
             var first = fixed.charAt(0);
             if (first !== first.toUpperCase()) fixed = first.toUpperCase() + fixed.substring(1);
         }
@@ -20887,12 +21756,34 @@ function RTE_Plugin_Autocorrect() {
         return fixed;
     }
 
+    function inAddress(text, start, end) {
+        var s = start;
+        while (s > 0 && !/\s/.test(text.charAt(s - 1))) s--;
+        // 2026-10-03 Read the WHOLE token (to the next space) and ignore an opening bracket or quote:
+        // "(https://x" was read as "(https:" - no slash yet - and capitalised to "(Https://".
+        // tools/autolink/autolink.mjs
+        var e2 = end;
+        while (e2 < text.length && !/\s/.test(text.charAt(e2))) e2++;
+        var token = text.substring(s, Math.max(e2, end + 1)).toLowerCase().replace(/^[(\[{<'"\u2018\u201c]+/, "");
+        return /^www\./.test(token) || /^[a-z][a-z0-9+.-]*:/.test(token) || /[\/@]/.test(token);
+    }
+
     function startsSentence(text, start, node) {
+        var spaced = false;
         for (var i = start - 1; i >= 0; i--) {
             var ch = text.charAt(i);
-            if (/\s/.test(ch)) continue;
-            if (ch === '"' || ch === "'" || ch === "“" || ch === "‘" || ch === "(") continue;
-            return ".!?".indexOf(ch) >= 0;
+            if (/\s/.test(ch)) { spaced = true; continue; }
+            if (ch === '"' || ch === "'" || ch === "\u201c" || ch === "\u2018" || ch === "(") continue;
+            // ".!?" ends a sentence only when space follows it: "example.com" and "e.g" have none.
+            // 2026-10-03 ...and the full stop of an abbreviation never does (Word, Google Docs):
+            // "e.g. Apples", "etc. And" were capitalised. tools/autolink/autolink.mjs
+            if (spaced && ch === ".") {
+                var ws = i;
+                while (ws > 0 && !/\s/.test(text.charAt(ws - 1))) ws--;
+                var prevTok = text.substring(ws, i + 1).toLowerCase().replace(/^[("'\u2018\u201c]+/, "");
+                if (/^(e\.g|i\.e|etc|vs|cf|approx|incl|viz|al|resp|esp|ca)\.$/.test(prevTok)) return false;
+            }
+            return spaced && ".!?".indexOf(ch) >= 0;
         }
         // Nothing before it in this node: only a sentence start if nothing
         // precedes the node in its block either.
@@ -20935,10 +21826,10 @@ function RTE_Plugin_Autocorrect() {
         for (var i = 0; i < SEQUENCES.length; i++) {
             out = out.split(SEQUENCES[i].from).join(SEQUENCES[i].to);
         }
-        out = out.replace(/(^|[\s(\[{])"/g, "$1“").replace(/"/g, "”");
-        out = out.replace(/(^|[\s(\[{])'/g, "$1‘").replace(/'/g, "’");
-        out = out.replace(/(\w)--(\w)/g, "$1—$2");
-        out = out.replace(/(\w)\s--\s(\w)/g, "$1 — $2");
+        out = out.replace(/(^|[\s(\[{])"/g, "$1\u201c").replace(/"/g, "\u201d");
+        out = out.replace(/(^|[\s(\[{])'/g, "$1\u2018").replace(/'/g, "\u2019");
+        out = out.replace(/(\w)--(\w)/g, "$1\u2014$2");
+        out = out.replace(/(\w)\s--\s(\w)/g, "$1 \u2014 $2");
         return out;
     }
 }
@@ -21016,6 +21907,23 @@ function RTE_Plugin_AutoEmbed() {
         if (m) return "https://player.vimeo.com/video/" + m[1];
         m = /^https?:\/\/player\.vimeo\.com\/video\/(\d{6,12})/i.exec(url);
         if (m) return "https://player.vimeo.com/video/" + m[1];
+        // 2026-10-13 more providers, each id checked against its own pattern before it is placed in the embed address.
+        m = /^https?:\/\/(?:www\.)?dailymotion\.com\/video\/([A-Za-z0-9]{4,20})(?:[/?#]|$)/i.exec(url);
+        if (m) return "https://www.dailymotion.com/embed/video/" + m[1];
+        m = /^https?:\/\/dai\.ly\/([A-Za-z0-9]{4,20})(?:[/?#]|$)/i.exec(url);
+        if (m) return "https://www.dailymotion.com/embed/video/" + m[1];
+        m = /^https?:\/\/(?:www\.)?loom\.com\/share\/([a-f0-9]{32})(?:[/?#]|$)/i.exec(url);
+        if (m) return "https://www.loom.com/embed/" + m[1];
+        m = /^https?:\/\/(?:www\.)?codepen\.io\/([A-Za-z0-9_-]{1,40})\/pen\/([A-Za-z0-9]{4,20})(?:[/?#]|$)/i.exec(url);
+        if (m) return "https://codepen.io/" + m[1] + "/embed/" + m[2] + "?default-tab=result";
+        m = /^https?:\/\/(?:www\.)?ted\.com\/talks\/([a-z0-9_]{3,80})(?:[/?#]|$)/i.exec(url);
+        if (m) return "https://embed.ted.com/talks/" + m[1];
+        // 2026-10-15 Youku and Coub, which Plate also embeds. Tweets are not here: they need X's widget script, an
+        // external call. tools/embeds/embed-providers.mjs
+        m = /^https?:\/\/v\.youku\.com\/v_show\/id_(X[A-Za-z0-9]{6,30}={0,2})\.html(?:[?#]|$)/i.exec(url);
+        if (m) return "https://player.youku.com/embed/" + m[1];
+        m = /^https?:\/\/(?:www\.)?coub\.com\/view\/([a-z0-9]{3,12})(?:[/?#]|$)/i.exec(url);
+        if (m) return "https://coub.com/embed/" + m[1];
         return null;
     }
     function resolve(url) {
@@ -21136,11 +22044,11 @@ RTE_DefaultConfig.plugin_blocktypes = RTE_Plugin_BlockTypes;
 
 // Callout variants: id -> { label, icon }. Customizable via config.calloutTypes.
 RTE_DefaultConfig.calloutTypes = RTE_DefaultConfig.calloutTypes || [
-    { id: "info", label: "Info", icon: "ℹ️" },       // ℹ️
-    { id: "success", label: "Success", icon: "✅" },       // ✅
-    { id: "warning", label: "Warning", icon: "⚠️" }, // ⚠️
-    { id: "danger", label: "Danger", icon: "⛔" },         // ⛔
-    { id: "note", label: "Note", icon: "📝" }        // 📝
+    { id: "info", label: "Info", icon: "\u2139\ufe0f" },       // ℹ️
+    { id: "success", label: "Success", icon: "\u2705" },       // ✅
+    { id: "warning", label: "Warning", icon: "\u26a0\ufe0f" }, // ⚠️
+    { id: "danger", label: "Danger", icon: "\u26d4" },         // ⛔
+    { id: "note", label: "Note", icon: "\ud83d\udcdd" }        // 📝
 ];
 RTE_DefaultConfig.calloutDefaultType = RTE_DefaultConfig.calloutDefaultType || "info";
 RTE_DefaultConfig.columnsDefaultCount = RTE_DefaultConfig.columnsDefaultCount || 2;
@@ -21184,7 +22092,7 @@ function RTE_Plugin_BlockTypes() {
         for (var i = 0; i < types.length; i++) {
             if (types[i].id === id) return types[i];
         }
-        return types[0] || { id: "info", label: "Info", icon: "ℹ️" };
+        return types[0] || { id: "info", label: "Info", icon: "\u2139\ufe0f" };
     }
 
     // --- Insertion -------------------------------------------------------
@@ -21237,17 +22145,26 @@ function RTE_Plugin_BlockTypes() {
         // the blocks rendered unstyled (transparent callouts, block-display
         // columns instead of flex).
         injectStyles();
+        // 2026-10-03 The caret goes into the block JUST inserted, with its first placeholder
+        // selected so typing replaces it. It went to the start of the placeholder ("Hi thereCallout
+        // text"), and to the LAST element of the class in the document: the last column, and - with
+        // a callout inserted above an existing one - into the OLD callout, so what the user typed
+        // changed content that was already there. The new block is the first element of the class
+        // that was not there before. tools/blocks/block-types-insert.mjs
+        var before = [];
+        try { before = Array.prototype.slice.call(editor.getEditable().getElementsByClassName(focusClass)); } catch (e) { before = []; }
         editor.insertHTML(html);
         try {
             var editdoc = editor.getDocument();
             var editable = editor.getEditable();
             var targets = editable.getElementsByClassName(focusClass);
-            if (targets && targets.length) {
-                var target = targets[targets.length - 1]; // the one we just inserted
+            var target = null;
+            for (var i = 0; i < targets.length && !target; i++)
+                if (before.indexOf(targets[i]) === -1) target = targets[i];
+            if (target) {
                 var caretNode = target.querySelector("p") || target;
                 var range = editdoc.createRange();
                 range.selectNodeContents(caretNode);
-                range.collapse(true);
                 var sel = editor.getSelection();
                 sel.removeAllRanges();
                 sel.addRange(range);
@@ -21347,6 +22264,13 @@ function RTE_Plugin_BookmarkCard() {
     obj.PluginName = "BookmarkCard";
 
     obj.InitConfig = function (argconfig) { config = argconfig; };
+    // 2026-10-18 the words read config.text_ keys (language packs), English as the fallback; {0} / {1} fill a template.
+    // tools/i18n/plugin-bars-language.mjs
+    function pText(key, fallback) {
+        var s = (config && config["text_" + key]) || fallback;
+        for (var i = 2; i < arguments.length; i++) s = s.split("{" + (i - 2) + "}").join(String(arguments[i]));
+        return s;
+    }
 
     obj.InitEditor = function (argeditor) {
         editor = argeditor;
@@ -21485,22 +22409,22 @@ function RTE_Plugin_BookmarkCard() {
         input.type = "url"; input.placeholder = "https://example.com/article";
 
         var status = append(wrap, "div", "font-size:11px;color:#94a3b8;margin-top:6px;min-height:14px");
-        if (!config.bookmarkResolver) status.innerText = "No metadata resolver configured — a basic card (favicon + domain) will be inserted. Wire config.bookmarkResolver for rich previews.";
+        if (!config.bookmarkResolver) status.innerText = pText("bm_noresolver", "No metadata resolver configured \u2014 a basic card (favicon + domain) will be inserted. Wire config.bookmarkResolver for rich previews.");
 
         var footer = append(wrap, "div", "display:flex;justify-content:flex-end;gap:8px;margin-top:14px");
         var cancel = append(footer, "button", "padding:6px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;cursor:pointer");
-        cancel.type = "button"; cancel.textContent = "Cancel"; cancel.onclick = close;
+        cancel.type = "button"; cancel.textContent = pText("cancel", "Cancel"); cancel.onclick = close;
         var ok = append(footer, "button", "padding:6px 14px;border:1px solid #1d67ba;border-radius:8px;background:#1d67ba;color:#fff;cursor:pointer");
-        ok.type = "button"; ok.textContent = "Insert";
+        ok.type = "button"; ok.textContent = pText("insert", "Insert");
 
         setTimeout(function () { input.focus(); }, 0);
         input.onkeydown = function (e) { if (e.key === "Enter") { e.preventDefault(); ok.click(); } };
 
         ok.onclick = function () {
             var url = normalizeUrl(input.value);
-            if (!url) { status.style.color = "#dc2626"; status.innerText = "Enter a valid http(s) URL."; return; }
+            if (!url) { status.style.color = "#dc2626"; status.innerText = pText("bminvalid", "Enter a valid http(s) URL."); return; }
             if (config.bookmarkResolver && typeof config.bookmarkResolver === "function") {
-                ok.disabled = true; status.style.color = "#94a3b8"; status.innerText = "Fetching preview…";
+                ok.disabled = true; status.style.color = "#94a3b8"; status.innerText = pText("bmfetching", "Fetching preview\u2026");
                 var done = false;
                 function finish(meta) { if (done) return; done = true; meta = meta || {}; meta.url = url; close(); insertCard(meta); }
                 try {
@@ -21603,6 +22527,18 @@ function RTE_Plugin_ChangeCase() {
         editor.getChangeCaseModes = function () {
             return ["upper", "lower", "title", "sentence", "toggle"];
         };
+
+        // 2026-10-17 Shift+F3 cycles the selection's case as Word does: lowercase -> Title Case -> UPPERCASE -> lowercase,
+        // the next step chosen from the text as it is now. tools/keyboard/format-case-keys.mjs
+        (editor.bindDocumentEvent ? function (fn) { editor.bindDocumentEvent("keydown", fn, true); } : function (fn) { editor.getDocument().addEventListener("keydown", fn, true); })(function (e) {
+            if (e.key !== "F3" || !e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+            var text = "";
+            try { text = String(editor.getSelection().toString() || ""); } catch (x) { text = ""; }
+            if (!/\S/.test(text)) return;
+            e.preventDefault();
+            var next = text === text.toUpperCase() ? "lower" : text === transform(text, "title") ? "upper" : "title";
+            obj.Apply(next);
+        });
     };
 
     function getDoc() { try { return editor.getDocument(); } catch (e) { return null; } }
@@ -21749,29 +22685,30 @@ function RTE_Plugin_ChangeCase() {
         var sel;
         try { sel = editor.getSelection(); } catch (e) { return false; }
         if (!doc || !sel || sel.rangeCount === 0) return false;
+        // 2026-10-14 Suggesting mode: a case change rewrites text and is not tracked yet, so the track hook refuses it.
+        // tools/review/suggesting-structure-audit.mjs
+        if (editor.__trackHook && editor.__trackHook("refuse", { message: "Suggesting is on, so the case was not changed. Turn suggesting off to change it." }) === true) return false;
+
+        // 2026-10-03 A cell selection (cells marked by a drag, Shift+click or Shift+Arrow) changes
+        // EVERY selected cell, as Google Docs does; the caret's word was all that changed before - and
+        // a drag leaves the caret on none. tools/tables/cell-selection-keys.mjs
+        var marked = doc.querySelectorAll("[__rte_selected_cell]");
+        if (marked.length > 1) {
+            var anyCell = false;
+            for (var mc = 0; mc < marked.length; mc++) {
+                var cr = doc.createRange();
+                cr.selectNodeContents(marked[mc]);
+                if (applyToRange(cr, doc, mode)) anyCell = true;
+            }
+            if (anyCell) fireChange();
+            return anyCell;
+        }
 
         var range = sel.getRangeAt(0);
         if (range.collapsed && !expandToWord(range)) return false;
 
-        var nodes = textNodesInRange(range, doc);
-        if (!nodes.length) return false;
-
-        // Join -> transform -> write back, so context-sensitive modes see the
-        // whole selection rather than one <strong>'s worth of it.
-        var joined = "";
-        for (var i = 0; i < nodes.length; i++) joined += nodes[i].nodeValue;
-        var result = transform(joined, mode);
-        if (result === joined) return false;
-        // Defensive: every mode is length-preserving, but if a future mode is
-        // not, bail rather than corrupt the document by mis-slicing.
-        if (result.length !== joined.length) return false;
-
-        var at = 0;
-        for (var j = 0; j < nodes.length; j++) {
-            var len = nodes[j].nodeValue.length;
-            nodes[j].nodeValue = result.substr(at, len);
-            at += len;
-        }
+        var nodes = applyToRange(range, doc, mode);
+        if (!nodes) return false;
 
         // Restore the selection over the transformed run.
         try {
@@ -21785,6 +22722,46 @@ function RTE_Plugin_ChangeCase() {
         fireChange();
         return true;
     };
+
+    // Transforms the text in range; returns its text nodes, or null when nothing changed.
+    function applyToRange(range, doc, mode) {
+        var nodes = textNodesInRange(range, doc);
+        if (!nodes.length) return null;
+
+        // Join -> transform -> write back, so context-sensitive modes see the
+        // whole selection rather than one <strong>'s worth of it.
+        var joined = "";
+        for (var i = 0; i < nodes.length; i++) joined += nodes[i].nodeValue;
+        // 2026-10-02 Case mapping is NOT always length-preserving: German "\u00df" uppercases to "SS",
+        // ligatures like "\ufb01" to "FI". The old guard then refused the WHOLE change, so a selection
+        // containing one sharp s could never be uppercased. The modes are decided on a proxy where
+        // every such character is a plain x / X (length-preserving), then each ORIGINAL character
+        // gets the case its proxy received, written back node by node so lengths may change.
+        // tools/formatting/change-case.mjs
+        var proxy = "";
+        for (var pi = 0; pi < joined.length; pi++) {
+            var ch0 = joined.charAt(pi);
+            proxy += (ch0.toUpperCase().length !== 1 || ch0.toLowerCase().length !== 1) ? (ch0 === ch0.toLowerCase() ? "x" : "X") : ch0;
+        }
+        var decided = transform(proxy, mode);
+        if (decided.length !== proxy.length) return null;
+        var pieces = [], changed = false;
+        for (var qi = 0; qi < joined.length; qi++) {
+            var orig = joined.charAt(qi), was = proxy.charAt(qi), now = decided.charAt(qi), out = orig;
+            if (now !== was) out = (now === was.toUpperCase()) ? orig.toUpperCase() : orig.toLowerCase();
+            if (out !== orig) changed = true;
+            pieces.push(out);
+        }
+        if (!changed) return null;
+
+        var at = 0;
+        for (var j = 0; j < nodes.length; j++) {
+            var len = nodes[j].nodeValue.length;
+            nodes[j].nodeValue = pieces.slice(at, at + len).join("");
+            at += len;
+        }
+        return nodes;
+    }
 
     function fireChange() {
         try { if (typeof editor.updateDesign === "function") editor.updateDesign(); } catch (e) {}
@@ -21832,6 +22809,23 @@ function RTE_Plugin_CharLimit() {
 
         if (!maxChars() && !maxWords()) return; // dormant unless a limit is configured
 
+        // The public insert obeys the cap too (a host's "insert snippet" button went straight past
+        // it). Over-long content is cut to what fits, as plain text, the same way a paste is.
+        if (config.charLimitEnforce !== false && typeof editor.insertHTML === "function") {
+            var origInsertHTML = editor.insertHTML;
+            editor.insertHTML = function (html) {
+                if (!maxChars()) return origInsertHTML.apply(this, arguments);
+                var probe = document.createElement("div");
+                probe.innerHTML = String(html == null ? "" : html);
+                var add = (probe.textContent || "").length;
+                var remaining = maxChars() - countChars() + selectionLength();
+                if (add <= remaining) return origInsertHTML.apply(this, arguments);
+                flash();
+                if (remaining <= 0) return false;
+                return origInsertHTML.call(this, escapeHtml((probe.textContent || "").slice(0, remaining)));
+            };
+        }
+
         // The iframe editable may not exist at InitEditor time — bind setup now
         // AND on "created", with an idempotency guard so we never double-bind.
         setup();
@@ -21854,6 +22848,7 @@ function RTE_Plugin_CharLimit() {
         if (config.charLimitEnforce !== false) {
             doc.addEventListener("beforeinput", onBeforeInput, true);
             doc.addEventListener("paste", onPaste, true);
+            doc.addEventListener("drop", onDrop, true);
         }
         doc.addEventListener("input", function () { refresh(); }, true);
         mountCounter();
@@ -21865,12 +22860,27 @@ function RTE_Plugin_CharLimit() {
 
     function plainText() {
         try {
+            // 2026-10-15 ask getText(): it leaves out page-break labels (a two-word page plus a break counted five
+            // words) and plugins' on-screen-only text. tools/wordcount/page-break-not-text.mjs
+            if (typeof editor.getText === "function") { var gt = editor.getText(); if (typeof gt === "string") return gt; }
             var ed = editor.getEditable();
             return ed ? (ed.innerText || ed.textContent || "") : "";
         } catch (e) { return ""; }
     }
     function countChars() { return plainText().replace(/\r\n/g, "\n").length; }
-    function countWords() { var t = plainText().trim(); return t ? t.split(/\s+/).length : 0; }
+    // Same rules as the core status bar: each CJK character is a word (those scripts have no
+    // spaces, so "你好世界" was 1), and a token of punctuation alone ("—", "!") is not a word.
+    function countWords() {
+        var t = plainText();
+        var cjk = /[\u3005\u3007\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/g;
+        var m = t.match(cjk);
+        var n = m ? m.length : 0;
+        var tokens = t.replace(cjk, " ").split(/\s+/);
+        for (var i = 0; i < tokens.length; i++) {
+            if (/[^!-\/:-@\[-`{-~\xa1-\xbf\u2000-\u206f\u3000-\u303f\uff01-\uff0f]/.test(tokens[i])) n++;
+        }
+        return n;
+    }
 
     function onBeforeInput(e) {
         var t = e.inputType || "";
@@ -21896,7 +22906,9 @@ function RTE_Plugin_CharLimit() {
     function onPaste(e) {
         if (!maxChars()) return;
         var remaining = maxChars() - countChars() + selectionLength();
-        if (remaining <= 0) { e.preventDefault(); flash(); return; }
+        // stopImmediatePropagation as well as preventDefault: the core paste handler inserts the
+        // clipboard itself and ignores defaultPrevented, so the full paste landed past the cap.
+        if (remaining <= 0) { e.preventDefault(); e.stopImmediatePropagation(); flash(); return; }
         var cd = e.clipboardData || window.clipboardData;
         if (!cd) return;
         var text = "";
@@ -21904,9 +22916,34 @@ function RTE_Plugin_CharLimit() {
         if (text.length > remaining) {
             // Truncate the paste to what fits.
             e.preventDefault();
+            e.stopImmediatePropagation();
             var fit = text.slice(0, remaining);
             try { if (typeof editor.insertHTML === "function") editor.insertHTML(escapeHtml(fit).replace(/\n/g, "<br>")); }
             catch (e2) {}
+            flash();
+        }
+    }
+
+    // A drop has no caret to truncate at, so content that would pass the cap is refused whole
+    // (the core drop handler inserts it itself, so the event must not reach it).
+    function onDrop(e) {
+        if (!maxChars()) return;
+        var dt = e.dataTransfer;
+        if (!dt) return;
+        var add = 0;
+        try {
+            var text = dt.getData("text/plain");
+            if (!text) {
+                var probe = document.createElement("div");
+                probe.innerHTML = dt.getData("text/html") || "";
+                text = probe.textContent || "";
+            }
+            add = text.length;
+        } catch (er) { return; }
+        if (!add) return;
+        if (countChars() + add > maxChars()) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
             flash();
         }
     }
@@ -22041,7 +23078,10 @@ function RTE_Plugin_Comments() {
             openSidebar: function () { openSidebar(); },
             closeSidebar: function () { closeSidebar(); },
             toggleSidebar: function () { if (sidebar && sidebar.isConnected) closeSidebar(); else openSidebar(); },
-            focusComment: function (id) { focusComment(id); }
+            focusComment: function (id) { focusComment(id); },
+            react: function (commentId, emoji) { return reactToComment(commentId, emoji); },
+            next: function () { return stepComment(1); },
+            previous: function () { return stepComment(-1); }
         };
 
         injectStyles();
@@ -22051,13 +23091,46 @@ function RTE_Plugin_Comments() {
             return editor.createToolbarButton(cmd);
         };
 
+        // 2026-10-17 Ctrl/Cmd+Alt+M adds a comment on the selection (Google Docs, CKEditor and TinyMCE bind it). A key that
+        // reports a character other than "m" is AltGr typing (German AltGr+M is a micro sign) and is left alone.
+        // tools/keyboard/comment-shortcut.mjs
+        (editor.bindDocumentEvent ? function (fn) { editor.bindDocumentEvent("keydown", fn, true); } : function (fn) { editor.getDocument().addEventListener("keydown", fn, true); })(function (e) {
+            if (!(e.ctrlKey || e.metaKey) || !e.altKey || e.shiftKey) return;
+            if (e.key !== "m" && e.key !== "M") return;
+            e.preventDefault();
+            openComposerForSelection();
+        });
+
+        // 2026-10-17 Google Docs' chords: Ctrl/Cmd+Alt+N then C = next comment, Ctrl/Cmd+Alt+P then C = previous. A key
+        // that reports a character other than n / p is AltGr typing and is left alone. tools/comments/comment-navigation.mjs
+        var chordDir = 0, chordAt = 0;
+        (editor.bindDocumentEvent ? function (fn) { editor.bindDocumentEvent("keydown", fn, true); } : function (fn) { editor.getDocument().addEventListener("keydown", fn, true); })(function (e) {
+            if ((e.ctrlKey || e.metaKey) && e.altKey && !e.shiftKey && (e.key === "n" || e.key === "N" || e.key === "p" || e.key === "P")) {
+                chordDir = (e.key === "n" || e.key === "N") ? 1 : -1;
+                chordAt = Date.now();
+                e.preventDefault();
+                return;
+            }
+            if (chordDir && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === "c" || e.key === "C") && Date.now() - chordAt < 2000) {
+                var dir = chordDir;
+                chordDir = 0;
+                e.preventDefault();
+                stepComment(dir);
+                return;
+            }
+            if (e.key !== "Control" && e.key !== "Alt" && e.key !== "Meta" && e.key !== "Shift") chordDir = 0;
+        });
+
         editor.attachEvent("exec_command_commentadd", function (state) {
             state.returnValue = true;
             state.stopBubble = true;
             openComposerForSelection();
         });
 
-        editor.getEditable().addEventListener("click", function (e) {
+        // 2026-10-17 bound through the core so it follows the live editing document: plugins that wrap the content area move
+        // the iframe during init, and a listener on the old document died (a click on a comment's highlight did nothing).
+        // tools/keyboard/plugin-listeners-live.mjs
+        (editor.bindEditableEvent ? function (fn) { editor.bindEditableEvent("click", fn); } : function (fn) { editor.getEditable().addEventListener("click", fn); })(function (e) {
             var span = e.target && e.target.closest ? e.target.closest(".rte-comment") : null;
             if (!span) return;
             var id = span.getAttribute("data-comment-id");
@@ -22117,6 +23190,24 @@ function RTE_Plugin_Comments() {
 
     // --- creating comments ---
 
+    // 2026-10-18 a comments button runs its action on click, so Enter and Space work (they fire click, not mousedown;
+    // these ran on mousedown only and did nothing from the keyboard). mousedown still prevents default so a mouse press
+    // keeps the editor's selection. If a keyboard press re-rendered the sidebar and took focus with it, focus goes to
+    // the sidebar's first control. tools/a11y/comment-buttons-keyboard.mjs
+    function onActivate(el, fn) {
+        el.addEventListener("mousedown", function (e) { e.preventDefault(); });
+        el.addEventListener("click", function (e) {
+            e.preventDefault();
+            var fromKeyboard = e.detail === 0;
+            fn();
+            if (!fromKeyboard || !sidebar || !sidebar.isConnected) return;
+            var a = sidebar.ownerDocument.activeElement;
+            if (a && a !== sidebar.ownerDocument.body && a.isConnected) return;
+            var first = sidebar.querySelector("button, [tabindex]:not([tabindex='-1'])");
+            if (first) { try { first.focus(); } catch (x) { /* ignore */ } }
+        });
+    }
+
     function openComposerForSelection() {
         var sel = editor.getSelection();
         if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
@@ -22147,35 +23238,117 @@ function RTE_Plugin_Comments() {
         composer = host.createElement("div");
         composer.className = "rte-comment-composer" + (isEditorDark() ? " rte-comment-dark" : "");
         composer.setAttribute("role", "dialog");
-        composer.setAttribute("aria-label", "Add comment");
+        composer.setAttribute("aria-label", cmText("cm_addcomment", "Add comment"));
 
         var header = host.createElement("div");
         header.className = "rte-comment-composer-header";
-        header.textContent = "Add comment";
+        header.textContent = cmText("cm_addcomment", "Add comment");
         composer.appendChild(header);
 
         var textarea = host.createElement("textarea");
         textarea.className = "rte-comment-composer-textarea";
-        textarea.placeholder = "Type your comment...";
+        textarea.placeholder = cmText("cm_typecomment", "Type your comment...");
         textarea.rows = 3;
         composer.appendChild(textarea);
+
+        // Mentions: "@" starts a list of the users in config.commentMentions. Choosing one inserts "@Name" and keeps
+        // the user id with the comment. tools/comments/comment-mentions.mjs
+        var mentionBox = host.createElement("div");
+        mentionBox.className = "rte-comment-mentions";
+        mentionBox.setAttribute("role", "listbox");
+        mentionBox.style.display = "none";
+        composer.appendChild(mentionBox);
+        var picked = [];
+        var mentionItems = [];
+        var mentionActive = 0;
+        var mentionStart = -1;
+        function mentionQuery() {
+            var before = textarea.value.slice(0, textarea.selectionStart);
+            var m = /(^|\s)@([^\s@]*)$/.exec(before);
+            if (!m) return null;
+            mentionStart = before.length - m[2].length - 1;
+            return m[2];
+        }
+        function hideMentions() {
+            while (mentionBox.firstChild) mentionBox.removeChild(mentionBox.firstChild);
+            mentionBox.style.display = "none";
+            mentionItems = [];
+            mentionStart = -1;
+        }
+        function paintMentions() {
+            while (mentionBox.firstChild) mentionBox.removeChild(mentionBox.firstChild);
+            for (var i = 0; i < mentionItems.length; i++) {
+                var opt = host.createElement("div");
+                opt.className = "rte-comment-mention-option" + (i === mentionActive ? " rte-comment-mention-active" : "");
+                opt.setAttribute("role", "option");
+                opt.setAttribute("aria-selected", i === mentionActive ? "true" : "false");
+                opt.textContent = mentionItems[i].name;
+                opt.addEventListener("mousedown", (function (u) { return function (e) { e.preventDefault(); pickMention(u); }; })(mentionItems[i]));
+                mentionBox.appendChild(opt);
+            }
+        }
+        function refreshMentions() {
+            var q = mentionQuery();
+            var users = Array.isArray(config.commentMentions) ? config.commentMentions : [];
+            mentionItems = [];
+            if (q !== null) {
+                var ql = q.toLowerCase();
+                for (var i = 0; i < users.length; i++) {
+                    var u = users[i];
+                    if (!u || !u.name || u.id == null) continue;
+                    var words = String(u.name).toLowerCase().split(/\s+/);
+                    for (var w = 0; w < words.length; w++) {
+                        if (words[w].indexOf(ql) === 0) { mentionItems.push(u); break; }
+                    }
+                }
+            }
+            if (!mentionItems.length) { hideMentions(); return; }
+            mentionActive = 0;
+            mentionBox.style.display = "";
+            paintMentions();
+        }
+        function pickMention(user) {
+            if (!user || mentionStart < 0) return;
+            var insert = "@" + user.name + " ";
+            var caret = textarea.selectionStart;
+            textarea.value = textarea.value.slice(0, mentionStart) + insert + textarea.value.slice(caret);
+            var pos = mentionStart + insert.length;
+            textarea.setSelectionRange(pos, pos);
+            if (!picked.some(function (m) { return m.id === user.id; })) picked.push({ id: user.id, name: user.name });
+            hideMentions();
+        }
+        textarea.addEventListener("input", refreshMentions);
+        textarea.addEventListener("keydown", function (e) {
+            if (mentionBox.style.display === "none") return;
+            if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                var step = e.key === "ArrowDown" ? 1 : -1;
+                mentionActive = (mentionActive + step + mentionItems.length) % mentionItems.length;
+                paintMentions();
+                e.preventDefault();
+            } else if (e.key === "Enter" || e.key === "Tab") {
+                pickMention(mentionItems[mentionActive]);
+                e.preventDefault();
+            } else if (e.key === "Escape" || e.key === "Esc") {
+                hideMentions();
+                e.stopPropagation();
+            }
+        });
 
         var actions = host.createElement("div");
         actions.className = "rte-comment-composer-actions";
         var cancel = host.createElement("button");
         cancel.type = "button";
         cancel.className = "rte-comment-btn rte-comment-btn-ghost";
-        cancel.textContent = "Cancel";
-        cancel.addEventListener("mousedown", function (e) { e.preventDefault(); closeComposer(); });
+        cancel.textContent = cmText("cancel", "Cancel");
+        onActivate(cancel, closeComposer);
         var submit = host.createElement("button");
         submit.type = "button";
         submit.className = "rte-comment-btn rte-comment-btn-primary";
-        submit.textContent = "Comment";
-        submit.addEventListener("mousedown", function (e) {
-            e.preventDefault();
+        submit.textContent = cmText("cm_submit", "Comment");
+        onActivate(submit, function () {
             var text = textarea.value.replace(/^\s+|\s+$/g, "");
             if (!text) return;
-            addComment({ anchor: options.anchor, text: text });
+            addComment({ anchor: options.anchor, text: text, mentions: picked.filter(function (m) { return text.indexOf("@" + m.name) >= 0; }) });
             closeComposer();
         });
         actions.appendChild(cancel);
@@ -22192,6 +23365,35 @@ function RTE_Plugin_Comments() {
         composer.addEventListener("keydown", escListener);
     }
 
+    // Users a comment mentions: { id, name } pairs, with anything else dropped.
+    function sanitizeMentions(list) {
+        var out = [];
+        if (!Array.isArray(list)) return out;
+        for (var i = 0; i < list.length; i++) {
+            var m = list[i];
+            if (m && m.id != null && m.name) out.push({ id: String(m.id), name: String(m.name) });
+        }
+        return out;
+    }
+
+    // Comment text with each mention ("@Name") in its own highlighted span. Built from text nodes, never innerHTML.
+    function appendTextWithMentions(host, parent, text, mentions) {
+        var names = sanitizeMentions(mentions).sort(function (a, b) { return b.name.length - a.name.length; });
+        if (!names.length || !text) { parent.textContent = text || ""; return; }
+        var pattern = names.map(function (m) { return m.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }).join("|");
+        var re = new RegExp("@(" + pattern + ")", "g");
+        var last = 0, hit;
+        while ((hit = re.exec(text)) !== null) {
+            if (hit.index > last) parent.appendChild(host.createTextNode(text.slice(last, hit.index)));
+            var span = host.createElement("span");
+            span.className = "rte-comment-mention";
+            span.textContent = hit[0];
+            parent.appendChild(span);
+            last = hit.index + hit[0].length;
+        }
+        if (last < text.length) parent.appendChild(host.createTextNode(text.slice(last)));
+    }
+
     function positionComposer(anchor) {
         if (!composer) return;
         composer.style.position = "absolute";
@@ -22206,8 +23408,10 @@ function RTE_Plugin_Comments() {
                 r.setEnd(anchor.endContainer, anchor.endOffset);
                 var rects = r.getClientRects();
                 var rect = rects && rects.length ? rects[rects.length - 1] : r.getBoundingClientRect();
-                left = ir.left + (rect.left || 0) + window.pageXOffset;
-                top = ir.top + (rect.bottom || rect.top || 0) + window.pageYOffset + 6;
+                // the rect is in iframe pixels, scaled on screen inside a transform:scale() ancestor
+                var sk = iframe.offsetWidth && ir.width > 0 ? ir.width / iframe.offsetWidth : 1;
+                left = ir.left + (rect.left || 0) * sk + window.pageXOffset;
+                top = ir.top + (rect.bottom || rect.top || 0) * sk + window.pageYOffset + 6;
             } catch (ignore) { }
         }
         composer.style.left = left + "px";
@@ -22246,21 +23450,26 @@ function RTE_Plugin_Comments() {
                 var wrapRange = editdoc.createRange();
                 wrapRange.setStart(anchor.startContainer, anchor.startOffset);
                 wrapRange.setEnd(anchor.endContainer, anchor.endOffset);
-                var span = editdoc.createElement("span");
-                span.className = "rte-comment";
-                span.setAttribute("data-comment-id", id);
-                span.setAttribute("data-comment-author", user.id);
-                var fragment = wrapRange.extractContents();
-                span.appendChild(fragment);
-                wrapRange.insertNode(span);
-                wrappedText = span.textContent;
-                // Collapse caret after the span.
-                var after = editdoc.createRange();
-                after.setStartAfter(span);
-                after.collapse(true);
-                var sel = editor.getSelection();
-                sel.removeAllRanges();
-                sel.addRange(after);
+                // 2026-10-02 one highlight per block the selection crosses (wrapEachBlock)
+                var spans = wrapEachBlock(editdoc, wrapRange, function () {
+                    var span = editdoc.createElement("span");
+                    span.className = "rte-comment";
+                    span.setAttribute("data-comment-id", id);
+                    span.setAttribute("data-comment-author", user.id);
+                    return span;
+                });
+                var parts = [];
+                for (var si = 0; si < spans.length; si++) parts.push(spans[si].textContent);
+                wrappedText = parts.join("\n");
+                if (spans.length) {
+                    // Collapse caret after the last highlight.
+                    var after = editdoc.createRange();
+                    after.setStartAfter(spans[spans.length - 1]);
+                    after.collapse(true);
+                    var sel = editor.getSelection();
+                    sel.removeAllRanges();
+                    sel.addRange(after);
+                }
             } catch (err) {
                 console.warn("comments: range wrap failed:", err);
             }
@@ -22271,6 +23480,7 @@ function RTE_Plugin_Comments() {
             changeType: "comment",
             author: user,
             text: text,
+            mentions: sanitizeMentions(options.mentions),
             originalText: wrappedText || (anchor && anchor.text) || "",
             status: "pending",
             sourceLabel: "Comment",
@@ -22301,10 +23511,91 @@ function RTE_Plugin_Comments() {
         return true;
     }
 
+    // 2026-10-15 reactions (BlockNote has them): a person adds an emoji to a comment and clicks it again to take it
+    // back. Kept with the comment in the shared review store as [{ emoji, users: [id] }]; only this set is accepted.
+    // tools/comments/comment-reactions.mjs
+    var REACTIONS = [
+        { emoji: "\uD83D\uDC4D", label: "Thumbs up", key: "cm_thumbsup" },
+        { emoji: "\u2705", label: "Done", key: "cm_done" },
+        { emoji: "\uD83C\uDF89", label: "Celebrate", key: "cm_celebrate" },
+        { emoji: "\uD83D\uDC40", label: "Looking", key: "cm_looking" },
+        { emoji: "\u2753", label: "Question", key: "cm_question" }
+    ];
+    // 2026-10-18 the comments UI reads config.text_ keys (language packs), English as the fallback; {0} / {1} fill a
+    // template. tools/i18n/comments-language.mjs
+    function cmText(key, fallback) {
+        var s = (config && config["text_" + key]) || fallback;
+        for (var i = 2; i < arguments.length; i++) s = s.split("{" + (i - 2) + "}").join(String(arguments[i]));
+        return s;
+    }
+
+    function reactionIndex(emoji) {
+        for (var i = 0; i < REACTIONS.length; i++) if (REACTIONS[i].emoji === emoji) return i;
+        return -1;
+    }
+
+    function reactToComment(commentId, emoji) {
+        if (!editor.reviewLedger || reactionIndex(emoji) < 0) return false;
+        var entry = editor.reviewLedger.get(commentId);
+        if (!entry || entry.changeType !== "comment") return false;
+        var me = String(getCurrentUser().id);
+        var list = Array.isArray(entry.reactions) ? entry.reactions : [];
+        var out = [], found = false;
+        for (var i = 0; i < list.length; i++) {
+            if (!list[i] || !Array.isArray(list[i].users)) continue;
+            var users = list[i].users.slice();
+            if (list[i].emoji === emoji) {
+                found = true;
+                var at = users.indexOf(me);
+                if (at >= 0) users.splice(at, 1); else users.push(me);
+            }
+            if (users.length) out.push({ emoji: list[i].emoji, users: users });
+        }
+        if (!found) out.push({ emoji: emoji, users: [me] });
+        editor.reviewLedger.update(commentId, { reactions: out });
+        if (sidebar && sidebar.isConnected) renderSidebar();
+        try { if (typeof editor.fireEvent === "function") editor.fireEvent("comment_reacted", { id: commentId, emoji: emoji, user: me }); } catch (e) { }
+        return true;
+    }
+
+    function renderReactions(entry, host) {
+        var row = host.createElement("div");
+        row.className = "rte-comment-reactions";
+        row.setAttribute("role", "group");
+        row.setAttribute("aria-label", cmText("cm_reactions", "Reactions"));
+        var me = String(getCurrentUser().id);
+        var list = Array.isArray(entry.reactions) ? entry.reactions : [];
+        REACTIONS.forEach(function (r, index) {
+            var users = [];
+            for (var i = 0; i < list.length; i++) if (list[i] && list[i].emoji === r.emoji && Array.isArray(list[i].users)) users = list[i].users;
+            var mine = users.indexOf(me) >= 0;
+            var b = host.createElement("button");
+            b.type = "button";
+            b.className = "rte-comment-reaction";
+            b.setAttribute("data-reaction", String(index));
+            b.setAttribute("aria-pressed", mine ? "true" : "false");
+            var rLabel = cmText(r.key, r.label);
+            b.setAttribute("aria-label", users.length === 1 ? cmText("cm_reactioncount", "{0}, {1} reaction", rLabel, 1) : cmText("cm_reactionscount", "{0}, {1} reactions", rLabel, users.length));
+            b.title = rLabel;
+            b.textContent = r.emoji + (users.length ? " " + users.length : "");
+            b.addEventListener("mousedown", function (e) { e.preventDefault(); });
+            b.addEventListener("click", function (e) {
+                e.preventDefault();
+                reactToComment(entry.id, r.emoji);
+                // the sidebar was rebuilt; keep keyboard focus on the same button
+                try {
+                    var again = sidebar && sidebar.querySelector('[data-comment-ref="' + cssEscape(entry.id) + '"] .rte-comment-reaction[data-reaction="' + index + '"]');
+                    if (again) again.focus();
+                } catch (err) { }
+            });
+            row.appendChild(b);
+        });
+        return row;
+    }
+
     function resolveComment(commentId) {
         if (!editor.reviewLedger) return false;
-        var span = editor.getEditable().querySelector('[data-comment-id="' + cssEscape(commentId) + '"]');
-        if (span) unwrapKeepChildren(span);
+        unwrapCommentSpans(commentId);
         editor.reviewLedger.update(commentId, { status: "resolved", decidedAt: Date.now() });
         if (sidebar && sidebar.isConnected) renderSidebar();
         try { if (typeof editor.fireEvent === "function") editor.fireEvent("comment_resolved", { id: commentId }); } catch (e) { }
@@ -22313,14 +23604,62 @@ function RTE_Plugin_Comments() {
 
     function deleteComment(commentId) {
         if (!editor.reviewLedger) return false;
-        var span = editor.getEditable().querySelector('[data-comment-id="' + cssEscape(commentId) + '"]');
-        if (span) unwrapKeepChildren(span);
+        unwrapCommentSpans(commentId);
         editor.reviewLedger.remove(commentId);
         if (sidebar && sidebar.isConnected) renderSidebar();
         return true;
     }
 
+    // 2026-10-17 select the next / previous commented text after / before the caret (wrapping) and show it in the
+    // sidebar. tools/comments/comment-navigation.mjs
+    function stepComment(dir) {
+        var doc = editor.getDocument(), ed = editor.getEditable();
+        if (!doc || !ed) return null;
+        var spans = ed.querySelectorAll("[data-comment-id]"), firsts = [], seen = {};
+        for (var i = 0; i < spans.length; i++) {
+            var cid = spans[i].getAttribute("data-comment-id");
+            if (!cid || seen[cid]) continue;
+            seen[cid] = true;
+            firsts.push(spans[i]);
+        }
+        if (!firsts.length) return null;
+        var sel = doc.getSelection(), cur = sel && sel.rangeCount ? sel.getRangeAt(0) : null;
+        var pick = null;
+        if (cur) {
+            if (dir > 0) {
+                for (var a = 0; a < firsts.length && !pick; a++) {
+                    var ra = doc.createRange(); ra.selectNodeContents(firsts[a]);
+                    if (ra.compareBoundaryPoints(Range.START_TO_END, cur) >= 0 && ra.compareBoundaryPoints(Range.START_TO_START, cur) > 0) pick = firsts[a];
+                    else if (ra.compareBoundaryPoints(Range.START_TO_START, cur) >= 0 && !cur.collapsed && ra.compareBoundaryPoints(Range.START_TO_START, cur) !== 0) pick = firsts[a];
+                }
+            }
+            else {
+                for (var b = firsts.length - 1; b >= 0 && !pick; b--) {
+                    var rb = doc.createRange(); rb.selectNodeContents(firsts[b]);
+                    if (rb.compareBoundaryPoints(Range.START_TO_START, cur) < 0) pick = firsts[b];
+                }
+            }
+        }
+        if (!pick) pick = dir > 0 ? firsts[0] : firsts[firsts.length - 1];
+        var id = pick.getAttribute("data-comment-id");
+        var all = ed.querySelectorAll('[data-comment-id="' + cssEscape(id) + '"]');
+        var r = doc.createRange();
+        r.setStart(all[0], 0);
+        r.setEnd(all[all.length - 1], all[all.length - 1].childNodes.length);
+        try { editor.focus(); } catch (x) { /* best effort */ }
+        sel.removeAllRanges();
+        sel.addRange(r);
+        try { pick.scrollIntoView({ block: "nearest" }); } catch (x) { /* best effort */ }
+        focusComment(id);
+        return id;
+    }
+
+    // 2026-10-17 the highlighted comment survives a re-render of the sidebar (selecting its text re-renders it, which
+    // dropped the highlight at once). tools/comments/comment-navigation.mjs
+    var activeCommentId = null, activeCommentUntil = 0;
     function focusComment(commentId) {
+        activeCommentId = commentId;
+        activeCommentUntil = Date.now() + 1400;
         if (!sidebar || !sidebar.isConnected) openSidebar();
         setTimeout(function () {
             if (!sidebar) return;
@@ -22328,9 +23667,82 @@ function RTE_Plugin_Comments() {
             if (item) {
                 item.scrollIntoView({ block: "nearest" });
                 item.classList.add("rte-comment-item-active");
-                setTimeout(function () { item.classList.remove("rte-comment-item-active"); }, 1400);
+                // a timer from an earlier highlight of the same comment must not clear a newer one
+                setTimeout(function () { if (activeCommentId !== commentId || Date.now() >= activeCommentUntil - 20) item.classList.remove("rte-comment-item-active"); }, 1400);
             }
         }, 30);
+    }
+
+    // 2026-10-02 A comment on a selection that crosses blocks highlights the selected text of EACH
+    // block. One span went AROUND the blocks: two paragraphs became four
+    // (<p>al</p><span><p>pha</p><p>be</p></span><p>ta</p>), list items and table cells got a span
+    // inside <ul> / <tr>, and resolving the comment left the four paragraphs. The selection is cut
+    // into runs of text that share a block, and each run is wrapped in its own make() element; all
+    // carry the comment's id, so resolve and delete remove every one. A run starting or ending at
+    // the edge of an inline element (<b>) takes the whole element, so no empty <b></b> is left
+    // behind. Text inside a non-editable element (a chip) moves with its run.
+    // tools/comments/comments-across-blocks.mjs
+    var BLOCK_RE = /^(P|DIV|LI|UL|OL|DL|DT|DD|TABLE|TBODY|THEAD|TFOOT|TR|TD|TH|CAPTION|H[1-6]|PRE|BLOCKQUOTE|ADDRESS|FIGURE|FIGCAPTION|SECTION|ARTICLE|ASIDE|HEADER|FOOTER|NAV|MAIN|DETAILS|SUMMARY|FORM|FIELDSET|LEGEND|HR|BODY)$/;
+    function blockOf(node) {
+        for (var n = node; n; n = n.parentNode)
+            if (n.nodeType === 1 && BLOCK_RE.test(n.nodeName)) return n;
+        return null;
+    }
+    function wrapEachBlock(doc, range, make) {
+        var root = range.commonAncestorContainer;
+        if (root.nodeType !== 1) root = root.parentNode;
+        var runs = [], cur = null;
+        var w = doc.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+            acceptNode: function (n) { return n.nodeType === 1 && n.getAttribute("contenteditable") === "false" ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT; }
+        });
+        for (var n = w.nextNode(); n; n = w.nextNode()) {
+            if (n.nodeType === 1) {
+                if (BLOCK_RE.test(n.nodeName)) cur = null;
+                continue;
+            }
+            if (!range.intersectsNode(n)) continue;
+            var a = n === range.startContainer ? range.startOffset : 0, b = n === range.endContainer ? range.endOffset : n.data.length;
+            if (b <= a) continue;
+            var blk = blockOf(n);
+            if (!cur || cur.block !== blk) {
+                cur = { block: blk, sn: n, so: a, text: "" };
+                runs.push(cur);
+            }
+            cur.en = n;
+            cur.eo = b;
+            cur.text += n.data.substring(a, b);
+        }
+        var out = [];
+        // from the last run back: wrapping one never moves the text of a run still to come
+        for (var i = runs.length - 1; i >= 0; i--) {
+            var run = runs[i];
+            if (!/\S/.test(run.text)) continue; // the line break between two blocks
+            var sub = doc.createRange();
+            sub.setStart(run.sn, run.so);
+            sub.setEnd(run.en, run.eo);
+            widenToInlineEdges(sub, run.block);
+            var el = make();
+            el.appendChild(sub.extractContents());
+            sub.insertNode(el);
+            out.unshift(el);
+        }
+        return out;
+    }
+    function widenToInlineEdges(range, block) {
+        var n = range.startContainer;
+        if (n.nodeType === 3 && range.startOffset === 0) {
+            while (n.parentNode && n.parentNode !== block && !n.previousSibling && !BLOCK_RE.test(n.parentNode.nodeName)) n = n.parentNode;
+            range.setStartBefore(n);
+        }
+        n = range.endContainer;
+        if (n.nodeType === 3 && range.endOffset === n.data.length) {
+            while (n.parentNode && n.parentNode !== block && !n.nextSibling && !BLOCK_RE.test(n.parentNode.nodeName)) n = n.parentNode;
+            range.setEndAfter(n);
+        }
+    }
+    function unwrapCommentSpans(commentId) {
+        var spans = editor.getEditable().querySelectorAll('[data-comment-id="' + cssEscape(commentId) + '"]');
+        for (var i = 0; i < spans.length; i++) unwrapKeepChildren(spans[i]);
     }
 
     function unwrapKeepChildren(el) {
@@ -22364,7 +23776,9 @@ function RTE_Plugin_Comments() {
         sidebar = host.createElement("div");
         sidebar.className = "rte-comment-sidebar" + (isEditorDark() ? " rte-comment-dark" : "");
         sidebar.setAttribute("role", "complementary");
-        sidebar.setAttribute("aria-label", "Comments");
+        sidebar.setAttribute("aria-label", cmText("cm_comments", "Comments"));
+        // 2026-10-17 drag / arrow-key resizable (tools/ui/panel-resize.mjs)
+        setTimeout(function () { if (editor && sidebar && typeof editor.makePanelResizable === "function") editor.makePanelResizable(sidebar, { label: cmText("cm_resizepanel", "Resize comments panel") }); }, 0);
         var shell = getEditorShell();
         if (shell) {
             shell.parentNode.insertBefore(sidebar, shell.nextSibling);
@@ -22400,14 +23814,14 @@ function RTE_Plugin_Comments() {
         header.className = "rte-comment-sidebar-header";
         var title = host.createElement("div");
         title.className = "rte-comment-sidebar-title";
-        title.textContent = "Comments";
+        title.textContent = cmText("cm_comments", "Comments");
         header.appendChild(title);
         var close = host.createElement("button");
         close.type = "button";
         close.className = "rte-comment-sidebar-close";
-        close.setAttribute("aria-label", "Close");
+        close.setAttribute("aria-label", cmText("close", "Close"));
         close.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>';
-        close.addEventListener("mousedown", function (e) { e.preventDefault(); closeSidebar(); });
+        onActivate(close, closeSidebar);
         header.appendChild(close);
         sidebar.appendChild(header);
 
@@ -22419,7 +23833,7 @@ function RTE_Plugin_Comments() {
         if (!entries.length) {
             var empty = host.createElement("div");
             empty.className = "rte-comment-empty";
-            empty.textContent = "No open comments. Select text and click the Comment button to start.";
+            empty.textContent = cmText("cm_empty", "No open comments. Select text and click the Comment button to start.");
             list.appendChild(empty);
             return;
         }
@@ -22435,6 +23849,10 @@ function RTE_Plugin_Comments() {
         var wrap = host.createElement("div");
         wrap.className = "rte-comment-item";
         wrap.setAttribute("data-comment-ref", entry.id);
+        if (entry.id === activeCommentId && Date.now() < activeCommentUntil) {
+            wrap.classList.add("rte-comment-item-active");
+            setTimeout(function () { if (activeCommentId !== entry.id || Date.now() >= activeCommentUntil - 20) wrap.classList.remove("rte-comment-item-active"); }, Math.max(0, activeCommentUntil - Date.now()));
+        }
         wrap.setAttribute("role", "article");
 
         var topRow = host.createElement("div");
@@ -22461,15 +23879,15 @@ function RTE_Plugin_Comments() {
         var resolveBtn = host.createElement("button");
         resolveBtn.type = "button";
         resolveBtn.className = "rte-comment-action rte-comment-resolve";
-        resolveBtn.textContent = "Resolve";
-        resolveBtn.setAttribute("aria-label", "Resolve comment");
-        resolveBtn.addEventListener("mousedown", function (e) { e.preventDefault(); resolveComment(entry.id); });
+        resolveBtn.textContent = cmText("cm_resolve", "Resolve");
+        resolveBtn.setAttribute("aria-label", cmText("cm_resolvecomment", "Resolve comment"));
+        onActivate(resolveBtn, function () { resolveComment(entry.id); });
         var delBtn = host.createElement("button");
         delBtn.type = "button";
         delBtn.className = "rte-comment-action rte-comment-delete";
-        delBtn.textContent = "Delete";
-        delBtn.setAttribute("aria-label", "Delete comment");
-        delBtn.addEventListener("mousedown", function (e) { e.preventDefault(); deleteComment(entry.id); });
+        delBtn.textContent = cmText("delete", "Delete");
+        delBtn.setAttribute("aria-label", cmText("cm_deletecomment", "Delete comment"));
+        onActivate(delBtn, function () { deleteComment(entry.id); });
         actions.appendChild(resolveBtn);
         actions.appendChild(delBtn);
         topRow.appendChild(actions);
@@ -22486,8 +23904,9 @@ function RTE_Plugin_Comments() {
 
         var body = host.createElement("div");
         body.className = "rte-comment-body";
-        body.textContent = entry.text;
+        appendTextWithMentions(host, body, entry.text, entry.mentions);
         wrap.appendChild(body);
+        wrap.appendChild(renderReactions(entry, host));
 
         var replies = Array.isArray(entry.replies) ? entry.replies : [];
         for (var i = 0; i < replies.length; i++) {
@@ -22502,7 +23921,7 @@ function RTE_Plugin_Comments() {
             repBody.className = "rte-comment-reply-body";
             var repName = host.createElement("div");
             repName.className = "rte-comment-reply-name";
-            repName.textContent = ((rep.author && rep.author.name) || "User") + " \u00B7 " + relativeTime(rep.createdAt);
+            repName.textContent = ((rep.author && rep.author.name) || cmText("cm_user", "User")) + " \u00B7 " + relativeTime(rep.createdAt);
             var repText = host.createElement("div");
             repText.className = "rte-comment-reply-text";
             repText.textContent = rep.text;
@@ -22519,8 +23938,8 @@ function RTE_Plugin_Comments() {
         var replyInput = host.createElement("input");
         replyInput.type = "text";
         replyInput.className = "rte-comment-reply-input";
-        replyInput.placeholder = "Reply...";
-        replyInput.setAttribute("aria-label", "Reply to comment");
+        replyInput.placeholder = cmText("cm_reply", "Reply...");
+        replyInput.setAttribute("aria-label", cmText("cm_replytocomment", "Reply to comment"));
         replyInput.addEventListener("keydown", function (e) {
             if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
@@ -22536,11 +23955,13 @@ function RTE_Plugin_Comments() {
     }
 
     function scrollToSpan(commentId) {
-        var span = editor.getEditable().querySelector('[data-comment-id="' + cssEscape(commentId) + '"]');
-        if (!span) return;
-        span.scrollIntoView({ block: "center", behavior: "smooth" });
-        span.classList.add("rte-comment-flash");
-        setTimeout(function () { span.classList.remove("rte-comment-flash"); }, 1200);
+        var spans = editor.getEditable().querySelectorAll('[data-comment-id="' + cssEscape(commentId) + '"]');
+        if (!spans.length) return;
+        spans[0].scrollIntoView({ block: "center", behavior: "smooth" });
+        for (var i = 0; i < spans.length; i++) spans[i].classList.add("rte-comment-flash");
+        setTimeout(function () {
+            for (var j = 0; j < spans.length; j++) spans[j].classList.remove("rte-comment-flash");
+        }, 1200);
     }
 
     function initialsOf(label) {
@@ -22553,10 +23974,10 @@ function RTE_Plugin_Comments() {
     function relativeTime(ts) {
         if (!ts) return "";
         var diff = Math.floor((Date.now() - ts) / 1000);
-        if (diff < 60) return "just now";
-        if (diff < 3600) return Math.floor(diff / 60) + "m ago";
-        if (diff < 86400) return Math.floor(diff / 3600) + "h ago";
-        return Math.floor(diff / 86400) + "d ago";
+        if (diff < 60) return cmText("cm_justnow", "just now");
+        if (diff < 3600) return cmText("cm_minutesago", "{0}m ago", Math.floor(diff / 60));
+        if (diff < 86400) return cmText("cm_hoursago", "{0}h ago", Math.floor(diff / 3600));
+        return cmText("cm_daysago", "{0}d ago", Math.floor(diff / 86400));
     }
 
     function truncate(s, n) {
@@ -22601,6 +24022,11 @@ function RTE_Plugin_Comments() {
                 ".rte-comment-reply-name{font-size:11px;color:#64748b}",
                 ".rte-comment-reply-text{font-size:12px;color:#172033;line-height:1.45;white-space:pre-wrap;margin-top:2px}",
                 ".rte-comment-reply-composer{margin-top:8px;display:flex}",
+                ".rte-comment-reactions{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}",
+                ".rte-comment-reaction{display:inline-flex;align-items:center;gap:3px;min-height:24px;padding:1px 7px;border-radius:12px;border:1px solid rgba(148,163,184,.28);background:#fff;font:inherit;font-size:12px;line-height:1;color:#334155;cursor:pointer;opacity:.6}",
+                ".rte-comment-reaction:hover,.rte-comment-reaction:focus-visible{opacity:1;border-color:rgba(37,99,235,.38)}",
+                ".rte-comment-reaction:focus-visible{outline:2px solid rgba(37,99,235,.45);outline-offset:1px}",
+                ".rte-comment-reaction[aria-pressed=true]{opacity:1;background:#eef4ff;border-color:rgba(37,99,235,.45);color:#0f3f9f}",
                 ".rte-comment-reply-input{flex:1;min-width:0;padding:7px 10px;border-radius:7px;border:1px solid rgba(148,163,184,.24);font:inherit;font-size:12px;background:#fff}",
                 ".rte-comment-reply-input:focus,.rte-comment-composer-textarea:focus{outline:2px solid rgba(37,99,235,.18);border-color:rgba(37,99,235,.38)}",
                 ".rte-comment-composer{position:absolute;z-index:2147483000;width:min(320px,calc(100vw - 24px));background:linear-gradient(180deg,#fff,#f8fbff);border:1px solid rgba(148,163,184,.22);box-shadow:0 14px 32px rgba(29,78,216,.12),0 2px 8px rgba(15,23,42,.08);border-radius:8px;padding:12px;font-family:Aptos,'Segoe UI',sans-serif;color:#172033}",
@@ -22621,7 +24047,17 @@ function RTE_Plugin_Comments() {
                 ".rte-comment-dark .rte-comment-body,.rte-comment-dark .rte-comment-reply-text,.rte-comment-dark .rte-comment-composer-header{color:#e2e8f0}",
                 ".rte-comment-dark .rte-comment-reply-input,.rte-comment-dark .rte-comment-composer-textarea{background:#0f172a;color:#e2e8f0;border-color:#334155}",
                 ".rte-comment-dark .rte-comment-action,.rte-comment-dark .rte-comment-btn-ghost,.rte-comment-dark .rte-comment-sidebar-close{background:#0f172a;color:#cbd5e1;border-color:#334155}",
-                ".rte-comment-dark .rte-comment-quote{background:rgba(245,158,11,.12);color:#fcd34d}"
+                ".rte-comment-dark .rte-comment-quote{background:rgba(245,158,11,.12);color:#fcd34d}",
+                ".rte-comment-dark .rte-comment-reaction{background:#0f172a;color:#cbd5e1;border-color:#334155}",
+                ".rte-comment-dark .rte-comment-reaction[aria-pressed=true]{background:#1e3a8a;color:#e2e8f0;border-color:#3b82f6}",
+                ".rte-comment-mentions{margin-top:4px;max-height:160px;overflow:auto;border:1px solid rgba(148,163,184,.3);border-radius:7px;background:#fff;box-shadow:0 6px 18px rgba(15,23,42,.12)}",
+                ".rte-comment-mention-option{padding:6px 10px;font-size:13px;color:#172033;cursor:pointer}",
+                ".rte-comment-mention-option.rte-comment-mention-active{background:#dbeafe}",
+                ".rte-comment-mention{font-weight:600;color:#1d4ed8;background:rgba(37,99,235,.1);border-radius:4px;padding:0 2px}",
+                ".rte-comment-dark .rte-comment-mentions{background:#0f172a;border-color:#334155}",
+                ".rte-comment-dark .rte-comment-mention-option{color:#e2e8f0}",
+                ".rte-comment-dark .rte-comment-mention-option.rte-comment-mention-active{background:#1e3a8a}",
+                ".rte-comment-dark .rte-comment-mention{color:#93c5fd;background:rgba(147,197,253,.14)}"
             ].join("\n");
             host.head.appendChild(style);
             // A <style> ELEMENT is governed by style-src: under a strict policy the browser
@@ -22697,6 +24133,12 @@ function RTE_Plugin_ContentMinimap() {
 
     obj.PluginName = "ContentMinimap";
 
+    // 2026-10-18 the words read config.text_ keys (language packs), English as the fallback; {0} fills a template.
+    // tools/i18n/plugin-panels-language.mjs
+    function pText(key, fallback, arg) {
+        var s = (config && config["text_" + key]) || fallback;
+        return arg === undefined ? s : s.split("{0}").join(String(arg));
+    }
     obj.InitConfig = function (argconfig) {
         config = argconfig;
         if (config.contentMinimapEnabled === false) return;
@@ -22704,12 +24146,22 @@ function RTE_Plugin_ContentMinimap() {
         if (typeof config.contentMinimapAutoOpen !== "boolean") config.contentMinimapAutoOpen = false;
         if (typeof config.contentMinimapWidth !== "number") config.contentMinimapWidth = 168;
         if (typeof config.contentMinimapScale !== "number") config.contentMinimapScale = 0.14;
-        config.contentMinimapTitle = config.contentMinimapTitle || "Minimap";
-        config.contentMinimapHint = config.contentMinimapHint || "Keep your place in long documents and jump by clicking the miniature preview.";
-        config.contentMinimapEmptyText = config.contentMinimapEmptyText || "Start typing to build the document preview.";
+        config.contentMinimapTitle = config.contentMinimapTitle || pText("mm_title", "Minimap");
+        config.contentMinimapHint = config.contentMinimapHint || pText("mm_hint", "Keep your place in long documents and jump by clicking the miniature preview.");
+        config.contentMinimapEmptyText = config.contentMinimapEmptyText || pText("mm_empty", "Start typing to build the document preview.");
 
         appendToolbarCommand("toolbar_default", "#{contentminimap}");
         appendToolbarCommand("toolbar_full", "#{contentminimap}");
+        // 2026-10-03 Build the shell NOW, before the editor creates its iframe. ensureShell() moves the
+        // editor container; done in InitEditor it moved the live iframe, which then gets a fresh
+        // document - and every plugin that had already bound listeners to the old one went deaf (the
+        // slash menu, @mentions and emoji autocomplete, until they moved to editor.bindDocumentEvent;
+        // customer plugins binding the document directly still were). Nothing is loaded yet here.
+        // InitEditor's own ensureShell() call finds the shell and returns it.
+        // tools/keyboard/plugin-listeners.mjs
+        if (config.contentMinimapEnabled !== false && config.container && config.container.parentNode) {
+            try { ensureShell(); } catch (e) { /* InitEditor builds it */ }
+        }
     };
 
     obj.InitEditor = function (argeditor) {
@@ -22739,6 +24191,9 @@ function RTE_Plugin_ContentMinimap() {
         editor.attachEvent("change", function () {
             scheduleRefresh();
         });
+        // 2026-10-18 setHTMLCode fires no "change": a replaced document left the panel on the old one.
+        // tools/outline/panels-follow-sethtml.mjs
+        try { editor.attachEvent("aftersethtml", function () { scheduleRefresh(); }); } catch (e) { /* older cores */ }
 
         ensureShell();
         bindScroll();
@@ -22819,7 +24274,7 @@ function RTE_Plugin_ContentMinimap() {
         header.className = "rte-content-minimap-header";
         var kicker = hostDoc.createElement("div");
         kicker.className = "rte-content-minimap-kicker";
-        kicker.innerText = "Document";
+        kicker.innerText = pText("pn_document", "Document");
         var title = hostDoc.createElement("div");
         title.className = "rte-content-minimap-title";
         title.innerText = config.contentMinimapTitle;
@@ -22838,8 +24293,8 @@ function RTE_Plugin_ContentMinimap() {
         var close = hostDoc.createElement("button");
         close.type = "button";
         close.className = "rte-content-minimap-close";
-        close.innerText = "Hide";
-        close.setAttribute("aria-label", "Hide content minimap");
+        close.innerText = pText("pn_hide", "Hide");
+        close.setAttribute("aria-label", pText("mm_hidearia", "Hide content minimap"));
         close.onclick = function () { closePanel(); };
         toolbar.appendChild(meta);
         toolbar.appendChild(close);
@@ -23274,7 +24729,7 @@ function RTE_Plugin_CrossReference() {
         var clone = note.cloneNode(true);
         var backs = clone.querySelectorAll ? clone.querySelectorAll("a.rte-fn-back") : [];
         for (var i = 0; i < backs.length; i++) if (backs[i].parentNode) backs[i].parentNode.removeChild(backs[i]);
-        return (clone.textContent || "").replace(/↩/g, "").trim().slice(0, 80);
+        return (clone.textContent || "").replace(/\u21a9/g, "").trim().slice(0, 80);
     }
 
     function resolveTarget(id) {
@@ -23601,10 +25056,24 @@ function RTE_Plugin_DialogA11y() {
     function enhancePanel(panel) {
         if (!panel || panel.nodeType !== 1 || !panel.querySelector) return;
         var headerEl = panel.querySelector("rte-dialog-header");
-        if (!headerEl) return; // only header-bearing panels are dialogs
+        if (!headerEl) {
+            // 2026-10-15 a headerless popup the core announced as a menu but that holds a text box (Emoji search, AI
+            // Assist) is a dialog: a menu may contain only menu items (axe aria-required-children). It keeps the name
+            // the core gave it. tools/a11y/popup-menu-roles.mjs
+            if (panel.getAttribute("role") === "menu") {
+                var fl = panel.querySelectorAll("input,select,textarea");
+                for (var j = 0; j < fl.length; j++) {
+                    if (fl[j].type === "hidden" || fl[j].offsetParent === null) continue;
+                    panel.setAttribute("role", "dialog");
+                    panel.removeAttribute("aria-orientation");
+                    break;
+                }
+            }
+            return; // only header-bearing panels get the rest
+        }
 
         var name = (headerEl.textContent || "").trim()
-            .replace(/\s*\((?:Ctrl|Cmd|Alt|Shift|⌘|⇧|⌥)[^)]*\)\s*$/i, "").trim();
+            .replace(/\s*\((?:Ctrl|Cmd|Alt|Shift|\u2318|\u21e7|\u2325)[^)]*\)\s*$/i, "").trim();
 
         // Name the element that IS the dialog. The float-style panels already
         // carry role="dialog" on an inner <rte-dialog-inner>; adding a second
@@ -23619,7 +25088,15 @@ function RTE_Plugin_DialogA11y() {
         // A titled, form-bearing popup is a dialog, not a menu — override the
         // core's default role="menu" (a menu must not contain text fields).
         var role = dialogEl.getAttribute("role");
-        if (!role || role === "menu") dialogEl.setAttribute("role", "dialog");
+        // 2026-10-15 ...but a titled popup that only LISTS commands (Paste, Insert Image) is a menu: as a dialog its
+        // menu items had no menu parent (axe aria-required-parent). A dialog never keeps the menu's aria-orientation
+        // (axe aria-allowed-attr). tools/a11y/popup-menu-roles.mjs
+        var hasField = false, fs0 = panel.querySelectorAll("input,select,textarea");
+        for (var k = 0; k < fs0.length; k++) if (fs0[k].type !== "hidden" && fs0[k].offsetParent !== null) { hasField = true; break; }
+        var commandList = dialogEl === panel && !hasField && !!panel.querySelector('[role="menuitem"]');
+        if (commandList) dialogEl.setAttribute("role", "menu");
+        else if (!role || role === "menu") dialogEl.setAttribute("role", "dialog");
+        if (dialogEl.getAttribute("role") === "dialog") dialogEl.removeAttribute("aria-orientation");
         if (name && !dialogEl.getAttribute("aria-label") && !dialogEl.getAttribute("aria-labelledby")) {
             dialogEl.setAttribute("aria-label", name);
         }
@@ -23651,7 +25128,7 @@ function RTE_Plugin_DialogA11y() {
         }
         if (lineEl && lineEl.querySelector) {
             var visEl = lineEl.querySelector("rte-dialog-input-label");
-            var vis = visEl ? (visEl.textContent || "").replace(/^\s+|\s+$/g, "").replace(/[:：]\s*$/, "") : "";
+            var vis = visEl ? (visEl.textContent || "").replace(/^\s+|\s+$/g, "").replace(/[:\uff1a]\s*$/, "") : "";
             if (vis) return vis;
         }
 
@@ -23907,7 +25384,7 @@ function RTE_Plugin_Dictation() {
         if (!button) return;
         button.classList.toggle("rte-dictation-on", listening);
         button.setAttribute("aria-pressed", listening ? "true" : "false");
-        button.setAttribute("title", listening ? "Dictating… (click to stop)" : "Dictate (click to start/stop)");
+        button.setAttribute("title", listening ? "Dictating\u2026 (click to stop)" : "Dictate (click to start/stop)");
         ensureStyles();
     }
 
@@ -24110,7 +25587,9 @@ function RTE_Plugin_DocumentImport() {
         if (mode === "insert") {
             if (typeof editor.insertHTML === "function") { editor.insertHTML(html); return true; }
         }
-        if (typeof editor.setHTMLCode === "function") { editor.setHTMLCode(html); return true; }
+        // 2026-10-03 undoable: Ctrl+Z after an import gives back exactly the document it replaced
+        // (tools/import/import-undo.mjs)
+        if (typeof editor.setHTMLCode === "function") { editor.setHTMLCode(html, { undoable: true }); return true; }
         return false;
     }
 
@@ -24138,14 +25617,14 @@ function RTE_Plugin_DocumentImport() {
                     // Library-free .docx: unzip word/document.xml (native
                     // DecompressionStream) + transform WordprocessingML -> HTML.
                     if (!docxSupported()) {
-                        notify("This browser can't unpack .docx (no DecompressionStream). Save as .doc/.html/.md, or wire config.documentImportResolver.");
+                        notify((config && config.text_imp_nounpack) || "This browser can't unpack .docx (no DecompressionStream). Save as .doc/.html/.md, or wire config.documentImportResolver.");
                         resolve(false);
                         return;
                     }
                     readDocx(file).then(function (html) {
                         if (html != null) resolve(applyHtml(html, mode));
-                        else { notify("Could not read this .docx file."); resolve(false); }
-                    }, function () { notify("Could not read this .docx file."); resolve(false); });
+                        else { notify((config && config.text_imp_badfile) || "Could not read this .docx file."); resolve(false); }
+                    }, function () { notify((config && config.text_imp_badfile) || "Could not read this .docx file."); resolve(false); });
                     return;
                 }
                 if (typeof FileReader === "undefined") { resolve(false); return; }
@@ -24313,6 +25792,13 @@ function RTE_Plugin_DocumentImport() {
             if (byName["word/_rels/document.xml.rels"]) {
                 jobs.push(entryBytes(byName["word/_rels/document.xml.rels"]).then(function (b) {
                     ctx.rels = parseRels(utf8(b));
+                }));
+            }
+            // 2026-10-15 the document's default language, so it is not repeated as lang= on every run. tools/docx/run-props.mjs
+            if (byName["word/styles.xml"]) {
+                jobs.push(entryBytes(byName["word/styles.xml"]).then(function (b) {
+                    var mm = /<w:docDefaults>[\s\S]*?<w:lang[^>]*w:val="([^"]+)"/.exec(utf8(b));
+                    if (mm) ctx.defaultLang = mm[1].toLowerCase();
                 }));
             }
             if (byName["word/numbering.xml"]) {
@@ -24487,6 +25973,9 @@ function RTE_Plugin_DocumentImport() {
                     var ilvl = lvls[j].getAttributeNS(W, "ilvl") || lvls[j].getAttribute("w:ilvl") || "0";
                     var fmt = val(lvls[j].getElementsByTagNameNS(W, "numFmt")[0]);
                     levels[ilvl] = fmt || "decimal";
+                    // 2026-10-04 the level's start number ("s" + ilvl), read by the list builder
+                    var stEl = lvls[j].getElementsByTagNameNS(W, "start")[0];
+                    if (stEl) levels["s" + ilvl] = parseInt(val(stEl), 10) || 1;
                 }
                 if (aid != null) abstracts[aid] = levels;
             }
@@ -24496,7 +25985,18 @@ function RTE_Plugin_DocumentImport() {
                 var nid = nums[k].getAttributeNS(W, "numId") || nums[k].getAttribute("w:numId");
                 var ref = nums[k].getElementsByTagNameNS(W, "abstractNumId")[0];
                 var aref = val(ref);
-                if (nid != null && abstracts[aref]) out[nid] = abstracts[aref];
+                if (nid != null && abstracts[aref]) {
+                    // a copy per num: its lvlOverride/startOverride (how Word restarts a list) is its own
+                    var own = {};
+                    for (var key in abstracts[aref]) own[key] = abstracts[aref][key];
+                    var ovs = nums[k].getElementsByTagNameNS(W, "lvlOverride");
+                    for (var oi = 0; oi < ovs.length; oi++) {
+                        var oIl = ovs[oi].getAttributeNS(W, "ilvl") || ovs[oi].getAttribute("w:ilvl") || "0";
+                        var so = ovs[oi].getElementsByTagNameNS(W, "startOverride")[0];
+                        if (so) own["s" + oIl] = parseInt(val(so), 10) || 1;
+                    }
+                    out[nid] = own;
+                }
             }
         } catch (e) {}
         return out;
@@ -24525,34 +26025,34 @@ function RTE_Plugin_DocumentImport() {
     // Passing "∑" through untouched produces a glyph that KaTeX cannot size or
     // place limits on.
     var MATH_SYMBOLS = {
-        "∑": "\\sum", "∏": "\\prod", "∐": "\\coprod",
-        "∫": "\\int", "∬": "\\iint", "∭": "\\iiint", "∮": "\\oint",
-        "⋃": "\\bigcup", "⋂": "\\bigcap",
-        "±": "\\pm", "∓": "\\mp", "×": "\\times", "÷": "\\div",
-        "−": "-", "≠": "\\neq", "≤": "\\leq", "≥": "\\geq",
-        "≈": "\\approx", "≡": "\\equiv", "∝": "\\propto",
-        "∞": "\\infty", "∂": "\\partial", "∇": "\\nabla",
-        "√": "\\sqrt", "∠": "\\angle", "⋅": "\\cdot", "…": "\\dots",
-        "→": "\\to", "←": "\\leftarrow", "⇒": "\\Rightarrow", "⇔": "\\Leftrightarrow",
-        "∈": "\\in", "∉": "\\notin", "⊂": "\\subset", "⊆": "\\subseteq",
-        "∪": "\\cup", "∩": "\\cap", "∅": "\\emptyset",
-        "∀": "\\forall", "∃": "\\exists", "¬": "\\neg",
-        "∧": "\\land", "∨": "\\lor", "∴": "\\therefore",
-        "α": "\\alpha", "β": "\\beta", "γ": "\\gamma", "δ": "\\delta",
-        "ε": "\\epsilon", "ζ": "\\zeta", "η": "\\eta", "θ": "\\theta",
-        "ι": "\\iota", "κ": "\\kappa", "λ": "\\lambda", "μ": "\\mu",
-        "ν": "\\nu", "ξ": "\\xi", "π": "\\pi", "ρ": "\\rho",
-        "σ": "\\sigma", "τ": "\\tau", "υ": "\\upsilon", "φ": "\\varphi",
-        "χ": "\\chi", "ψ": "\\psi", "ω": "\\omega",
-        "Γ": "\\Gamma", "Δ": "\\Delta", "Θ": "\\Theta", "Λ": "\\Lambda",
-        "Ξ": "\\Xi", "Π": "\\Pi", "Σ": "\\Sigma", "Φ": "\\Phi",
-        "Ψ": "\\Psi", "Ω": "\\Omega"
+        "\u2211": "\\sum", "\u220f": "\\prod", "\u2210": "\\coprod",
+        "\u222b": "\\int", "\u222c": "\\iint", "\u222d": "\\iiint", "\u222e": "\\oint",
+        "\u22c3": "\\bigcup", "\u22c2": "\\bigcap",
+        "\xb1": "\\pm", "\u2213": "\\mp", "\xd7": "\\times", "\xf7": "\\div",
+        "\u2212": "-", "\u2260": "\\neq", "\u2264": "\\leq", "\u2265": "\\geq",
+        "\u2248": "\\approx", "\u2261": "\\equiv", "\u221d": "\\propto",
+        "\u221e": "\\infty", "\u2202": "\\partial", "\u2207": "\\nabla",
+        "\u221a": "\\sqrt", "\u2220": "\\angle", "\u22c5": "\\cdot", "\u2026": "\\dots",
+        "\u2192": "\\to", "\u2190": "\\leftarrow", "\u21d2": "\\Rightarrow", "\u21d4": "\\Leftrightarrow",
+        "\u2208": "\\in", "\u2209": "\\notin", "\u2282": "\\subset", "\u2286": "\\subseteq",
+        "\u222a": "\\cup", "\u2229": "\\cap", "\u2205": "\\emptyset",
+        "\u2200": "\\forall", "\u2203": "\\exists", "\xac": "\\neg",
+        "\u2227": "\\land", "\u2228": "\\lor", "\u2234": "\\therefore",
+        "\u03b1": "\\alpha", "\u03b2": "\\beta", "\u03b3": "\\gamma", "\u03b4": "\\delta",
+        "\u03b5": "\\epsilon", "\u03b6": "\\zeta", "\u03b7": "\\eta", "\u03b8": "\\theta",
+        "\u03b9": "\\iota", "\u03ba": "\\kappa", "\u03bb": "\\lambda", "\u03bc": "\\mu",
+        "\u03bd": "\\nu", "\u03be": "\\xi", "\u03c0": "\\pi", "\u03c1": "\\rho",
+        "\u03c3": "\\sigma", "\u03c4": "\\tau", "\u03c5": "\\upsilon", "\u03c6": "\\varphi",
+        "\u03c7": "\\chi", "\u03c8": "\\psi", "\u03c9": "\\omega",
+        "\u0393": "\\Gamma", "\u0394": "\\Delta", "\u0398": "\\Theta", "\u039b": "\\Lambda",
+        "\u039e": "\\Xi", "\u03a0": "\\Pi", "\u03a3": "\\Sigma", "\u03a6": "\\Phi",
+        "\u03a8": "\\Psi", "\u03a9": "\\Omega"
     };
     // Accent character -> TeX accent command (m:acc carries the mark as a chr).
     var MATH_ACCENTS = {
-        "̂": "\\hat", "̃": "\\tilde", "̄": "\\bar", "̅": "\\overline",
-        "̆": "\\breve", "̇": "\\dot", "̈": "\\ddot", "̊": "\\mathring",
-        "̌": "\\check", "→": "\\vec", "⃗": "\\vec", "́": "\\acute", "̀": "\\grave"
+        "\u0302": "\\hat", "\u0303": "\\tilde", "\u0304": "\\bar", "\u0305": "\\overline",
+        "\u0306": "\\breve", "\u0307": "\\dot", "\u0308": "\\ddot", "\u030a": "\\mathring",
+        "\u030c": "\\check", "\u2192": "\\vec", "\u20d7": "\\vec", "\u0301": "\\acute", "\u0300": "\\grave"
     };
 
     function ommlToTex(node) {
@@ -24672,7 +26172,7 @@ function RTE_Plugin_DocumentImport() {
                 case "nary": {
                     // The operator itself is an ATTRIBUTE (m:chr), not text. Miss
                     // it and every summation imports as a bare limit pair.
-                    var chr = propOf(el, "naryPr", "chr") || "∫";
+                    var chr = propOf(el, "naryPr", "chr") || "\u222b";
                     var op = MATH_SYMBOLS[chr] || mapText(chr);
                     var subHide = propOf(el, "naryPr", "subHide");
                     var supHide = propOf(el, "naryPr", "supHide");
@@ -24695,7 +26195,7 @@ function RTE_Plugin_DocumentImport() {
                         if (!ch) return side === "l" ? "\\left." : "\\right.";
                         if (ch === "{" || ch === "}") return "\\" + ch;
                         if (ch === "|") return "|";
-                        if (ch === "‖") return "\\|";
+                        if (ch === "\u2016") return "\\|";
                         // THREE different codepoints render as an angle
                         // bracket and are indistinguishable on screen: the
                         // mathematical pair (U+27E8/9), the CJK pair
@@ -24706,10 +26206,10 @@ function RTE_Plugin_DocumentImport() {
                         var cp = ch.charCodeAt(0);
                         if (cp === 0x27E8 || cp === 0x3008 || cp === 0x2329) return "\\langle";
                         if (cp === 0x27E9 || cp === 0x3009 || cp === 0x232A) return "\\rangle";
-                        if (ch === "⌊") return "\\lfloor";
-                        if (ch === "⌋") return "\\rfloor";
-                        if (ch === "⌈") return "\\lceil";
-                        if (ch === "⌉") return "\\rceil";
+                        if (ch === "\u230a") return "\\lfloor";
+                        if (ch === "\u230b") return "\\rfloor";
+                        if (ch === "\u2308") return "\\lceil";
+                        if (ch === "\u2309") return "\\rceil";
                         return ch;
                     }
                     var parts = children(el, "e");
@@ -24733,7 +26233,7 @@ function RTE_Plugin_DocumentImport() {
                 case "limUpp":
                     return "\\overset" + arg(child(el, "lim")) + arg(child(el, "e"));
                 case "acc": {
-                    var mark = propOf(el, "accPr", "chr") || "̂";
+                    var mark = propOf(el, "accPr", "chr") || "\u0302";
                     var cmd = MATH_ACCENTS[mark] || "\\hat";
                     return cmd + arg(child(el, "e"));
                 }
@@ -24741,7 +26241,7 @@ function RTE_Plugin_DocumentImport() {
                     return (propOf(el, "barPr", "pos") === "bot" ? "\\underline" : "\\overline") + arg(child(el, "e"));
                 case "groupChr": {
                     var g = propOf(el, "groupChrPr", "chr");
-                    if (g === "⏟") return "\\underbrace" + arg(child(el, "e"));
+                    if (g === "\u23df") return "\\underbrace" + arg(child(el, "e"));
                     return "\\overbrace" + arg(child(el, "e"));
                 }
                 case "borderBox":
@@ -24790,6 +26290,23 @@ function RTE_Plugin_DocumentImport() {
         }
 
         // <w:drawing>/<w:pict> -> <img> from word/media, inlined as a data URI.
+        // 2026-10-15 with its alt text (<wp:docPr descr>, else title) and size (<wp:extent>, EMU; or a VML shape's
+        // width/height in pt): every picture came back alt="" at natural size. tools/docx/image-alt-size.mjs
+        function imageAttrs(node) {
+            var all = node.getElementsByTagName("*"), alt = "", w = 0, h = 0;
+            for (var i = 0; i < all.length; i++) {
+                var e = all[i], ln = e.localName;
+                if (ln === "docPr") alt = e.getAttribute("descr") || e.getAttribute("title") || "";
+                else if (ln === "extent" && !w) { w = Math.round((parseInt(e.getAttribute("cx"), 10) || 0) * 96 / 914400); h = Math.round((parseInt(e.getAttribute("cy"), 10) || 0) * 96 / 914400); }
+                else if (ln === "shape" && !w) {
+                    var st = e.getAttribute("style") || "", mw = /width:\s*([\d.]+)pt/.exec(st), mh = /height:\s*([\d.]+)pt/.exec(st);
+                    if (mw && mh) { w = Math.round(parseFloat(mw[1]) * 96 / 72); h = Math.round(parseFloat(mh[1]) * 96 / 72); }
+                    if (!alt) alt = e.getAttribute("alt") || "";
+                }
+            }
+            // esc() leaves quotes alone; this is an attribute value
+            return ' alt="' + esc(alt).replace(/"/g, "&quot;") + '"' + (w > 0 && h > 0 ? ' width="' + w + '" height="' + h + '"' : "");
+        }
         function imageHtml(node) {
             var blips = node.getElementsByTagName("*");
             for (var i = 0; i < blips.length; i++) {
@@ -24800,8 +26317,8 @@ function RTE_Plugin_DocumentImport() {
                 var path = rel.target.replace(/^\.\//, "");
                 var key = path.indexOf("word/") === 0 ? path : "word/" + path;
                 var uri = ctx.media[key];
-                if (uri) return '<img src="' + uri + '" alt="">';
-                if (rel.external) return '<img src="' + esc(rel.target) + '" alt="">';
+                if (uri) return '<img src="' + uri + '"' + imageAttrs(node) + '>';
+                if (rel.external) return '<img src="' + esc(rel.target) + '"' + imageAttrs(node) + '>';
                 // A vector metafile (WMF/EMF) has no browser-renderable form, so
                 // there is no data URI for it. Dropping it silently leaves the
                 // reader with no idea a figure was ever there -- and no filename
@@ -24810,7 +26327,7 @@ function RTE_Plugin_DocumentImport() {
                     var fileName = path.split("/").pop();
                     queueBlock('<p class="rte-imported-unsupported" data-source="' + esc(fileName) +
                                '"><em>[Unsupported image: ' + esc(fileName) +
-                               " — Windows metafiles have no browser-renderable form]</em></p>");
+                               " \u2014 Windows metafiles have no browser-renderable form]</em></p>");
                     return "";
                 }
             }
@@ -24855,6 +26372,9 @@ function RTE_Plugin_DocumentImport() {
                 // and every tracked deletion imports as an empty run.
                 if (c.localName === "t" || c.localName === "delText") t += c.textContent || "";
                 else if (c.localName === "tab") t += "\t";
+                // 2026-10-15 a PAGE break is not a line break: mark it so the paragraph can be split around the
+                // editor's page-break marker. tools/docx/page-breaks.mjs
+                else if (c.localName === "br" && (c.getAttributeNS(W, "type") || c.getAttribute("w:type")) === "page") t += "\f";
                 else if (c.localName === "br" || c.localName === "cr") t += "\n";
             }
             return t;
@@ -24945,7 +26465,20 @@ function RTE_Plugin_DocumentImport() {
                     var sv = parseInt(sz.getAttributeNS(W, "val") || sz.getAttribute("w:val") || "", 10);
                     if (sv > 0) css += "font-size:" + (sv / 2) + "pt;";
                 }
-                if (css) txt = '<span style="' + css + '">' + txt + "</span>";
+                // 2026-10-15 small caps, caps, letter spacing and the phrase's language. tools/docx/run-props.mjs
+                var sc = firstChildEl(rpr, "smallCaps"), cp = firstChildEl(rpr, "caps");
+                function on(el) { var v = el.getAttributeNS(W, "val") || el.getAttribute("w:val") || ""; return !/^(0|false|off)$/.test(v); }
+                if (sc && on(sc)) css += "font-variant:small-caps;";
+                if (cp && on(cp)) css += "text-transform:uppercase;";
+                var spc = firstChildEl(rpr, "spacing");
+                if (spc) { var spv = parseInt(spc.getAttributeNS(W, "val") || spc.getAttribute("w:val") || "", 10); if (spv) css += "letter-spacing:" + (Math.round(spv / 15 * 100) / 100) + "px;"; }
+                var lg = firstChildEl(rpr, "lang"), lang = "";
+                if (lg) {
+                    lang = (lg.getAttributeNS(W, "val") || lg.getAttribute("w:val") || "").replace(/[^A-Za-z0-9-]/g, "");
+                    // a run in the document's own language says nothing: Word stamps it on nearly every run
+                    if (ctx.defaultLang ? lang.toLowerCase() === ctx.defaultLang : /^en(-|$)/i.test(lang)) lang = "";
+                }
+                if (css || lang) txt = "<span" + (lang ? ' lang="' + lang + '"' : "") + (css ? ' style="' + css + '"' : "") + ">" + txt + "</span>";
             }
             return pics + txt;
         }
@@ -25021,7 +26554,7 @@ function RTE_Plugin_DocumentImport() {
                 items += '<li class="rte-fn-note" data-fn-id="' + f.id + '" data-fn-number="' + (i + 1) +
                          '" id="fn-' + f.id + '">' + esc(f.text) +
                          '<a class="rte-fn-back" data-fn-id="' + f.id + '" href="#fnref-' + f.id +
-                         '" contenteditable="false" title="Back to reference">↩</a></li>';
+                         '" contenteditable="false" title="Back to reference">\u21a9</a></li>';
             }
             return '<section class="rte-footnotes"><h2 class="rte-fn-title">Footnotes</h2>' +
                    '<ol class="rte-fn-list" data-numbering="decimal">' + items + "</ol></section>";
@@ -25135,6 +26668,10 @@ function RTE_Plugin_DocumentImport() {
                 // ordered list. Defaulting to bullet when numbering.xml is absent
                 // matches the old behaviour rather than inventing <ol>s.
                 info.ordered = !!fmt && fmt !== "bullet" && fmt !== "none";
+                info.numId = nid;
+                info.start = (levels && levels["s" + info.level]) || 1;
+                // 2026-10-04 Word's lettered / Roman formats come back as list-style-type (they became 1. 2. 3.)
+                info.listStyle = { lowerLetter: "lower-alpha", upperLetter: "upper-alpha", lowerRoman: "lower-roman", upperRoman: "upper-roman" }[fmt] || "";
             }
             // Word paragraph indentation. Nothing read this before 2026-09-04,
             // so every indented paragraph in every imported .docx arrived
@@ -25148,7 +26685,23 @@ function RTE_Plugin_DocumentImport() {
                 // indent, already carried by the blockquote element itself.
                 if (tw > 0 && !(info.quote && tw === 720))
                     info.indentPx = Math.round(tw / 15);
+                // 2026-10-15 first-line / hanging indent, line spacing and direction were not read.
+                // tools/docx/paragraph-props.mjs
+                var fl = parseInt(ind.getAttributeNS(W, "firstLine") || ind.getAttribute("w:firstLine") || "", 10);
+                var hg = parseInt(ind.getAttributeNS(W, "hanging") || ind.getAttribute("w:hanging") || "", 10);
+                if (hg > 0) info.textIndentPx = -Math.round(hg / 15);
+                else if (fl > 0) info.textIndentPx = Math.round(fl / 15);
             }
+            var sp = firstChildEl(ppr, "spacing");
+            if (sp) {
+                var ln = parseInt(sp.getAttributeNS(W, "line") || sp.getAttribute("w:line") || "", 10);
+                var rule = sp.getAttributeNS(W, "lineRule") || sp.getAttribute("w:lineRule") || "auto";
+                // Word's default single spacing (240 auto) is not worth a style
+                if (ln > 0 && !(rule === "auto" && ln === 240)) info.lineHeight = rule === "auto" ? String(Math.round(ln / 240 * 100) / 100) : Math.round(ln / 15) + "px";
+            }
+            var bidi = firstChildEl(ppr, "bidi");
+            if (bidi && !/^(0|false|off)$/.test(bidi.getAttributeNS(W, "val") || bidi.getAttribute("w:val") || "")) info.rtl = true;
+            if (firstChildEl(ppr, "pageBreakBefore")) info.pageBreakBefore = true;
             var jc = firstChildEl(ppr, "jc");
             if (jc) {
                 var a = jc.getAttributeNS(W, "val") || jc.getAttribute("w:val") || "";
@@ -25168,6 +26721,10 @@ function RTE_Plugin_DocumentImport() {
         // markup out of an importer undermines the whole clean-output promise.
         var listStack = [];
         var liOpen = [];
+        // 2026-10-04 items already numbered per numId and level: Word continues a list across
+        // other paragraphs (same numId), so a list reopened here numbers on, and a list that does not
+        // start at 1 keeps its start. Both restarted at 1. tools/docx/import-list-start.mjs
+        var numCount = {};
         function closeListsTo(depth) {
             while (listStack.length > depth) {
                 var d = listStack.length - 1;
@@ -25193,6 +26750,32 @@ function RTE_Plugin_DocumentImport() {
             if (node.localName === "p") {
                 var st = paraStyle(node);
                 var inner = paraInner(node);
+                // 2026-10-15 page breaks come back as the editor's page-break marker (they were dropped):
+                // <w:pageBreakBefore/> before the paragraph, <w:br w:type="page"/> splitting it. tools/docx/page-breaks.mjs
+                if (st.pageBreakBefore) { closeListsTo(0); out.push(pageBreakHtml()); }
+                if (inner && inner.indexOf("\f") !== -1) {
+                    if (!st.list && !st.heading && !st.pre && !st.quote) {
+                        var pbParts = inner.split("\f");
+                        inner = pbParts.pop();
+                        closeListsTo(0);
+                        for (var pbi = 0; pbi < pbParts.length; pbi++) {
+                            if (pbParts[pbi].replace(/<[^>]*>/g, "").trim()) out.push("<p>" + pbParts[pbi] + "</p>");
+                            out.push(pageBreakHtml());
+                        }
+                    } else inner = inner.split("\f").join("");
+                }
+                // 2026-10-15 a paragraph that starts with a ballot box (open U+2610, ticked U+2611 / U+2612) is a task
+                // item: that is how our export and Google Docs write a checklist, and how one is typed in Word. Each
+                // becomes a one-item task list; adjacent ones are joined at the end. tools/docx/task-list.mjs
+                var taskM = !st.list && !st.heading && inner && /^((?:<[^>]+>)*)\s*([\u2610\u2611\u2612])[\s\u00a0]?/.exec(inner);
+                if (taskM) {
+                    closeListsTo(0);
+                    var taskBody = taskM[1] + inner.slice(taskM[0].length);
+                    out.push('<ul class="rte-task-list"><li class="rte-task-item" data-checked="' + (taskM[2] === "\u2610" ? "false" : "true") + '"><span class="rte-task-checkbox" contenteditable="false"></span>' + (taskBody || "<br>") + "</li></ul>");
+                    var tboxes = flushBlocks();
+                    if (tboxes) out.push(tboxes);
+                    continue;
+                }
                 if (st.list) {
                     var want = (st.level || 0) + 1;
                     var tag = st.ordered ? "ol" : "ul";
@@ -25205,11 +26788,24 @@ function RTE_Plugin_DocumentImport() {
                     // Going deeper leaves the parent <li> open so the sublist
                     // nests inside it.
                     while (listStack.length < want) {
-                        out.push("<" + tag + ">");
+                        var olStart = (tag === "ol" && listStack.length === want - 1) ? (st.start || 1) + (numCount[st.numId + ":" + st.level] || 0) : 1;
+                        var olAttrs = (olStart !== 1 ? " start=\"" + olStart + "\"" : "") +
+                            (tag === "ol" && listStack.length === want - 1 && st.listStyle ? " style=\"list-style-type: " + st.listStyle + "\"" : "");
+                        out.push("<" + tag + olAttrs + ">");
                         listStack.push(tag);
                         liOpen.push(false);
                     }
                     if (liOpen[want - 1]) { out.push("</li>"); liOpen[want - 1] = false; }
+                    if (st.ordered) {
+                        var ck = st.numId + ":" + st.level;
+                        numCount[ck] = (numCount[ck] || 0) + 1;
+                    }
+                    // any higher-level item - a BULLET too (2026-10-05 review) - restarts the numbered
+                    // levels below it (Word's default lvlRestart)
+                    for (var cKey in numCount) {
+                        var cp = cKey.split(":");
+                        if (cp[0] === String(st.numId) && +cp[1] > st.level) numCount[cKey] = 0;
+                    }
                     out.push("<li>" + (inner || ""));
                     liOpen[want - 1] = true;
                     continue;
@@ -25234,7 +26830,9 @@ function RTE_Plugin_DocumentImport() {
                     // indentUseMargin defaults to margin, and margin is what
                     // w:ind means, so import writes margin-left to match.
                     if (st.indentPx) decl.push("margin-left:" + st.indentPx + "px");
-                    var style = decl.length ? ' style="' + decl.join(";") + '"' : "";
+                    if (st.textIndentPx) decl.push("text-indent:" + st.textIndentPx + "px");
+                    if (st.lineHeight) decl.push("line-height:" + st.lineHeight);
+                    var style = (st.rtl ? ' dir="rtl"' : "") + (decl.length ? ' style="' + decl.join(";") + '"' : "");
                     // A paragraph that contained ONLY a text box has no text of
                     // its own; emitting an empty <p> before the box adds a blank
                     // line that was never in the document.
@@ -25255,10 +26853,23 @@ function RTE_Plugin_DocumentImport() {
         // The notes section goes last, after every marker has been collected.
         var notes = footnotesSection();
         if (notes) out.push(notes);
-        return out.join("\n");
+        // one task list per run of task items
+        return out.join("\n").replace(/<\/ul>\n<ul class="rte-task-list">/g, "");
 
+        // the editor's own page-break marker (rte.js __UI_InsertPageBreak), so it looks and behaves the same
+        function pageBreakHtml() {
+            var lbl = editor && editor.getLangText ? editor.getLangText("insertpagebreak") : "";
+            if (!lbl || lbl === "insertpagebreak") lbl = "Page break";
+            return '<div data-rte-page-break="true" contenteditable="false" style="position:relative;text-align:center;border-top:2px dashed #94a3b8;margin:18px 0 14px;padding:0;height:0;line-height:0;user-select:none;">' +
+                '<span style="position:relative;top:-0.75em;display:inline-block;padding:0 10px;background:#fff;color:#64748b;font-size:12px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;line-height:1.6;">' + esc(lbl) + "</span></div>";
+        }
         function tableHtml(tbl) {
             var rows = [], kids = tbl.childNodes;
+            // 2026-10-15 merged cells: <w:gridSpan> is colspan; <w:vMerge w:val="restart"/> starts a rowspan and each
+            // bare <w:vMerge/> below it, at the same grid column, extends it instead of becoming a cell. Both were
+            // ignored, so merged cells came back split. tools/docx/merged-cells.mjs
+            var openMerge = {};
+            function wv(el) { return el ? (el.getAttributeNS(W, "val") || el.getAttribute("w:val") || "") : ""; }
             for (var i = 0; i < kids.length; i++) {
                 var tr = kids[i];
                 if (tr.nodeType !== 1 || tr.localName !== "tr") continue;
@@ -25269,26 +26880,61 @@ function RTE_Plugin_DocumentImport() {
                 var trPr = firstChildEl(tr, "trPr");
                 var isHeaderRow = !!(trPr && firstChildEl(trPr, "tblHeader"));
                 var cellTag = isHeaderRow ? "th" : "td";
-                var cells = [];
+                var cells = [], gcol = 0;
                 for (var j = 0; j < tr.childNodes.length; j++) {
                     var tc = tr.childNodes[j];
                     if (tc.nodeType !== 1 || tc.localName !== "tc") continue;
+                    var tcPr = firstChildEl(tc, "tcPr");
+                    var span = parseInt(wv(tcPr && firstChildEl(tcPr, "gridSpan")), 10) || 1;
+                    var vm = tcPr && firstChildEl(tcPr, "vMerge");
+                    if (vm && wv(vm) !== "restart" && openMerge[gcol]) { openMerge[gcol].rowspan++; gcol += span; continue; }
                     var cellHtml = "";
                     for (var k = 0; k < tc.childNodes.length; k++) {
                         if (tc.childNodes[k].localName === "p") cellHtml += "<p>" + (paraInner(tc.childNodes[k]) || "<br>") + "</p>";
                     }
-                    cells.push("<" + cellTag + ">" + cellHtml + "</" + cellTag + ">");
+                    var cellObj = { tag: cellTag, html: cellHtml, colspan: span, rowspan: 1 };
+                    cells.push(cellObj);
+                    for (var sc = gcol; sc < gcol + span; sc++) delete openMerge[sc];
+                    if (vm && wv(vm) === "restart") openMerge[gcol] = cellObj;
+                    gcol += span;
                 }
-                rows.push("<tr>" + cells.join("") + "</tr>");
+                rows.push(cells);
             }
-            return "<table>" + rows.join("") + "</table>";
+            // 2026-10-15 the grid's column widths (as percentages, so the ratio holds at any page width) and a
+            // percentage table width. tools/docx/table-widths.mjs
+            var head = "<table", colgroup = "";
+            var tPr = firstChildEl(tbl, "tblPr"), tW = tPr && firstChildEl(tPr, "tblW");
+            if (tW && (tW.getAttributeNS(W, "type") || tW.getAttribute("w:type")) === "pct") {
+                var pv = String(tW.getAttributeNS(W, "w") || tW.getAttribute("w:w") || "");
+                var pn = /%$/.test(pv) ? parseFloat(pv) : parseFloat(pv) / 50;
+                if (pn > 0) head += ' style="width:' + (Math.round(pn * 10) / 10) + '%"';
+            }
+            var grid = firstChildEl(tbl, "tblGrid");
+            if (grid) {
+                var gws = [], gsum = 0;
+                for (var gi = 0; gi < grid.childNodes.length; gi++) {
+                    var gc = grid.childNodes[gi];
+                    if (gc.nodeType !== 1 || gc.localName !== "gridCol") continue;
+                    var gw = parseInt(gc.getAttributeNS(W, "w") || gc.getAttribute("w:w") || "", 10) || 0;
+                    gws.push(gw); gsum += gw;
+                }
+                if (gws.length > 1 && gsum > 0 && gws.every(function (g) { return g > 0; }))
+                    colgroup = "<colgroup>" + gws.map(function (g) { return '<col style="width:' + (Math.round(g / gsum * 1000) / 10) + '%">'; }).join("") + "</colgroup>";
+            }
+            return head + ">" + colgroup + rows.map(function (cs) {
+                return "<tr>" + cs.map(function (c) {
+                    return "<" + c.tag + (c.colspan > 1 ? ' colspan="' + c.colspan + '"' : "") + (c.rowspan > 1 ? ' rowspan="' + c.rowspan + '"' : "") + ">" + c.html + "</" + c.tag + ">";
+                }).join("") + "</tr>";
+            }).join("") + "</table>";
         }
     }
 
     function notify(msg) {
         try {
             if (editor && typeof editor.createDialog === "function") {
-                var d = editor.createDialog((editor.getLangText && editor.getLangText("importtitle")) || "Import document", "rte-dialog-import");
+                // 2026-10-18 getLangText returns the KEY when a pack lacks it, so this dialog was titled "importtitle" on every
+                // page; the title and messages read config.text_ keys. tools/i18n/raw-key-titles.mjs
+                var d = editor.createDialog((config && config.text_importtitle) || "Import document", "rte-dialog-import");
                 var w = d.ownerDocument.createElement("div");
                 w.style.cssText = "padding:16px;max-width:420px;font:13px -apple-system,Segoe UI,sans-serif;line-height:1.5";
                 w.textContent = msg;
@@ -25317,19 +26963,35 @@ function RTE_Plugin_DocumentOutline() {
 
     obj.PluginName = "DocumentOutline";
 
+    // 2026-10-18 the words read config.text_ keys (language packs), English as the fallback; {0} fills a template.
+    // tools/i18n/plugin-panels-language.mjs
+    function pText(key, fallback, arg) {
+        var s = (config && config["text_" + key]) || fallback;
+        return arg === undefined ? s : s.split("{0}").join(String(arg));
+    }
     obj.InitConfig = function (argconfig) {
         config = argconfig;
         if (config.documentOutlineEnabled === false) return;
 
-        config.documentOutlineTitle = config.documentOutlineTitle || "Outline";
-        config.documentOutlineHint = config.documentOutlineHint || "Browse headings and jump through long documents without leaving the editor.";
-        config.documentOutlineEmptyText = config.documentOutlineEmptyText || "Add headings to build the document outline.";
+        config.documentOutlineTitle = config.documentOutlineTitle || pText("ol_title", "Outline");
+        config.documentOutlineHint = config.documentOutlineHint || pText("ol_hint", "Browse headings and jump through long documents without leaving the editor.");
+        config.documentOutlineEmptyText = config.documentOutlineEmptyText || pText("ol_empty", "Add headings to build the document outline.");
         if (typeof config.documentOutlineAutoOpen !== "boolean") config.documentOutlineAutoOpen = false;
         if (typeof config.documentOutlineMinLevel !== "number") config.documentOutlineMinLevel = 1;
         if (typeof config.documentOutlineMaxLevel !== "number") config.documentOutlineMaxLevel = 6;
 
         appendToolbarCommand("toolbar_default", "#{documentoutline}");
         appendToolbarCommand("toolbar_full", "#{documentoutline}");
+        // 2026-10-03 Build the shell NOW, before the editor creates its iframe. ensureShell() moves the
+        // editor container; done in InitEditor it moved the live iframe, which then gets a fresh
+        // document - and every plugin that had already bound listeners to the old one went deaf (the
+        // slash menu, @mentions and emoji autocomplete, until they moved to editor.bindDocumentEvent;
+        // customer plugins binding the document directly still were). Nothing is loaded yet here.
+        // InitEditor's own ensureShell() call finds the shell and returns it.
+        // tools/keyboard/plugin-listeners.mjs
+        if (config.documentOutlineEnabled !== false && config.container && config.container.parentNode) {
+            try { ensureShell(); } catch (e) { /* InitEditor builds it */ }
+        }
     };
 
     obj.InitEditor = function (argeditor) {
@@ -25359,6 +27021,9 @@ function RTE_Plugin_DocumentOutline() {
         editor.attachEvent("change", function () {
             scheduleRefresh();
         });
+        // 2026-10-18 setHTMLCode fires no "change": a replaced document left the panel on the old one.
+        // tools/outline/panels-follow-sethtml.mjs
+        try { editor.attachEvent("aftersethtml", function () { scheduleRefresh(); }); } catch (e) { /* older cores */ }
         editor.attachEvent("selectionchange", function () {
             updateActiveHeading();
         });
@@ -25398,6 +27063,17 @@ function RTE_Plugin_DocumentOutline() {
             ".rte-document-outline-item.is-active{background:#eef4ff;border-color:rgba(37,99,235,.26);color:#0f3f9f;box-shadow:0 8px 18px rgba(37,99,235,.1);}",
             ".rte-document-outline-item-level{display:inline-flex;margin:0 0 3px;padding:2px 6px;border-radius:999px;background:#fff;color:#64748b;font-size:10px;line-height:1.1;letter-spacing:.08em;text-transform:uppercase;font-weight:850;box-shadow:inset 0 0 0 1px rgba(148,163,184,.18);}",
             ".rte-document-outline-empty{margin:6px;padding:14px;color:#52657e;font-size:13px;font-weight:700;line-height:1.55;background:#fff;border:1px dashed rgba(148,163,184,.34);border-radius:8px;}",
+            ".rte-document-outline-panel.rte-document-outline-dark{background:linear-gradient(180deg,#1e293b,#0f172a);border-color:#334155;color:#e2e8f0;box-shadow:0 18px 40px rgba(0,0,0,.45);}",
+            ".rte-document-outline-dark .rte-document-outline-header,.rte-document-outline-dark .rte-document-outline-toolbar{background:rgba(15,23,42,.6);border-color:#334155;}",
+            ".rte-document-outline-dark .rte-document-outline-kicker,.rte-document-outline-dark .rte-document-outline-copy,.rte-document-outline-dark .rte-document-outline-count{color:#94a3b8;}",
+            ".rte-document-outline-dark .rte-document-outline-title{color:#f1f5f9;}",
+            ".rte-document-outline-dark .rte-document-outline-close{background:#0f172a;color:#bfdbfe;border-color:#475569;}",
+            ".rte-document-outline-dark .rte-document-outline-close:hover,.rte-document-outline-dark .rte-document-outline-close:focus-visible{background:#1e3a8a;color:#ffffff;}",
+            ".rte-document-outline-dark .rte-document-outline-item{color:#e2e8f0;}",
+            ".rte-document-outline-dark .rte-document-outline-item:hover,.rte-document-outline-dark .rte-document-outline-item:focus-visible{background:#1e293b;border-color:#475569;}",
+            ".rte-document-outline-dark .rte-document-outline-item.is-active{background:#1e3a8a;border-color:#3b82f6;color:#ffffff;}",
+            ".rte-document-outline-dark .rte-document-outline-item-level{background:#0f172a;color:#cbd5e1;}",
+            ".rte-document-outline-dark .rte-document-outline-empty{background:#0f172a;color:#94a3b8;border-color:#475569;}",
             "@media (max-width: 1100px){.rte-document-outline-shell{display:block;}.rte-document-outline-panel{margin-top:12px;max-width:none;width:100%;}.rte-document-outline-body{max-height:320px;}}"
         ].join("");
         var style = hostDoc.createElement("style");
@@ -25435,7 +27111,7 @@ function RTE_Plugin_DocumentOutline() {
         header.className = "rte-document-outline-header";
         var kicker = hostDoc.createElement("div");
         kicker.className = "rte-document-outline-kicker";
-        kicker.innerText = "Document";
+        kicker.innerText = pText("pn_document", "Document");
         var title = hostDoc.createElement("div");
         title.className = "rte-document-outline-title";
         title.innerText = config.documentOutlineTitle;
@@ -25454,8 +27130,8 @@ function RTE_Plugin_DocumentOutline() {
         var close = hostDoc.createElement("button");
         close.type = "button";
         close.className = "rte-document-outline-close";
-        close.innerText = "Hide";
-        close.setAttribute("aria-label", "Hide document outline");
+        close.innerText = pText("pn_hide", "Hide");
+        close.setAttribute("aria-label", pText("ol_hidearia", "Hide document outline"));
         close.onclick = function () { closePanel(); };
         toolbar.appendChild(count);
         toolbar.appendChild(close);
@@ -25482,8 +27158,17 @@ function RTE_Plugin_DocumentOutline() {
         else openPanel();
     }
 
+    // 2026-10-17 the panel sits beside the editor's element, so rte-dark could not reach it: mirrored (and
+    // rte-auto-dark under a dark system setting). tools/outline/outline-dark.mjs
+    function editorIsDark() {
+        try {
+            var k = editor.container && editor.container.classList;
+            return !!k && (k.contains("rte-dark") || (k.contains("rte-auto-dark") && !k.contains("rte-light") && !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches)));
+        } catch (x) { return false; }
+    }
     function openPanel() {
         ensureShell();
+        if (panel && panel.classList) { if (editorIsDark()) panel.classList.add("rte-document-outline-dark"); else panel.classList.remove("rte-document-outline-dark"); }
         shell.classList.add("is-open");
         renderOutline();
     }
@@ -25516,22 +27201,70 @@ function RTE_Plugin_DocumentOutline() {
         var minLevel = Math.max(1, Math.min(6, config.documentOutlineMinLevel || 1));
         var maxLevel = Math.max(minLevel, Math.min(6, config.documentOutlineMaxLevel || 6));
         var headings = editable.querySelectorAll("h1,h2,h3,h4,h5,h6");
-        var counts = {};
         var items = [];
         var i;
+        // 2026-09-24 Ids must be unique in the SAVED document. This used to keep any id a
+        // heading already had, so copying or cutting a heading and pasting it saved the same
+        // id twice (measured on published 2.6.7: <h1 id="hello-world"> x2), and outline
+        // clicks / anchor links went to the first one. Now the FIRST heading in document
+        // order keeps an id and a later duplicate is renamed, so the original's links stay
+        // valid and the pasted copy becomes "slug-2". Ids on non-heading elements are
+        // reserved too, so a heading never takes one. Every heading is checked, including
+        // levels the outline does not display, since they share one id namespace.
+        //
+        // 2026-09-25 ...but only when the core does not own heading ids. With
+        // autoHeadingAnchors on (the default) the core pass gives every heading a unique id
+        // after each change, with the same first-keeps rule, and marks the ids it generated so
+        // they can follow the text. This block ran 80 ms after each change instead: a heading
+        // a person was typing got the slug of its FIRST letter ("Typed heading" -> id="t"),
+        // unmarked, so the core took it for the author's own id and kept it for good. The
+        // outline needs no id to work (it navigates by element), so it now leaves ids to the
+        // core and keeps this pass for integrations that switched core anchors off.
+        if (config.autoHeadingAnchors === false) {
+            var used = {};
+            var withId = editable.querySelectorAll("[id]");
+            for (i = 0; i < withId.length; i++) {
+                if (!/^H[1-6]$/.test(withId[i].nodeName)) used[withId[i].id] = true;
+            }
+            // Headings with text claim ids first. An EMPTY heading is usually the shell a cut
+            // leaves behind, still carrying the moved heading's id; letting it claim first would
+            // hand the moved heading "-2" and break every link to it. So empty headings go last
+            // and simply drop an id that a real heading already holds.
+            var textOf = function (el) {
+                return (el.innerText || el.textContent || "").replace(/\s+/g, " ").replace(/^\s+|\s+$/g, "");
+            };
+            var empties = [];
+            for (i = 0; i < headings.length; i++) {
+                var h = headings[i];
+                var t = textOf(h);
+                if (!t) { empties.push(h); continue; }
+                var base = h.id;
+                if (!base) base = slugifyHeading(t);
+                else if (!used[base]) { used[base] = true; continue; }
+                var unique = base;
+                var n = 2;
+                while (used[unique]) { unique = base + "-" + n; n++; }
+                used[unique] = true;
+                if (h.id !== unique) h.id = unique;
+            }
+            for (i = 0; i < empties.length; i++) {
+                if (!empties[i].id) continue;
+                if (used[empties[i].id]) empties[i].removeAttribute("id");
+                else used[empties[i].id] = true;
+            }
+        }
         for (i = 0; i < headings.length; i++) {
             var heading = headings[i];
             var level = parseInt(heading.nodeName.substring(1), 10);
             if (level < minLevel || level > maxLevel) continue;
             var text = (heading.innerText || heading.textContent || "").replace(/\s+/g, " ").replace(/^\s+|\s+$/g, "");
-            var baseId = heading.id || slugifyHeading(text);
-            counts[baseId] = (counts[baseId] || 0) + 1;
-            var resolvedId = heading.id || (counts[baseId] === 1 ? baseId : (baseId + "-" + counts[baseId]));
-            if (!heading.id) heading.id = resolvedId;
             items.push({
-                id: heading.id,
+                // an empty heading may now have no id; key it internally (never written to
+                // the element) so "" can't match the "no active heading" state and light up
+                // every empty entry at once.
+                id: heading.id || ("__rte-outline-" + items.length),
                 level: level,
-                text: text || ("Heading " + (items.length + 1)),
+                text: text || pText("ol_heading", "Heading {0}", items.length + 1),
                 element: heading
             });
         }
@@ -25619,7 +27352,7 @@ function RTE_Plugin_DocumentOutline() {
         while (list.firstChild) list.removeChild(list.firstChild);
 
         var count = panel.querySelector("[data-rte-outline-count]");
-        if (count) count.innerText = items.length + " heading" + (items.length === 1 ? "" : "s");
+        if (count) count.innerText = items.length === 1 ? pText("ol_count1", "1 heading") : pText("ol_countn", "{0} headings", items.length);
         empty.style.display = items.length ? "none" : "block";
 
         for (var i = 0; i < items.length; i++) {
@@ -25845,8 +27578,11 @@ function RTE_Plugin_DocxExport() {
             bold: inherited.bold, italic: inherited.italic, underline: inherited.underline,
             strike: inherited.strike, sizeHalfPoints: inherited.sizeHalfPoints,
             color: inherited.color, highlight: inherited.highlight, vertAlign: inherited.vertAlign,
-            mono: inherited.mono, font: inherited.font
+            mono: inherited.mono, font: inherited.font,
+            // 2026-10-15 small caps, letter spacing and the phrase's language were not exported. tools/docx/run-props.mjs
+            smallCaps: inherited.smallCaps, spacingTw: inherited.spacingTw, lang: inherited.lang
         };
+        if (node.getAttribute && node.getAttribute("lang")) s.lang = String(node.getAttribute("lang")).replace(/[^A-Za-z0-9-]/g, "");
         var tag = node.tagName ? node.tagName.toLowerCase() : "";
         if (tag === "b" || tag === "strong") s.bold = true;
         if (tag === "i" || tag === "em") s.italic = true;
@@ -25874,6 +27610,11 @@ function RTE_Plugin_DocxExport() {
             if (css.fontFamily) {
                 var fam = String(css.fontFamily).split(",")[0].replace(/^\s*['"]?|['"]?\s*$/g, "");
                 if (fam) s.font = fam;
+            }
+            if (/small-caps/.test(css.fontVariant || "") || /small-caps/.test(css.fontVariantCaps || "")) s.smallCaps = true;
+            if (css.letterSpacing && css.letterSpacing !== "normal") {
+                var lsm = /^\s*(-?[\d.]+)\s*(px|pt|em)?\s*$/.exec(css.letterSpacing);
+                if (lsm) { var lsPx = parseFloat(lsm[1]) * (lsm[2] === "pt" ? 4 / 3 : lsm[2] === "em" ? 16 : 1); s.spacingTw = Math.round(lsPx * 15); }
             }
             if (css.fontSize) {
                 var pt = cssToPoints(css.fontSize);
@@ -25917,12 +27658,15 @@ function RTE_Plugin_DocxExport() {
         if (fontName) p += '<w:rFonts w:ascii="' + esc(fontName) + '" w:hAnsi="' + esc(fontName) + '"/>';
         if (s.bold) p += "<w:b/>";
         if (s.italic) p += "<w:i/>";
+        if (s.smallCaps) p += "<w:smallCaps/>";
         if (s.underline) p += '<w:u w:val="single"/>';
         if (s.strike) p += "<w:strike/>";
         if (s.color) p += '<w:color w:val="' + s.color + '"/>';
+        if (s.spacingTw) p += '<w:spacing w:val="' + s.spacingTw + '"/>';
         if (s.highlight) p += '<w:shd w:val="clear" w:color="auto" w:fill="' + s.highlight + '"/>';
         if (s.vertAlign) p += '<w:vertAlign w:val="' + s.vertAlign + '"/>';
         if (s.sizeHalfPoints) p += '<w:sz w:val="' + s.sizeHalfPoints + '"/><w:szCs w:val="' + s.sizeHalfPoints + '"/>';
+        if (s.lang) p += '<w:lang w:val="' + s.lang + '"/>';
         return p ? "<w:rPr>" + p + "</w:rPr>" : "";
     }
 
@@ -26039,7 +27783,12 @@ function RTE_Plugin_DocxExport() {
     function noteBodyFor(doc, id) {
         try {
             var el = doc.querySelector('.rte-fn-note[data-fn-id="' + id + '"]');
-            return el ? (el.textContent || "").replace(/\s+/g, " ").trim() : "";
+            if (!el) return "";
+            // 2026-10-15 without the "back to reference" arrow link: it was written into the Word footnote, and every
+            // round trip added another arrow to the note. tools/docx/footnote-text.mjs
+            var copy = el.cloneNode(true), backs = copy.querySelectorAll(".rte-fn-back");
+            for (var i = 0; i < backs.length; i++) backs[i].parentNode.removeChild(backs[i]);
+            return (copy.textContent || "").replace(/\s+/g, " ").trim();
         } catch (e) { return ""; }
     }
     function noteRun(b, kind, text) {
@@ -26055,8 +27804,14 @@ function RTE_Plugin_DocxExport() {
         b.media.push({ name: name, bytes: data.bytes });
         var rid = b.rel("image", "media/" + name);
         // EMU: 914400 per inch, and a CSS pixel is 1/96 inch.
-        var cx = Math.round(data.width * 914400 / 96);
-        var cy = Math.round(data.height * 914400 / 96);
+        // 2026-10-15 the size on the page is the image's width / height (attribute, or a px style), not its natural
+        // pixels: a picture resized in the editor came back full size. One given: the other keeps the ratio.
+        // tools/docx/image-alt-size.mjs
+        var dw = cssPx(img.getAttribute("width")) || cssPx(img.style && img.style.width), dh = cssPx(img.getAttribute("height")) || cssPx(img.style && img.style.height);
+        if (dw && !dh) dh = dw * data.height / data.width;
+        if (dh && !dw) dw = dh * data.width / data.height;
+        var cx = Math.round((dw || data.width) * 914400 / 96);
+        var cy = Math.round((dh || data.height) * 914400 / 96);
         var docPrId = b.media.length;
         return '<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0" ' +
             'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">' +
@@ -26071,6 +27826,9 @@ function RTE_Plugin_DocxExport() {
             '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>' +
             "</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>";
     }
+
+    // a plain number or a px length; a percentage or em cannot be turned into a page size here
+    function cssPx(v) { var r = /^\s*([\d.]+)\s*(px)?\s*$/.exec(v == null ? "" : String(v)); return r ? parseFloat(r[1]) : 0; }
 
     function encodeImage(img) {
         try {
@@ -26100,18 +27858,18 @@ function RTE_Plugin_DocxExport() {
     // A compact LaTeX -> OMML writer, matching the reader in documentimport.js
     // so equations survive the round trip instead of arriving as their source.
     var TEX_GLYPH = {
-        alpha: "α", beta: "β", gamma: "γ", delta: "δ", epsilon: "ε", zeta: "ζ", eta: "η",
-        theta: "θ", iota: "ι", kappa: "κ", lambda: "λ", mu: "μ", nu: "ν", xi: "ξ", pi: "π",
-        rho: "ρ", sigma: "σ", tau: "τ", upsilon: "υ", phi: "φ", varphi: "φ", chi: "χ",
-        psi: "ψ", omega: "ω", Gamma: "Γ", Delta: "Δ", Theta: "Θ", Lambda: "Λ", Xi: "Ξ",
-        Pi: "Π", Sigma: "Σ", Phi: "Φ", Psi: "Ψ", Omega: "Ω",
-        pm: "±", mp: "∓", times: "×", div: "÷", cdot: "⋅", neq: "≠", leq: "≤", geq: "≥",
-        approx: "≈", equiv: "≡", propto: "∝", infty: "∞", partial: "∂", nabla: "∇",
-        to: "→", rightarrow: "→", leftarrow: "←", Rightarrow: "⇒", Leftrightarrow: "⇔",
-        "in": "∈", notin: "∉", subset: "⊂", subseteq: "⊆", cup: "∪", cap: "∩",
-        emptyset: "∅", forall: "∀", exists: "∃", neg: "¬", land: "∧", lor: "∨",
-        dots: "…", ldots: "…", cdots: "⋯", langle: "⟨", rangle: "⟩",
-        lfloor: "⌊", rfloor: "⌋", lceil: "⌈", rceil: "⌉", quad: " ", ",": " ", ";": " "
+        alpha: "\u03b1", beta: "\u03b2", gamma: "\u03b3", delta: "\u03b4", epsilon: "\u03b5", zeta: "\u03b6", eta: "\u03b7",
+        theta: "\u03b8", iota: "\u03b9", kappa: "\u03ba", lambda: "\u03bb", mu: "\u03bc", nu: "\u03bd", xi: "\u03be", pi: "\u03c0",
+        rho: "\u03c1", sigma: "\u03c3", tau: "\u03c4", upsilon: "\u03c5", phi: "\u03c6", varphi: "\u03c6", chi: "\u03c7",
+        psi: "\u03c8", omega: "\u03c9", Gamma: "\u0393", Delta: "\u0394", Theta: "\u0398", Lambda: "\u039b", Xi: "\u039e",
+        Pi: "\u03a0", Sigma: "\u03a3", Phi: "\u03a6", Psi: "\u03a8", Omega: "\u03a9",
+        pm: "\xb1", mp: "\u2213", times: "\xd7", div: "\xf7", cdot: "\u22c5", neq: "\u2260", leq: "\u2264", geq: "\u2265",
+        approx: "\u2248", equiv: "\u2261", propto: "\u221d", infty: "\u221e", partial: "\u2202", nabla: "\u2207",
+        to: "\u2192", rightarrow: "\u2192", leftarrow: "\u2190", Rightarrow: "\u21d2", Leftrightarrow: "\u21d4",
+        "in": "\u2208", notin: "\u2209", subset: "\u2282", subseteq: "\u2286", cup: "\u222a", cap: "\u2229",
+        emptyset: "\u2205", forall: "\u2200", exists: "\u2203", neg: "\xac", land: "\u2227", lor: "\u2228",
+        dots: "\u2026", ldots: "\u2026", cdots: "\u22ef", langle: "\u27e8", rangle: "\u27e9",
+        lfloor: "\u230a", rfloor: "\u230b", lceil: "\u2308", rceil: "\u2309", quad: " ", ",": " ", ";": " "
     };
     var TEX_FUNCS = /^(sin|cos|tan|cot|sec|csc|sinh|cosh|tanh|log|ln|lg|exp|det|dim|gcd|arg|max|min|sup|inf)$/;
 
@@ -26159,7 +27917,7 @@ function RTE_Plugin_DocxExport() {
                         "<m:deg>" + deg + "</m:deg><m:e>" + group() + "</m:e></m:rad>";
                 }
                 case "sum": case "prod": case "int": case "oint": case "bigcup": case "bigcap": {
-                    var chr = { sum: "∑", prod: "∏", "int": "∫", oint: "∮", bigcup: "⋃", bigcap: "⋂" }[name];
+                    var chr = { sum: "\u2211", prod: "\u220f", "int": "\u222b", oint: "\u222e", bigcup: "\u22c3", bigcap: "\u22c2" }[name];
                     var sub = "", sup = "";
                     for (var g = 0; g < 2; g++) {
                         skipWs();
@@ -26194,7 +27952,7 @@ function RTE_Plugin_DocxExport() {
                 case "operatorname":
                     return "<m:func><m:funcPr/><m:fName>" + group() + "</m:fName><m:e>" + group() + "</m:e></m:func>";
                 case "hat": case "vec": case "tilde": case "bar": case "overline": case "dot": case "ddot": {
-                    var mark = { hat: "̂", vec: "⃗", tilde: "̃", dot: "̇", ddot: "̈" }[name];
+                    var mark = { hat: "\u0302", vec: "\u20d7", tilde: "\u0303", dot: "\u0307", ddot: "\u0308" }[name];
                     if (name === "bar" || name === "overline") return "<m:bar><m:barPr><m:pos m:val=\"top\"/></m:barPr><m:e>" + group() + "</m:e></m:bar>";
                     return '<m:acc><m:accPr><m:chr m:val="' + mark + '"/></m:accPr><m:e>' + group() + "</m:e></m:acc>";
                 }
@@ -26283,6 +28041,14 @@ function RTE_Plugin_DocxExport() {
         // spelled <blockquote>, which dragged the Quote style along with it -
         // so indented body text arrived italic and accent-coloured.
         // 1px = 0.75pt and 1pt = 20 twips, hence px * 15.
+        // a signed CSS length in twips (1px = 15 twips); 0 when it is not a plain length
+        function lengthTwips(raw) {
+            var m = /^\s*(-?[\d.]+)\s*(px|pt|in|cm|mm|em|rem)?\s*$/i.exec(raw == null ? "" : String(raw));
+            if (!m) return 0;
+            var n = parseFloat(m[1]), u = (m[2] || "px").toLowerCase();
+            var px = u === "px" ? n : u === "pt" ? n * 4 / 3 : u === "in" ? n * 96 : u === "cm" ? n * 37.795 : u === "mm" ? n * 3.7795 : n * 16;
+            return Math.round(px * 15);
+        }
         function indentTwips(node) {
             if (!node || !node.style) return 0;
             var raw = node.style.marginLeft || node.style.paddingLeft || "";
@@ -26307,13 +28073,23 @@ function RTE_Plugin_DocxExport() {
             if (opts.heading) pr += '<w:pStyle w:val="Heading' + opts.heading + '"/>';
             if (opts.quote) pr += '<w:pStyle w:val="Quote"/><w:ind w:left="720"/>';
             if (opts.pre) pr += '<w:pStyle w:val="Code"/>';
+            if (opts.caption) pr += '<w:pStyle w:val="Caption"/>';
             if (opts.numId) pr += "<w:numPr><w:ilvl w:val=\"" + (opts.level || 0) + "\"/><w:numId w:val=\"" + opts.numId + "\"/></w:numPr>";
             if (opts.pageBreakBefore) pr += "<w:pageBreakBefore/>";
+            // 2026-10-15 direction, line height and first-line / hanging indent were not written (only the left indent
+            // and alignment were): an RTL paragraph came back left-to-right, double spacing came back single.
+            // pPr order is bidi, spacing, ind, jc. tools/docx/paragraph-props.mjs
+            if (node && node.getAttribute && (String(node.getAttribute("dir") || "").toLowerCase() === "rtl" || (node.style && node.style.direction === "rtl"))) pr += "<w:bidi/>";
+            var lhRaw = node && node.style ? String(node.style.lineHeight || "") : "", lhm;
+            if ((lhm = /^\s*([\d.]+)\s*$/.exec(lhRaw)) && parseFloat(lhm[1]) > 0) pr += '<w:spacing w:line="' + Math.round(parseFloat(lhm[1]) * 240) + '" w:lineRule="auto"/>';
+            else if ((lhm = /^\s*([\d.]+)%\s*$/.exec(lhRaw)) && parseFloat(lhm[1]) > 0) pr += '<w:spacing w:line="' + Math.round(parseFloat(lhm[1]) * 2.4) + '" w:lineRule="auto"/>';
+            else if ((lhm = /^\s*([\d.]+)(px|pt)\s*$/.exec(lhRaw)) && parseFloat(lhm[1]) > 0) pr += '<w:spacing w:line="' + Math.round(parseFloat(lhm[1]) * (lhm[2] === "pt" ? 20 : 15)) + '" w:lineRule="exact"/>';
             // Independent of the Quote style: a real blockquote already got
             // its w:ind above, so only emit this for everything else.
             if (!opts.quote) {
                 var indTw = indentTwips(node);
-                if (indTw > 0) pr += '<w:ind w:left="' + indTw + '"/>';
+                var tiTw = lengthTwips(node && node.style ? node.style.textIndent : "");
+                if (indTw > 0 || tiTw) pr += '<w:ind' + (indTw > 0 ? ' w:left="' + indTw + '"' : "") + (tiTw > 0 ? ' w:firstLine="' + tiTw + '"' : tiTw < 0 ? ' w:hanging="' + (-tiTw) + '"' : "") + '/>';
             }
             var align = node && node.style ? node.style.textAlign : "";
             if (align === "center" || align === "right") pr += '<w:jc w:val="' + align + '"/>';
@@ -26323,11 +28099,52 @@ function RTE_Plugin_DocxExport() {
         }
 
         function list(node, style, level, pendingBreak) {
+            // 2026-10-15 a task list: Word has no plain-text checklist, so each item is an indented paragraph that
+            // starts with a ballot box, open (U+2610) or ticked (U+2612), as Google Docs exports it. It went out as an
+            // ordinary bulleted list and every tick was lost. tools/docx/task-list.mjs
+            if (node.classList && node.classList.contains("rte-task-list")) {
+                var txml = "";
+                for (var ti = 0; ti < node.childNodes.length; ti++) {
+                    var tli = node.childNodes[ti];
+                    if (tli.nodeType !== 1 || tli.tagName.toLowerCase() !== "li") continue;
+                    var town = tli.ownerDocument.createElement("p");
+                    for (var tk = 0; tk < tli.childNodes.length; tk++) {
+                        var tch = tli.childNodes[tk];
+                        if (tch.nodeType === 1 && (/^(ul|ol)$/.test(tch.tagName.toLowerCase()) || (tch.classList && tch.classList.contains("rte-task-checkbox")))) continue;
+                        town.appendChild(tch.cloneNode(true));
+                    }
+                    var ticked = tli.getAttribute("data-checked") === "true";
+                    town.insertBefore(tli.ownerDocument.createTextNode((ticked ? "\u2612" : "\u2610") + " "), town.firstChild);
+                    town.style.marginLeft = (24 * (level + 1)) + "px";
+                    txml += para(town, styleFrom(tli, style), { pageBreakBefore: pendingBreak });
+                    pendingBreak = false;
+                    for (var tj = 0; tj < tli.childNodes.length; tj++) {
+                        var tsub = tli.childNodes[tj];
+                        if (tsub.nodeType === 1 && /^(ul|ol)$/.test(tsub.tagName.toLowerCase())) txml += list(tsub, style, Math.min(8, level + 1), false);
+                    }
+                }
+                return txml;
+            }
             var ordered = node.tagName.toLowerCase() === "ol";
             // One numId per list, so two adjacent lists restart rather than
             // continuing each other's numbering.
             var numId = ++b.numSeq;
             b.numbering[numId] = ordered ? "decimal" : "bullet";
+            // 2026-10-04 an <ol start> starts its level there (it was always 1, so a list continued
+            // after a paragraph restarted in Word). tools/docx/ordered-start.mjs
+            var startAt = ordered ? parseInt(node.getAttribute("start"), 10) : 1;
+            if (isNaN(startAt)) startAt = 1;
+            if (startAt !== 1) (b.numStart || (b.numStart = {}))[numId] = { level: level, start: startAt };
+            // 2026-10-04 a lettered / Roman list keeps its numbering style in Word (it was always decimal).
+            // tools/docx/list-formats.mjs
+            if (ordered) {
+                var lst = String((node.style && node.style.listStyleType) || "").toLowerCase(), typ = node.getAttribute("type") || "";
+                var wf = /^(lower-alpha|lower-latin)$/.test(lst) || typ === "a" ? "lowerLetter"
+                    : /^(upper-alpha|upper-latin)$/.test(lst) || typ === "A" ? "upperLetter"
+                    : lst === "lower-roman" || typ === "i" ? "lowerRoman"
+                    : lst === "upper-roman" || typ === "I" ? "upperRoman" : "";
+                if (wf) (b.numFmtAt || (b.numFmtAt = {}))[numId] = { level: level, fmt: wf };
+            }
             var xml = "";
             for (var i = 0; i < node.childNodes.length; i++) {
                 var li = node.childNodes[i];
@@ -26354,14 +28171,43 @@ function RTE_Plugin_DocxExport() {
             return xml;
         }
 
+        // 2026-10-15 the table's width and its column widths: a 30% / 70% layout came back as equal columns and a
+        // full-width table as shrink-to-fit. <col> widths (% of a 6.5in text column, or px) become <w:gridCol> twips;
+        // a % table width becomes <w:tblW w:type="pct"> (fiftieths of a percent). tools/docx/table-widths.mjs
+        var TEXT_TWIPS = 9360;
+        function tableGrid(node) {
+            var cols = [], kids = node.children;
+            for (var i = 0; i < kids.length; i++) if (kids[i].tagName && kids[i].tagName.toLowerCase() === "colgroup") {
+                for (var j = 0; j < kids[i].children.length; j++) if (kids[i].children[j].tagName.toLowerCase() === "col") cols.push(kids[i].children[j]);
+            }
+            if (!cols.length) return "";
+            var tw = [];
+            for (var k = 0; k < cols.length; k++) {
+                var w = (cols[k].style && cols[k].style.width) || cols[k].getAttribute("width") || "", m;
+                if ((m = /^\s*([\d.]+)%\s*$/.exec(w))) tw.push(Math.round(parseFloat(m[1]) / 100 * TEXT_TWIPS));
+                else if ((m = /^\s*([\d.]+)(px)?\s*$/.exec(w))) tw.push(Math.round(parseFloat(m[1]) * 15));
+                else return ""; // one column without a usable width: leave the layout to Word
+            }
+            return "<w:tblGrid>" + tw.map(function (t) { return '<w:gridCol w:w="' + t + '"/>'; }).join("") + "</w:tblGrid>";
+        }
+        function tableWidth(node) {
+            var m = /^\s*([\d.]+)%\s*$/.exec((node.style && node.style.width) || node.getAttribute("width") || "");
+            return m ? '<w:tblW w:w="' + Math.round(parseFloat(m[1]) * 50) + '" w:type="pct"/>' : '<w:tblW w:w="0" w:type="auto"/>';
+        }
         function table(node, style) {
-            var xml = '<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/>' +
+            var xml = '<w:tbl><w:tblPr>' + tableWidth(node) +
                 '<w:tblBorders>' +
                 ["top", "left", "bottom", "right", "insideH", "insideV"].map(function (s) {
                     return '<w:' + s + ' w:val="single" w:sz="4" w:space="0" w:color="BFBFBF"/>';
                 }).join("") +
-                "</w:tblBorders></w:tblPr>";
+                "</w:tblBorders></w:tblPr>" + tableGrid(node);
             var trs = node.getElementsByTagName("tr");
+            // 2026-10-15 rowspan: Word marks the first cell <w:vMerge w:val="restart"/> and puts an empty <w:vMerge/>
+            // continuation cell at the same grid column in every row it covers. It was not written at all, so a
+            // merged cell came back split. down[col] = { left: rows still covered, span: its colspan }.
+            // tools/docx/merged-cells.mjs
+            var down = {};
+            function continuation(col) { var d = down[col]; d.left--; var s = d.span; if (!d.left) delete down[col]; return '<w:tc><w:tcPr>' + (s > 1 ? '<w:gridSpan w:val="' + s + '"/>' : '') + '<w:vMerge/></w:tcPr><w:p/></w:tc>'; }
             for (var r = 0; r < trs.length; r++) {
                 var cells = [];
                 for (var c = 0; c < trs[r].childNodes.length; c++) {
@@ -26375,8 +28221,12 @@ function RTE_Plugin_DocxExport() {
                 // or the continuation arrives as unlabelled numbers.
                 var isHeader = cells.length && cells[0].header;
                 xml += "<w:tr>" + (isHeader ? "<w:trPr><w:tblHeader/></w:trPr>" : "");
+                var gcol = 0;
                 for (var k = 0; k < cells.length; k++) {
+                    while (down[gcol]) { var dspan = down[gcol].span; xml += continuation(gcol); gcol += dspan; }
                     var span = parseInt(cells[k].node.getAttribute("colspan") || "1", 10) || 1;
+                    var rspan = parseInt(cells[k].node.getAttribute("rowspan") || "1", 10) || 1;
+                    if (rspan > 1) down[gcol] = { left: rspan - 1, span: span };
                     var cs = styleFrom(cells[k].node, style);
                     if (cells[k].header) cs.bold = true;
                     var body = "";
@@ -26389,9 +28239,13 @@ function RTE_Plugin_DocxExport() {
                     if (!body) body = "<w:p/>";
                     xml += "<w:tc><w:tcPr>" +
                         (span > 1 ? '<w:gridSpan w:val="' + span + '"/>' : "") +
+                        (rspan > 1 ? '<w:vMerge w:val="restart"/>' : "") +
                         (cells[k].header ? '<w:shd w:val="clear" w:color="auto" w:fill="F1F3F7"/>' : "") +
                         "</w:tcPr>" + body + "</w:tc>";
+                    gcol += span;
                 }
+                // merges from above that reach past this row's last cell
+                for (var tail = gcol; tail < gcol + 64; tail++) { if (down[tail]) { var tspan = down[tail].span; xml += continuation(tail); tail += tspan - 1; } }
                 xml += "</w:tr>";
             }
             return xml + "</w:tbl><w:p/>";
@@ -26412,11 +28266,34 @@ function RTE_Plugin_DocxExport() {
 
                 if (c.getAttribute("data-rte-page-break") !== null || /always|page/.test((c.style && (c.style.pageBreakBefore || c.style.breakBefore)) || "")) {
                     pendingBreak = true;
+                    // 2026-10-15 the editor's marker is only a marker: its label ("Insert Page Break") was written
+                    // into the Word document as a paragraph of text. tools/docx/page-breaks.mjs
+                    if (c.getAttribute("data-rte-page-break") !== null) continue;
                 }
 
                 if (tag === "hr") { xml += '<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="C8CDD4"/></w:pBdr></w:pPr></w:p>'; continue; }
                 if (tag === "ul" || tag === "ol") { xml += list(c, style, 0, pendingBreak); pendingBreak = false; continue; }
-                if (tag === "table") { xml += table(c, style); continue; }
+                // 2026-10-04 captions are Word captions: a table's above it (it was dropped), an image's in its own
+                // paragraph after the picture (it ran on in the picture's). tools/docx/captions.mjs
+                if (tag === "table") {
+                    var tcap = c.caption; // its OWN caption, not a nested table's (2026-10-05 review)
+                    if (tcap && (tcap.textContent || "").replace(/\s+/g, "")) xml += para(tcap, styleFrom(tcap, style), { caption: true });
+                    xml += table(c, style); continue;
+                }
+                var ownFcap = null;
+                if (tag === "figure") for (var fci = 0; fci < c.children.length; fci++) if (c.children[fci].tagName.toLowerCase() === "figcaption") { ownFcap = c.children[fci]; break; }
+                if (tag === "figure" && ownFcap) {
+                    var fcap = ownFcap;
+                    // the caption is taken out for the picture's paragraph and put back (the image export
+                    // keys on the original <img>, so a clone lost the picture)
+                    var fcapParent = fcap.parentNode, fcapNext = fcap.nextSibling;
+                    fcapParent.removeChild(fcap);
+                    try { xml += para(c, styleFrom(c, style), { pageBreakBefore: pendingBreak }); }
+                    finally { fcapParent.insertBefore(fcap, fcapNext); }
+                    pendingBreak = false;
+                    if ((fcap.textContent || "").replace(/\s+/g, "")) xml += para(fcap, styleFrom(fcap, style), { caption: true });
+                    continue;
+                }
                 if (HEADING[tag]) { xml += para(c, styleFrom(c, style), { heading: HEADING[tag], pageBreakBefore: pendingBreak }); pendingBreak = false; continue; }
                 if (tag === "blockquote") { xml += para(c, styleFrom(c, style), { quote: true, pageBreakBefore: pendingBreak }); pendingBreak = false; continue; }
                 if (tag === "pre") { xml += para(c, styleFrom(c, style), { pre: true, pageBreakBefore: pendingBreak }); pendingBreak = false; continue; }
@@ -26473,16 +28350,39 @@ function RTE_Plugin_DocxExport() {
             '" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>';
     }
 
+    // 2026-10-04 The copy's <img> elements are NEW and have not loaded: exported straight after setHTMLCode()
+    // an image without width/height had naturalWidth 0 and was silently dropped. The copy is made first and
+    // its images are waited for (load or error, 5 s at most). tools/docx/unsized-image.mjs
     function buildDocx(options) {
+        // 2026-10-05 a failure here (getHTMLCode, the copy) rejects the promise instead of throwing (review)
+        try { return buildDocxPrepared(options); } catch (e) { return Promise.reject(e); }
+    }
+    function buildDocxPrepared(options) {
+        var host = document.createElement("div");
+        // getHTMLCode() is the serialized document: presentational
+        // plugins strip their own chrome from it, so page overlays,
+        // watermarks and formatting marks never reach the file.
+        host.innerHTML = editor.getHTMLCode() || "";
+        // Resolve class-based list styling in the editing document, before the
+        // export copy leaves the stylesheet's scope. Do not change saved HTML.
+        var liveLists = editor.getEditable().querySelectorAll("ol,ul"), exportLists = host.querySelectorAll("ol,ul");
+        if (liveLists.length === exportLists.length) for (var li = 0; li < liveLists.length; li++) {
+            var listStyle = liveLists[li].ownerDocument.defaultView.getComputedStyle(liveLists[li]).listStyleType;
+            if (listStyle) exportLists[li].style.listStyleType = listStyle;
+        }
+        document.body.appendChild(host);
+        host.style.cssText = "position:absolute;left:-99999px;top:0;width:800px;";
+        var pending = [].slice.call(host.querySelectorAll("img")).filter(function (im) { return !(im.complete && im.naturalWidth); });
+        var ready = !pending.length ? Promise.resolve() : Promise.all(pending.map(function (im) {
+            return new Promise(function (done) {
+                im.addEventListener("load", done); im.addEventListener("error", done); setTimeout(done, 5000);
+            });
+        }));
+        return ready.then(function () { return buildFromHost(host, options); });
+    }
+    function buildFromHost(host, options) {
         return new Promise(function (resolve, reject) {
             try {
-                var host = document.createElement("div");
-                // getHTMLCode() is the serialized document: presentational
-                // plugins strip their own chrome from it, so page overlays,
-                // watermarks and formatting marks never reach the file.
-                host.innerHTML = editor.getHTMLCode() || "";
-                document.body.appendChild(host);
-                host.style.cssText = "position:absolute;left:-99999px;top:0;width:800px;";
 
                 var b = new Builder();
                 var body = blocksXml(host, b);
@@ -26567,7 +28467,11 @@ function RTE_Plugin_DocxExport() {
                 }
 
                 zip(files).then(resolve, reject);
-            } catch (e) { reject(e); }
+            } catch (e) {
+                // 2026-10-05 the hidden copy never stays in the page (review)
+                if (host && host.parentNode) host.parentNode.removeChild(host);
+                reject(e);
+            }
         });
     }
 
@@ -26587,6 +28491,7 @@ function RTE_Plugin_DocxExport() {
             heads +
             '<w:style w:type="paragraph" w:styleId="Quote"><w:name w:val="Quote"/><w:basedOn w:val="Normal"/><w:rPr><w:i/><w:color w:val="4A5568"/></w:rPr></w:style>' +
             '<w:style w:type="paragraph" w:styleId="Code"><w:name w:val="Code"/><w:basedOn w:val="Normal"/><w:rPr><w:rFonts w:ascii="Consolas" w:hAnsi="Consolas"/></w:rPr></w:style>' +
+            '<w:style w:type="paragraph" w:styleId="Caption"><w:name w:val="caption"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/><w:rPr><w:i/><w:color w:val="44546A"/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr></w:style>' +
             "</w:styles>";
     }
 
@@ -26600,8 +28505,8 @@ function RTE_Plugin_DocxExport() {
                 // Word distinguishes bullets from numbers ONLY here; the
                 // document body stores every list identically.
                 levels += '<w:lvl w:ilvl="' + lvl + '">' +
-                    '<w:start w:val="1"/>' +
-                    '<w:numFmt w:val="' + (fmt === "bullet" ? "bullet" : "decimal") + '"/>' +
+                    '<w:start w:val="' + (b.numStart && b.numStart[numId] && b.numStart[numId].level === lvl ? b.numStart[numId].start : 1) + '"/>' +
+                    '<w:numFmt w:val="' + (fmt === "bullet" ? "bullet" : (b.numFmtAt && b.numFmtAt[numId] && b.numFmtAt[numId].level === lvl ? b.numFmtAt[numId].fmt : "decimal")) + '"/>' +
                     '<w:lvlText w:val="' + (fmt === "bullet" ? "\uF0B7" : "%" + (lvl + 1) + ".") + '"/>' +
                     '<w:lvlJc w:val="left"/>' +
                     '<w:pPr><w:ind w:left="' + (720 * (lvl + 1)) + '" w:hanging="360"/></w:pPr>' +
@@ -26791,11 +28696,15 @@ function RTE_Plugin_DragHandle() {
     // ---- the move itself (shared by pointer and keyboard) ----------------
 
     function moveBlock(block, beforeEl) {
+        // 2026-10-14 Read-only (designMode off) or comments-only: a move changes the document, so it does nothing. tools/review/readonly-audit.mjs
+        try { if (String(editor.getDocument().designMode).toLowerCase() === "off" || (editor.getCommentsOnly && editor.getCommentsOnly())) return false; } catch (e) { /* ignore */ }
         var ed = getEditable();
         if (!ed || !block || block.parentNode !== ed) return false;
         if (beforeEl === block || (beforeEl && beforeEl.parentNode !== ed)) return false;
         // Inserting before its own next sibling is a no-op move.
         if (beforeEl === block.nextSibling) return false;
+        // 2026-10-14 Suggesting mode refuses a move (the track hook's "move"); see trackedchanges.js.
+        if (editor.__trackHook && editor.__trackHook("move", { direction: 0 }) === true) return false;
         ed.insertBefore(block, beforeEl || null);
         // Keep the caret with the block that moved — losing the caret is what
         // makes programmatic moves feel broken (same lesson as tabletools sort).
@@ -26829,6 +28738,25 @@ function RTE_Plugin_DragHandle() {
 
     function onKeyDown(e) {
         if (config.dragHandleKeyboard === false) return;
+        // 2026-10-17 Shift+F10 / the Menu key with no text selected open the block menu for the caret's block: it
+        // opened only from a mouse click on the grip, so block colour (no shortcut of its own) was mouse-only. With text
+        // selected these keys stay the AI actions (the core's handler). tools/blocks/block-menu-keyboard.mjs
+        if ((e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey && !e.altKey)) && !e.ctrlKey && !e.metaKey && config.dragHandleEnabled !== false) {
+            var kdoc = getDoc(), ked = getEditable(), ksel = kdoc && kdoc.getSelection();
+            if (ked && ksel && ksel.rangeCount && ksel.isCollapsed) {
+                var kblock = topBlockOf(ksel.anchorNode && ksel.anchorNode.nodeType === 3 ? ksel.anchorNode.parentNode : ksel.anchorNode);
+                if (kblock && blocks().indexOf(kblock) >= 0) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    hoverBlock = null;
+                    onHover({ target: kblock });
+                    var kreturn = ksel.getRangeAt(0).cloneRange();
+                    openBlockMenu(kblock);
+                    if (blockMenu) blockMenu.__returnRange = kreturn;
+                    return;
+                }
+            }
+        }
         if (!e.altKey || !e.shiftKey || e.ctrlKey || e.metaKey) return;
         if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
         if (nudge(e.key === "ArrowUp" ? -1 : 1)) {
@@ -26846,7 +28774,7 @@ function RTE_Plugin_DragHandle() {
             grip.className = "rte-drag-grip";
             grip.setAttribute("contenteditable", "false");
             grip.setAttribute("aria-hidden", "true");
-            grip.textContent = "⠿";   // ⠿
+            grip.textContent = "\u283f";   // ⠿
             host.appendChild(grip);
         }
         if (!indicator || !indicator.parentNode) {
@@ -26893,7 +28821,7 @@ function RTE_Plugin_DragHandle() {
 
     function onMouseDown(e) {
         if (e.target !== grip || !hoverBlock) return;
-        dragging = { block: hoverBlock };
+        dragging = { block: hoverBlock, x: e.clientX, y: e.clientY, moved: false };
         dropBefore = null;
         e.preventDefault();
         e.stopPropagation();
@@ -26904,6 +28832,7 @@ function RTE_Plugin_DragHandle() {
 
     function onDragMove(e) {
         if (!dragging) return;
+        if (!dragging.moved && (Math.abs(e.clientX - dragging.x) > 3 || Math.abs(e.clientY - dragging.y) > 3)) dragging.moved = true;
         e.preventDefault();
         var doc = getDoc();
         var ed = getEditable();
@@ -26938,11 +28867,14 @@ function RTE_Plugin_DragHandle() {
         if (!dragging) return;
         var block = dragging.block;
         var target = dropBefore;
+        var click = !dragging.moved;
         dragging = null;
         hideIndicator();
         var ed = getEditable();
         if (ed && ed.classList) ed.classList.remove("rte-drag-active");
         if (grip) grip.classList.remove("rte-drag-grip-held");
+        // A press that never moved is a click on the handle: it opens the block menu and moves nothing.
+        if (click) { openBlockMenu(block); hideGrip(); return; }
         hideGrip();
         // Dropping a block onto itself moves nothing.
         if (target !== block) moveBlock(block, target);
@@ -26951,6 +28883,231 @@ function RTE_Plugin_DragHandle() {
     function fireChange() {
         try { if (typeof editor.updateDesign === "function") editor.updateDesign(); } catch (e) {}
         try { if (typeof editor.fireChange === "function") editor.fireChange(); } catch (e) {}
+    }
+
+    // ---- block menu ------------------------------------------------------
+    // 2026-10-12 a click on the handle opens the block's actions, as BlockNote and Plate offer: Duplicate, Move up,
+    // Move down, and turning the block into a paragraph or heading. Clicking the handle without dragging used to move
+    // the block to the end of the document. tools/blocks/block-menu.mjs
+
+    var blockMenu = null;
+    var blockMenuListeners = null;
+
+    // 2026-10-17 labels speak the page's language: their own config.text_ key first, then - when a non-English
+    // language pack is loaded (text_language is not "Language") - the pack's existing translation, else English.
+    // tools/i18n/block-menu-language.mjs
+    function label(own, packKey, fallback) {
+        if (config && config["text_" + own]) return config["text_" + own];
+        if (packKey && config && config.text_language && config.text_language !== "Language" && config["text_" + packKey]) return config["text_" + packKey];
+        return fallback;
+    }
+
+    function closeBlockMenu() {
+        var doc = getDoc();
+        if (blockMenuListeners && doc) {
+            doc.removeEventListener("mousedown", blockMenuListeners.mousedown, true);
+            doc.removeEventListener("keydown", blockMenuListeners.keydown, true);
+            if (blockMenuListeners.outer) {
+                blockMenuListeners.outer.removeEventListener("keydown", blockMenuListeners.keydown, true);
+                blockMenuListeners.outer.removeEventListener("mousedown", blockMenuListeners.mousedown, true);
+            }
+        }
+        blockMenuListeners = null;
+        if (blockMenu && blockMenu.parentNode) blockMenu.parentNode.removeChild(blockMenu);
+        blockMenu = null;
+    }
+
+    // Put the caret in the block, so the core commands below act on it.
+    function placeCaretIn(block) {
+        try {
+            var doc = getDoc();
+            var r = doc.createRange();
+            r.selectNodeContents(block);
+            r.collapse(true);
+            var sel = editor.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(r);
+        } catch (e) {}
+    }
+
+    function turnInto(block, tag) {
+        return function () {
+            placeCaretIn(block);
+            try { editor.execCommand("formatblock", tag); } catch (e) {}
+            fireChange();
+        };
+    }
+
+    // 2026-10-17 alignment from the block menu (BlockNote and Plate offer it; competitor matrix U4): the editor's own
+    // justify commands on that block, so they undo like the toolbar buttons. tools/blocks/block-menu-align.mjs
+    function alignOf(block) {
+        var a = "";
+        try { a = (block.ownerDocument.defaultView.getComputedStyle(block).textAlign || "").toLowerCase(); } catch (e) {}
+        if (a === "center" || a === "-webkit-center") return "center";
+        if (a === "right" || a === "-webkit-right") return "right";
+        if (a === "justify") return "justify";
+        if (a === "end") { try { return block.ownerDocument.defaultView.getComputedStyle(block).direction === "rtl" ? "left" : "right"; } catch (e) { return "right"; } }
+        return "left";
+    }
+
+    function alignBlock(block, command) {
+        return function () {
+            placeCaretIn(block);
+            try { editor.execCommand(command); } catch (e) {}
+            fireChange();
+        };
+    }
+
+    function setActiveItem(item) {
+        if (!blockMenu || !item) return;
+        var all = blockMenu.querySelectorAll(".rte-block-menu-active");
+        for (var n = 0; n < all.length; n++) all[n].classList.remove("rte-block-menu-active");
+        item.classList.add("rte-block-menu-active");
+        blockMenu.__activeItem = item;
+        try { item.focus(); } catch (x) { /* focus is best effort (Firefox: designMode) */ }
+    }
+
+    // 2026-10-17 colour from the block menu (BlockNote's block menu has text and background colours; competitor
+    // matrix U4): the editor's own forecolor / backcolor commands over the whole block, so they undo like the
+    // toolbar's colour panels; Default / None clear it the way the panels' Automatic does. Text colours keep 4.5:1
+    // on white. tools/blocks/block-menu-colour.mjs
+    var BLOCK_TEXT_COLOURS = [["Grey", "#57606a"], ["Red", "#c62828"], ["Orange", "#b45309"], ["Green", "#2e7d32"], ["Blue", "#1d4ed8"], ["Purple", "#6d28d9"]];
+    var BLOCK_BACK_COLOURS = [["Yellow", "#fff3bf"], ["Green", "#dcfce7"], ["Blue", "#dbeafe"], ["Pink", "#fce7f3"], ["Grey", "#f1f5f9"]];
+
+    function colourBlock(block, command, value) {
+        return function () {
+            try {
+                var doc = getDoc();
+                var r = doc.createRange();
+                r.selectNodeContents(block);
+                var sel = editor.getSelection();
+                sel.removeAllRanges();
+                sel.addRange(r);
+                editor.execCommand(command, value);
+                placeCaretIn(block);
+            } catch (e) {}
+            fireChange();
+        };
+    }
+
+    function colourItems(block) {
+        var textWord = label("blockmenu_textcolour", "forecolor", "Text"), backWord = label("blockmenu_backcolour", "backcolor", "Background");
+        var list = [{ label: label("blockmenu_back", "", "Back"), run: function () { openBlockMenu(block); } }, { separator: true },
+            { label: textWord + ": " + label("blockmenu_default", "colorauto", "Default"), run: colourBlock(block, "forecolor", "") }];
+        for (var c = 0; c < BLOCK_TEXT_COLOURS.length; c++) list.push({ label: textWord + ": " + label("blockmenu_colour_" + BLOCK_TEXT_COLOURS[c][0].toLowerCase(), "", BLOCK_TEXT_COLOURS[c][0]), swatch: BLOCK_TEXT_COLOURS[c][1], run: colourBlock(block, "forecolor", BLOCK_TEXT_COLOURS[c][1]) });
+        list.push({ separator: true });
+        list.push({ label: backWord + ": " + label("blockmenu_none", "colorauto", "None"), run: colourBlock(block, "backcolor", "") });
+        for (var g = 0; g < BLOCK_BACK_COLOURS.length; g++) list.push({ label: backWord + ": " + label("blockmenu_colour_" + BLOCK_BACK_COLOURS[g][0].toLowerCase(), "", BLOCK_BACK_COLOURS[g][0]), swatch: BLOCK_BACK_COLOURS[g][1], run: colourBlock(block, "backcolor", BLOCK_BACK_COLOURS[g][1]) });
+        return list;
+    }
+
+    function openBlockMenu(block, view) {
+        closeBlockMenu();
+        if (!grip || !grip.parentNode) return;
+        var doc = grip.ownerDocument;
+        var host = grip.parentNode;
+        var list = blocks();
+        var i = list.indexOf(block);
+        if (i < 0) return;
+        var items = [
+            { label: label("blockmenu_duplicate", "", "Duplicate"), run: function () { placeCaretIn(block); try { editor.duplicateCurrentBlock(); } catch (e) {} fireChange(); } },
+            { label: label("blockmenu_moveup", "", "Move up"), enabled: i > 0, run: function () { moveBlock(block, list[i - 1]); } },
+            { label: label("blockmenu_movedown", "", "Move down"), enabled: i < list.length - 1, run: function () { moveBlock(block, list[i + 1].nextSibling); } },
+            { label: label("blockmenu_paragraph", "normal", "Paragraph"), run: turnInto(block, "<p>") },
+            { label: label("blockmenu_heading1", "h1", "Heading 1"), run: turnInto(block, "<h1>") },
+            { label: label("blockmenu_heading2", "h2", "Heading 2"), run: turnInto(block, "<h2>") },
+            { label: label("blockmenu_heading3", "h3", "Heading 3"), run: turnInto(block, "<h3>") }
+        ];
+        var current = alignOf(block);
+        items.push({ label: label("blockmenu_colour", "", "Colour\u2026"), run: function () { openBlockMenu(block, "colour"); } });
+        items.push({ separator: true });
+        items.push({ label: label("blockmenu_alignleft", "justifyleft", "Align left"), radio: true, checked: current === "left", run: alignBlock(block, "justifyleft") });
+        items.push({ label: label("blockmenu_aligncentre", "justifycenter", "Align centre"), radio: true, checked: current === "center", run: alignBlock(block, "justifycenter") });
+        items.push({ label: label("blockmenu_alignright", "justifyright", "Align right"), radio: true, checked: current === "right", run: alignBlock(block, "justifyright") });
+        items.push({ label: label("blockmenu_justify", "justifyfull", "Justify"), radio: true, checked: current === "justify", run: alignBlock(block, "justifyfull") });
+        if (view === "colour") items = colourItems(block);
+        blockMenu = doc.createElement("div");
+        blockMenu.className = "rte-block-menu";
+        blockMenu.setAttribute("role", "menu");
+        blockMenu.setAttribute("aria-label", ((typeof config !== "undefined" && config && config.text_blk_actions) || "Block actions"));
+        blockMenu.setAttribute("contenteditable", "false");
+        blockMenu.style.left = grip.style.left || "0px";
+        blockMenu.style.top = ((parseInt(grip.style.top, 10) || 0) + 26) + "px";
+        for (var k = 0; k < items.length; k++) {
+            var it = items[k];
+            if (it.separator) {
+                var sep = doc.createElement("div");
+                sep.setAttribute("role", "separator");
+                sep.className = "rte-block-menu-separator";
+                blockMenu.appendChild(sep);
+                continue;
+            }
+            var el = doc.createElement("div");
+            el.setAttribute("role", it.radio ? "menuitemradio" : "menuitem");
+            if (it.radio) el.setAttribute("aria-checked", it.checked ? "true" : "false");
+            el.setAttribute("tabindex", "-1");
+            el.setAttribute("aria-disabled", it.enabled === false ? "true" : "false");
+            el.className = "rte-block-menu-item" + (it.enabled === false ? " rte-block-menu-disabled" : "");
+            if (it.swatch) {
+                var sw = doc.createElement("span");
+                sw.className = "rte-block-menu-swatch";
+                sw.setAttribute("aria-hidden", "true");
+                sw.style.backgroundColor = it.swatch;
+                el.appendChild(sw);
+                el.appendChild(doc.createTextNode(it.label));
+            } else el.textContent = it.label;
+            el.addEventListener("mousedown", function (e) { e.preventDefault(); });
+            el.addEventListener("click", (function (item) {
+                return function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (item.enabled === false) return;
+                    closeBlockMenu();
+                    item.run();
+                };
+            })(it));
+            blockMenu.appendChild(el);
+        }
+        host.appendChild(blockMenu);
+        blockMenuListeners = {
+            mousedown: function (e) { if (blockMenu && !blockMenu.contains(e.target)) closeBlockMenu(); },
+            keydown: function (e) {
+                if (!blockMenu) return;
+                var items = [].slice.call(blockMenu.querySelectorAll(".rte-block-menu-item:not(.rte-block-menu-disabled)"));
+                var at = items.indexOf(doc.activeElement);
+                if (at < 0 && blockMenu.__activeItem) at = items.indexOf(blockMenu.__activeItem);
+                if (e.key === "Escape" || e.key === "Esc") {
+                    e.preventDefault();
+                    var returnRange = blockMenu.__returnRange;
+                    closeBlockMenu();
+                    // 2026-10-14 the editable focus() does not move focus from the host page into the editing
+                    // frame, so focus fell to the page body; editor.focus() does (WCAG 2.4.3). tools/blocks/block-menu.mjs
+                    try { if (typeof editor.focus === "function") editor.focus(); else { var ed = getEditable(); if (ed && ed.focus) ed.focus(); } } catch (x) { /* focus is best effort */ }
+                    // opened from the keyboard: the caret goes back where it was (WebKit lost it on focus)
+                    if (returnRange) { try { var rsel = doc.getSelection(); rsel.removeAllRanges(); rsel.addRange(returnRange); } catch (x) { /* best effort */ } }
+                } else if ((e.key === "ArrowDown" || e.key === "ArrowUp") && items.length) {
+                    e.preventDefault();
+                    var next = e.key === "ArrowDown" ? (at + 1) % items.length : (at <= 0 ? items.length - 1 : at - 1);
+                    setActiveItem(items[next]);
+                } else if ((e.key === "Enter" || e.key === " " || e.key === "Spacebar") && at >= 0) {
+                    e.preventDefault();
+                    items[at].click();
+                }
+            }
+        };
+        doc.addEventListener("mousedown", blockMenuListeners.mousedown, true);
+        doc.addEventListener("keydown", blockMenuListeners.keydown, true);
+        // Focus can sit in the page around the frame (Firefox after a click), so the page hears Escape too.
+        var outer = null;
+        try { outer = editor.iframe && editor.iframe.ownerDocument; } catch (x) { outer = null; }
+        if (outer && outer !== doc) {
+            blockMenuListeners.outer = outer;
+            outer.addEventListener("keydown", blockMenuListeners.keydown, true);
+            outer.addEventListener("mousedown", blockMenuListeners.mousedown, true);
+        }
+        // The menu takes focus, so the keyboard reaches it (and Escape can close it).
+        var firstItem = blockMenu.querySelector(".rte-block-menu-item:not(.rte-block-menu-disabled)");
+        if (firstItem) setActiveItem(firstItem);
     }
 
     // ---- styles ----------------------------------------------------------
@@ -26968,7 +29125,19 @@ function RTE_Plugin_DragHandle() {
             ".rte-drag-indicator{position:absolute;display:none;height:2px;background:#1474ea;" +
             "border-radius:1px;pointer-events:none;z-index:19;}" +
             ".rte-drag-active{cursor:grabbing;}" +
-            ".rte-drag-active *{cursor:grabbing !important;}"
+            ".rte-drag-active *{cursor:grabbing !important;}" +
+            ".rte-block-menu{position:absolute;z-index:50;min-width:150px;padding:4px;background:#fff;" +
+            "border:1px solid #cbd5e1;border-radius:8px;box-shadow:0 8px 24px rgba(15,23,42,.14);" +
+            "font:13px/1.2 system-ui,sans-serif;color:#0f172a;}" +
+            ".rte-block-menu-item{padding:6px 10px;border-radius:5px;cursor:pointer;white-space:nowrap;}" +
+            ".rte-block-menu-item:hover,.rte-block-menu-item:focus,.rte-block-menu-item.rte-block-menu-active{background:#e0e7ff;outline:none;}" +
+            ".rte-block-menu-disabled{color:#94a3b8;cursor:default;}" +
+            ".rte-block-menu-disabled:hover{background:none;}" +
+            ".rte-block-menu-separator{height:1px;margin:4px 6px;background:#e2e8f0;}" +
+            ".rte-block-menu-swatch{display:inline-block;width:12px;height:12px;margin-right:8px;vertical-align:-1px;border:1px solid rgba(0,0,0,.25);border-radius:3px;}" +
+            ".rte-block-menu-item[aria-checked=true]{font-weight:600;}" +
+            ".rte-block-menu-item[aria-checked]::before{content:'';display:inline-block;width:14px;}" +
+            ".rte-block-menu-item[aria-checked=true]::before{content:'\\2713';}"
         ));
         (doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement).appendChild(st);
         // A <style> ELEMENT is governed by style-src: under a strict policy the browser
@@ -27007,6 +29176,13 @@ function RTE_Plugin_EmailToolkit() {
     obj.PluginName = "EmailToolkit";
 
     obj.InitConfig = function (argconfig) { config = argconfig; };
+    // 2026-10-18 the words read config.text_ keys (language packs), English as the fallback; {0} / {1} fill a template.
+    // tools/i18n/plugin-bars-language.mjs
+    function pText(key, fallback) {
+        var s = (config && config["text_" + key]) || fallback;
+        for (var i = 2; i < arguments.length; i++) s = s.split("{" + (i - 2) + "}").join(String(arguments[i]));
+        return s;
+    }
 
     obj.InitEditor = function (argeditor) {
         editor = argeditor;
@@ -27096,12 +29272,19 @@ function RTE_Plugin_EmailToolkit() {
         var editable = editor.getEditable();
         var editdoc = editor.getDocument();
         var win = (editdoc && editdoc.defaultView) || window;
-        var container = editdoc.createElement("div");
-        for (var i = 0; i < editable.childNodes.length; i++) {
-            var c = cloneInlined(editable.childNodes[i], win);
-            if (c) container.appendChild(c);
-        }
-        var inner = container.innerHTML;
+        // 2026-10-03 Built inside editor.runInSavedView: the inlining needs the LIVE DOM (computed
+        // styles), and the live DOM carries other plugins' on-screen state - with merge-field preview
+        // on, the e-mail got the SAMPLE data ("Dear Ada Lovelace") instead of the template's fields.
+        // tools/markdown/plugin-chrome-exports.mjs
+        var build = function () {
+            var container = editdoc.createElement("div");
+            for (var i = 0; i < editable.childNodes.length; i++) {
+                var c = cloneInlined(editable.childNodes[i], win);
+                if (c) container.appendChild(c);
+            }
+            return container.innerHTML;
+        };
+        var inner = typeof editor.runInSavedView === "function" ? editor.runInSavedView(build) : build();
         var wrap = options.wrap !== false;
         if (!wrap) return inner;
         var width = options.width || config.emailWrapWidth || 640;
@@ -27119,30 +29302,30 @@ function RTE_Plugin_EmailToolkit() {
         var close = typeof dlg.close === "function" ? function () { dlg.close(); } : function () { editor.closeCurrentPopup(); };
         var wrap = append(dlg, "div", "", "rte-email-export");
         append(wrap, "div", "", "rte-email-export-copy").innerText =
-            "Inline-styled HTML for email clients (class/style blocks resolved to inline styles). Copy and paste into your email tool.";
+            pText("em_copy", "Inline-styled HTML for email clients (class/style blocks resolved to inline styles). Copy and paste into your email tool.");
         var ta = append(wrap, "textarea", "", "rte-email-export-code");
         ta.value = html;
         ta.readOnly = true;
-        ta.setAttribute("aria-label", "Inline-styled email HTML");
+        ta.setAttribute("aria-label", pText("em_code", "Inline-styled email HTML"));
         var status = append(wrap, "div", "", "rte-email-export-status");
         status.setAttribute("role", "status");
         status.setAttribute("aria-live", "polite");
-        status.textContent = "Ready to copy " + html.length + " characters.";
+        status.textContent = pText("em_ready", "Ready to copy {0} characters.", html.length);
         var foot = append(wrap, "div", "", "rte-email-export-footer");
         var copyBtn = append(foot, "button", "", "rte-email-export-button rte-email-export-button-primary");
-        copyBtn.type = "button"; copyBtn.textContent = "Copy";
+        copyBtn.type = "button"; copyBtn.textContent = pText("copy", "Copy");
         copyBtn.onclick = function () {
             ta.select();
             try {
                 if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(ta.value); }
                 else { dlg.ownerDocument.execCommand("copy"); }
-                copyBtn.textContent = "Copied";
-                status.textContent = "Copied email HTML to the clipboard.";
-                setTimeout(function () { copyBtn.textContent = "Copy"; status.textContent = "Ready to copy " + html.length + " characters."; }, 1400);
+                copyBtn.textContent = pText("em_copied", "Copied");
+                status.textContent = pText("em_copieddone", "Copied email HTML to the clipboard.");
+                setTimeout(function () { copyBtn.textContent = pText("copy", "Copy"); status.textContent = pText("em_ready", "Ready to copy {0} characters.", html.length); }, 1400);
             } catch (e) { /* ignore */ }
         };
         var closeBtn = append(foot, "button", "", "rte-email-export-button");
-        closeBtn.type = "button"; closeBtn.textContent = "Close"; closeBtn.onclick = close;
+        closeBtn.type = "button"; closeBtn.textContent = pText("close", "Close"); closeBtn.onclick = close;
         setTimeout(function () { ta.focus(); }, 0);
     };
 }
@@ -27161,61 +29344,61 @@ RTE_DefaultConfig.plugin_emojiautocomplete = RTE_Plugin_EmojiAutocomplete;
 RTE_DefaultConfig.emojiAutocompleteEnabled = (typeof RTE_DefaultConfig.emojiAutocompleteEnabled === "undefined")
     ? true : RTE_DefaultConfig.emojiAutocompleteEnabled;
 RTE_DefaultConfig.emojiShortcodes = RTE_DefaultConfig.emojiShortcodes || {
-    smile: "😄", smiley: "😃", grin: "😁", laughing: "😆", satisfied: "😆", joy: "😂", rofl: "🤣",
-    sweat_smile: "😅", wink: "😉", blush: "😊", innocent: "😇", heart_eyes: "😍", star_struck: "🤩",
-    kissing_heart: "😘", yum: "😋", stuck_out_tongue: "😛", zany: "🤪", thinking: "🤔", shush: "🤫",
-    neutral_face: "😐", expressionless: "😑", no_mouth: "😶", smirk: "😏", unamused: "😒", roll_eyes: "🙄",
-    grimacing: "😬", relieved: "😌", pensive: "😔", sleepy: "😪", sleeping: "😴", mask: "😷",
-    face_with_thermometer: "🤒", nauseated_face: "🤢", sneezing_face: "🤧", dizzy_face: "😵",
-    exploding_head: "🤯", cowboy: "🤠", sunglasses: "😎", nerd: "🤓", monocle: "🧐", confused: "😕",
-    worried: "😟", slightly_frowning_face: "🙁", open_mouth: "😮", astonished: "😲", flushed: "😳",
-    fearful: "😨", cold_sweat: "😰", cry: "😢", sob: "😭", scream: "😱", confounded: "😖", persevere: "😣",
-    disappointed: "😞", sweat: "😓", weary: "😩", tired_face: "😫", triumph: "😤", rage: "😡", angry: "😠",
-    cursing_face: "🤬", smiling_imp: "😈", imp: "👿", skull: "💀", poop: "💩", hankey: "💩", clown: "🤡",
-    ghost: "👻", alien: "👽", robot: "🤖", heart_eyes_cat: "😻", see_no_evil: "🙈", hear_no_evil: "🙉",
-    speak_no_evil: "🙊",
-    heart: "❤️", orange_heart: "🧡", yellow_heart: "💛", green_heart: "💚", blue_heart: "💙",
-    purple_heart: "💜", black_heart: "🖤", broken_heart: "💔", two_hearts: "💕", sparkling_heart: "💖",
-    heartpulse: "💗", cupid: "💘", gift_heart: "💝", revolving_hearts: "💞", kiss: "💋",
-    "+1": "👍", thumbsup: "👍", "-1": "👎", thumbsdown: "👎", ok_hand: "👌", punch: "👊", fist: "✊",
-    facepunch: "👊", wave: "👋", raised_hand: "✋", raised_hands: "🙌", pray: "🙏", clap: "👏",
-    muscle: "💪", point_up: "☝️", point_down: "👇", point_left: "👈", point_right: "👉", v: "✌️",
-    crossed_fingers: "🤞", handshake: "🤝", writing_hand: "✍️", selfie: "🤳", nail_care: "💅", eyes: "👀",
-    fire: "🔥", star: "⭐", star2: "🌟", sparkles: "✨", zap: "⚡", boom: "💥", collision: "💥",
-    dizzy: "💫", sweat_drops: "💦", droplet: "💧", snowflake: "❄️", sunny: "☀️", cloud: "☁️",
-    rainbow: "🌈", umbrella: "☔", ocean: "🌊", sun_with_face: "🌞", full_moon: "🌕", crescent_moon: "🌙",
-    tada: "🎉", confetti_ball: "🎊", balloon: "🎈", gift: "🎁", trophy: "🏆", medal: "🏅", crown: "👑",
-    gem: "💎", rocket: "🚀", airplane: "✈️", car: "🚗", rotating_light: "🚨",
-    "100": "💯", white_check_mark: "✅", heavy_check_mark: "✔️", ballot_box_with_check: "☑️", x: "❌",
-    warning: "⚠️", no_entry: "⛔", question: "❓", exclamation: "❗", bulb: "💡", lock: "🔒", key: "🔑",
-    mag: "🔍", bell: "🔔", recycle: "♻️", heavy_plus_sign: "➕", heavy_minus_sign: "➖",
-    coffee: "☕", tea: "🍵", beer: "🍺", beers: "🍻", wine_glass: "🍷", cocktail: "🍸", pizza: "🍕",
-    hamburger: "🍔", fries: "🍟", taco: "🌮", cake: "🎂", birthday: "🎂", cookie: "🍪", doughnut: "🍩",
-    apple: "🍎", banana: "🍌", strawberry: "🍓", avocado: "🥑", bread: "🍞", cheese: "🧀",
-    dog: "🐶", cat: "🐱", mouse: "🐭", rabbit: "🐰", bear: "🐻", panda_face: "🐼", koala: "🐨",
-    tiger: "🐯", lion: "🦁", cow: "🐮", pig: "🐷", frog: "🐸", monkey_face: "🐵", chicken: "🐔",
-    penguin: "🐧", bird: "🐦", unicorn: "🦄", bee: "🐝", bug: "🐛", butterfly: "🦋", snail: "🐌",
-    book: "📖", books: "📚", memo: "📝", pencil: "📝", email: "✉️", envelope: "✉️", calendar: "📅",
-    chart: "📊", bar_chart: "📊", chart_with_upwards_trend: "📈", clipboard: "📋", pushpin: "📌",
-    paperclip: "📎", scissors: "✂️", hammer: "🔨", wrench: "🔧", gear: "⚙️", nut_and_bolt: "🔩",
-    bomb: "💣", hourglass: "⌛", watch: "⌚", alarm_clock: "⏰", moneybag: "💰", dollar: "💵",
-    credit_card: "💳", chart_increasing: "📈", link: "🔗", mag_right: "🔎", telescope: "🔭",
-    microscope: "🔬", syringe: "💉", pill: "💊", phone: "📞", telephone: "📞", iphone: "📱",
-    computer: "💻", keyboard: "⌨️", printer: "🖨️", camera: "📷", movie_camera: "🎥", tv: "📺",
-    seedling: "🌱", evergreen_tree: "🌲", deciduous_tree: "🌳", palm_tree: "🌴", cactus: "🌵",
-    four_leaf_clover: "🍀", rose: "🌹", sunflower: "🌻", tulip: "🌷", blossom: "🌼", herb: "🌿",
-    musical_note: "🎵", notes: "🎶", microphone: "🎤", headphones: "🎧", guitar: "🎸", trumpet: "🎺",
-    soccer: "⚽", basketball: "🏀", football: "🏈", baseball: "⚾", tennis: "🎾", "8ball": "🎱",
-    dart: "🎯", video_game: "🎮", game_die: "🎲", trophy2: "🏆",
-    sos: "🆘", new: "🆕", ok: "🆗", up: "🆙", cool: "🆒", free: "🆓",
-    arrow_up: "⬆️", arrow_down: "⬇️", arrow_left: "⬅️", arrow_right: "➡️", arrow_forward: "▶️",
-    bangbang: "‼️", interrobang: "⁉️", grey_question: "❔", grey_exclamation: "❕"
+    smile: "\ud83d\ude04", smiley: "\ud83d\ude03", grin: "\ud83d\ude01", laughing: "\ud83d\ude06", satisfied: "\ud83d\ude06", joy: "\ud83d\ude02", rofl: "\ud83e\udd23",
+    sweat_smile: "\ud83d\ude05", wink: "\ud83d\ude09", blush: "\ud83d\ude0a", innocent: "\ud83d\ude07", heart_eyes: "\ud83d\ude0d", star_struck: "\ud83e\udd29",
+    kissing_heart: "\ud83d\ude18", yum: "\ud83d\ude0b", stuck_out_tongue: "\ud83d\ude1b", zany: "\ud83e\udd2a", thinking: "\ud83e\udd14", shush: "\ud83e\udd2b",
+    neutral_face: "\ud83d\ude10", expressionless: "\ud83d\ude11", no_mouth: "\ud83d\ude36", smirk: "\ud83d\ude0f", unamused: "\ud83d\ude12", roll_eyes: "\ud83d\ude44",
+    grimacing: "\ud83d\ude2c", relieved: "\ud83d\ude0c", pensive: "\ud83d\ude14", sleepy: "\ud83d\ude2a", sleeping: "\ud83d\ude34", mask: "\ud83d\ude37",
+    face_with_thermometer: "\ud83e\udd12", nauseated_face: "\ud83e\udd22", sneezing_face: "\ud83e\udd27", dizzy_face: "\ud83d\ude35",
+    exploding_head: "\ud83e\udd2f", cowboy: "\ud83e\udd20", sunglasses: "\ud83d\ude0e", nerd: "\ud83e\udd13", monocle: "\ud83e\uddd0", confused: "\ud83d\ude15",
+    worried: "\ud83d\ude1f", slightly_frowning_face: "\ud83d\ude41", open_mouth: "\ud83d\ude2e", astonished: "\ud83d\ude32", flushed: "\ud83d\ude33",
+    fearful: "\ud83d\ude28", cold_sweat: "\ud83d\ude30", cry: "\ud83d\ude22", sob: "\ud83d\ude2d", scream: "\ud83d\ude31", confounded: "\ud83d\ude16", persevere: "\ud83d\ude23",
+    disappointed: "\ud83d\ude1e", sweat: "\ud83d\ude13", weary: "\ud83d\ude29", tired_face: "\ud83d\ude2b", triumph: "\ud83d\ude24", rage: "\ud83d\ude21", angry: "\ud83d\ude20",
+    cursing_face: "\ud83e\udd2c", smiling_imp: "\ud83d\ude08", imp: "\ud83d\udc7f", skull: "\ud83d\udc80", poop: "\ud83d\udca9", hankey: "\ud83d\udca9", clown: "\ud83e\udd21",
+    ghost: "\ud83d\udc7b", alien: "\ud83d\udc7d", robot: "\ud83e\udd16", heart_eyes_cat: "\ud83d\ude3b", see_no_evil: "\ud83d\ude48", hear_no_evil: "\ud83d\ude49",
+    speak_no_evil: "\ud83d\ude4a",
+    heart: "\u2764\ufe0f", orange_heart: "\ud83e\udde1", yellow_heart: "\ud83d\udc9b", green_heart: "\ud83d\udc9a", blue_heart: "\ud83d\udc99",
+    purple_heart: "\ud83d\udc9c", black_heart: "\ud83d\udda4", broken_heart: "\ud83d\udc94", two_hearts: "\ud83d\udc95", sparkling_heart: "\ud83d\udc96",
+    heartpulse: "\ud83d\udc97", cupid: "\ud83d\udc98", gift_heart: "\ud83d\udc9d", revolving_hearts: "\ud83d\udc9e", kiss: "\ud83d\udc8b",
+    "+1": "\ud83d\udc4d", thumbsup: "\ud83d\udc4d", "-1": "\ud83d\udc4e", thumbsdown: "\ud83d\udc4e", ok_hand: "\ud83d\udc4c", punch: "\ud83d\udc4a", fist: "\u270a",
+    facepunch: "\ud83d\udc4a", wave: "\ud83d\udc4b", raised_hand: "\u270b", raised_hands: "\ud83d\ude4c", pray: "\ud83d\ude4f", clap: "\ud83d\udc4f",
+    muscle: "\ud83d\udcaa", point_up: "\u261d\ufe0f", point_down: "\ud83d\udc47", point_left: "\ud83d\udc48", point_right: "\ud83d\udc49", v: "\u270c\ufe0f",
+    crossed_fingers: "\ud83e\udd1e", handshake: "\ud83e\udd1d", writing_hand: "\u270d\ufe0f", selfie: "\ud83e\udd33", nail_care: "\ud83d\udc85", eyes: "\ud83d\udc40",
+    fire: "\ud83d\udd25", star: "\u2b50", star2: "\ud83c\udf1f", sparkles: "\u2728", zap: "\u26a1", boom: "\ud83d\udca5", collision: "\ud83d\udca5",
+    dizzy: "\ud83d\udcab", sweat_drops: "\ud83d\udca6", droplet: "\ud83d\udca7", snowflake: "\u2744\ufe0f", sunny: "\u2600\ufe0f", cloud: "\u2601\ufe0f",
+    rainbow: "\ud83c\udf08", umbrella: "\u2614", ocean: "\ud83c\udf0a", sun_with_face: "\ud83c\udf1e", full_moon: "\ud83c\udf15", crescent_moon: "\ud83c\udf19",
+    tada: "\ud83c\udf89", confetti_ball: "\ud83c\udf8a", balloon: "\ud83c\udf88", gift: "\ud83c\udf81", trophy: "\ud83c\udfc6", medal: "\ud83c\udfc5", crown: "\ud83d\udc51",
+    gem: "\ud83d\udc8e", rocket: "\ud83d\ude80", airplane: "\u2708\ufe0f", car: "\ud83d\ude97", rotating_light: "\ud83d\udea8",
+    "100": "\ud83d\udcaf", white_check_mark: "\u2705", heavy_check_mark: "\u2714\ufe0f", ballot_box_with_check: "\u2611\ufe0f", x: "\u274c",
+    warning: "\u26a0\ufe0f", no_entry: "\u26d4", question: "\u2753", exclamation: "\u2757", bulb: "\ud83d\udca1", lock: "\ud83d\udd12", key: "\ud83d\udd11",
+    mag: "\ud83d\udd0d", bell: "\ud83d\udd14", recycle: "\u267b\ufe0f", heavy_plus_sign: "\u2795", heavy_minus_sign: "\u2796",
+    coffee: "\u2615", tea: "\ud83c\udf75", beer: "\ud83c\udf7a", beers: "\ud83c\udf7b", wine_glass: "\ud83c\udf77", cocktail: "\ud83c\udf78", pizza: "\ud83c\udf55",
+    hamburger: "\ud83c\udf54", fries: "\ud83c\udf5f", taco: "\ud83c\udf2e", cake: "\ud83c\udf82", birthday: "\ud83c\udf82", cookie: "\ud83c\udf6a", doughnut: "\ud83c\udf69",
+    apple: "\ud83c\udf4e", banana: "\ud83c\udf4c", strawberry: "\ud83c\udf53", avocado: "\ud83e\udd51", bread: "\ud83c\udf5e", cheese: "\ud83e\uddc0",
+    dog: "\ud83d\udc36", cat: "\ud83d\udc31", mouse: "\ud83d\udc2d", rabbit: "\ud83d\udc30", bear: "\ud83d\udc3b", panda_face: "\ud83d\udc3c", koala: "\ud83d\udc28",
+    tiger: "\ud83d\udc2f", lion: "\ud83e\udd81", cow: "\ud83d\udc2e", pig: "\ud83d\udc37", frog: "\ud83d\udc38", monkey_face: "\ud83d\udc35", chicken: "\ud83d\udc14",
+    penguin: "\ud83d\udc27", bird: "\ud83d\udc26", unicorn: "\ud83e\udd84", bee: "\ud83d\udc1d", bug: "\ud83d\udc1b", butterfly: "\ud83e\udd8b", snail: "\ud83d\udc0c",
+    book: "\ud83d\udcd6", books: "\ud83d\udcda", memo: "\ud83d\udcdd", pencil: "\ud83d\udcdd", email: "\u2709\ufe0f", envelope: "\u2709\ufe0f", calendar: "\ud83d\udcc5",
+    chart: "\ud83d\udcca", bar_chart: "\ud83d\udcca", chart_with_upwards_trend: "\ud83d\udcc8", clipboard: "\ud83d\udccb", pushpin: "\ud83d\udccc",
+    paperclip: "\ud83d\udcce", scissors: "\u2702\ufe0f", hammer: "\ud83d\udd28", wrench: "\ud83d\udd27", gear: "\u2699\ufe0f", nut_and_bolt: "\ud83d\udd29",
+    bomb: "\ud83d\udca3", hourglass: "\u231b", watch: "\u231a", alarm_clock: "\u23f0", moneybag: "\ud83d\udcb0", dollar: "\ud83d\udcb5",
+    credit_card: "\ud83d\udcb3", chart_increasing: "\ud83d\udcc8", link: "\ud83d\udd17", mag_right: "\ud83d\udd0e", telescope: "\ud83d\udd2d",
+    microscope: "\ud83d\udd2c", syringe: "\ud83d\udc89", pill: "\ud83d\udc8a", phone: "\ud83d\udcde", telephone: "\ud83d\udcde", iphone: "\ud83d\udcf1",
+    computer: "\ud83d\udcbb", keyboard: "\u2328\ufe0f", printer: "\ud83d\udda8\ufe0f", camera: "\ud83d\udcf7", movie_camera: "\ud83c\udfa5", tv: "\ud83d\udcfa",
+    seedling: "\ud83c\udf31", evergreen_tree: "\ud83c\udf32", deciduous_tree: "\ud83c\udf33", palm_tree: "\ud83c\udf34", cactus: "\ud83c\udf35",
+    four_leaf_clover: "\ud83c\udf40", rose: "\ud83c\udf39", sunflower: "\ud83c\udf3b", tulip: "\ud83c\udf37", blossom: "\ud83c\udf3c", herb: "\ud83c\udf3f",
+    musical_note: "\ud83c\udfb5", notes: "\ud83c\udfb6", microphone: "\ud83c\udfa4", headphones: "\ud83c\udfa7", guitar: "\ud83c\udfb8", trumpet: "\ud83c\udfba",
+    soccer: "\u26bd", basketball: "\ud83c\udfc0", football: "\ud83c\udfc8", baseball: "\u26be", tennis: "\ud83c\udfbe", "8ball": "\ud83c\udfb1",
+    dart: "\ud83c\udfaf", video_game: "\ud83c\udfae", game_die: "\ud83c\udfb2", trophy2: "\ud83c\udfc6",
+    sos: "\ud83c\udd98", new: "\ud83c\udd95", ok: "\ud83c\udd97", up: "\ud83c\udd99", cool: "\ud83c\udd92", free: "\ud83c\udd93",
+    arrow_up: "\u2b06\ufe0f", arrow_down: "\u2b07\ufe0f", arrow_left: "\u2b05\ufe0f", arrow_right: "\u27a1\ufe0f", arrow_forward: "\u25b6\ufe0f",
+    bangbang: "\u203c\ufe0f", interrobang: "\u2049\ufe0f", grey_question: "\u2754", grey_exclamation: "\u2755"
 };
 
 function RTE_Plugin_EmojiAutocomplete() {
     var obj = this;
     var config, editor, editable, editdoc;
-    var pop = null, items = [], sel = 0, queryStart = -1, queryNode = null;
+    var pop = null, items = [], sel = 0, queryStart = -1, queryNode = null, lastFix = null;
 
     obj.PluginName = "EmojiAutocomplete";
 
@@ -27226,10 +29409,19 @@ function RTE_Plugin_EmojiAutocomplete() {
         editable = editor.getEditable();
         editdoc = editor.getDocument();
         if (!editable || !editdoc) return;
-        editdoc.addEventListener("input", onInput, false);
+        // 2026-10-03 Bound through editor.bindDocumentEvent, so the listeners follow the live document:
+        // shell plugins move the iframe during the init loop, and listeners added to editdoc here stayed
+        // on the dead document (this feature never fired). tools/keyboard/plugin-listeners.mjs
+        var on = function (type, fn, capture) {
+            if (editor.bindDocumentEvent) editor.bindDocumentEvent(type, fn, capture);
+            else editor.getDocument().addEventListener(type, fn, capture);
+        };
+        on("input", onInput, false);
         // keydown in capture so we intercept nav keys before the editor does.
-        editdoc.addEventListener("keydown", onKeyDown, true);
-        editdoc.addEventListener("blur", function () { setTimeout(closePopup, 150); }, true);
+        on("keydown", onKeyDown, true);
+        on("blur", function () { setTimeout(closePopup, 150); }, true);
+        // the references held above go stale with the document
+        editor.attachEvent("documentreplaced", function () { editable = editor.getEditable(); editdoc = editor.getDocument(); });
     };
 
     function map() { return config.emojiShortcodes || {}; }
@@ -27299,10 +29491,18 @@ function RTE_Plugin_EmojiAutocomplete() {
             pop = hostDoc.createElement("div");
             pop.className = "rte-emoji-pop";
             pop.setAttribute("role", "listbox");
-            pop.setAttribute("aria-label", "Emoji suggestions");
+            pop.setAttribute("aria-label", ((typeof config !== "undefined" && config && config.text_emoji_suggest) || "Emoji suggestions"));
             pop.style.cssText = "position:fixed;z-index:2147483600;";
             hostDoc.body.appendChild(pop);
         }
+        // 2026-10-17 appended to the page body, outside the editor, so rte-dark could not reach it: mirrored (and
+        // rte-auto-dark under a dark system setting). tools/emoji/emoji-autocomplete-dark.mjs
+        var popDark = false;
+        try {
+            var hk = editor.container && editor.container.classList;
+            popDark = !!hk && (hk.contains("rte-dark") || (hk.contains("rte-auto-dark") && !hk.contains("rte-light") && !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches)));
+        } catch (x) { popDark = false; }
+        pop.className = "rte-emoji-pop" + (popDark ? " rte-emoji-pop-dark" : "");
         pop.innerHTML = "";
         items.forEach(function (it, i) {
             var row = hostDoc.createElement("div");
@@ -27324,8 +29524,12 @@ function RTE_Plugin_EmojiAutocomplete() {
         // position near the caret (iframe rect + caret rect)
         try {
             var cr = range.getBoundingClientRect();
-            var fr = (editdoc.defaultView && editdoc.defaultView.frameElement) ? editdoc.defaultView.frameElement.getBoundingClientRect() : { left: 0, top: 0 };
-            var x = fr.left + cr.left, y = fr.top + cr.bottom + 4;
+            var fe = editdoc.defaultView && editdoc.defaultView.frameElement;
+            var fr = fe ? fe.getBoundingClientRect() : { left: 0, top: 0, width: 0 };
+            // the caret rect is in iframe pixels, which are scaled on screen inside a
+            // transform:scale() ancestor; the popup lives in the host body (viewport pixels)
+            var k = fe && fe.offsetWidth && fr.width > 0 ? fr.width / fe.offsetWidth : 1;
+            var x = fr.left + cr.left * k, y = fr.top + cr.bottom * k + 4;
             var vw = hostDoc.documentElement.clientWidth, vh = hostDoc.documentElement.clientHeight;
             pop.style.left = Math.max(4, Math.min(x, vw - 290)) + "px";
             pop.style.top = Math.max(4, Math.min(y, vh - 20)) + "px";
@@ -27343,6 +29547,15 @@ function RTE_Plugin_EmojiAutocomplete() {
     }
 
     function onKeyDown(e) {
+        // 2026-10-03 Ctrl/Cmd+Z straight after a conversion gives the typed shortcode back (":smile:"),
+        // as autocorrect does for its corrections - the editor's own undo would also take back the
+        // typing it was grouped with. Any other key forgets the conversion.
+        // tools/keyboard/emoji-autocomplete.mjs
+        if (lastFix) {
+            var isUndo = (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && (e.code === "KeyZ" || e.key === "z" || e.key === "Z");
+            if (isUndo && undoLastFix()) { e.preventDefault(); e.stopPropagation(); return; }
+            if (!/^(Control|Meta|Shift|Alt|CapsLock)$/.test(e.key)) lastFix = null;
+        }
         if (!pop || pop.style.display === "none" || !items.length) return;
         switch (e.key) {
             case "ArrowDown": e.preventDefault(); e.stopPropagation(); sel = (sel + 1) % items.length; highlightRows(); break;
@@ -27351,6 +29564,29 @@ function RTE_Plugin_EmojiAutocomplete() {
             case "Tab": e.preventDefault(); e.stopPropagation(); commit(); break;
             case "Escape": e.preventDefault(); e.stopPropagation(); closePopup(); break;
         }
+    }
+
+    // Put the typed shortcode back over the emoji the last conversion wrote - only while the caret is
+    // still right behind that emoji and the emoji is untouched.
+    function undoLastFix() {
+        var f = lastFix;
+        lastFix = null;
+        if (!f || !f.node.parentNode || f.node.data !== f.emo) return false;
+        var s = editor.getSelection();
+        if (!s || !s.rangeCount || !s.isCollapsed) return false;
+        var r = s.getRangeAt(0), here = r.startContainer, off = r.startOffset;
+        var behind = (here === f.node && off === f.node.data.length) ||
+            (here.nodeType === 3 && off === 0 && here.previousSibling === f.node) ||
+            (here === f.node.parentNode && here.childNodes[off - 1] === f.node);
+        if (!behind) return false;
+        f.node.data = f.typed;
+        var c = editor.getDocument().createRange();
+        c.setStart(f.node, f.typed.length);
+        c.collapse(true);
+        s.removeAllRanges();
+        s.addRange(c);
+        if (typeof editor.fireChange === "function") { try { editor.fireChange(); } catch (e) { /* ignore */ } }
+        return true;
     }
 
     function commit() {
@@ -27374,6 +29610,7 @@ function RTE_Plugin_EmojiAutocomplete() {
             var tailNode = tail ? editdoc.createTextNode(tail) : null;
             if (tailNode) frag.appendChild(tailNode);
             parent.replaceChild(frag, node);
+            lastFix = { node: emoNode, emo: text, typed: data.slice(start, end) };
             var rr = editdoc.createRange();
             if (tailNode) rr.setStart(tailNode, 0); else rr.setStartAfter(emoNode);
             rr.collapse(true);
@@ -27671,6 +29908,16 @@ function RTE_Plugin_Footnotes() {
         editable.addEventListener("keyup", queueSync);
         editable.addEventListener("cut", queueSync);
         editable.addEventListener("paste", queueSync);
+        // 2026-10-13 A marker can arrive after the events above ran: an asynchronous paste or drop inserts it on a later
+        // tick, after the sync those events queued had already run, and a fast or synthetic paste had no keystroke after
+        // it. The observer resyncs after any change to the document outside the notes section. tools/footnotes/footnote-marker-arrives.mjs
+        try {
+            if (syncObserver) syncObserver.disconnect();
+            syncObserver = new MutationObserver(function () {
+                if (!syncRunning) queueSync();
+            });
+            syncObserver.observe(editable, { childList: true, subtree: true, characterData: true });
+        } catch (e) { /* no observer: the events above still resync */ }
         editable.addEventListener("drop", queueSync);
         // Clicking a marker jumps to its note, and clicking the backlink returns.
         editable.addEventListener("click", function (e) {
@@ -27689,10 +29936,21 @@ function RTE_Plugin_Footnotes() {
     // Coalesce bursts of edits into one renumber. setTimeout, not rAF: the
     // editor may live in a background tab or a hidden iframe, where rAF never
     // fires and the numbering would silently stop updating.
+    // 2026-10-13 runSync is the only place the queued renumber runs. The observer's own records from the sync are
+    // dropped, so the renumber does not queue itself again.
+    var syncObserver = null, syncRunning = false;
+    function runSync() {
+        syncRunning = true;
+        try { syncFootnotes(); }
+        finally {
+            if (syncObserver) { try { syncObserver.takeRecords(); } catch (e) { } }
+            syncRunning = false;
+        }
+    }
     function queueSync() {
         if (syncQueued) return;
         syncQueued = true;
-        setTimeout(function () { syncQueued = false; syncFootnotes(); }, 0);
+        setTimeout(function () { syncQueued = false; runSync(); }, 0);
     }
 
     function closestClass(node, cls, root) {
@@ -27790,7 +30048,7 @@ function RTE_Plugin_Footnotes() {
         back.setAttribute("data-fn-id", id);
         back.setAttribute("href", "#fnref-" + id);
         back.setAttribute("contenteditable", "false");
-        back.setAttribute("title", "Back to reference");
+        back.setAttribute("title", ((typeof config !== "undefined" && config && config.text_fn_backref) || "Back to reference"));
         back.textContent = "\u21a9";
         li.appendChild(back);
         note.appendChild(li);
@@ -27845,6 +30103,7 @@ function RTE_Plugin_Footnotes() {
         if (!list.length) {
             // Last marker went away: drop the section rather than leaving an
             // empty "Footnotes" heading in the saved HTML.
+            if (sec) keepNotes(sec.querySelectorAll("li.rte-fn-note"));
             if (sec && sec.parentNode) sec.parentNode.removeChild(sec);
             return [];
         }
@@ -27860,7 +30119,9 @@ function RTE_Plugin_Footnotes() {
             var id = ref.getAttribute("data-fn-id");
             // A copy/paste of a marker duplicates its id; re-key the duplicate so
             // the two markers do not fight over one note.
+            var dupOf = null;
             if (seen[id]) {
+                dupOf = id;
                 var fresh = newId();
                 ref.setAttribute("data-fn-id", fresh);
                 ref.setAttribute("id", "fnref-" + fresh);
@@ -27876,14 +30137,7 @@ function RTE_Plugin_Footnotes() {
             if (ref.getAttribute("id") !== "fnref-" + id) ref.setAttribute("id", "fnref-" + id);
 
             var note = ol.querySelector('li.rte-fn-note[data-fn-id="' + cssEscape(id) + '"]');
-            if (!note) {
-                // Marker with no note — a paste from elsewhere, or a note the
-                // user deleted by hand. Give it an empty note to write into.
-                note = doc.createElement("li");
-                note.className = "rte-fn-note";
-                note.setAttribute("data-fn-id", id);
-                note.setAttribute("id", "fn-" + id);
-            }
+            if (!note) note = noteFor(doc, ol, id, dupOf);
             note.setAttribute("data-fn-number", num);
             // Append in marker order — this both inserts new notes and re-sorts
             // existing ones to match a reordered document.
@@ -27894,13 +30148,50 @@ function RTE_Plugin_Footnotes() {
         // Drop notes whose marker is gone.
         var notes = Array.prototype.slice.call(ol.querySelectorAll("li.rte-fn-note"));
         for (var j = 0; j < notes.length; j++) {
-            if (!seen[notes[j].getAttribute("data-fn-id")]) ol.removeChild(notes[j]);
+            if (!seen[notes[j].getAttribute("data-fn-id")]) { keepNotes([notes[j]]); ol.removeChild(notes[j]); }
         }
 
         if (ol.getAttribute("data-numbering") !== config.footnotesNumbering) {
             ol.setAttribute("data-numbering", config.footnotesNumbering);
         }
         return out;
+    }
+
+    // 2026-10-03 A note is KEPT when its marker goes, so a marker that comes back - cut + paste, a
+    // drag - gets its text back; and a copied marker gets a copy of its note, as in Word. The pass
+    // deleted the note and gave the returning marker an EMPTY one: cutting "Beta.[2]" and pasting
+    // it earlier renumbered correctly but lost "note B" for good. Kept for the editor's lifetime,
+    // keyed by footnote id. tools/footnotes/footnotes-move.mjs
+    var keptNotes = {};
+    function keepNotes(list) {
+        for (var i = 0; i < list.length; i++) {
+            var id = list[i].getAttribute("data-fn-id");
+            if (id) keptNotes[id] = list[i];
+        }
+    }
+    function noteFor(doc, ol, id, dupOf) {
+        var note = keptNotes[id];
+        if (note) {
+            delete keptNotes[id];
+            return note;
+        }
+        var src = dupOf ? (ol.querySelector('li.rte-fn-note[data-fn-id="' + cssEscape(dupOf) + '"]') || keptNotes[dupOf]) : null;
+        if (src) {
+            note = src.cloneNode(true);
+            var backs = note.querySelectorAll("a.rte-fn-back");
+            for (var i = 0; i < backs.length; i++) {
+                backs[i].setAttribute("data-fn-id", id);
+                backs[i].setAttribute("href", "#fnref-" + id);
+            }
+        } else {
+            // Marker with no note anywhere - a paste from another document, or a note the user
+            // deleted by hand. Give it an empty note to write into.
+            note = doc.createElement("li");
+            note.className = "rte-fn-note";
+        }
+        note.setAttribute("data-fn-id", id);
+        note.setAttribute("id", "fn-" + id);
+        return note;
     }
 
     // Read the WHOLE <li> minus the backlink rather than one designated child.
@@ -28052,6 +30343,16 @@ function RTE_Plugin_FormatPainter() {
         editor.cancelFormatPainter = function () { return obj.Cancel(); };
         editor.isFormatPainterActive = function () { return !!captured; };
         editor.getCapturedFormatting = function () { return captured ? cloneProps(captured.props) : null; };
+
+        // 2026-10-17 Ctrl/Cmd+Alt+C copies the selection's formatting and Ctrl/Cmd+Alt+V applies it, as in Google Docs. A key
+        // that reports a character other than c / v is AltGr typing (Ctrl+Alt on Windows) and is left alone.
+        // tools/keyboard/format-case-keys.mjs
+        (editor.bindDocumentEvent ? function (fn) { editor.bindDocumentEvent("keydown", fn, true); } : function (fn) { editor.getDocument().addEventListener("keydown", fn, true); })(function (e) {
+            if (!(e.ctrlKey || e.metaKey) || !e.altKey || e.shiftKey) return;
+            var k = e.key;
+            if (k === "c" || k === "C") { e.preventDefault(); obj.Copy(); }
+            else if (k === "v" || k === "V") { if (!captured) return; e.preventDefault(); obj.Paint(); }
+        });
     };
 
     function setup() {
@@ -28327,11 +30628,11 @@ function RTE_Plugin_FormattingMarks() {
     // differently. These are what people are actually hunting when they turn
     // formatting marks on after pasting from somewhere else.
     var INVISIBLES = [
-        { ch: " ", cls: "rte-fm-nbsp",  label: "·" },   // non-breaking space
-        { ch: "​", cls: "rte-fm-zwsp",  label: "␀" },   // zero-width space
-        { ch: "‎", cls: "rte-fm-bidi",  label: "‎" },   // LTR mark
-        { ch: "‏", cls: "rte-fm-bidi",  label: "‏" },   // RTL mark
-        { ch: "­", cls: "rte-fm-shy",   label: "-" }         // soft hyphen
+        { ch: "\xa0", cls: "rte-fm-nbsp",  label: "\xb7" },   // non-breaking space
+        { ch: "\u200b", cls: "rte-fm-zwsp",  label: "\u2400" },   // zero-width space
+        { ch: "\u200e", cls: "rte-fm-bidi",  label: "\u200e" },   // LTR mark
+        { ch: "\u200f", cls: "rte-fm-bidi",  label: "\u200f" },   // RTL mark
+        { ch: "\xad", cls: "rte-fm-shy",   label: "-" }         // soft hyphen
     ];
 
     obj.PluginName = "FormattingMarks";
@@ -28440,22 +30741,67 @@ function RTE_Plugin_FormattingMarks() {
         // may be deliberate.
         if (parent.nodeName === "CODE" || parent.nodeName === "PRE") return;
 
+        // Replacing the text node moves a caret inside it to the node's old place in its
+        // parent - usually the paragraph start. This runs on every keyup, and the first
+        // space typed at a line end is always a non-breaking one, so with marks on every
+        // later character landed at the start, reversed: " edited" became "detide".
+        // Remember where the selection was inside this node and put it back.
+        var sel = doc.getSelection ? doc.getSelection() : null;
+        var range = sel && sel.rangeCount ? sel.getRangeAt(0) : null;
+        var keepStart = range && range.startContainer === node ? range.startOffset : -1;
+        var keepEnd = range && range.endContainer === node ? range.endOffset : -1;
+
         var frag = doc.createDocumentFragment();
+        var pieces = [];   // in order: { node, marker } - every marker stands for ONE character
         var buf = "";
         for (var i = 0; i < text.length; i++) {
             var def = chars[text[i]];
+            // A space typed at a line end is inserted as a non-breaking placeholder that the
+            // browser turns back into a space when the next character arrives. Wrapped in a
+            // non-editable marker it never could, and saved as a hard &nbsp;. Leave the one
+            // right before the caret alone; it is marked once the caret moves on.
+            if (def && text[i] === "\xa0" && i === keepStart - 1 && keepStart === keepEnd) def = null;
             if (!def) { buf += text[i]; continue; }
-            if (buf) { frag.appendChild(doc.createTextNode(buf)); buf = ""; }
+            if (buf) { pieces.push({ node: frag.appendChild(doc.createTextNode(buf)), marker: false }); buf = ""; }
             var span = doc.createElement("span");
             span.setAttribute("data-rte-fm", "1");
             span.setAttribute("data-rte-fm-char", text[i]);
             span.className = def.cls;
             span.setAttribute("contenteditable", "false");
             span.textContent = def.label;
-            frag.appendChild(span);
+            pieces.push({ node: frag.appendChild(span), marker: true });
         }
-        if (buf) frag.appendChild(doc.createTextNode(buf));
+        if (buf) pieces.push({ node: frag.appendChild(doc.createTextNode(buf)), marker: false });
         parent.replaceChild(frag, node);
+
+        if (keepStart < 0 && keepEnd < 0) return;
+        // Offset k in the old text -> a point in the pieces. Inside text where possible;
+        // never inside a marker (it is not editable): just before or after it.
+        function pointAt(k) {
+            var pos = 0;
+            for (var p = 0; p < pieces.length; p++) {
+                var piece = pieces[p];
+                if (piece.marker) {
+                    if (k <= pos) return { node: parent, offset: Array.prototype.indexOf.call(parent.childNodes, piece.node) };
+                    pos += 1;
+                } else {
+                    var len = piece.node.nodeValue.length;
+                    if (k <= pos + len) return { node: piece.node, offset: k - pos };
+                    pos += len;
+                }
+            }
+            var last = pieces[pieces.length - 1].node;
+            return { node: parent, offset: Array.prototype.indexOf.call(parent.childNodes, last) + 1 };
+        }
+        try {
+            var r = doc.createRange();
+            var a = pointAt(keepStart >= 0 ? keepStart : 0);
+            var b = keepEnd >= 0 ? pointAt(keepEnd) : a;
+            if (keepStart < 0) { r.setStart(range.startContainer, range.startOffset); } else r.setStart(a.node, a.offset);
+            if (keepEnd < 0) { r.setEnd(range.endContainer, range.endOffset); } else r.setEnd(b.node, b.offset);
+            sel.removeAllRanges();
+            sel.addRange(r);
+        } catch (e) { /* a selection we cannot restore is no reason to lose the marks */ }
     }
 
     // ---- serialization safety -------------------------------------------
@@ -28683,6 +31029,9 @@ function RTE_Plugin_GapCursor() {
         var ed = getEditable();
         var doc = getDoc();
         if (!ed || !doc) return null;
+        // 2026-10-14 Suggesting mode: an empty paragraph is not tracked yet, so the track hook refuses it.
+        // tools/review/suggesting-structure-audit.mjs
+        if (editor.__trackHook && editor.__trackHook("insert-block", {}) === true) return null;
         // Resolve against the hint-free list, then insert relative to that node.
         hideHint();
         var p = makeParagraph(doc);
@@ -28697,6 +31046,8 @@ function RTE_Plugin_GapCursor() {
         var ed = getEditable();
         var doc = getDoc();
         if (!ed || !doc || !el) return null;
+        // 2026-10-14 Suggesting mode: an empty paragraph is not tracked yet, so the track hook refuses it.
+        if (editor.__trackHook && editor.__trackHook("insert-block", {}) === true) return null;
         var p = makeParagraph(doc);
         if (after) el.parentNode.insertBefore(p, el.nextSibling);
         else el.parentNode.insertBefore(p, el);
@@ -28728,8 +31079,60 @@ function RTE_Plugin_GapCursor() {
         return (n && n.parentNode === ed) ? n : null;
     }
 
+    // 2026-10-03 Is the caret at the edge of a block it can be INSIDE (table, code block, figure)?
+    // Atomic blocks (rule, image, embed) hold no caret, so they always count as the edge.
+    // vertical: the first/last row (tables) and the first/last visual line; otherwise the very
+    // first/last character position. tools/keyboard/gapcursor-edges.mjs
+    function caretAtEdge(block, range, forward, vertical) {
+        if (!/^(TABLE|PRE|FIGURE)$/.test(block.nodeName)) return true;
+        var scope = block;
+        if (block.nodeName === "TABLE") {
+            var cell = range.startContainer;
+            while (cell && cell !== block && !/^(TD|TH)$/.test(cell.nodeName)) cell = cell.parentNode;
+            var rows = block.rows;
+            if (!cell || cell === block || !rows || !rows.length) return true;
+            var edgeRow = forward ? rows[rows.length - 1] : rows[0];
+            if (vertical) {
+                if (cell.parentNode !== edgeRow) return false;
+            } else {
+                var edgeCell = forward ? edgeRow.cells[edgeRow.cells.length - 1] : edgeRow.cells[0];
+                if (cell !== edgeCell) return false;
+            }
+            scope = cell;
+        }
+        var doc = scope.ownerDocument;
+        if (vertical) {
+            var rc = null;
+            try {
+                var rects = range.getClientRects();
+                rc = rects && rects.length ? rects[0] : null;
+                if (!rc || !rc.height) {
+                    var n = range.startContainer.nodeType === 3 ? range.startContainer.parentNode : range.startContainer;
+                    rc = n && n.getBoundingClientRect ? n.getBoundingClientRect() : null;
+                }
+            } catch (er) { rc = null; }
+            if (!rc || !rc.height) return true;
+            var sr = scope.getBoundingClientRect();
+            var lh = Math.max(rc.height, 12);
+            return forward ? (sr.bottom - rc.bottom < lh) : (rc.top - sr.top < lh);
+        }
+        var r = doc.createRange();
+        if (forward) { r.setStart(range.endContainer, range.endOffset); r.setEnd(scope, scope.childNodes.length); }
+        else { r.setStart(scope, 0); r.setEnd(range.startContainer, range.startOffset); }
+        if (r.toString().replace(/\u200b/g, "") !== "") return false;
+        // a line break or an object between the caret and the edge is still a position to travel to
+        // (a filler <br> as the scope's last child is not)
+        var objs = r.cloneContents().querySelectorAll("br,img,hr,video,iframe,svg,canvas");
+        for (var i = 0; i < objs.length; i++) if (!(forward && objs[i].nodeName === "BR" && i === objs.length - 1 && scope.lastChild && scope.lastChild.nodeName === "BR")) return false;
+        return true;
+    }
+
     function onKeyDown(e) {
         var key = e.key;
+        // 2026-10-02 A modified arrow is not caret travel: Alt+Up / Alt+Down move the block (or the
+        // table row), Shift+Arrow extends the selection - neither may insert a gap paragraph above or
+        // below a table at the document edge. tools/keyboard/move-block.mjs
+        if (e.altKey || e.shiftKey || e.ctrlKey || e.metaKey) return;
         var forward = (key === "ArrowDown" || key === "ArrowRight" || key === "End" || key === "PageDown");
         var back = (key === "ArrowUp" || key === "ArrowLeft" || key === "Home" || key === "PageUp");
         if (!forward && !back) return;
@@ -28745,6 +31148,9 @@ function RTE_Plugin_GapCursor() {
         var kids = blocks();
         var index = kids.indexOf(block);
         if (index < 0) return;
+        // Only from the block's EDGE in that direction: inside a table or code block the key must
+        // first travel there (Home in any cell, or ArrowUp from row 2, used to jump out of the table).
+        if (!caretAtEdge(block, sel.getRangeAt(0), forward, key === "ArrowUp" || key === "ArrowDown" || key === "PageUp" || key === "PageDown")) return;
 
         if (forward) {
             var next = kids[index + 1];
@@ -29165,7 +31571,7 @@ function RTE_Plugin_GhostComplete() {
             var tip = (host.ownerDocument || document).createElement("div");
             tip.className = "rte-ghost-hint";
             tip.setAttribute("role", "status");
-            tip.textContent = "AI completion isn't configured — supply config.ghostTextResolver (or editor.setGhostTextResolver) to enable inline suggestions.";
+            tip.textContent = "AI completion isn't configured \u2014 supply config.ghostTextResolver (or editor.setGhostTextResolver) to enable inline suggestions.";
             tip.style.cssText = "position:absolute;left:50%;bottom:12px;transform:translateX(-50%);z-index:20;" +
                 "max-width:90%;padding:7px 14px;border-radius:8px;background:#1f2937;color:#f9fafb;" +
                 "font:12px/1.5 -apple-system,Segoe UI,sans-serif;box-shadow:0 4px 14px rgba(0,0,0,.25);pointer-events:none";
@@ -29453,7 +31859,7 @@ function RTE_Plugin_Html2PDF() {
 					imglink.setAttribute("href", imgurl);
 					imglink.setAttribute("target", "_blank");
 					imglink.download = "Export-" + ymd + "-" + hms + ".jpg";
-					imglink.innerText = "Download Img";
+					imglink.innerText = ((typeof config !== "undefined" && config && config.text_pdf_dlimg) || "Download Img");
 
 					//dialoginner.close();
 
@@ -29503,6 +31909,12 @@ function RTE_Plugin_ImageEditor() {
 
 	obj.PluginName = "ImageEditor";
 
+	// 2026-10-18 the words read config.text_ keys (language packs), English as the fallback; {0} fills a template.
+	// tools/i18n/plugin-panels-language.mjs
+	function pText(key, fallback, arg) {
+	    var s = (config && config["text_" + key]) || fallback;
+	    return arg === undefined ? s : s.split("{0}").join(String(arg));
+	}
 	obj.InitConfig = function (argconfig) {
 		config = argconfig;
 	}
@@ -29572,7 +31984,7 @@ function RTE_Plugin_ImageEditor() {
 		if (!img)
 			return;
 
-		var dialoginner = editor.createDialog("ImageEditor", "rte-dialog-imageeditor");
+		var dialoginner = editor.createDialog(pText("ie_title", "Image editor"), "rte-dialog-imageeditor");
 
 		dialoginner.style.width = "90%";
 		dialoginner.style.height = "90%";
@@ -29642,14 +32054,14 @@ function RTE_Plugin_ImageEditor() {
 			var btns = win.document.querySelector('.tui-image-editor-header-buttons');
 			btns.innerHTML = '';
 			var savebtn = __Append(btns, "button", "");
-			savebtn.innerText = "Save";
+			savebtn.innerText = pText("ie_save", "Save");
 			var status = __Append(btns, "div", "margin-left:10px;font-size:12px;color:#b42318;", "rte-imageeditor-upload-status");
 			status.setAttribute("role", "status");
 			status.setAttribute("aria-live", "polite");
 			savebtn.onclick = function () {
 				status.innerText = "";
 				savebtn.disabled = true;
-				savebtn.innerText = "Saving...";
+				savebtn.innerText = pText("ie_saving", "Saving...");
 
 				var dataurl = imgeditor.toDataURL();
 				var uploadHandler = config.file_upload_handler || window.rte_file_upload_handler;
@@ -29670,13 +32082,13 @@ function RTE_Plugin_ImageEditor() {
 						return;
 					}
 					savebtn.disabled = false;
-					savebtn.innerText = "Save";
+					savebtn.innerText = pText("ie_save", "Save");
 					// Show what the server actually said. Blaming the connection sent
 					// people chasing a network problem when the real answer was a
 					// rejected file type or a size limit.
 					status.innerText = error
-						? ("Upload failed: " + error)
-						: "The upload did not return a file URL. Please try again.";
+						? pText("ie_uploadfailed", "Upload failed: {0}", error)
+						: pText("ie_nourl", "The upload did not return a file URL. Please try again.");
 				});
 
 
@@ -29997,7 +32409,7 @@ function RTE_Plugin_ImportStyles() {
         for (var key2 in truncated) if (truncated.hasOwnProperty(key2)) dropped += truncated[key2];
         if (dropped) {
             try {
-                console.warn("[RichTextEditor] importStyles: " + dropped + " class(es) omitted — " +
+                console.warn("[RichTextEditor] importStyles: " + dropped + " class(es) omitted \u2014 " +
                     "importStylesLimit is " + limit + " per dropdown. Raise the limit or narrow " +
                     "importStylesSheets / importStylesFilter.");
             } catch (e) {}
@@ -30258,7 +32670,10 @@ function RTE_Plugin_InlineCode() {
         if (!range) return false;
         if (!editable.contains(range.startContainer)) return false;
 
+        // 2026-10-04 a caret is put back at its place in the word afterwards
+        var caretNode = range.collapsed ? range.startContainer : null, caretOff = range.startOffset, wordStart = 0;
         if (range.collapsed && !expandToWord(range)) return false;
+        if (caretNode) wordStart = range.startOffset;
 
         var nodes = selectedTextNodes(doc, range, editable);
         if (!nodes.length) return false;
@@ -30282,6 +32697,28 @@ function RTE_Plugin_InlineCode() {
             mergeAdjacent(editable);
         }
 
+        // 2026-10-04 The text stays selected (CKEditor Code). Wrapping/unwrapping moved the text nodes and
+        // dropped the selection - all of it in one paragraph, the first half across two - so a second
+        // press did nothing or un-coded only half. tools/formatting/inline-code-selection.mjs
+        try {
+            var first = nodes[0], last = nodes[nodes.length - 1];
+            if (editable.contains(first) && editable.contains(last)) {
+                var nr = doc.createRange();
+                if (caretNode) {
+                    // the word was split at its start, so the caret's offset is relative to it
+                    var at = caretNode === first ? caretOff : caretOff - wordStart;
+                    nr.setStart(first, Math.max(0, Math.min(at, first.data.length)));
+                    nr.collapse(true);
+                }
+                else {
+                    nr.setStart(first, 0);
+                    nr.setEnd(last, last.data.length);
+                }
+                var sel = doc.getSelection();
+                sel.removeAllRanges();
+                sel.addRange(nr);
+            }
+        } catch (e) { }
         try { editor.updateToolbarStatus && editor.updateToolbarStatus(); } catch (e) { }
         return true;
     };
@@ -30506,6 +32943,12 @@ function RTE_Plugin_InsertCode() {
 
 	obj.PluginName = "InsertCode";
 
+	// 2026-10-18 the words read config.text_ keys (language packs), English as the fallback; {0} fills a template.
+	// tools/i18n/plugin-panels-language.mjs
+	function pText(key, fallback, arg) {
+	    var s = (config && config["text_" + key]) || fallback;
+	    return arg === undefined ? s : s.split("{0}").join(String(arg));
+	}
 	obj.InitConfig = function (argconfig) {
 		config = argconfig;
 	}
@@ -30568,6 +33011,12 @@ function RTE_Plugin_InsertCode() {
 		// place the block between the halves, which round-trips byte-stable.
 		function insertCodeBlock(html) {
 			if (!restoreCaret()) return false;
+			// 2026-10-14 Suggesting mode: the block goes in through insertHTML, which records it as a suggested
+			// insertion; the direct DOM insert below would add it untracked. tools/review/code-block-suggesting.mjs
+			if (editor.trackedChanges && typeof editor.trackedChanges.isEnabled === "function" && editor.trackedChanges.isEnabled()) {
+				editor.insertHTML(html);
+				return true;
+			}
 			var edoc = editor.getDocument();
 			var esel = edoc.defaultView.getSelection();
 			if (!esel || !esel.rangeCount) return false;
@@ -30606,10 +33055,15 @@ function RTE_Plugin_InsertCode() {
 		var dialoginner = editor.createDialog(editor.getLangText("insertcode"), "rte-dialog-insertcode");
 
 		var div2 = __Append(dialoginner, "div", "position:relative;text-align:center;");
-		__Append(div2, "label").innerText = editor.getLangText("language") + ":";
+		// 2026-10-15 the label is tied to the list and the code box has a name; both were unnamed to a screen reader
+		// (axe: select-name, label; WCAG 4.1.2). tools/a11y/dialog-axe.mjs
+		var lbl_lang = __Append(div2, "label");
+		lbl_lang.innerText = editor.getLangText("language") + ":";
 		var sel_lang = __Append(div2, "select", "width:200px;");
+		sel_lang.id = "rte-insertcode-lang-" + new Date().getTime();
+		lbl_lang.htmlFor = sel_lang.id;
 
-		sel_lang.options.add(new Option("Plain Text", ""));
+		sel_lang.options.add(new Option(pText("cd_plaintext", "Plain Text"), ""));
 
 		for (var brush in dp.sh.Brushes) {
 			var aliases = dp.sh.Brushes[brush].Aliases;
@@ -30626,11 +33080,12 @@ function RTE_Plugin_InsertCode() {
 
 		var div1 = __Append(dialoginner, "div", "position:relative;text-align:center;");
 		var textarea = __Append(div1, "textarea", "width:100%;min-width:300px;height:200px")
+		textarea.setAttribute("aria-label", pText("cd_code", "Code"));
 
 		var divfooter = __Append(dialoginner, "rte-dialog-footer", null, "rte-dialog-footer-center");
 
 		var btn = __Append(divfooter, "rte-dialog-button")
-		btn.innerText = "Insert";
+		btn.innerText = pText("insert", "Insert");
 
 		setTimeout(function () {
 			textarea.focus();
@@ -30711,7 +33166,53 @@ function RTE_Plugin_InsertEmoji() {
 
 
 	var groupnames = ["smileys", "people", "animals", "food", "travel", "activities", "objects", "symbols"]
-	var emojistrs = ["😀#grinning face|😃#grinning face with big eyes|😄#grinning face with smiling eyes|😁#beaming face with smiling eyes|😆#grinning squinting face|😅#grinning face with sweat|🤣#rolling on the floor laughing|😂#face with tears of joy|🙂#slightly smiling face|🙃#upside-down face|😉#winking face|😊#smiling face with smiling eyes|😇#smiling face with halo|😍#smiling face with heart-eyes|🤩#star-struck|😘#face blowing a kiss|😗#kissing face|😚#kissing face with closed eyes|😙#kissing face with smiling eyes|😋#face savoring food|😛#face with tongue|😜#winking face with tongue|🤪#zany face|😝#squinting face with tongue|🤑#money-mouth face|🤗#hugging face|🤭#face with hand over mouth|🤫#shushing face|🤔#thinking face|🤐#zipper-mouth face|🤨#face with raised eyebrow|😐#neutral face|😑#expressionless face|😶#face without mouth|😏#smirking face|😒#unamused face|🙄#face with rolling eyes|😬#grimacing face|🤥#lying face|😌#relieved face|😔#pensive face|😪#sleepy face|🤤#drooling face|😴#sleeping face|😷#face with medical mask|🤒#face with thermometer|🤕#face with head-bandage|🤢#nauseated face|🤮#face vomiting|🤧#sneezing face|😵#dizzy face|🤯#exploding head|🤠#cowboy hat face|😎#smiling face with sunglasses|🤓#nerd face|🧐#face with monocle|😕#confused face|😟#worried face|🙁#slightly frowning face|☹️#frowning face|😮#face with open mouth|😯#hushed face|😲#astonished face|😳#flushed face|😦#frowning face with open mouth|😧#anguished face|😨#fearful face|😰#anxious face with sweat|😥#sad but relieved face|😢#crying face|😭#loudly crying face|😱#face screaming in fear|😖#confounded face|😣#persevering face|😞#disappointed face|😓#downcast face with sweat|😩#weary face|😫#tired face|😤#face with steam from nose|😡#pouting face|😠#angry face|🤬#face with symbols on mouth|😈#smiling face with horns|👿#angry face with horns|💀#skull|☠️#skull and crossbones|💩#pile of poo|🤡#clown face|👹#ogre|👺#goblin|👻#ghost|👽#alien|👾#alien monster|🤖#robot|😺#grinning cat|😸#grinning cat with smiling eyes|😹#cat with tears of joy|😻#smiling cat with heart-eyes|😼#cat with wry smile|😽#kissing cat|🙀#weary cat|😿#crying cat|😾#pouting cat|🙈#see-no-evil monkey|🙉#hear-no-evil monkey|🙊#speak-no-evil monkey|💋#kiss mark|💌#love letter|💘#heart with arrow|💝#heart with ribbon|💖#sparkling heart|💗#growing heart|💓#beating heart|💞#revolving hearts|💕#two hearts|💟#heart decoration|❣️#heart exclamation|💔#broken heart|❤️#red heart|🧡#orange heart|💛#yellow heart|💚#green heart|💙#blue heart|💜#purple heart|🖤#black heart|💯#hundred points|💢#anger symbol|💥#collision|💫#dizzy|💦#sweat droplets|💨#dashing away|💣#bomb|💬#speech balloon|💭#thought balloon|💤#zzz", "👋#waving hand|🤚#raised back of hand|✋#raised hand|🖖#vulcan salute|👌#OK hand|✌️#victory hand|🤞#crossed fingers|🤟#love-you gesture|🤘#sign of the horns|🤙#call me hand|👈#backhand index pointing left|👉#backhand index pointing right|👆#backhand index pointing up|🖕#middle finger|👇#backhand index pointing down|☝️#index pointing up|👍#thumbs up|👎#thumbs down|✊#raised fist|👊#oncoming fist|🤛#left-facing fist|🤜#right-facing fist|👏#clapping hands|🙌#raising hands|👐#open hands|🤲#palms up together|🤝#handshake|🙏#folded hands|✍️#writing hand|💅#nail polish|🤳#selfie|💪#flexed biceps|👂#ear|👃#nose|🧠#brain|👀#eyes|👅#tongue|👄#mouth|👶#baby|🧒#child|👦#boy|👧#girl|🧑#person|👱#person with blond hair|👨#man|🧔#man with beard|👩#woman|🧓#older person|👴#old man|👵#old woman|🙍#person frowning|🙎#person pouting|🙅#person gesturing NO|🙆#person gesturing OK|💁#person tipping hand|🙋#person raising hand|🙇#person bowing|🤦#person facepalming|🤷#person shrugging|👮#police officer|💂#guard|👷#construction worker|🤴#prince|👸#princess|👳#person wearing turban|👲#person with skullcap|🧕#woman with headscarf|🤵#person in tuxedo|👰#person with veil|🤰#pregnant woman|🤱#breast-feeding|👼#baby angel|🎅#Santa Claus|🤶#Mrs. Claus|🧙#mage|🧚#fairy|🧛#vampire|🧜#merperson|🧝#elf|🧞#genie|🧟#zombie|💆#person getting massage|💇#person getting haircut|🚶#person walking|🏃#person running|💃#woman dancing|🕺#man dancing|👯#people with bunny ears|🧖#person in steamy room|🧗#person climbing|🤺#person fencing|🏇#horse racing|⛷️#skier|🏂#snowboarder|🏄#person surfing|🚣#person rowing boat|🏊#person swimming|⛹️#person bouncing ball|🚴#person biking|🚵#person mountain biking|🤸#person cartwheeling|🤼#people wrestling|🤽#person playing water polo|🤾#person playing handball|🤹#person juggling|🧘#person in lotus position|🛀#person taking bath|🛌#person in bed|👭#women holding hands|👫#woman and man holding hands|👬#men holding hands|💏#kiss|💑#couple with heart|👪#family|👤#bust in silhouette|👥#busts in silhouette|👣#footprints", "🐵#monkey face|🐒#monkey|🦍#gorilla|🐶#dog face|🐕#dog|🐩#poodle|🐺#wolf|🦊#fox|🐱#cat face|🐈#cat|🦁#lion|🐯#tiger face|🐅#tiger|🐆#leopard|🐴#horse face|🐎#horse|🦄#unicorn|🦓#zebra|🦌#deer|🐮#cow face|🐂#ox|🐃#water buffalo|🐄#cow|🐷#pig face|🐖#pig|🐗#boar|🐽#pig nose|🐏#ram|🐑#ewe|🐐#goat|🐪#camel|🐫#two-hump camel|🦒#giraffe|🐘#elephant|🦏#rhinoceros|🐭#mouse face|🐁#mouse|🐀#rat|🐹#hamster|🐰#rabbit face|🐇#rabbit|🦔#hedgehog|🦇#bat|🐻#bear|🐨#koala|🐼#panda|🐾#paw prints|🦃#turkey|🐔#chicken|🐓#rooster|🐣#hatching chick|🐤#baby chick|🐥#front-facing baby chick|🐦#bird|🐧#penguin|🦅#eagle|🦆#duck|🦉#owl|🐸#frog|🐊#crocodile|🐢#turtle|🦎#lizard|🐍#snake|🐲#dragon face|🐉#dragon|🦕#sauropod|🦖#T-Rex|🐳#spouting whale|🐋#whale|🐬#dolphin|🐟#fish|🐠#tropical fish|🐡#blowfish|🦈#shark|🐙#octopus|🐚#spiral shell|🐌#snail|🦋#butterfly|🐛#bug|🐜#ant|🐝#honeybee|🐞#lady beetle|🦗#cricket|🦂#scorpion|💐#bouquet|🌸#cherry blossom|💮#white flower|🌹#rose|🥀#wilted flower|🌺#hibiscus|🌻#sunflower|🌼#blossom|🌷#tulip|🌱#seedling|🌲#evergreen tree|🌳#deciduous tree|🌴#palm tree|🌵#cactus|🌾#sheaf of rice|🌿#herb|☘️#shamrock|🍀#four leaf clover|🍁#maple leaf|🍂#fallen leaf|🍃#leaf fluttering in wind", "🍇#grapes|🍈#melon|🍉#watermelon|🍊#tangerine|🍋#lemon|🍌#banana|🍍#pineapple|🍎#red apple|🍏#green apple|🍐#pear|🍑#peach|🍒#cherries|🍓#strawberry|🥝#kiwi fruit|🍅#tomato|🥥#coconut|🥑#avocado|🍆#eggplant|🥔#potato|🥕#carrot|🌽#ear of corn|🥒#cucumber|🥦#broccoli|🍄#mushroom|🥜#peanuts|🌰#chestnut|🍞#bread|🥐#croissant|🥖#baguette bread|🥨#pretzel|🥞#pancakes|🧀#cheese wedge|🍖#meat on bone|🍗#poultry leg|🥩#cut of meat|🥓#bacon|🍔#hamburger|🍟#french fries|🍕#pizza|🌭#hot dog|🥪#sandwich|🌮#taco|🌯#burrito|🥙#stuffed flatbread|🥚#egg|🍳#cooking|🥘#shallow pan of food|🍲#pot of food|🥣#bowl with spoon|🥗#green salad|🍿#popcorn|🥫#canned food|🍱#bento box|🍘#rice cracker|🍙#rice ball|🍚#cooked rice|🍛#curry rice|🍜#steaming bowl|🍝#spaghetti|🍠#roasted sweet potato|🍢#oden|🍣#sushi|🍤#fried shrimp|🍥#fish cake with swirl|🍡#dango|🥟#dumpling|🥠#fortune cookie|🥡#takeout box|🦀#crab|🦐#shrimp|🦑#squid|🍦#soft ice cream|🍧#shaved ice|🍨#ice cream|🍩#doughnut|🍪#cookie|🎂#birthday cake|🍰#shortcake|🥧#pie|🍫#chocolate bar|🍬#candy|🍭#lollipop|🍮#custard|🍯#honey pot|🍼#baby bottle|🥛#glass of milk|☕#hot beverage|🍵#teacup without handle|🍶#sake|🍾#bottle with popping cork|🍷#wine glass|🍸#cocktail glass|🍹#tropical drink|🍺#beer mug|🍻#clinking beer mugs|🥂#clinking glasses|🥃#tumbler glass|🥤#cup with straw|🥢#chopsticks|🍴#fork and knife|🥄#spoon|🔪#kitchen knife|🏺#amphora", "🌍#globe showing Europe-Africa|🌎#globe showing Americas|🌏#globe showing Asia-Australia|🌐#globe with meridians|🗾#map of Japan|⛰️#mountain|🌋#volcano|🗻#mount fuji|🏠#house|🏡#house with garden|🏢#office building|🏣#Japanese post office|🏤#post office|🏥#hospital|🏦#bank|🏨#hotel|🏩#love hotel|🏪#convenience store|🏫#school|🏬#department store|🏭#factory|🏯#Japanese castle|🏰#castle|💒#wedding|🗼#Tokyo tower|🗽#Statue of Liberty|⛪#church|🕌#mosque|🕍#synagogue|⛩️#shinto shrine|🕋#kaaba|⛲#fountain|⛺#tent|🌁#foggy|🌃#night with stars|🌄#sunrise over mountains|🌅#sunrise|🌆#cityscape at dusk|🌇#sunset|🌉#bridge at night|♨️#hot springs|🎠#carousel horse|🎡#ferris wheel|🎢#roller coaster|💈#barber pole|🎪#circus tent|🚂#locomotive|🚃#railway car|🚄#high-speed train|🚅#bullet train|🚆#train|🚇#metro|🚈#light rail|🚉#station|🚊#tram|🚝#monorail|🚞#mountain railway|🚋#tram car|🚌#bus|🚍#oncoming bus|🚎#trolleybus|🚐#minibus|🚑#ambulance|🚒#fire engine|🚓#police car|🚔#oncoming police car|🚕#taxi|🚖#oncoming taxi|🚗#automobile|🚘#oncoming automobile|🚙#sport utility vehicle|🚚#delivery truck|🚛#articulated lorry|🚜#tractor|🛵#motor scooter|🚲#bicycle|🛴#kick scooter|🚏#bus stop|⛽#fuel pump|🚨#police car light|🚥#horizontal traffic light|🚦#vertical traffic light|🛑#stop sign|🚧#construction|⚓#anchor|⛵#sailboat|🛶#canoe|🚤#speedboat|⛴️#ferry|🚢#ship|✈️#airplane|🛫#airplane departure|🛬#airplane arrival|💺#seat|🚁#helicopter|🚟#suspension railway|🚠#mountain cableway|🚡#aerial tramway|🚀#rocket|🛸#flying saucer|⌛#hourglass done|⏳#hourglass not done|⌚#watch|⏰#alarm clock|⏱️#stopwatch|⏲️#timer clock|🕛#twelve o’clock|🕧#twelve-thirty|🕐#one o’clock|🕜#one-thirty|🕑#two o’clock|🕝#two-thirty|🕒#three o’clock|🕞#three-thirty|🕓#four o’clock|🕟#four-thirty|🕔#five o’clock|🕠#five-thirty|🕕#six o’clock|🕡#six-thirty|🕖#seven o’clock|🕢#seven-thirty|🕗#eight o’clock|🕣#eight-thirty|🕘#nine o’clock|🕤#nine-thirty|🕙#ten o’clock|🕥#ten-thirty|🕚#eleven o’clock|🕦#eleven-thirty|🌑#new moon|🌒#waxing crescent moon|🌓#first quarter moon|🌔#waxing gibbous moon|🌕#full moon|🌖#waning gibbous moon|🌗#last quarter moon|🌘#waning crescent moon|🌙#crescent moon|🌚#new moon face|🌛#first quarter moon face|🌜#last quarter moon face|☀️#sun|🌝#full moon face|🌞#sun with face|⭐#star|🌟#glowing star|🌠#shooting star|🌌#milky way|☁️#cloud|⛅#sun behind cloud|⛈️#cloud with lightning and rain|🌀#cyclone|🌈#rainbow|🌂#closed umbrella|☂️#umbrella|☔#umbrella with rain drops|⛱️#umbrella on ground|⚡#high voltage|❄️#snowflake|☃️#snowman|⛄#snowman without snow|☄️#comet|🔥#fire|💧#droplet|🌊#water wave", "🎃#jack-o-lantern|🎄#Christmas tree|🎆#fireworks|🎇#sparkler|✨#sparkles|🎈#balloon|🎉#party popper|🎊#confetti ball|🎋#tanabata tree|🎍#pine decoration|🎎#Japanese dolls|🎏#carp streamer|🎐#wind chime|🎑#moon viewing ceremony|🎀#ribbon|🎁#wrapped gift|🎫#ticket|🏆#trophy|🏅#sports medal|🥇#1st place medal|🥈#2nd place medal|🥉#3rd place medal|⚽#soccer ball|⚾#baseball|🏀#basketball|🏐#volleyball|🏈#american football|🏉#rugby football|🎾#tennis|🎳#bowling|🏏#cricket game|🏑#field hockey|🏒#ice hockey|🏓#ping pong|🏸#badminton|🥊#boxing glove|🥋#martial arts uniform|🥅#goal net|⛳#flag in hole|⛸️#ice skate|🎣#fishing pole|🎽#running shirt|🎿#skis|🛷#sled|🥌#curling stone|🎯#direct hit|🎱#pool 8 ball|🔮#crystal ball|🎮#video game|🎰#slot machine|🎲#game die|♠️#spade suit|♥️#heart suit|♦️#diamond suit|♣️#club suit|🃏#joker|🀄#mahjong red dragon|🎴#flower playing cards|🎭#performing arts|🎨#artist palette", "👓#glasses|👔#necktie|👕#t-shirt|👖#jeans|🧣#scarf|🧤#gloves|🧥#coat|🧦#socks|👗#dress|👘#kimono|👙#bikini|👚#woman’s clothes|👛#purse|👜#handbag|👝#clutch bag|🎒#backpack|👞#man’s shoe|👟#running shoe|👠#high-heeled shoe|👡#woman’s sandal|👢#woman’s boot|👑#crown|👒#woman’s hat|🎩#top hat|🎓#graduation cap|🧢#billed cap|⛑️#rescue worker’s helmet|📿#prayer beads|💄#lipstick|💍#ring|💎#gem stone|🔇#muted speaker|🔈#speaker low volume|🔉#speaker medium volume|🔊#speaker high volume|📢#loudspeaker|📣#megaphone|📯#postal horn|🔔#bell|🔕#bell with slash|🎼#musical score|🎵#musical note|🎶#musical notes|🎤#microphone|🎧#headphone|📻#radio|🎷#saxophone|🎸#guitar|🎹#musical keyboard|🎺#trumpet|🎻#violin|🥁#drum|📱#mobile phone|📲#mobile phone with arrow|☎️#telephone|📞#telephone receiver|📟#pager|📠#fax machine|🔋#battery|🔌#electric plug|💻#laptop|⌨️#keyboard|💽#computer disk|💾#floppy disk|💿#optical disk|📀#dvd|🎥#movie camera|🎬#clapper board|📺#television|📷#camera|📸#camera with flash|📹#video camera|📼#videocassette|🔍#magnifying glass tilted left|🔎#magnifying glass tilted right|💡#light bulb|🔦#flashlight|🏮#red paper lantern|📔#notebook with decorative cover|📕#closed book|📖#open book|📗#green book|📘#blue book|📙#orange book|📚#books|📓#notebook|📒#ledger|📃#page with curl|📜#scroll|📄#page facing up|📰#newspaper|📑#bookmark tabs|🔖#bookmark|💰#money bag|💴#yen banknote|💵#dollar banknote|💶#euro banknote|💷#pound banknote|💸#money with wings|💳#credit card|💹#chart increasing with yen|✉️#envelope|📧#e-mail|📨#incoming envelope|📩#envelope with arrow|📤#outbox tray|📥#inbox tray|📦#package|📫#closed mailbox with raised flag|📪#closed mailbox with lowered flag|📬#open mailbox with raised flag|📭#open mailbox with lowered flag|📮#postbox|✏️#pencil|✒️#black nib|📝#memo|💼#briefcase|📁#file folder|📂#open file folder|📅#calendar|📆#tear-off calendar|📇#card index|📈#chart increasing|📉#chart decreasing|📊#bar chart|📋#clipboard|📌#pushpin|📍#round pushpin|📎#paperclip|📏#straight ruler|📐#triangular ruler|✂️#scissors|🔒#locked|🔓#unlocked|🔏#locked with pen|🔐#locked with key|🔑#key|🔨#hammer|⛏️#pick|⚒️#hammer and pick|⚔️#crossed swords|🔫#pistol|🏹#bow and arrow|🔧#wrench|🔩#nut and bolt|⚙️#gear|⚖️#balance scale|🔗#link|⛓️#chains|⚗️#alembic|🔬#microscope|🔭#telescope|📡#satellite antenna|💉#syringe|💊#pill|🚪#door|🚽#toilet|🚿#shower|🛁#bathtub|🛒#shopping cart|🚬#cigarette|⚰️#coffin|⚱️#funeral urn|🗿#moai", "🏧#ATM sign|🚮#litter in bin sign|🚰#potable water|♿#wheelchair symbol|🚹#men’s room|🚺#women’s room|🚻#restroom|🚼#baby symbol|🚾#water closet|🛂#passport control|🛃#customs|🛄#baggage claim|🛅#left luggage|⚠️#warning|🚸#children crossing|⛔#no entry|🚫#prohibited|🚳#no bicycles|🚭#no smoking|🚯#no littering|🚱#non-potable water|🚷#no pedestrians|📵#no mobile phones|🔞#no one under eighteen|☢️#radioactive|☣️#biohazard|⬆️#up arrow|↗️#up-right arrow|➡️#right arrow|↘️#down-right arrow|⬇️#down arrow|↙️#down-left arrow|⬅️#left arrow|↖️#up-left arrow|↕️#up-down arrow|↔️#left-right arrow|↩️#right arrow curving left|↪️#left arrow curving right|⤴️#right arrow curving up|⤵️#right arrow curving down|🔃#clockwise vertical arrows|🔄#counterclockwise arrows button|🔙#BACK arrow|🔚#END arrow|🔛#ON! arrow|🔜#SOON arrow|🔝#TOP arrow|🛐#place of worship|⚛️#atom symbol|✡️#star of David|☸️#wheel of dharma|☯️#yin yang|✝️#latin cross|☦️#orthodox cross|☪️#star and crescent|☮️#peace symbol|🕎#menorah|🔯#dotted six-pointed star|♈#Aries|♉#Taurus|♊#Gemini|♋#Cancer|♌#Leo|♍#Virgo|♎#Libra|♏#Scorpio|♐#Sagittarius|♑#Capricorn|♒#Aquarius|♓#Pisces|⛎#Ophiuchus|🔀#shuffle tracks button|🔁#repeat button|🔂#repeat single button|▶️#play button|⏩#fast-forward button|⏭️#next track button|⏯️#play or pause button|◀️#reverse button|⏪#fast reverse button|⏮️#last track button|🔼#upwards button|⏫#fast up button|🔽#downwards button|⏬#fast down button|⏸️#pause button|⏹️#stop button|⏺️#record button|⏏️#eject button|🎦#cinema|🔅#dim button|🔆#bright button|📶#antenna bars|📳#vibration mode|📴#mobile phone off|♀️#female sign|♂️#male sign|✖️#multiply|➕#plus|➖#minus|➗#divide|‼️#double exclamation mark|⁉️#exclamation question mark|❓#question mark|❔#white question mark|❕#white exclamation mark|❗#exclamation mark|〰️#wavy dash|💱#currency exchange|💲#heavy dollar sign|⚕️#medical symbol|♻️#recycling symbol|⚜️#fleur-de-lis|🔱#trident emblem|📛#name badge|🔰#Japanese symbol for beginner|⭕#hollow red circle|✅#check mark button|☑️#check box with check|✔️#check mark|❌#cross mark|❎#cross mark button|➰#curly loop|➿#double curly loop|〽️#part alternation mark|✳️#eight-spoked asterisk|✴️#eight-pointed star|❇️#sparkle|©️#copyright|®️#registered|™️#trade mark|🔟#keycap: 10|🔠#input latin uppercase|🔡#input latin lowercase|🔢#input numbers|🔣#input symbols|🔤#input latin letters|🆎#AB button (blood type)|🆑#CL button|🆒#COOL button|🆓#FREE button|ℹ️#information|🆔#ID button|Ⓜ️#circled M|🆕#NEW button|🆖#NG button|🆗#OK button|🆘#SOS button|🆙#UP! button|🆚#VS button|🈁#Japanese “here” button|🈶#Japanese “not free of charge” button|🈯#Japanese “reserved” button|🉐#Japanese “bargain” button|🈹#Japanese “discount” button|🈚#Japanese “free of charge” button|🈲#Japanese “prohibited” button|🉑#Japanese “acceptable” button|🈸#Japanese “application” button|🈴#Japanese “passing grade” button|🈳#Japanese “vacancy” button|㊗️#Japanese “congratulations” button|㊙️#Japanese “secret” button|🈺#Japanese “open for business” button|🈵#Japanese “no vacancy” button|🔴#red circle|🔵#blue circle|⚫#black circle|⚪#white circle|⬛#black large square|⬜#white large square|◼️#black medium square|◻️#white medium square|◾#black medium-small square|◽#white medium-small square|▪️#black small square|▫️#white small square|🔶#large orange diamond|🔷#large blue diamond|🔸#small orange diamond|🔹#small blue diamond|🔺#red triangle pointed up|🔻#red triangle pointed down|💠#diamond with a dot|🔘#radio button|🔳#white square button|🔲#black square button"]
+	// 2026-10-18 the category names read config.text_emoji_<name> (language packs), else the capitalised name.
+	// tools/i18n/core-menus-language.mjs
+	function emojiGroupLabel(name) {
+		if (name === "recent") return (config && config.text_emoji_recent) || "Recently used";
+		return (config && config["text_emoji_" + name]) || (name.charAt(0).toUpperCase() + name.substring(1));
+	}
+	// 2026-10-18 With a language pack the emoji are named in its language: lang/emoji/rte-emoji-<locale>.js, generated
+	// from the Unicode CLDR annotations (tools/emoji/build-emoji-names.mjs), is loaded the first time the picker opens.
+	// The English names stay search keywords; an English page loads nothing. tools/i18n/emoji-names-language.mjs
+	var EMOJI_NAME_LOCALES = ["de", "es", "fr", "it", "ja", "ko", "nl", "pt", "pt-pt", "ru", "zh-Hans", "zh-Hant"];
+	var emojiNameWaiters = null;
+	function emojiNameLocale() {
+		var l = config && config.text_uilocale;
+		return l && EMOJI_NAME_LOCALES.indexOf(l) !== -1 ? l : "";
+	}
+	function emojiNames() {
+		var l = emojiNameLocale();
+		return l && window.RTE_EmojiNames ? window.RTE_EmojiNames[l] || null : null;
+	}
+	function ensureEmojiNames(done) {
+		var l = emojiNameLocale();
+		if (!l || emojiNames()) return;
+		if (emojiNameWaiters) { emojiNameWaiters.push(done); return; }
+		emojiNameWaiters = [done];
+		var base = String((config && config.url_base) || "/richtexteditor").replace(/\/+$/, "");
+		var s = document.createElement("script");
+		s.src = base + "/lang/emoji/rte-emoji-" + l + ".js";
+		s.charset = "utf-8";
+		var finish = function () { var w = emojiNameWaiters || []; emojiNameWaiters = null; for (var i = 0; i < w.length; i++) { try { w[i](); } catch (e) { /* ignore */ } } };
+		s.onload = finish;
+		s.onerror = function () { emojiNameWaiters = null; };
+		(document.head || document.documentElement).appendChild(s);
+	}
+	function emojiName(item) {
+		var names = emojiNames();
+		return (names && names[item.emoji]) || item.keyword || "";
+	}
+	function emojiMatches(item, q) {
+		if (item.keyword && item.keyword.indexOf(q) !== -1) return true;
+		var names = emojiNames(), n = names && names[item.emoji];
+		return !!n && String(n).toLowerCase().indexOf(q) !== -1;
+	}
+	function emojiItemsText(n) {
+		var tpl = (config && config.text_emoji_items) || "{0} items";
+		return tpl.split("{0}").join(String(n));
+	}
+	var emojistrs = ["\ud83d\ude00#grinning face|\ud83d\ude03#grinning face with big eyes|\ud83d\ude04#grinning face with smiling eyes|\ud83d\ude01#beaming face with smiling eyes|\ud83d\ude06#grinning squinting face|\ud83d\ude05#grinning face with sweat|\ud83e\udd23#rolling on the floor laughing|\ud83d\ude02#face with tears of joy|\ud83d\ude42#slightly smiling face|\ud83d\ude43#upside-down face|\ud83d\ude09#winking face|\ud83d\ude0a#smiling face with smiling eyes|\ud83d\ude07#smiling face with halo|\ud83d\ude0d#smiling face with heart-eyes|\ud83e\udd29#star-struck|\ud83d\ude18#face blowing a kiss|\ud83d\ude17#kissing face|\ud83d\ude1a#kissing face with closed eyes|\ud83d\ude19#kissing face with smiling eyes|\ud83d\ude0b#face savoring food|\ud83d\ude1b#face with tongue|\ud83d\ude1c#winking face with tongue|\ud83e\udd2a#zany face|\ud83d\ude1d#squinting face with tongue|\ud83e\udd11#money-mouth face|\ud83e\udd17#hugging face|\ud83e\udd2d#face with hand over mouth|\ud83e\udd2b#shushing face|\ud83e\udd14#thinking face|\ud83e\udd10#zipper-mouth face|\ud83e\udd28#face with raised eyebrow|\ud83d\ude10#neutral face|\ud83d\ude11#expressionless face|\ud83d\ude36#face without mouth|\ud83d\ude0f#smirking face|\ud83d\ude12#unamused face|\ud83d\ude44#face with rolling eyes|\ud83d\ude2c#grimacing face|\ud83e\udd25#lying face|\ud83d\ude0c#relieved face|\ud83d\ude14#pensive face|\ud83d\ude2a#sleepy face|\ud83e\udd24#drooling face|\ud83d\ude34#sleeping face|\ud83d\ude37#face with medical mask|\ud83e\udd12#face with thermometer|\ud83e\udd15#face with head-bandage|\ud83e\udd22#nauseated face|\ud83e\udd2e#face vomiting|\ud83e\udd27#sneezing face|\ud83d\ude35#dizzy face|\ud83e\udd2f#exploding head|\ud83e\udd20#cowboy hat face|\ud83d\ude0e#smiling face with sunglasses|\ud83e\udd13#nerd face|\ud83e\uddd0#face with monocle|\ud83d\ude15#confused face|\ud83d\ude1f#worried face|\ud83d\ude41#slightly frowning face|\u2639\ufe0f#frowning face|\ud83d\ude2e#face with open mouth|\ud83d\ude2f#hushed face|\ud83d\ude32#astonished face|\ud83d\ude33#flushed face|\ud83d\ude26#frowning face with open mouth|\ud83d\ude27#anguished face|\ud83d\ude28#fearful face|\ud83d\ude30#anxious face with sweat|\ud83d\ude25#sad but relieved face|\ud83d\ude22#crying face|\ud83d\ude2d#loudly crying face|\ud83d\ude31#face screaming in fear|\ud83d\ude16#confounded face|\ud83d\ude23#persevering face|\ud83d\ude1e#disappointed face|\ud83d\ude13#downcast face with sweat|\ud83d\ude29#weary face|\ud83d\ude2b#tired face|\ud83d\ude24#face with steam from nose|\ud83d\ude21#pouting face|\ud83d\ude20#angry face|\ud83e\udd2c#face with symbols on mouth|\ud83d\ude08#smiling face with horns|\ud83d\udc7f#angry face with horns|\ud83d\udc80#skull|\u2620\ufe0f#skull and crossbones|\ud83d\udca9#pile of poo|\ud83e\udd21#clown face|\ud83d\udc79#ogre|\ud83d\udc7a#goblin|\ud83d\udc7b#ghost|\ud83d\udc7d#alien|\ud83d\udc7e#alien monster|\ud83e\udd16#robot|\ud83d\ude3a#grinning cat|\ud83d\ude38#grinning cat with smiling eyes|\ud83d\ude39#cat with tears of joy|\ud83d\ude3b#smiling cat with heart-eyes|\ud83d\ude3c#cat with wry smile|\ud83d\ude3d#kissing cat|\ud83d\ude40#weary cat|\ud83d\ude3f#crying cat|\ud83d\ude3e#pouting cat|\ud83d\ude48#see-no-evil monkey|\ud83d\ude49#hear-no-evil monkey|\ud83d\ude4a#speak-no-evil monkey|\ud83d\udc8b#kiss mark|\ud83d\udc8c#love letter|\ud83d\udc98#heart with arrow|\ud83d\udc9d#heart with ribbon|\ud83d\udc96#sparkling heart|\ud83d\udc97#growing heart|\ud83d\udc93#beating heart|\ud83d\udc9e#revolving hearts|\ud83d\udc95#two hearts|\ud83d\udc9f#heart decoration|\u2763\ufe0f#heart exclamation|\ud83d\udc94#broken heart|\u2764\ufe0f#red heart|\ud83e\udde1#orange heart|\ud83d\udc9b#yellow heart|\ud83d\udc9a#green heart|\ud83d\udc99#blue heart|\ud83d\udc9c#purple heart|\ud83d\udda4#black heart|\ud83d\udcaf#hundred points|\ud83d\udca2#anger symbol|\ud83d\udca5#collision|\ud83d\udcab#dizzy|\ud83d\udca6#sweat droplets|\ud83d\udca8#dashing away|\ud83d\udca3#bomb|\ud83d\udcac#speech balloon|\ud83d\udcad#thought balloon|\ud83d\udca4#zzz", "\ud83d\udc4b#waving hand|\ud83e\udd1a#raised back of hand|\u270b#raised hand|\ud83d\udd96#vulcan salute|\ud83d\udc4c#OK hand|\u270c\ufe0f#victory hand|\ud83e\udd1e#crossed fingers|\ud83e\udd1f#love-you gesture|\ud83e\udd18#sign of the horns|\ud83e\udd19#call me hand|\ud83d\udc48#backhand index pointing left|\ud83d\udc49#backhand index pointing right|\ud83d\udc46#backhand index pointing up|\ud83d\udd95#middle finger|\ud83d\udc47#backhand index pointing down|\u261d\ufe0f#index pointing up|\ud83d\udc4d#thumbs up|\ud83d\udc4e#thumbs down|\u270a#raised fist|\ud83d\udc4a#oncoming fist|\ud83e\udd1b#left-facing fist|\ud83e\udd1c#right-facing fist|\ud83d\udc4f#clapping hands|\ud83d\ude4c#raising hands|\ud83d\udc50#open hands|\ud83e\udd32#palms up together|\ud83e\udd1d#handshake|\ud83d\ude4f#folded hands|\u270d\ufe0f#writing hand|\ud83d\udc85#nail polish|\ud83e\udd33#selfie|\ud83d\udcaa#flexed biceps|\ud83d\udc42#ear|\ud83d\udc43#nose|\ud83e\udde0#brain|\ud83d\udc40#eyes|\ud83d\udc45#tongue|\ud83d\udc44#mouth|\ud83d\udc76#baby|\ud83e\uddd2#child|\ud83d\udc66#boy|\ud83d\udc67#girl|\ud83e\uddd1#person|\ud83d\udc71#person with blond hair|\ud83d\udc68#man|\ud83e\uddd4#man with beard|\ud83d\udc69#woman|\ud83e\uddd3#older person|\ud83d\udc74#old man|\ud83d\udc75#old woman|\ud83d\ude4d#person frowning|\ud83d\ude4e#person pouting|\ud83d\ude45#person gesturing NO|\ud83d\ude46#person gesturing OK|\ud83d\udc81#person tipping hand|\ud83d\ude4b#person raising hand|\ud83d\ude47#person bowing|\ud83e\udd26#person facepalming|\ud83e\udd37#person shrugging|\ud83d\udc6e#police officer|\ud83d\udc82#guard|\ud83d\udc77#construction worker|\ud83e\udd34#prince|\ud83d\udc78#princess|\ud83d\udc73#person wearing turban|\ud83d\udc72#person with skullcap|\ud83e\uddd5#woman with headscarf|\ud83e\udd35#person in tuxedo|\ud83d\udc70#person with veil|\ud83e\udd30#pregnant woman|\ud83e\udd31#breast-feeding|\ud83d\udc7c#baby angel|\ud83c\udf85#Santa Claus|\ud83e\udd36#Mrs. Claus|\ud83e\uddd9#mage|\ud83e\uddda#fairy|\ud83e\udddb#vampire|\ud83e\udddc#merperson|\ud83e\udddd#elf|\ud83e\uddde#genie|\ud83e\udddf#zombie|\ud83d\udc86#person getting massage|\ud83d\udc87#person getting haircut|\ud83d\udeb6#person walking|\ud83c\udfc3#person running|\ud83d\udc83#woman dancing|\ud83d\udd7a#man dancing|\ud83d\udc6f#people with bunny ears|\ud83e\uddd6#person in steamy room|\ud83e\uddd7#person climbing|\ud83e\udd3a#person fencing|\ud83c\udfc7#horse racing|\u26f7\ufe0f#skier|\ud83c\udfc2#snowboarder|\ud83c\udfc4#person surfing|\ud83d\udea3#person rowing boat|\ud83c\udfca#person swimming|\u26f9\ufe0f#person bouncing ball|\ud83d\udeb4#person biking|\ud83d\udeb5#person mountain biking|\ud83e\udd38#person cartwheeling|\ud83e\udd3c#people wrestling|\ud83e\udd3d#person playing water polo|\ud83e\udd3e#person playing handball|\ud83e\udd39#person juggling|\ud83e\uddd8#person in lotus position|\ud83d\udec0#person taking bath|\ud83d\udecc#person in bed|\ud83d\udc6d#women holding hands|\ud83d\udc6b#woman and man holding hands|\ud83d\udc6c#men holding hands|\ud83d\udc8f#kiss|\ud83d\udc91#couple with heart|\ud83d\udc6a#family|\ud83d\udc64#bust in silhouette|\ud83d\udc65#busts in silhouette|\ud83d\udc63#footprints", "\ud83d\udc35#monkey face|\ud83d\udc12#monkey|\ud83e\udd8d#gorilla|\ud83d\udc36#dog face|\ud83d\udc15#dog|\ud83d\udc29#poodle|\ud83d\udc3a#wolf|\ud83e\udd8a#fox|\ud83d\udc31#cat face|\ud83d\udc08#cat|\ud83e\udd81#lion|\ud83d\udc2f#tiger face|\ud83d\udc05#tiger|\ud83d\udc06#leopard|\ud83d\udc34#horse face|\ud83d\udc0e#horse|\ud83e\udd84#unicorn|\ud83e\udd93#zebra|\ud83e\udd8c#deer|\ud83d\udc2e#cow face|\ud83d\udc02#ox|\ud83d\udc03#water buffalo|\ud83d\udc04#cow|\ud83d\udc37#pig face|\ud83d\udc16#pig|\ud83d\udc17#boar|\ud83d\udc3d#pig nose|\ud83d\udc0f#ram|\ud83d\udc11#ewe|\ud83d\udc10#goat|\ud83d\udc2a#camel|\ud83d\udc2b#two-hump camel|\ud83e\udd92#giraffe|\ud83d\udc18#elephant|\ud83e\udd8f#rhinoceros|\ud83d\udc2d#mouse face|\ud83d\udc01#mouse|\ud83d\udc00#rat|\ud83d\udc39#hamster|\ud83d\udc30#rabbit face|\ud83d\udc07#rabbit|\ud83e\udd94#hedgehog|\ud83e\udd87#bat|\ud83d\udc3b#bear|\ud83d\udc28#koala|\ud83d\udc3c#panda|\ud83d\udc3e#paw prints|\ud83e\udd83#turkey|\ud83d\udc14#chicken|\ud83d\udc13#rooster|\ud83d\udc23#hatching chick|\ud83d\udc24#baby chick|\ud83d\udc25#front-facing baby chick|\ud83d\udc26#bird|\ud83d\udc27#penguin|\ud83e\udd85#eagle|\ud83e\udd86#duck|\ud83e\udd89#owl|\ud83d\udc38#frog|\ud83d\udc0a#crocodile|\ud83d\udc22#turtle|\ud83e\udd8e#lizard|\ud83d\udc0d#snake|\ud83d\udc32#dragon face|\ud83d\udc09#dragon|\ud83e\udd95#sauropod|\ud83e\udd96#T-Rex|\ud83d\udc33#spouting whale|\ud83d\udc0b#whale|\ud83d\udc2c#dolphin|\ud83d\udc1f#fish|\ud83d\udc20#tropical fish|\ud83d\udc21#blowfish|\ud83e\udd88#shark|\ud83d\udc19#octopus|\ud83d\udc1a#spiral shell|\ud83d\udc0c#snail|\ud83e\udd8b#butterfly|\ud83d\udc1b#bug|\ud83d\udc1c#ant|\ud83d\udc1d#honeybee|\ud83d\udc1e#lady beetle|\ud83e\udd97#cricket|\ud83e\udd82#scorpion|\ud83d\udc90#bouquet|\ud83c\udf38#cherry blossom|\ud83d\udcae#white flower|\ud83c\udf39#rose|\ud83e\udd40#wilted flower|\ud83c\udf3a#hibiscus|\ud83c\udf3b#sunflower|\ud83c\udf3c#blossom|\ud83c\udf37#tulip|\ud83c\udf31#seedling|\ud83c\udf32#evergreen tree|\ud83c\udf33#deciduous tree|\ud83c\udf34#palm tree|\ud83c\udf35#cactus|\ud83c\udf3e#sheaf of rice|\ud83c\udf3f#herb|\u2618\ufe0f#shamrock|\ud83c\udf40#four leaf clover|\ud83c\udf41#maple leaf|\ud83c\udf42#fallen leaf|\ud83c\udf43#leaf fluttering in wind", "\ud83c\udf47#grapes|\ud83c\udf48#melon|\ud83c\udf49#watermelon|\ud83c\udf4a#tangerine|\ud83c\udf4b#lemon|\ud83c\udf4c#banana|\ud83c\udf4d#pineapple|\ud83c\udf4e#red apple|\ud83c\udf4f#green apple|\ud83c\udf50#pear|\ud83c\udf51#peach|\ud83c\udf52#cherries|\ud83c\udf53#strawberry|\ud83e\udd5d#kiwi fruit|\ud83c\udf45#tomato|\ud83e\udd65#coconut|\ud83e\udd51#avocado|\ud83c\udf46#eggplant|\ud83e\udd54#potato|\ud83e\udd55#carrot|\ud83c\udf3d#ear of corn|\ud83e\udd52#cucumber|\ud83e\udd66#broccoli|\ud83c\udf44#mushroom|\ud83e\udd5c#peanuts|\ud83c\udf30#chestnut|\ud83c\udf5e#bread|\ud83e\udd50#croissant|\ud83e\udd56#baguette bread|\ud83e\udd68#pretzel|\ud83e\udd5e#pancakes|\ud83e\uddc0#cheese wedge|\ud83c\udf56#meat on bone|\ud83c\udf57#poultry leg|\ud83e\udd69#cut of meat|\ud83e\udd53#bacon|\ud83c\udf54#hamburger|\ud83c\udf5f#french fries|\ud83c\udf55#pizza|\ud83c\udf2d#hot dog|\ud83e\udd6a#sandwich|\ud83c\udf2e#taco|\ud83c\udf2f#burrito|\ud83e\udd59#stuffed flatbread|\ud83e\udd5a#egg|\ud83c\udf73#cooking|\ud83e\udd58#shallow pan of food|\ud83c\udf72#pot of food|\ud83e\udd63#bowl with spoon|\ud83e\udd57#green salad|\ud83c\udf7f#popcorn|\ud83e\udd6b#canned food|\ud83c\udf71#bento box|\ud83c\udf58#rice cracker|\ud83c\udf59#rice ball|\ud83c\udf5a#cooked rice|\ud83c\udf5b#curry rice|\ud83c\udf5c#steaming bowl|\ud83c\udf5d#spaghetti|\ud83c\udf60#roasted sweet potato|\ud83c\udf62#oden|\ud83c\udf63#sushi|\ud83c\udf64#fried shrimp|\ud83c\udf65#fish cake with swirl|\ud83c\udf61#dango|\ud83e\udd5f#dumpling|\ud83e\udd60#fortune cookie|\ud83e\udd61#takeout box|\ud83e\udd80#crab|\ud83e\udd90#shrimp|\ud83e\udd91#squid|\ud83c\udf66#soft ice cream|\ud83c\udf67#shaved ice|\ud83c\udf68#ice cream|\ud83c\udf69#doughnut|\ud83c\udf6a#cookie|\ud83c\udf82#birthday cake|\ud83c\udf70#shortcake|\ud83e\udd67#pie|\ud83c\udf6b#chocolate bar|\ud83c\udf6c#candy|\ud83c\udf6d#lollipop|\ud83c\udf6e#custard|\ud83c\udf6f#honey pot|\ud83c\udf7c#baby bottle|\ud83e\udd5b#glass of milk|\u2615#hot beverage|\ud83c\udf75#teacup without handle|\ud83c\udf76#sake|\ud83c\udf7e#bottle with popping cork|\ud83c\udf77#wine glass|\ud83c\udf78#cocktail glass|\ud83c\udf79#tropical drink|\ud83c\udf7a#beer mug|\ud83c\udf7b#clinking beer mugs|\ud83e\udd42#clinking glasses|\ud83e\udd43#tumbler glass|\ud83e\udd64#cup with straw|\ud83e\udd62#chopsticks|\ud83c\udf74#fork and knife|\ud83e\udd44#spoon|\ud83d\udd2a#kitchen knife|\ud83c\udffa#amphora", "\ud83c\udf0d#globe showing Europe-Africa|\ud83c\udf0e#globe showing Americas|\ud83c\udf0f#globe showing Asia-Australia|\ud83c\udf10#globe with meridians|\ud83d\uddfe#map of Japan|\u26f0\ufe0f#mountain|\ud83c\udf0b#volcano|\ud83d\uddfb#mount fuji|\ud83c\udfe0#house|\ud83c\udfe1#house with garden|\ud83c\udfe2#office building|\ud83c\udfe3#Japanese post office|\ud83c\udfe4#post office|\ud83c\udfe5#hospital|\ud83c\udfe6#bank|\ud83c\udfe8#hotel|\ud83c\udfe9#love hotel|\ud83c\udfea#convenience store|\ud83c\udfeb#school|\ud83c\udfec#department store|\ud83c\udfed#factory|\ud83c\udfef#Japanese castle|\ud83c\udff0#castle|\ud83d\udc92#wedding|\ud83d\uddfc#Tokyo tower|\ud83d\uddfd#Statue of Liberty|\u26ea#church|\ud83d\udd4c#mosque|\ud83d\udd4d#synagogue|\u26e9\ufe0f#shinto shrine|\ud83d\udd4b#kaaba|\u26f2#fountain|\u26fa#tent|\ud83c\udf01#foggy|\ud83c\udf03#night with stars|\ud83c\udf04#sunrise over mountains|\ud83c\udf05#sunrise|\ud83c\udf06#cityscape at dusk|\ud83c\udf07#sunset|\ud83c\udf09#bridge at night|\u2668\ufe0f#hot springs|\ud83c\udfa0#carousel horse|\ud83c\udfa1#ferris wheel|\ud83c\udfa2#roller coaster|\ud83d\udc88#barber pole|\ud83c\udfaa#circus tent|\ud83d\ude82#locomotive|\ud83d\ude83#railway car|\ud83d\ude84#high-speed train|\ud83d\ude85#bullet train|\ud83d\ude86#train|\ud83d\ude87#metro|\ud83d\ude88#light rail|\ud83d\ude89#station|\ud83d\ude8a#tram|\ud83d\ude9d#monorail|\ud83d\ude9e#mountain railway|\ud83d\ude8b#tram car|\ud83d\ude8c#bus|\ud83d\ude8d#oncoming bus|\ud83d\ude8e#trolleybus|\ud83d\ude90#minibus|\ud83d\ude91#ambulance|\ud83d\ude92#fire engine|\ud83d\ude93#police car|\ud83d\ude94#oncoming police car|\ud83d\ude95#taxi|\ud83d\ude96#oncoming taxi|\ud83d\ude97#automobile|\ud83d\ude98#oncoming automobile|\ud83d\ude99#sport utility vehicle|\ud83d\ude9a#delivery truck|\ud83d\ude9b#articulated lorry|\ud83d\ude9c#tractor|\ud83d\udef5#motor scooter|\ud83d\udeb2#bicycle|\ud83d\udef4#kick scooter|\ud83d\ude8f#bus stop|\u26fd#fuel pump|\ud83d\udea8#police car light|\ud83d\udea5#horizontal traffic light|\ud83d\udea6#vertical traffic light|\ud83d\uded1#stop sign|\ud83d\udea7#construction|\u2693#anchor|\u26f5#sailboat|\ud83d\udef6#canoe|\ud83d\udea4#speedboat|\u26f4\ufe0f#ferry|\ud83d\udea2#ship|\u2708\ufe0f#airplane|\ud83d\udeeb#airplane departure|\ud83d\udeec#airplane arrival|\ud83d\udcba#seat|\ud83d\ude81#helicopter|\ud83d\ude9f#suspension railway|\ud83d\udea0#mountain cableway|\ud83d\udea1#aerial tramway|\ud83d\ude80#rocket|\ud83d\udef8#flying saucer|\u231b#hourglass done|\u23f3#hourglass not done|\u231a#watch|\u23f0#alarm clock|\u23f1\ufe0f#stopwatch|\u23f2\ufe0f#timer clock|\ud83d\udd5b#twelve o\u2019clock|\ud83d\udd67#twelve-thirty|\ud83d\udd50#one o\u2019clock|\ud83d\udd5c#one-thirty|\ud83d\udd51#two o\u2019clock|\ud83d\udd5d#two-thirty|\ud83d\udd52#three o\u2019clock|\ud83d\udd5e#three-thirty|\ud83d\udd53#four o\u2019clock|\ud83d\udd5f#four-thirty|\ud83d\udd54#five o\u2019clock|\ud83d\udd60#five-thirty|\ud83d\udd55#six o\u2019clock|\ud83d\udd61#six-thirty|\ud83d\udd56#seven o\u2019clock|\ud83d\udd62#seven-thirty|\ud83d\udd57#eight o\u2019clock|\ud83d\udd63#eight-thirty|\ud83d\udd58#nine o\u2019clock|\ud83d\udd64#nine-thirty|\ud83d\udd59#ten o\u2019clock|\ud83d\udd65#ten-thirty|\ud83d\udd5a#eleven o\u2019clock|\ud83d\udd66#eleven-thirty|\ud83c\udf11#new moon|\ud83c\udf12#waxing crescent moon|\ud83c\udf13#first quarter moon|\ud83c\udf14#waxing gibbous moon|\ud83c\udf15#full moon|\ud83c\udf16#waning gibbous moon|\ud83c\udf17#last quarter moon|\ud83c\udf18#waning crescent moon|\ud83c\udf19#crescent moon|\ud83c\udf1a#new moon face|\ud83c\udf1b#first quarter moon face|\ud83c\udf1c#last quarter moon face|\u2600\ufe0f#sun|\ud83c\udf1d#full moon face|\ud83c\udf1e#sun with face|\u2b50#star|\ud83c\udf1f#glowing star|\ud83c\udf20#shooting star|\ud83c\udf0c#milky way|\u2601\ufe0f#cloud|\u26c5#sun behind cloud|\u26c8\ufe0f#cloud with lightning and rain|\ud83c\udf00#cyclone|\ud83c\udf08#rainbow|\ud83c\udf02#closed umbrella|\u2602\ufe0f#umbrella|\u2614#umbrella with rain drops|\u26f1\ufe0f#umbrella on ground|\u26a1#high voltage|\u2744\ufe0f#snowflake|\u2603\ufe0f#snowman|\u26c4#snowman without snow|\u2604\ufe0f#comet|\ud83d\udd25#fire|\ud83d\udca7#droplet|\ud83c\udf0a#water wave", "\ud83c\udf83#jack-o-lantern|\ud83c\udf84#Christmas tree|\ud83c\udf86#fireworks|\ud83c\udf87#sparkler|\u2728#sparkles|\ud83c\udf88#balloon|\ud83c\udf89#party popper|\ud83c\udf8a#confetti ball|\ud83c\udf8b#tanabata tree|\ud83c\udf8d#pine decoration|\ud83c\udf8e#Japanese dolls|\ud83c\udf8f#carp streamer|\ud83c\udf90#wind chime|\ud83c\udf91#moon viewing ceremony|\ud83c\udf80#ribbon|\ud83c\udf81#wrapped gift|\ud83c\udfab#ticket|\ud83c\udfc6#trophy|\ud83c\udfc5#sports medal|\ud83e\udd47#1st place medal|\ud83e\udd48#2nd place medal|\ud83e\udd49#3rd place medal|\u26bd#soccer ball|\u26be#baseball|\ud83c\udfc0#basketball|\ud83c\udfd0#volleyball|\ud83c\udfc8#american football|\ud83c\udfc9#rugby football|\ud83c\udfbe#tennis|\ud83c\udfb3#bowling|\ud83c\udfcf#cricket game|\ud83c\udfd1#field hockey|\ud83c\udfd2#ice hockey|\ud83c\udfd3#ping pong|\ud83c\udff8#badminton|\ud83e\udd4a#boxing glove|\ud83e\udd4b#martial arts uniform|\ud83e\udd45#goal net|\u26f3#flag in hole|\u26f8\ufe0f#ice skate|\ud83c\udfa3#fishing pole|\ud83c\udfbd#running shirt|\ud83c\udfbf#skis|\ud83d\udef7#sled|\ud83e\udd4c#curling stone|\ud83c\udfaf#direct hit|\ud83c\udfb1#pool 8 ball|\ud83d\udd2e#crystal ball|\ud83c\udfae#video game|\ud83c\udfb0#slot machine|\ud83c\udfb2#game die|\u2660\ufe0f#spade suit|\u2665\ufe0f#heart suit|\u2666\ufe0f#diamond suit|\u2663\ufe0f#club suit|\ud83c\udccf#joker|\ud83c\udc04#mahjong red dragon|\ud83c\udfb4#flower playing cards|\ud83c\udfad#performing arts|\ud83c\udfa8#artist palette", "\ud83d\udc53#glasses|\ud83d\udc54#necktie|\ud83d\udc55#t-shirt|\ud83d\udc56#jeans|\ud83e\udde3#scarf|\ud83e\udde4#gloves|\ud83e\udde5#coat|\ud83e\udde6#socks|\ud83d\udc57#dress|\ud83d\udc58#kimono|\ud83d\udc59#bikini|\ud83d\udc5a#woman\u2019s clothes|\ud83d\udc5b#purse|\ud83d\udc5c#handbag|\ud83d\udc5d#clutch bag|\ud83c\udf92#backpack|\ud83d\udc5e#man\u2019s shoe|\ud83d\udc5f#running shoe|\ud83d\udc60#high-heeled shoe|\ud83d\udc61#woman\u2019s sandal|\ud83d\udc62#woman\u2019s boot|\ud83d\udc51#crown|\ud83d\udc52#woman\u2019s hat|\ud83c\udfa9#top hat|\ud83c\udf93#graduation cap|\ud83e\udde2#billed cap|\u26d1\ufe0f#rescue worker\u2019s helmet|\ud83d\udcff#prayer beads|\ud83d\udc84#lipstick|\ud83d\udc8d#ring|\ud83d\udc8e#gem stone|\ud83d\udd07#muted speaker|\ud83d\udd08#speaker low volume|\ud83d\udd09#speaker medium volume|\ud83d\udd0a#speaker high volume|\ud83d\udce2#loudspeaker|\ud83d\udce3#megaphone|\ud83d\udcef#postal horn|\ud83d\udd14#bell|\ud83d\udd15#bell with slash|\ud83c\udfbc#musical score|\ud83c\udfb5#musical note|\ud83c\udfb6#musical notes|\ud83c\udfa4#microphone|\ud83c\udfa7#headphone|\ud83d\udcfb#radio|\ud83c\udfb7#saxophone|\ud83c\udfb8#guitar|\ud83c\udfb9#musical keyboard|\ud83c\udfba#trumpet|\ud83c\udfbb#violin|\ud83e\udd41#drum|\ud83d\udcf1#mobile phone|\ud83d\udcf2#mobile phone with arrow|\u260e\ufe0f#telephone|\ud83d\udcde#telephone receiver|\ud83d\udcdf#pager|\ud83d\udce0#fax machine|\ud83d\udd0b#battery|\ud83d\udd0c#electric plug|\ud83d\udcbb#laptop|\u2328\ufe0f#keyboard|\ud83d\udcbd#computer disk|\ud83d\udcbe#floppy disk|\ud83d\udcbf#optical disk|\ud83d\udcc0#dvd|\ud83c\udfa5#movie camera|\ud83c\udfac#clapper board|\ud83d\udcfa#television|\ud83d\udcf7#camera|\ud83d\udcf8#camera with flash|\ud83d\udcf9#video camera|\ud83d\udcfc#videocassette|\ud83d\udd0d#magnifying glass tilted left|\ud83d\udd0e#magnifying glass tilted right|\ud83d\udca1#light bulb|\ud83d\udd26#flashlight|\ud83c\udfee#red paper lantern|\ud83d\udcd4#notebook with decorative cover|\ud83d\udcd5#closed book|\ud83d\udcd6#open book|\ud83d\udcd7#green book|\ud83d\udcd8#blue book|\ud83d\udcd9#orange book|\ud83d\udcda#books|\ud83d\udcd3#notebook|\ud83d\udcd2#ledger|\ud83d\udcc3#page with curl|\ud83d\udcdc#scroll|\ud83d\udcc4#page facing up|\ud83d\udcf0#newspaper|\ud83d\udcd1#bookmark tabs|\ud83d\udd16#bookmark|\ud83d\udcb0#money bag|\ud83d\udcb4#yen banknote|\ud83d\udcb5#dollar banknote|\ud83d\udcb6#euro banknote|\ud83d\udcb7#pound banknote|\ud83d\udcb8#money with wings|\ud83d\udcb3#credit card|\ud83d\udcb9#chart increasing with yen|\u2709\ufe0f#envelope|\ud83d\udce7#e-mail|\ud83d\udce8#incoming envelope|\ud83d\udce9#envelope with arrow|\ud83d\udce4#outbox tray|\ud83d\udce5#inbox tray|\ud83d\udce6#package|\ud83d\udceb#closed mailbox with raised flag|\ud83d\udcea#closed mailbox with lowered flag|\ud83d\udcec#open mailbox with raised flag|\ud83d\udced#open mailbox with lowered flag|\ud83d\udcee#postbox|\u270f\ufe0f#pencil|\u2712\ufe0f#black nib|\ud83d\udcdd#memo|\ud83d\udcbc#briefcase|\ud83d\udcc1#file folder|\ud83d\udcc2#open file folder|\ud83d\udcc5#calendar|\ud83d\udcc6#tear-off calendar|\ud83d\udcc7#card index|\ud83d\udcc8#chart increasing|\ud83d\udcc9#chart decreasing|\ud83d\udcca#bar chart|\ud83d\udccb#clipboard|\ud83d\udccc#pushpin|\ud83d\udccd#round pushpin|\ud83d\udcce#paperclip|\ud83d\udccf#straight ruler|\ud83d\udcd0#triangular ruler|\u2702\ufe0f#scissors|\ud83d\udd12#locked|\ud83d\udd13#unlocked|\ud83d\udd0f#locked with pen|\ud83d\udd10#locked with key|\ud83d\udd11#key|\ud83d\udd28#hammer|\u26cf\ufe0f#pick|\u2692\ufe0f#hammer and pick|\u2694\ufe0f#crossed swords|\ud83d\udd2b#pistol|\ud83c\udff9#bow and arrow|\ud83d\udd27#wrench|\ud83d\udd29#nut and bolt|\u2699\ufe0f#gear|\u2696\ufe0f#balance scale|\ud83d\udd17#link|\u26d3\ufe0f#chains|\u2697\ufe0f#alembic|\ud83d\udd2c#microscope|\ud83d\udd2d#telescope|\ud83d\udce1#satellite antenna|\ud83d\udc89#syringe|\ud83d\udc8a#pill|\ud83d\udeaa#door|\ud83d\udebd#toilet|\ud83d\udebf#shower|\ud83d\udec1#bathtub|\ud83d\uded2#shopping cart|\ud83d\udeac#cigarette|\u26b0\ufe0f#coffin|\u26b1\ufe0f#funeral urn|\ud83d\uddff#moai", "\ud83c\udfe7#ATM sign|\ud83d\udeae#litter in bin sign|\ud83d\udeb0#potable water|\u267f#wheelchair symbol|\ud83d\udeb9#men\u2019s room|\ud83d\udeba#women\u2019s room|\ud83d\udebb#restroom|\ud83d\udebc#baby symbol|\ud83d\udebe#water closet|\ud83d\udec2#passport control|\ud83d\udec3#customs|\ud83d\udec4#baggage claim|\ud83d\udec5#left luggage|\u26a0\ufe0f#warning|\ud83d\udeb8#children crossing|\u26d4#no entry|\ud83d\udeab#prohibited|\ud83d\udeb3#no bicycles|\ud83d\udead#no smoking|\ud83d\udeaf#no littering|\ud83d\udeb1#non-potable water|\ud83d\udeb7#no pedestrians|\ud83d\udcf5#no mobile phones|\ud83d\udd1e#no one under eighteen|\u2622\ufe0f#radioactive|\u2623\ufe0f#biohazard|\u2b06\ufe0f#up arrow|\u2197\ufe0f#up-right arrow|\u27a1\ufe0f#right arrow|\u2198\ufe0f#down-right arrow|\u2b07\ufe0f#down arrow|\u2199\ufe0f#down-left arrow|\u2b05\ufe0f#left arrow|\u2196\ufe0f#up-left arrow|\u2195\ufe0f#up-down arrow|\u2194\ufe0f#left-right arrow|\u21a9\ufe0f#right arrow curving left|\u21aa\ufe0f#left arrow curving right|\u2934\ufe0f#right arrow curving up|\u2935\ufe0f#right arrow curving down|\ud83d\udd03#clockwise vertical arrows|\ud83d\udd04#counterclockwise arrows button|\ud83d\udd19#BACK arrow|\ud83d\udd1a#END arrow|\ud83d\udd1b#ON! arrow|\ud83d\udd1c#SOON arrow|\ud83d\udd1d#TOP arrow|\ud83d\uded0#place of worship|\u269b\ufe0f#atom symbol|\u2721\ufe0f#star of David|\u2638\ufe0f#wheel of dharma|\u262f\ufe0f#yin yang|\u271d\ufe0f#latin cross|\u2626\ufe0f#orthodox cross|\u262a\ufe0f#star and crescent|\u262e\ufe0f#peace symbol|\ud83d\udd4e#menorah|\ud83d\udd2f#dotted six-pointed star|\u2648#Aries|\u2649#Taurus|\u264a#Gemini|\u264b#Cancer|\u264c#Leo|\u264d#Virgo|\u264e#Libra|\u264f#Scorpio|\u2650#Sagittarius|\u2651#Capricorn|\u2652#Aquarius|\u2653#Pisces|\u26ce#Ophiuchus|\ud83d\udd00#shuffle tracks button|\ud83d\udd01#repeat button|\ud83d\udd02#repeat single button|\u25b6\ufe0f#play button|\u23e9#fast-forward button|\u23ed\ufe0f#next track button|\u23ef\ufe0f#play or pause button|\u25c0\ufe0f#reverse button|\u23ea#fast reverse button|\u23ee\ufe0f#last track button|\ud83d\udd3c#upwards button|\u23eb#fast up button|\ud83d\udd3d#downwards button|\u23ec#fast down button|\u23f8\ufe0f#pause button|\u23f9\ufe0f#stop button|\u23fa\ufe0f#record button|\u23cf\ufe0f#eject button|\ud83c\udfa6#cinema|\ud83d\udd05#dim button|\ud83d\udd06#bright button|\ud83d\udcf6#antenna bars|\ud83d\udcf3#vibration mode|\ud83d\udcf4#mobile phone off|\u2640\ufe0f#female sign|\u2642\ufe0f#male sign|\u2716\ufe0f#multiply|\u2795#plus|\u2796#minus|\u2797#divide|\u203c\ufe0f#double exclamation mark|\u2049\ufe0f#exclamation question mark|\u2753#question mark|\u2754#white question mark|\u2755#white exclamation mark|\u2757#exclamation mark|\u3030\ufe0f#wavy dash|\ud83d\udcb1#currency exchange|\ud83d\udcb2#heavy dollar sign|\u2695\ufe0f#medical symbol|\u267b\ufe0f#recycling symbol|\u269c\ufe0f#fleur-de-lis|\ud83d\udd31#trident emblem|\ud83d\udcdb#name badge|\ud83d\udd30#Japanese symbol for beginner|\u2b55#hollow red circle|\u2705#check mark button|\u2611\ufe0f#check box with check|\u2714\ufe0f#check mark|\u274c#cross mark|\u274e#cross mark button|\u27b0#curly loop|\u27bf#double curly loop|\u303d\ufe0f#part alternation mark|\u2733\ufe0f#eight-spoked asterisk|\u2734\ufe0f#eight-pointed star|\u2747\ufe0f#sparkle|\xa9\ufe0f#copyright|\xae\ufe0f#registered|\u2122\ufe0f#trade mark|\ud83d\udd1f#keycap: 10|\ud83d\udd20#input latin uppercase|\ud83d\udd21#input latin lowercase|\ud83d\udd22#input numbers|\ud83d\udd23#input symbols|\ud83d\udd24#input latin letters|\ud83c\udd8e#AB button (blood type)|\ud83c\udd91#CL button|\ud83c\udd92#COOL button|\ud83c\udd93#FREE button|\u2139\ufe0f#information|\ud83c\udd94#ID button|\u24c2\ufe0f#circled M|\ud83c\udd95#NEW button|\ud83c\udd96#NG button|\ud83c\udd97#OK button|\ud83c\udd98#SOS button|\ud83c\udd99#UP! button|\ud83c\udd9a#VS button|\ud83c\ude01#Japanese \u201chere\u201d button|\ud83c\ude36#Japanese \u201cnot free of charge\u201d button|\ud83c\ude2f#Japanese \u201creserved\u201d button|\ud83c\ude50#Japanese \u201cbargain\u201d button|\ud83c\ude39#Japanese \u201cdiscount\u201d button|\ud83c\ude1a#Japanese \u201cfree of charge\u201d button|\ud83c\ude32#Japanese \u201cprohibited\u201d button|\ud83c\ude51#Japanese \u201cacceptable\u201d button|\ud83c\ude38#Japanese \u201capplication\u201d button|\ud83c\ude34#Japanese \u201cpassing grade\u201d button|\ud83c\ude33#Japanese \u201cvacancy\u201d button|\u3297\ufe0f#Japanese \u201ccongratulations\u201d button|\u3299\ufe0f#Japanese \u201csecret\u201d button|\ud83c\ude3a#Japanese \u201copen for business\u201d button|\ud83c\ude35#Japanese \u201cno vacancy\u201d button|\ud83d\udd34#red circle|\ud83d\udd35#blue circle|\u26ab#black circle|\u26aa#white circle|\u2b1b#black large square|\u2b1c#white large square|\u25fc\ufe0f#black medium square|\u25fb\ufe0f#white medium square|\u25fe#black medium-small square|\u25fd#white medium-small square|\u25aa\ufe0f#black small square|\u25ab\ufe0f#white small square|\ud83d\udd36#large orange diamond|\ud83d\udd37#large blue diamond|\ud83d\udd38#small orange diamond|\ud83d\udd39#small blue diamond|\ud83d\udd3a#red triangle pointed up|\ud83d\udd3b#red triangle pointed down|\ud83d\udca0#diamond with a dot|\ud83d\udd18#radio button|\ud83d\udd33#white square button|\ud83d\udd32#black square button"]
 	var emojidata = null;
 
 	function MakeEmojiData() {
@@ -30730,6 +33231,36 @@ function RTE_Plugin_InsertEmoji() {
 			emojidata.push(emojigroup);
 		}
 		//console.log(emojidata);
+	}
+
+	// 2026-10-17 Recently used emoji (Google Docs, Slack, Notion, CKEditor's picker): the ones inserted from the picker,
+	// newest first, 16 at most, kept in this browser. The picker opens on them once there are any.
+	// tools/emoji/emoji-recent.mjs
+	var RECENT_KEY = "rte-emoji-recent", RECENT_MAX = 16, recentMemory = [];
+	function GetRecent() {
+		try {
+			var raw = window.localStorage && window.localStorage.getItem(RECENT_KEY);
+			if (raw) { var arr = JSON.parse(raw); if (Array.isArray(arr)) return arr.slice(0, RECENT_MAX); }
+		} catch (e) { /* storage blocked: this page only */ }
+		return recentMemory.slice(0, RECENT_MAX);
+	}
+	function AddRecent(emoji) {
+		if (!emoji) return;
+		var list = GetRecent().filter(function (x) { return x !== emoji; });
+		list.unshift(emoji);
+		list = list.slice(0, RECENT_MAX);
+		recentMemory = list;
+		try { if (window.localStorage) window.localStorage.setItem(RECENT_KEY, JSON.stringify(list)); } catch (e) { /* storage blocked */ }
+	}
+	function RecentGroup() {
+		var list = GetRecent();
+		if (!list.length) return null;
+		var names = {};
+		for (var gi = 0; gi < emojidata.length; gi++)
+			for (var ii = 0; ii < emojidata[gi].items.length; ii++) names[emojidata[gi].items[ii].emoji] = emojidata[gi].items[ii].keyword;
+		var items = [];
+		for (var i = 0; i < list.length; i++) items.push({ emoji: list[i], keyword: names[list[i]] || "" });
+		return { index: -1, name: "recent", items: items };
 	}
 
 	var obj = this;
@@ -30756,7 +33287,12 @@ function RTE_Plugin_InsertEmoji() {
 
 				panel.onclick = function (e) {
 					if (e.target.nodeName == "GSPAN") {
+						var picked = e.target.getAttribute("title") || "";
+						AddRecent(picked.split(" ")[0]);
 						editor.closeCurrentPopup();
+						// opened as a dialog (execCommand, the slash menu) the picker stayed open after a pick
+						var dlgInner = panel.closest && panel.closest("rte-dialog-inner");
+						if (dlgInner && typeof dlgInner.close === "function") { try { dlgInner.close(); } catch (er) { /* closed */ } }
 						var htmlcode = e.target.getAttribute("htmlcode");
 						editor.insertHTML(htmlcode);
 						editor.collapse(false);
@@ -30869,10 +33405,14 @@ function RTE_Plugin_InsertEmoji() {
 					tid_sel = setTimeout(clear_selecteditem, 10)
 				}
 
+				// 2026-10-15 headings were inline darkblue, 1.04:1 on the dark panel; light blue under rte-dark.
+				// tools/a11y/dark-mode-contrast.mjs
+				var headColor = panel.closest && panel.closest(".rte-dark") ? "#93c5fd" : "darkblue";
 				var searchbar = __Append(panel, "label", "margin:5px;position:relative;");
 				searchbar.setAttribute("id", "emojis_searchbar");
 				var searchbox = __Append(searchbar, "input", "width:100%;padding:5px 20px;border:solid 1px #ccc;border-radius:5px;");
 				searchbox.setAttribute("placeholder", editor.getLangText("searchemojis"));
+				searchbox.setAttribute("aria-label", (config && config.text_searchemojis) || "Search emojis");
 
 				var tid_key = 0;
 				searchbox.onchange = searchbox.onkeyup = searchbox.onkeypress = searchbox.onpaste = function () {
@@ -30888,12 +33428,12 @@ function RTE_Plugin_InsertEmoji() {
 				//   - search → bulk innerHTML build of filtered results
 				function buildCategoryHTML(group) {
 					var parts = [];
-					parts.push('<div style="padding:3px;margin-top:5px;color:darkblue;">' + group.name[0].toUpperCase() + group.name.substring(1) + '</div>');
+					parts.push('<div style="padding:3px;margin-top:5px;color:' + headColor + ';">' + emojiGroupLabel(group.name) + '</div>');
 					parts.push('<div style="display:flex;flex-direction:row;flex-wrap:wrap;">');
 					for (var i = 0; i < group.items.length; i++) {
 						var item = group.items[i];
 						var htmlcode = CharToHTMLCode(item.emoji);
-						parts.push('<gitem class="rte-flex-column-center" style="width:32px;height:32px;margin:2px"><gspan role="menuitem" tabindex="0" aria-label="' + (item.keyword || item.emoji).replace(/"/g, '') + '" htmlcode="' + htmlcode + '" title="' + item.emoji + ' ' + (item.keyword || '').replace(/"/g, '') + '">' + htmlcode + '</gspan></gitem>');
+						parts.push('<gitem class="rte-flex-column-center" style="width:32px;height:32px;margin:2px"><gspan role="menuitem" tabindex="0" aria-label="' + (emojiName(item) || item.emoji).replace(/"/g, '') + '" htmlcode="' + htmlcode + '" title="' + item.emoji + ' ' + emojiName(item).replace(/"/g, '') + '">' + htmlcode + '</gspan></gitem>');
 					}
 					parts.push('</div>');
 					return parts.join('');
@@ -30918,14 +33458,14 @@ function RTE_Plugin_InsertEmoji() {
 						var group = emojidata[gi];
 						for (var ii = 0; ii < group.items.length; ii++) {
 							var item = group.items[ii];
-							if (!item.keyword || item.keyword.indexOf(keyword) == -1)
+							if (!emojiMatches(item, keyword))
 								continue;
 							itemindex++;
 							var htmlcode = CharToHTMLCode(item.emoji);
-							hitsHtml.push('<gitem class="rte-flex-column-center" style="width:32px;height:32px;margin:2px"><gspan role="menuitem" tabindex="0" aria-label="' + (item.keyword || item.emoji).replace(/"/g, '') + '" htmlcode="' + htmlcode + '" title="' + item.emoji + ' ' + (item.keyword || '').replace(/"/g, '') + '">' + htmlcode + '</gspan></gitem>');
+							hitsHtml.push('<gitem class="rte-flex-column-center" style="width:32px;height:32px;margin:2px"><gspan role="menuitem" tabindex="0" aria-label="' + (emojiName(item) || item.emoji).replace(/"/g, '') + '" htmlcode="' + htmlcode + '" title="' + item.emoji + ' ' + emojiName(item).replace(/"/g, '') + '">' + htmlcode + '</gspan></gitem>');
 						}
 					}
-					resultpanel.innerHTML = '<div style="width:100%;padding:3px;margin-top:5px;color:darkblue;text-align:center;">' + itemindex + ' items</div>' + hitsHtml.join('');
+					resultpanel.innerHTML = '<div style="width:100%;padding:3px;margin-top:5px;color:' + headColor + ';text-align:center;">' + emojiItemsText(itemindex) + '</div>' + hitsHtml.join('');
 				}
 
 				panel.setAttribute("id", "emoji-picker");
@@ -30935,34 +33475,46 @@ function RTE_Plugin_InsertEmoji() {
 				var resultpanel = __Append(panel, "div", "display:none;flex-direction:row;flex-wrap:wrap;overflow-y:scroll;padding-bottom:55px");
 
 				var grouppanel = __Append(panel, "div", "overflow-y:scroll;padding-bottom:55px;flex:999");
+				// 2026-10-15 the cells are menu items; each grid is their menu now that the picker (it has a search box) is
+				// announced as a dialog, not a menu (axe aria-required-parent). tools/a11y/popup-menu-roles.mjs
+				resultpanel.setAttribute("role", "menu");
+				resultpanel.setAttribute("aria-label", (config && config.text_emoji_results) || "Search results");
+				grouppanel.setAttribute("role", "menu");
+				grouppanel.setAttribute("aria-label", (config && config.text_emoji_grid) || "Emoji");
 
 				// Lazy-render: only build the active category. Each tab click swaps the html.
 				var activeGroupIndex = 0;
+				var recentGroup = RecentGroup();
+				// gi -1 is Recently used, the first tab when there is one
 				function renderCategory(gi) {
 					activeGroupIndex = gi;
-					grouppanel.innerHTML = buildCategoryHTML(emojidata[gi]);
+					grouppanel.innerHTML = buildCategoryHTML(gi === -1 ? recentGroup : emojidata[gi]);
 					grouppanel.scrollTop = 0;
 					for (var bi = 0; bi < tabuibtns.length; bi++) {
-						tabuibtns[bi].className = bi === gi ? "rte-ui-active" : "";
+						tabuibtns[bi].className = tabuibtns[bi].__rteGroup === gi ? "rte-ui-active" : "";
 					}
 				}
 
+				// (the tab strip repeated the panel's id="emoji-picker"; one element may carry it)
 				var tabui = __Append(tabpanel, "rte-tabui");
-				tabui.setAttribute("id", "emoji-picker");
 				var tabuitoolbar = __Append(tabui, "rte-tabui-toolbar");
 				var tabuibtns = [];
-				for (var gi = 0; gi < emojidata.length; gi++) {
+				var tabgroups = recentGroup ? [{ index: -1, name: "recent", items: [{ emoji: "\ud83d\udd58" }] }].concat(emojidata) : emojidata;
+				for (var gi = 0; gi < tabgroups.length; gi++) {
 					(function (group) {
 						var btn = __Append(tabuitoolbar, "rte-tabui-toolbar-button", "width:32px;text-align:center;margin:4px");
-						btn.setAttribute("title", group.name);
+						btn.setAttribute("title", emojiGroupLabel(group.name));
 						btn.innerHTML = group.items[0].emoji;
+						btn.__rteGroup = group.index;
 						btn.onclick = function () { renderCategory(group.index); };
 						tabuibtns.push(btn);
-					})(emojidata[gi]);
+					})(tabgroups[gi]);
 				}
 
-				// Initial render: just the first category (~125 emojis instead of all 1037).
-				renderCategory(0);
+				// Initial render: Recently used when there is any, else the first category (~125 emojis instead of all 1037).
+				renderCategory(recentGroup ? -1 : 0);
+				// the names arrive after the first paint on a non-English page: repaint what is shown
+				ensureEmojiNames(function () { if (grouppanel.isConnected) { if (resultpanel.style.display !== "none") show_result(); else renderCategory(activeGroupIndex); } });
 
 				searchbox.focus();
 
@@ -31022,6 +33574,12 @@ function RTE_Plugin_InsertGallery() {
 
     obj.PluginName = "InsertGallery";
 
+    // 2026-10-18 the gallery's words read config.text_gl_* (language packs), English as the fallback; {0} fills a
+    // template. tools/i18n/gallery-language.mjs
+    function glText(key, fallback, arg) {
+        var s = (config && config["text_" + key]) || fallback;
+        return arg === undefined ? s : s.split("{0}").join(String(arg));
+    }
     obj.InitConfig = function (argconfig) {
         config = argconfig;
         if (!config.galleryImages) {
@@ -31102,7 +33660,7 @@ function RTE_Plugin_InsertGallery() {
             name = decodeURIComponent(name);
         } catch (ex) {
         }
-        return name || "Image";
+        return name || glText("gl_image", "Image");
     }
 
     function humanSize(size) {
@@ -31238,14 +33796,14 @@ function RTE_Plugin_InsertGallery() {
         var header = append(browser, "div", "", "rte-dialog-browser-header");
         var copy = append(header, "div", "", "rte-dialog-browser-copy");
         copy.innerText = serverMode
-            ? "Browse folders, upload new files, and insert the selected image into the editor."
-            : "Browse the available images, filter by name, and insert the selected image into the editor.";
+            ? glText("gl_copyserver", "Browse folders, upload new files, and insert the selected image into the editor.")
+            : glText("gl_copylocal", "Browse the available images, filter by name, and insert the selected image into the editor.");
 
         // State the accepted formats up front. Previously the only way to learn
         // them was to pick an unsupported file and read "Invalid file extension".
         var acceptHint = append(header, "div", "", "rte-dialog-browser-accept");
-        acceptHint.innerText = "Accepted formats: " +
-            GALLERY_ACCEPT.map(function (ext) { return ext.replace(".", "").toUpperCase(); }).join(", ");
+        acceptHint.innerText = glText("gl_accepted", "Accepted formats: {0}",
+            GALLERY_ACCEPT.map(function (ext) { return ext.replace(".", "").toUpperCase(); }).join(", "));
 
         var toolbar = append(browser, "div", "", "rte-gallery-browser-toolbar");
         var toolbarLeft = append(toolbar, "div", "", "rte-gallery-browser-toolbar-group");
@@ -31253,31 +33811,31 @@ function RTE_Plugin_InsertGallery() {
 
         var upButton = append(toolbarLeft, "button", "", "rte-gallery-browser-button");
         upButton.type = "button";
-        upButton.innerText = "Up";
-        upButton.setAttribute("aria-label", "Go to the parent folder");
+        upButton.innerText = glText("gl_up", "Up");
+        upButton.setAttribute("aria-label", glText("gl_uparia", "Go to the parent folder"));
 
         var path = append(toolbarLeft, "div", "", "rte-gallery-browser-path");
         path.innerText = "/";
 
         var type = append(toolbarLeft, "div", "", "rte-gallery-browser-type");
-        type.innerText = "Image files";
+        type.innerText = glText("gl_imagefiles", "Image files");
 
         var createFolderButton = append(toolbarLeft, "button", "", "rte-gallery-browser-button");
         createFolderButton.type = "button";
-        createFolderButton.innerText = "New folder";
+        createFolderButton.innerText = glText("gl_newfolder", "New folder");
 
         var uploadButton = append(toolbarLeft, "button", "", "rte-gallery-browser-button rte-gallery-browser-button-primary");
         uploadButton.type = "button";
-        uploadButton.innerText = "Upload";
+        uploadButton.innerText = glText("gl_upload", "Upload");
 
         var refreshButton = append(toolbarLeft, "button", "", "rte-gallery-browser-button");
         refreshButton.type = "button";
-        refreshButton.innerText = "Refresh";
+        refreshButton.innerText = glText("gl_refresh", "Refresh");
 
         var search = append(toolbarRight, "input", "", "rte-gallery-browser-search");
         search.type = "search";
-        search.placeholder = "Search images";
-        search.setAttribute("aria-label", "Search images");
+        search.placeholder = glText("gl_search", "Search images");
+        search.setAttribute("aria-label", glText("gl_search", "Search images"));
 
         var fileInput = append(toolbarRight, "input", "display:none;");
         fileInput.type = "file";
@@ -31301,11 +33859,11 @@ function RTE_Plugin_InsertGallery() {
         // listbox — a non-option child of a listbox is invalid ARIA.
         var folderGrid = append(surface, "div", "", "rte-gallery-browser-grid rte-gallery-browser-grid-folders");
         folderGrid.setAttribute("role", "group");
-        folderGrid.setAttribute("aria-label", "Folders");
+        folderGrid.setAttribute("aria-label", glText("gl_folders", "Folders"));
 
         var grid = append(surface, "div", "", "rte-gallery-browser-grid");
         grid.setAttribute("role", "listbox");
-        grid.setAttribute("aria-label", "Available images");
+        grid.setAttribute("aria-label", glText("gl_available", "Available images"));
 
         // Non-blocking failure notice. Sits above the grid instead of replacing
         // it, so a rejected upload never hides the images you can still pick.
@@ -31320,11 +33878,11 @@ function RTE_Plugin_InsertGallery() {
 
         var cancelButton = append(footer, "button", "", "rte-gallery-browser-button");
         cancelButton.type = "button";
-        cancelButton.innerText = "Cancel";
+        cancelButton.innerText = glText("cancel", "Cancel");
 
         var insertButton = append(footer, "button", "", "rte-gallery-browser-button rte-gallery-browser-button-primary");
         insertButton.type = "button";
-        insertButton.innerText = "Insert";
+        insertButton.innerText = glText("insert", "Insert");
 
         var state = {
             currentFolder: "",
@@ -31383,20 +33941,20 @@ function RTE_Plugin_InsertGallery() {
 
         function updateStatus(folderCount, imageCount) {
             var total = folderCount + imageCount;
-            var where = serverMode ? (" in " + state.currentFolderDisplay) : "";
-            var message = total + " item" + (total === 1 ? "" : "s") + where + ". ";
+            var where = serverMode ? glText("gl_in", " in {0}", state.currentFolderDisplay) : "";
+            var message = (total === 1 ? glText("gl_item", "1 item") : glText("gl_items", "{0} items", total)) + where + ". ";
 
             if (!state.selectedUrl) {
-                status.innerText = message + "No image selected.";
+                status.innerText = message + glText("gl_noselection", "No image selected.");
                 footerText.innerText = state.fallbackMode && serverMode
-                    ? "Showing packaged gallery items. Uploads still save into the current folder."
-                    : "Choose an image to enable insert.";
+                    ? glText("gl_presetnote", "Showing packaged gallery items. Uploads still save into the current folder.")
+                    : glText("gl_choose", "Choose an image to enable insert.");
                 setDisabled(insertButton, true);
                 return;
             }
 
             var selectedName = getFileName(state.selectedUrl);
-            status.innerText = message + "Selected: " + selectedName + ".";
+            status.innerText = message + glText("gl_selected", "Selected: {0}.", selectedName);
             setDisabled(insertButton, state.loading);
 
             for (var index = 0; index < state.images.length; index++) {
@@ -31413,7 +33971,7 @@ function RTE_Plugin_InsertGallery() {
         function createFolderCard(item) {
             var button = append(folderGrid, "button", "", "rte-gallery-browser-card rte-gallery-folder-card");
             button.type = "button";
-            button.title = "Open " + item.name;
+            button.title = glText("gl_open", "Open {0}", item.name);
 
             var selection = append(button, "div", "", "rte-gallery-browser-selection");
             selection.innerHTML = "&nbsp;";
@@ -31425,7 +33983,7 @@ function RTE_Plugin_InsertGallery() {
             label.innerText = item.name;
 
             var meta = append(button, "div", "", "rte-gallery-browser-meta");
-            meta.innerText = "Folder";
+            meta.innerText = glText("gl_folder", "Folder");
 
             button.onclick = function () {
                 loadFolder(item.folder);
@@ -31452,7 +34010,7 @@ function RTE_Plugin_InsertGallery() {
             label.innerText = item.name;
 
             var meta = append(button, "div", "", "rte-gallery-browser-meta");
-            meta.innerText = item.meta || (item.source === "preset" ? "Preset image" : humanSize(item.size)) || item.url;
+            meta.innerText = item.meta || (item.source === "preset" ? glText("gl_preset", "Preset image") : humanSize(item.size)) || item.url;
 
             button.onclick = function () {
                 setSelected(item.url);
@@ -31506,7 +34064,7 @@ function RTE_Plugin_InsertGallery() {
             show(grid, true);
 
             if (state.loading) {
-                empty.innerText = "Loading gallery...";
+                empty.innerText = glText("gl_loading", "Loading gallery...");
                 show(empty, true);
                 show(grid, false);
                 updateStatus(0, 0);
@@ -31539,10 +34097,10 @@ function RTE_Plugin_InsertGallery() {
 
             if (!visibleFolders.length && !visibleImages.length) {
                 empty.innerText = search.value
-                    ? "No folders or images match the current filter."
+                    ? glText("gl_nomatch", "No folders or images match the current filter.")
                     : (serverMode
-                        ? "This folder is empty. Create a folder or upload an image to get started."
-                        : "No images are available. Upload a file to get started.");
+                        ? glText("gl_emptyfolder", "This folder is empty. Create a folder or upload an image to get started.")
+                        : glText("gl_noimages", "No images are available. Upload a file to get started."));
                 show(empty, true);
             }
         }
@@ -31602,7 +34160,7 @@ function RTE_Plugin_InsertGallery() {
                 images: []
             }, true);
             state.images = presetImages.slice(0);
-            state.error = presetImages.length ? "" : ("The image gallery is unavailable right now (" + errorCode + ").");
+            state.error = presetImages.length ? "" : glText("gl_unavailable", "The image gallery is unavailable right now ({0}).", errorCode);
             state.loading = false;
             render();
         }
@@ -31641,7 +34199,7 @@ function RTE_Plugin_InsertGallery() {
         }
 
         function createFolder() {
-            var folderName = window.prompt("New folder name", "");
+            var folderName = window.prompt(glText("gl_foldername", "New folder name"), "");
             if (!folderName) {
                 return;
             }
@@ -31658,7 +34216,7 @@ function RTE_Plugin_InsertGallery() {
             requestJson("POST", endpoint, formData, function (payload, errorCode) {
                 if (errorCode) {
                     state.loading = false;
-                    state.error = "The folder could not be created right now.";
+                    state.error = glText("gl_foldererror", "The folder could not be created right now.");
                     render();
                     return;
                 }
@@ -31763,7 +34321,7 @@ function RTE_Plugin_InsertGallery() {
                     if (url) {
                         uploadedUrls.push(url);
                     } else {
-                        problems.push(typeof errorText === "string" && errorText ? errorText : ("Upload failed for " + file.name + "."));
+                        problems.push(typeof errorText === "string" && errorText ? errorText : glText("gl_uploadfailed", "Upload failed for {0}.", file.name));
                     }
                     uploadNext(nextIndex + 1);
                 }
@@ -31771,7 +34329,7 @@ function RTE_Plugin_InsertGallery() {
                 try {
                     if (uploadToFolder) {
                         window.richTextBoxUploadFile(file, function (url, errorCode) {
-                            done(errorCode ? "" : url, errorCode ? ("Upload failed for " + file.name + ".") : "");
+                            done(errorCode ? "" : url, errorCode ? glText("gl_uploadfailed", "Upload failed for {0}.", file.name) : "");
                         }, { folder: state.currentFolder }, nextIndex, files);
                         return;
                     }
@@ -31781,7 +34339,7 @@ function RTE_Plugin_InsertGallery() {
                     }, nextIndex, files);
                 } catch (ex) {
                     // a handler that throws must not leave the dialog stuck on "Loading"
-                    done("", "Upload failed for " + file.name + ".");
+                    done("", glText("gl_uploadfailed", "Upload failed for {0}.", file.name));
                 }
             }
 
@@ -31836,6 +34394,12 @@ function RTE_Plugin_InsertTemplate() {
 
     obj.PluginName = "InsertTemplate";
 
+    // 2026-10-18 the words read config.text_ keys (language packs), English as the fallback; {0} fills a template.
+    // tools/i18n/plugin-panels-language.mjs
+    function pText(key, fallback, arg) {
+        var s = (config && config["text_" + key]) || fallback;
+        return arg === undefined ? s : s.split("{0}").join(String(arg));
+    }
     obj.InitConfig = function (argconfig) {
         config = argconfig;
         if (!config.htmlTemplates) {
@@ -31880,7 +34444,7 @@ function RTE_Plugin_InsertTemplate() {
         if (item instanceof Array) {
             return {
                 id: "template-" + index,
-                title: item[0] || ("Template " + (index + 1)),
+                title: item[0] || pText("tp_template", "Template {0}", index + 1),
                 html: item[1] || "",
                 meta: item[2] || ""
             };
@@ -31889,7 +34453,7 @@ function RTE_Plugin_InsertTemplate() {
         if (item && typeof item === "object") {
             return {
                 id: item.id || ("template-" + index),
-                title: item.title || item.name || item.text || ("Template " + (index + 1)),
+                title: item.title || item.name || item.text || pText("tp_template", "Template {0}", index + 1),
                 html: item.html || item.content || "",
                 meta: item.meta || item.description || ""
             };
@@ -31898,7 +34462,7 @@ function RTE_Plugin_InsertTemplate() {
         if (typeof item === "string") {
             return {
                 id: "template-" + index,
-                title: "Template " + (index + 1),
+                title: pText("tp_template", "Template {0}", index + 1),
                 html: item,
                 meta: ""
             };
@@ -31932,13 +34496,13 @@ function RTE_Plugin_InsertTemplate() {
         // The outer dialog frame supplies the title bar — only render a subtitle here.
         var header = append(browser, "div", "", "rte-dialog-browser-header");
         var copy = append(header, "div", "", "rte-dialog-browser-copy");
-        copy.innerText = "Preview reusable layouts, search by name, and replace the current editor content with a selected template.";
+        copy.innerText = pText("tp_copy", "Preview reusable layouts, search by name, and replace the current editor content with a selected template.");
 
         var toolbar = append(browser, "div", "", "rte-dialog-browser-toolbar");
         var search = append(toolbar, "input", "", "rte-dialog-browser-search");
         search.type = "search";
-        search.placeholder = "Search templates";
-        search.setAttribute("aria-label", "Search templates");
+        search.placeholder = pText("tp_search", "Search templates");
+        search.setAttribute("aria-label", pText("tp_search", "Search templates"));
         var count = append(toolbar, "div", "", "rte-dialog-browser-count");
         count.setAttribute("role", "status");
         count.setAttribute("aria-live", "polite");
@@ -31946,21 +34510,21 @@ function RTE_Plugin_InsertTemplate() {
         var scrollpanel = append(browser, "div", "", "rte-dialog-browser-scrollpanel");
         var grid = append(scrollpanel, "div", "", "rte-dialog-browser-grid rte-template-grid");
         grid.setAttribute("role", "listbox");
-        grid.setAttribute("aria-label", "Available templates");
+        grid.setAttribute("aria-label", pText("tp_available", "Available templates"));
         var empty = append(scrollpanel, "div", "", "rte-dialog-browser-empty");
-        empty.innerText = "No templates match the current filter.";
+        empty.innerText = pText("tp_nomatch", "No templates match the current filter.");
 
         var footer = append(browser, "div", "", "rte-gallery-browser-footer");
         var footerText = append(footer, "div", "", "rte-gallery-browser-footer-text");
-        footerText.innerText = "Select a template to replace the current content.";
+        footerText.innerText = pText("tp_select", "Select a template to replace the current content.");
 
         var cancelButton = append(footer, "button", "", "rte-gallery-browser-button");
         cancelButton.type = "button";
-        cancelButton.innerText = "Cancel";
+        cancelButton.innerText = pText("cancel", "Cancel");
 
         var applyButton = append(footer, "button", "", "rte-gallery-browser-button rte-gallery-browser-button-primary");
         applyButton.type = "button";
-        applyButton.innerText = "Replace Content";
+        applyButton.innerText = pText("tp_replace", "Replace Content");
         applyButton.disabled = true;
 
         var selectedId = "";
@@ -32003,10 +34567,10 @@ function RTE_Plugin_InsertTemplate() {
                 }
             }
 
-            count.innerText = items.length + " template" + (items.length === 1 ? "" : "s");
+            count.innerText = items.length === 1 ? pText("tp_count1", "1 template") : pText("tp_countn", "{0} templates", items.length);
             footerText.innerText = selectedTemplate
-                ? ("Ready to replace the editor content with " + selectedTemplate.title + ".")
-                : "Select a template to replace the current content.";
+                ? pText("tp_ready", "Ready to replace the editor content with {0}.", selectedTemplate.title)
+                : pText("tp_select", "Select a template to replace the current content.");
             applyButton.disabled = !selectedTemplate;
         }
 
@@ -32015,7 +34579,9 @@ function RTE_Plugin_InsertTemplate() {
             var i;
             for (i = 0; i < items.length; i++) {
                 if (items[i].id === selectedId) {
-                    editor.setHTMLCode(items[i].html);
+                    // 2026-10-03 undoable: Ctrl+Z gives back exactly the document this replaced, edits made just
+                    // before included (tools/import/replace-undo-plugins.mjs)
+                    editor.setHTMLCode(items[i].html, { undoable: true });
                     closeDialog();
                     editor.focus();
                     return;
@@ -32050,11 +34616,19 @@ function RTE_Plugin_InsertTemplate() {
                     var title = append(footer, "div", "", "rte-template-card-title");
                     title.innerText = item.title;
                     var meta = append(footer, "div", "", "rte-template-card-meta");
-                    meta.innerText = item.meta || stripHtml(item.html).substring(0, 80) || "Reusable template";
+                    meta.innerText = item.meta || stripHtml(item.html).substring(0, 80) || pText("tp_reusable", "Reusable template");
 
+                    // 2026-10-03 Select IN PLACE: re-rendering every card here meant the second click of a
+                    // double-click hit a new element, so Firefox fired no dblclick and nothing was applied.
+                    // tools/templates/template-dblclick.mjs
                     card.onclick = function () {
                         selectedId = item.id;
-                        render();
+                        var cards = grid.querySelectorAll(".rte-dialog-browser-card");
+                        for (var c = 0; c < cards.length; c++) {
+                            cards[c].classList.toggle("is-selected", cards[c] === card);
+                            cards[c].setAttribute("aria-selected", cards[c] === card ? "true" : "false");
+                        }
+                        updateFooter(getFilteredTemplates());
                     };
 
                     card.ondblclick = function () {
@@ -32149,6 +34723,10 @@ function RTE_Plugin_KeyboardA11y() {
         // Public so plugins can report their own outcomes -- find/replace match
         // counts, what the paste filter removed, export completion.
         editor.announce = function (text, opts) { return announce(text, opts); };
+        // 2026-10-11 WCAG 4.1.3: the outcome of a formatting command is announced (see announceFormatOutcome).
+        try { editor.attachEvent("exec_command", function (state, cmd) { announceFormatOutcome(cmd); }); } catch (e) { }
+        // 2026-10-11 WCAG 4.1.3: a URL linked as it was typed is announced ("Link created: example.com"). rte.js fires "autolink".
+        try { editor.attachEvent("autolink", function (state, href, word) { announce((isSuggesting() ? "Link suggested: " : "Link created: ") + word); }); } catch (e) { }
         // setReadOnly() lives in the core and cannot call into a plugin, so wrap
         // it here rather than leaving the two states to drift apart.
         if (typeof editor.setReadOnly === "function" && !editor.setReadOnly.__a11yWrapped) {
@@ -32253,6 +34831,56 @@ function RTE_Plugin_KeyboardA11y() {
         return true;
     }
 
+    // 2026-10-11 WCAG 4.1.3 (Status Messages): a formatting shortcut or button turned bold, italic or underline on or
+    // off, and nothing was spoken - a sighted user reads the highlighted button, a screen reader user could not tell
+    // whether bold was on. The event fires before the command runs, so the state is read on the next tick, from the
+    // editor's own report (isCommandActive). Only these inline toggles are spoken; typing announces nothing.
+    // tools/a11y/format-announce.mjs
+    var FORMAT_ANNOUNCE = { bold: "Bold", italic: "Italic", underline: "Underline", strikethrough: "Strikethrough",
+        subscript: "Subscript", superscript: "Superscript" };
+    // 2026-10-11 WCAG 4.1.3: a list button turns a list on or off and a heading command sets a level, and neither was
+    // spoken. A list is read the same way as the inline toggles. A block change names the block the caret is now in
+    // ("Heading 2", "Paragraph"), read from the selection because the event carries no level.
+    // tools/a11y/block-announce.mjs
+    var LIST_ANNOUNCE = { insertunorderedlist: "Bulleted list", insertorderedlist: "Numbered list" };
+    function currentBlockName() {
+        var doc = editor.getDocument();
+        var sel = doc && doc.getSelection();
+        var n = sel && sel.anchorNode;
+        while (n && n.nodeType !== 1) n = n.parentNode;
+        while (n && n !== doc.body) {
+            if (/^H[1-6]$/.test(n.tagName)) return "Heading " + n.tagName.charAt(1);
+            if (n.tagName === "P") return "Paragraph";
+            n = n.parentNode;
+        }
+        return null;
+    }
+    // 2026-10-11 WCAG 4.1.3: in suggesting mode the change is only a suggestion until it is accepted, so it is announced as
+    // one ("Suggested: Bulleted list on"). Outside suggesting mode the wording is unchanged.
+    // tools/a11y/suggest-announce.mjs
+    function isSuggesting() {
+        try { return !!(editor.trackedChanges && editor.trackedChanges.isEnabled()); } catch (e) { return false; }
+    }
+    function suggestionPrefix() {
+        return isSuggesting() ? "Suggested: " : "";
+    }
+    function announceFormatOutcome(cmd) {
+        var key = String(cmd || "").toLowerCase();
+        var name = FORMAT_ANNOUNCE[key] || LIST_ANNOUNCE[key];
+        if (!name && key !== "formatblock") return;
+        setTimeout(function () {
+            var prefix = suggestionPrefix();
+            if (key === "formatblock") {
+                var block = currentBlockName();
+                if (block) announce(prefix + block);
+                return;
+            }
+            var on = false;
+            try { on = !!editor.isCommandActive(key); } catch (e) { return; }
+            announce(prefix + name + (on ? " on" : " off"));
+        }, 0);
+    }
+
     // ------------------------------------------------- 5. read-only state
     //
     // setReadOnly() flips designMode, which genuinely blocks editing -- but
@@ -32312,6 +34940,7 @@ function RTE_Plugin_KeyboardA11y() {
             doc.addEventListener("keydown", function (e) {
                 if (e.key !== "Escape" && e.keyCode !== 27) return;
                 if (anythingOpen()) return;           // let the panel close itself
+                if (e.defaultPrevented) return;       // 2026-10-17 already handled (the link card closed itself)
                 e.preventDefault();
                 e.stopPropagation();
                 if (!focusFirstToolbarButton()) focusAfterEditor();
@@ -32352,11 +34981,12 @@ function RTE_Plugin_KeyboardA11y() {
     // So: a host-supplied label still wins as the name; otherwise we supply a
     // real one and the hint follows it.
     function announceEscape(ed) {
-        var hint = config.a11yEscapeHint ||
+        // 2026-10-18 the default hint and name read the language pack. tools/i18n/plugin-default-keys.mjs
+        var hint = config.a11yEscapeHint || config.text_escleave ||
             "Press Escape to leave the editing area.";
         var label = ed.getAttribute("aria-label") || "";
         if (label.indexOf(hint) >= 0) return;
-        var name = label || config.a11yEditorLabel || "Rich text editor";
+        var name = label || config.a11yEditorLabel || config.text_editorname || "Rich text editor";
         ed.setAttribute("aria-label", name.replace(/\s*$/, "") + " " + hint);
     }
 
@@ -32480,7 +35110,9 @@ function RTE_Plugin_KeyboardA11y() {
     // which inserts a block rather than toggling the selection. They are kept —
     // harmless, and correct the moment a toolbar button is added — but they
     // cover nothing today, so do not read this list as evidence of coverage.
-    var TOGGLE_CMD = /^(bold|italic|underline|strikethrough|subscript|superscript|justifyleft|justifycenter|justifyright|justifyfull|insertorderedlist|insertunorderedlist|outdent|indent|insertblockquote|toggleborder|inlinecode|trackchanges|typewriter|focusmode|pagination|formattingmarks|linenumbers|permanentpen|rtlui)$/;
+    // 2026-10-15 the toolbar command is "strike", not "strikethrough", so Strikethrough never had aria-pressed;
+    // spellcheck is a toggle too. tools/a11y/toggle-pressed.mjs
+    var TOGGLE_CMD = /^(bold|italic|underline|strike|strikethrough|spellcheck|subscript|superscript|justifyleft|justifycenter|justifyright|justifyfull|insertorderedlist|insertunorderedlist|outdent|indent|insertblockquote|toggleborder|inlinecode|trackchanges|typewriter|focusmode|pagination|formattingmarks|linenumbers|permanentpen|rtlui)$/;
 
     function syncToggleStates(root) {
         var btns = [].slice.call(root.querySelectorAll('[role="button"][rte-cmd-name]'));
@@ -32488,6 +35120,11 @@ function RTE_Plugin_KeyboardA11y() {
             var cmd = (btns[i].getAttribute("rte-cmd-name") || "").toLowerCase();
             if (!TOGGLE_CMD.test(cmd)) continue;
             var active = btns[i].classList.contains("rte-command-active");
+            // 2026-10-15 a split button's inner half (the list buttons) is the control a screen reader lands on, but
+            // the active class goes on the outer rte-toolbar-splitbutton: it said not pressed inside a list.
+            // tools/a11y/toggle-pressed.mjs
+            var outer = btns[i].parentNode;
+            if (!active && outer && outer.nodeName === "RTE-TOOLBAR-SPLITBUTTON") active = outer.classList.contains("rte-command-active");
             var pressed = active ? "true" : "false";
             if (btns[i].getAttribute("aria-pressed") !== pressed) btns[i].setAttribute("aria-pressed", pressed);
         }
@@ -32901,6 +35538,26 @@ function RTE_Plugin_LayoutTable() {
     }
 
     function insertAtCaret(node, doc) {
+        // 2026-10-04 through the core's block placement: range.insertNode put the table INSIDE the
+        // paragraph (<p>one two<table>...</p>, invalid HTML). The caret then goes into the first cell.
+        // tools/tables/layout-table-placement.mjs
+        if (typeof editor.insertElement === "function") {
+            try {
+                editor.insertElement(node);
+                if (node.parentNode) {
+                    var cell = node.querySelector("td,th");
+                    var sel0 = editor.getSelection();
+                    if (cell && sel0) {
+                        var r0 = node.ownerDocument.createRange();
+                        r0.setStart(cell, 0);
+                        r0.collapse(true);
+                        sel0.removeAllRanges();
+                        sel0.addRange(r0);
+                    }
+                    return true;
+                }
+            } catch (e) { /* the plain insert below */ }
+        }
         var inserted = false;
         try {
             var sel = editor.getSelection();
@@ -33426,6 +36083,31 @@ function RTE_Plugin_LinkChecker() {
         return out;
     }
 
+    // 2026-10-03 Whether an in-document fragment lands somewhere. It was looked up with
+    // querySelector("#" + id), which THROWS for an id that is not a CSS identifier - one starting
+    // with a digit, which is what a numbered heading's generated id looks like ("1. Introduction" ->
+    // "1-introduction") - and the throw was reported as a broken anchor: every link to a numbered
+    // clause and every table-of-contents entry of a numbered document was flagged. Now the id is
+    // compared as a string, the percent-decoded form counts too (#caf%C3%A9 lands on the accented
+    // id, as in a browser), and "#top" lands at the top, as the HTML spec says.
+    // tools/links/link-checker.mjs
+    function anchorExists(editable, raw) {
+        var ids = [raw];
+        try {
+            var decoded = decodeURIComponent(raw);
+            if (decoded !== raw) ids.push(decoded);
+        } catch (e) { /* not valid percent-encoding: the raw form only */ }
+        var named = editable.querySelectorAll("[id], a[name]");
+        for (var i = 0; i < ids.length; i++) {
+            if (ids[i].toLowerCase() === "top") return true;
+            for (var j = 0; j < named.length; j++) {
+                if (named[j].getAttribute("id") === ids[i]) return true;
+                if (named[j].nodeName === "A" && named[j].getAttribute("name") === ids[i]) return true;
+            }
+        }
+        return false;
+    }
+
     // Everything decidable without the network.
     function offlineIssues() {
         var editable = getEditable();
@@ -33449,7 +36131,7 @@ function RTE_Plugin_LinkChecker() {
 
             if (!a.hasAttribute("href")) {
                 add("error", "empty-href",
-                    "Link has no destination — its address may have been removed for being unsafe.");
+                    "Link has no destination \u2014 its address may have been removed for being unsafe.");
                 continue;
             }
             if (!href || href === "#") {
@@ -33471,12 +36153,7 @@ function RTE_Plugin_LinkChecker() {
             // breakage because headings get retitled and ids change.
             if (href.charAt(0) === "#") {
                 var id = href.substring(1);
-                var target = null;
-                try {
-                    target = editable.querySelector("#" + id.replace(/["\\\]\[]/g, "\\$&")) ||
-                             editable.querySelector('[name="' + id.replace(/"/g, '\\"') + '"]');
-                } catch (e) { target = null; }
-                if (!target) add("error", "broken-anchor", "Links to #" + id + ", which does not exist in this document.");
+                if (!anchorExists(editable, id)) add("error", "broken-anchor", "Links to #" + id + ", which does not exist in this document.");
             } else if (/^[a-z][a-z0-9+.-]*:/i.test(href) || href.indexOf("//") === 0) {
                 // Absolute URL: parse it to catch malformed ones.
                 var parsed = parseUrl(href);
@@ -33528,8 +36205,8 @@ function RTE_Plugin_LinkChecker() {
                 out.push({
                     element: group[g2].a, href: group[g2].href, text: group[g2].a.textContent.trim(),
                     severity: "warning", code: "ambiguous-text",
-                    message: "Several links share the text “" + group[g2].a.textContent.trim() +
-                             "” but point to different destinations."
+                    message: "Several links share the text \u201c" + group[g2].a.textContent.trim() +
+                             "\u201d but point to different destinations."
                 });
             }
         }
@@ -33763,7 +36440,9 @@ function RTE_Plugin_LocalDraft() {
         editor.clearLocalDraft = function () { try { store().removeItem(resolveKey()); } catch (e) {} hideBar(); return true; };
         editor.restoreLocalDraft = function () {
             var d = read(); if (!d) return false;
-            try { editor.setHTMLCode(d.html); } catch (e) { return false; }
+            // 2026-10-03 undoable: Ctrl+Z gives back exactly the document the draft replaced
+            // (tools/import/replace-undo-plugins.mjs)
+            try { editor.setHTMLCode(d.html, { undoable: true }); } catch (e) { return false; }
             try { if (typeof editor.fireChange === "function") editor.fireChange(); } catch (e) {}
             hideBar();
             return true;
@@ -33817,12 +36496,54 @@ function RTE_Plugin_LocalDraft() {
     function intervalMs() { var n = opts && +opts.intervalMs; return (n && n > 250) ? n : 2500; }
     function ttlMs() { var n = opts && +opts.ttlMs; return (n && n > 0) ? n : 14 * 24 * 60 * 60 * 1000; }
 
+    // 2026-10-02 The key names the EDITOR. It was the editing body's id - which the editor never
+    // sets - else the page path, so every editor on a page shared ONE draft: the last to save
+    // overwrote the other's, and after a reload Restore put one editor's text into the other (a
+    // form with a summary and a body editor lost the summary). Now: config key; else that body id
+    // (as before); else the replaced textarea's id or name; else the container's id; else the
+    // editor's place among the page's editors. The page's first editor with none of these keeps
+    // the old key (the page path), so a single editor's pending draft survives the upgrade; and
+    // when the page's only editor gets a new key, a draft under the old one moves to it (read).
+    // tools/autosave/local-draft-keys.mjs
+    var cachedKey = null;
+    function pagePath() {
+        try { return location.pathname; } catch (e) { return "default"; }
+    }
     function resolveKey() {
         if (opts && opts.key) return "rte-draft:" + opts.key;
+        if (cachedKey) return cachedKey;
         var id = "";
         try { var ed = editor.getEditable(); id = (ed && (ed.id || (ed.getAttribute && ed.getAttribute("data-rte-id")))) || ""; } catch (e) {}
-        if (!id) { try { id = location.pathname; } catch (e) { id = "default"; } }
-        return "rte-draft:" + id;
+        if (id) return (cachedKey = "rte-draft:" + id);
+        var name = "";
+        try {
+            var inp = editor.input;
+            if (inp) name = inp.id || inp.getAttribute("name") || "";
+            if (!name && editor.container && editor.container.id) name = editor.container.id;
+        } catch (e) {}
+        if (!name) {
+            var index = 0;
+            try {
+                var all = document.querySelectorAll(".richtexteditor");
+                for (var i = 0; i < all.length; i++) if (all[i] === editor.container) { index = i; break; }
+            } catch (e) {}
+            if (index > 0) name = "editor-" + index;
+        }
+        return (cachedKey = "rte-draft:" + pagePath() + (name ? "#" + name : ""));
+    }
+    // A draft saved under the old shared key belongs to this editor only when it is the page's
+    // only one; then it moves to this editor's key.
+    function takeLegacyDraft(k) {
+        var legacy = "rte-draft:" + pagePath();
+        if (legacy === k) return null;
+        try {
+            if (document.querySelectorAll(".richtexteditor").length !== 1) return null;
+            var raw = store().getItem(legacy);
+            if (!raw) return null;
+            store().setItem(k, raw);
+            store().removeItem(legacy);
+            return raw;
+        } catch (e) { return null; }
     }
 
     function store() { return window.localStorage; }
@@ -33848,7 +36569,7 @@ function RTE_Plugin_LocalDraft() {
 
     function read() {
         try {
-            var raw = store().getItem(resolveKey());
+            var raw = store().getItem(resolveKey()) || takeLegacyDraft(resolveKey());
             if (!raw) return null;
             var rec = JSON.parse(raw);
             if (!rec || typeof rec.html !== "string") return null;
@@ -33890,9 +36611,9 @@ function RTE_Plugin_LocalDraft() {
         bar.setAttribute("aria-live", "polite");
         var msg = document.createElement("span");
         msg.className = "rte-localdraft-message";
-        msg.textContent = "An unsaved draft" + (when ? (" from " + when) : "") + " was found.";
-        var restore = mkBtn("Restore", "primary");
-        var discard = mkBtn("Discard", "secondary");
+        msg.textContent = when ? ((typeof config !== "undefined" && config && config.text_ld_foundwhen) || "An unsaved draft from {0} was found.").split("{0}").join(when) : ((typeof config !== "undefined" && config && config.text_ld_found) || "An unsaved draft was found.");
+        var restore = mkBtn(((typeof config !== "undefined" && config && config.text_ld_restore) || "Restore"), "primary");
+        var discard = mkBtn(((typeof config !== "undefined" && config && config.text_ld_discard) || "Discard"), "secondary");
         restore.onclick = function () { editor.restoreLocalDraft(); };
         discard.onclick = function () { editor.clearLocalDraft(); };
         bar.appendChild(msg); bar.appendChild(restore); bar.appendChild(discard);
@@ -33981,6 +36702,165 @@ function RTE_Plugin_MarkdownExport() {
             var name = base ? (base + ".md") : defaultName();
             return triggerDownload(md, name);
         };
+
+        // 2026-10-13 Markdown mode (tools/markdown/markdown-mode.mjs): the document is edited as Markdown text in place.
+        // A toggle without an edit changes nothing. An edit applies as one undoable step. While the mode is open,
+        // getHTML() returns the HTML the Markdown text describes, so a host that saves mid-edit keeps the change.
+        var mdMode = null;
+        editor.isMarkdownMode = function () { return !!mdMode; };
+        editor.toggleMarkdownMode = function () { return mdMode ? exitMarkdownMode() : enterMarkdownMode(); };
+        // 2026-10-17 a live preview beside the source (competitor matrix F6): it renders what the text will become,
+        // from the editor's own importer, so raw HTML and javascript: links show as text. On by default; the button
+        // in the note row and setMarkdownPreview(bool) turn it off and on. tools/markdown/markdown-preview.mjs
+        var mdPreviewOn = true;
+        editor.isMarkdownPreview = function () { return !!mdMode && mdPreviewOn; };
+        editor.setMarkdownPreview = function (on) {
+            mdPreviewOn = !!on;
+            if (mdMode) applyPreviewState();
+            return editor.isMarkdownPreview();
+        };
+        var baseGetHTML = editor.getHTMLCode;
+        var htmlWhileMarkdown = function () {
+            if (mdMode && !mdMode.locked) return editor.fromMarkdown(mdMode.area.value, { apply: false });
+            return baseGetHTML.apply(editor, arguments);
+        };
+        editor.getHTML = htmlWhileMarkdown;
+        editor.getHTMLCode = htmlWhileMarkdown;
+
+        // 2026-10-17 labels speak the page's language: their own config.text_ key first, then - when a non-English
+        // language pack is loaded (text_language is not "Language") - the pack's existing translation, else English.
+        // tools/i18n/block-menu-language.mjs
+        function label(own, packKey, fallback) {
+            if (config && config["text_" + own]) return config["text_" + own];
+            if (packKey && config && config.text_language && config.text_language !== "Language" && config["text_" + packKey]) return config["text_" + packKey];
+            return fallback;
+        }
+
+        function enterMarkdownMode() {
+            var frame = editor.iframe;
+            if (!frame || !frame.parentNode) return false;
+            var host = frame.ownerDocument;
+            injectMarkdownStyles(host);
+            var original = editor.toMarkdown();
+            var note = host.createElement("div");
+            note.className = "rte-markdown-note";
+            note.textContent = ((config && config.text_md_note) || "Markdown mode. Markdown keeps headings, lists, links, emphasis, code and tables. Colours, footnotes, comments and other formatting are not kept when you change the text.");
+            var area = host.createElement("textarea");
+            area.className = "rte-markdown-mode";
+            area.setAttribute("spellcheck", "false");
+            // 2026-10-14 A named text box, described by the note above it (what Markdown keeps and loses), so a
+            // screen reader does not announce a bare "edit text" (WCAG 4.1.2). tools/markdown/markdown-mode-a11y.mjs
+            area.setAttribute("aria-label", ((config && config.text_md_source) || "Markdown source"));
+            note.id = "rte-markdown-note-" + new Date().getTime() + "-" + Math.floor(Math.random() * 1e6);
+            area.setAttribute("aria-describedby", note.id);
+            area.value = original;
+            // 2026-10-17 a locked document stays locked: in read-only and comments-only mode the source box was
+            // editable and leaving applied the edit; in suggesting mode the edit replaced the document untracked. The
+            // source now opens view-only there and leaving never applies. tools/markdown/markdown-mode-locked.mjs
+            var locked = false;
+            try { locked = !!((editor.getReadOnly && editor.getReadOnly()) || (editor.getCommentsOnly && editor.getCommentsOnly())); } catch (e) { locked = false; }
+            if (!locked && editor.__trackHook && editor.__trackHook("refuse", { message: ((config && config.text_md_suggestlocked) || "Suggesting is on, so the Markdown source is view only. Turn suggesting off to edit as Markdown.") }) === true) locked = true;
+            if (locked) {
+                area.readOnly = true;
+                note.textContent = ((config && config.text_md_viewonly) || "Markdown source, view only: this document cannot be changed here right now.");
+            }
+            var toggle = host.createElement("button");
+            toggle.type = "button";
+            toggle.className = "rte-markdown-preview-toggle";
+            var bar = host.createElement("div");
+            bar.className = "rte-markdown-bar";
+            bar.appendChild(toggle);
+            var split = host.createElement("div");
+            split.className = "rte-markdown-split";
+            var preview = host.createElement("div");
+            preview.className = "rte-markdown-preview";
+            preview.setAttribute("role", "region");
+            preview.setAttribute("aria-label", label("markdownpreview", "preview", "Markdown preview"));
+            split.appendChild(area);
+            split.appendChild(preview);
+            frame.style.display = "none";
+            frame.parentNode.insertBefore(note, frame.nextSibling);
+            frame.parentNode.insertBefore(bar, note.nextSibling);
+            frame.parentNode.insertBefore(split, bar.nextSibling);
+            mdMode = { area: area, note: note, frame: frame, original: original, split: split, preview: preview, toggle: toggle, bar: bar, timer: 0, locked: locked };
+            toggle.onclick = function () { editor.setMarkdownPreview(!mdPreviewOn); };
+            // 2026-10-17 the preview follows the source as it scrolls (proportional, as side-by-side Markdown editors
+            // do): with a long document the part being edited was off screen in the preview.
+            // tools/markdown/markdown-preview-scroll.mjs
+            area.addEventListener("scroll", syncPreviewScroll);
+            area.addEventListener("input", function () {
+                var state = mdMode;
+                if (!state || !mdPreviewOn) return;
+                clearTimeout(state.timer);
+                state.timer = setTimeout(renderPreview, 120);
+            });
+            applyPreviewState();
+            try { area.focus(); } catch (e) { /* focus is best effort */ }
+            return true;
+        }
+
+        function exitMarkdownMode() {
+            var state = mdMode;
+            var text = state.area.value;
+            mdMode = null;
+            if (!state.locked && text !== state.original) editor.setHTMLCode(editor.fromMarkdown(text, { apply: false }), { undoable: true });
+            clearTimeout(state.timer);
+            if (state.split.parentNode) state.split.parentNode.removeChild(state.split);
+            if (state.bar.parentNode) state.bar.parentNode.removeChild(state.bar);
+            if (state.note.parentNode) state.note.parentNode.removeChild(state.note);
+            state.frame.style.display = "";
+            // the text box that held focus is gone: focus goes back to the editor, not to the page body (WCAG 2.4.3)
+            try { editor.focus(); } catch (e) { /* ignore */ }
+            return true;
+        }
+
+        function renderPreview() {
+            var state = mdMode;
+            if (!state) return;
+            var html = "";
+            try { html = editor.fromMarkdown(state.area.value, { apply: false }); } catch (e) { html = ""; }
+            state.preview.innerHTML = html;
+            syncPreviewScroll();
+        }
+
+        function syncPreviewScroll() {
+            var state = mdMode;
+            if (!state || !mdPreviewOn) return;
+            var a = state.area, pv = state.preview;
+            var range = a.scrollHeight - a.clientHeight;
+            var ratio = range > 0 ? a.scrollTop / range : 0;
+            pv.scrollTop = Math.round(ratio * Math.max(0, pv.scrollHeight - pv.clientHeight));
+        }
+
+        function applyPreviewState() {
+            var state = mdMode;
+            state.preview.style.display = mdPreviewOn ? "" : "none";
+            state.split.className = "rte-markdown-split" + (mdPreviewOn ? " has-preview" : "");
+            state.toggle.setAttribute("aria-pressed", mdPreviewOn ? "true" : "false");
+            state.toggle.textContent = mdPreviewOn ? label("markdownpreview_hide", "", "Hide preview") : label("markdownpreview_show", "", "Show preview");
+            if (mdPreviewOn) renderPreview();
+        }
+
+        function injectMarkdownStyles(doc) {
+            if (doc.getElementById("rte-markdown-mode-styles")) return;
+            var st = doc.createElement("style");
+            st.id = "rte-markdown-mode-styles";
+            st.appendChild(doc.createTextNode(
+                ".rte-markdown-mode{display:block;box-sizing:border-box;width:100%;min-height:240px;margin:0;padding:12px 14px;" +
+                "border:1px solid #cbd5e1;border-radius:8px;font:14px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;" +
+                "color:#0f172a;background:#fff;resize:vertical;}" +
+                ".rte-markdown-note{margin:0 0 6px;font:13px/1.4 system-ui,sans-serif;color:#475569;}" +
+                ".rte-markdown-split.has-preview{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;}" +
+                "@media (max-width:640px){.rte-markdown-split.has-preview{grid-template-columns:minmax(0,1fr);}}" +
+                ".rte-markdown-preview{box-sizing:border-box;min-height:240px;max-height:70vh;overflow:auto;padding:12px 14px;" +
+                "border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;color:#0f172a;font:15px/1.6 system-ui,sans-serif;overflow-wrap:anywhere;}" +
+                ".rte-markdown-preview img{max-width:100%;height:auto;}" +
+                ".rte-markdown-preview table{border-collapse:collapse;}.rte-markdown-preview th,.rte-markdown-preview td{border:1px solid #cbd5e1;padding:4px 8px;}" +
+                ".rte-markdown-bar{margin:0 0 6px;}.rte-markdown-preview-toggle{padding:2px 10px;min-height:24px;border:1px solid #94a3b8;border-radius:6px;" +
+                "background:#fff;color:#0f172a;font:12px/1.4 system-ui,sans-serif;cursor:pointer;}" +
+                ".rte-markdown-preview-toggle:focus-visible{outline:2px solid #1d4ed8;outline-offset:2px;}"));
+            (doc.head || doc.documentElement).appendChild(st);
+        }
     };
 
     function defaultName() {
@@ -34075,6 +36955,12 @@ function RTE_Plugin_MathDialog() {
 
     obj.PluginName = "MathDialog";
 
+    // 2026-10-18 the words read config.text_ keys (language packs), English as the fallback; {0} fills a template.
+    // tools/i18n/plugin-panels-language.mjs
+    function pText(key, fallback, arg) {
+        var s = (config && config["text_" + key]) || fallback;
+        return arg === undefined ? s : s.split("{0}").join(String(arg));
+    }
     obj.InitConfig = function (argconfig) { config = argconfig; };
 
     obj.InitEditor = function (argeditor) {
@@ -34155,7 +37041,7 @@ function RTE_Plugin_MathDialog() {
 
         var renderer = getRenderer(win);
         if (!renderer) {
-            rendererNote.innerText = "No KaTeX/MathJax detected on the page — the equation is stored as markup and will render wherever a math renderer is loaded.";
+            rendererNote.innerText = pText("ma_norenderer", "No KaTeX/MathJax detected on the page \u2014 the equation is stored as markup and will render wherever a math renderer is loaded.");
         }
 
         function updatePreview() {
@@ -34163,7 +37049,7 @@ function RTE_Plugin_MathDialog() {
             if (!tex.trim()) { preview.textContent = ""; return; }
             if (renderer && renderer.kind === "katex") {
                 try { renderer.katex.render(tex, preview, { throwOnError: false, displayMode: false }); }
-                catch (e) { preview.textContent = "⚠ " + (e && e.message ? e.message : "render error"); }
+                catch (e) { preview.textContent = "\u26a0 " + (e && e.message ? e.message : "render error"); }
             } else if (renderer && renderer.kind === "mathjax") {
                 preview.textContent = "\\(" + tex + "\\)";
                 try { renderer.MathJax.typesetPromise([preview]); } catch (e) { /* ignore */ }
@@ -34176,9 +37062,9 @@ function RTE_Plugin_MathDialog() {
 
         var footer = append(wrap, "div", "display:flex;justify-content:flex-end;gap:8px;margin-top:14px");
         var cancel = append(footer, "button", "padding:6px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;cursor:pointer", "");
-        cancel.type = "button"; cancel.textContent = "Cancel"; cancel.onclick = close;
+        cancel.type = "button"; cancel.textContent = pText("cancel", "Cancel"); cancel.onclick = close;
         var ok = append(footer, "button", "padding:6px 14px;border:1px solid #1d67ba;border-radius:8px;background:#1d67ba;color:#fff;cursor:pointer", "");
-        ok.type = "button"; ok.textContent = existing ? "Update" : "Insert";
+        ok.type = "button"; ok.textContent = existing ? pText("update", "Update") : pText("insert", "Insert");
 
         ok.onclick = function () {
             var tex = ta.value.trim();
@@ -34194,7 +37080,7 @@ function RTE_Plugin_MathDialog() {
             }
             var safeTex = String(tex).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
             var safeText = String("$" + tex + "$").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-            editor.insertHTML('<span class="rte-math-inline" data-tex="' + safeTex + '">' + safeText + "</span>​");
+            editor.insertHTML('<span class="rte-math-inline" data-tex="' + safeTex + '">' + safeText + "</span>\u200b");
             close();
             if (editor.renderMath) editor.renderMath();
             editor.focus();
@@ -34226,6 +37112,12 @@ function RTE_Plugin_Mention() {
 
     obj.PluginName = "Mention";
 
+    // 2026-10-18 the words read config.text_ keys (language packs), English as the fallback; {0} fills a template.
+    // tools/i18n/plugin-panels-language.mjs
+    function pText(key, fallback, arg) {
+        var s = (config && config["text_" + key]) || fallback;
+        return arg === undefined ? s : s.split("{0}").join(String(arg));
+    }
     obj.InitConfig = function (argconfig) {
         config = argconfig;
         if (config.mentionEnabled === false) return;
@@ -34270,28 +37162,55 @@ function RTE_Plugin_Mention() {
 
         injectStyles();
 
-        var editdoc = editor.getDocument();
-        editdoc.addEventListener("keydown", onEditDocKeyDown, true);
-        editdoc.addEventListener("input", onEditDocInput, true);
-        editdoc.addEventListener("compositionstart", function () { composing = true; });
-        editdoc.addEventListener("compositionend", function () { composing = false; });
-        editdoc.addEventListener("mousedown", function (e) {
+        // 2026-10-03 Bound through editor.bindDocumentEvent, so the listeners follow the live document:
+        // shell plugins move the iframe during the init loop, and listeners added to editdoc here stayed
+        // on the dead document (this feature never fired). tools/keyboard/plugin-listeners.mjs
+        var on = function (type, fn, capture) {
+            if (editor.bindDocumentEvent) editor.bindDocumentEvent(type, fn, capture);
+            else editor.getDocument().addEventListener(type, fn, capture);
+        };
+        on("keydown", onEditDocKeyDown, true);
+        on("input", onEditDocInput, true);
+        on("compositionstart", function () { composing = true; });
+        on("compositionend", function () { composing = false; });
+        on("mousedown", function (e) {
             // Don't close when the user is clicking on a mention span (for selection/delete).
             if (e.target && e.target.closest && e.target.closest("." + config.mentionInsertClass)) return;
             closePopup();
         }, true);
-        editdoc.addEventListener("blur", function () { setTimeout(closePopup, 150); }, true);
+        on("blur", function () { setTimeout(closePopup, 150); }, true);
 
         window.addEventListener("scroll", onHostScrollOrResize, true);
         window.addEventListener("resize", onHostScrollOrResize, true);
     };
 
+    // 2026-10-19 The docs, the migration guide and the demos all register with search(query, done) or an
+    // async search(query) returning the list - but only source was accepted, so those triggers were
+    // silently dropped and @ did nothing (richtexteditor.com/demos/mentions included). search is now
+    // accepted in both forms, and a definition with neither is reported. tools/mentions/mention-search-api.mjs
+    function adaptSearch(search) {
+        return function (query, ctx) {
+            return new Promise(function (resolve, reject) {
+                var settled = false;
+                var done = function (results) { if (!settled) { settled = true; resolve(results); } };
+                var ret;
+                try { ret = search(query, done, ctx); } catch (err) { reject(err); return; }
+                if (ret !== undefined) Promise.resolve(ret).then(function (r) { if (r !== undefined) done(r); }, reject);
+            });
+        };
+    }
+
     function registerTrigger(def) {
-        if (!def || !def.trigger || typeof def.source !== "function") return;
+        if (!def || !def.trigger) return;
+        var source = typeof def.source === "function" ? def.source : (typeof def.search === "function" ? adaptSearch(def.search) : null);
+        if (!source) {
+            if (window.console && console.warn) console.warn("RichTextEditor mentions: trigger \"" + def.trigger + "\" was not registered - pass search(query, done) or source(query).");
+            return;
+        }
         var existingIdx = findTriggerIndex(def.trigger);
         var normalized = {
             trigger: def.trigger,
-            source: def.source,
+            source: source,
             renderItem: def.renderItem || null,
             renderInsert: def.renderInsert || null,
             insertClass: def.insertClass || config.mentionInsertClass,
@@ -34487,7 +37406,14 @@ function RTE_Plugin_Mention() {
     function renderPopup() {
         popupHost = editor.iframe.ownerDocument;
         popupEl = popupHost.createElement("div");
-        popupEl.className = "rte-mention-popup";
+        // 2026-10-17 appended to the page body, outside the editor, so rte-dark could not reach it: mirrored (and
+        // rte-auto-dark under a dark system setting). tools/mentions/mention-popup-dark.mjs
+        var mDark = false;
+        try {
+            var mk = editor.container && editor.container.classList;
+            mDark = !!mk && (mk.contains("rte-dark") || (mk.contains("rte-auto-dark") && !mk.contains("rte-light") && !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches)));
+        } catch (x) { mDark = false; }
+        popupEl.className = "rte-mention-popup" + (mDark ? " rte-mention-popup-dark" : "");
         popupEl.setAttribute("role", "listbox");
         popupEl.setAttribute("aria-label", activeTrigger.label);
         popupHost.body.appendChild(popupEl);
@@ -34498,7 +37424,7 @@ function RTE_Plugin_Mention() {
         popupEl.innerHTML = "";
         var loader = popupHost.createElement("div");
         loader.className = "rte-mention-loading";
-        loader.textContent = "Searching\u2026";
+        loader.textContent = pText("mn_searching", "Searching\u2026");
         popupEl.appendChild(loader);
         statusEl = loader;
     }
@@ -34511,7 +37437,7 @@ function RTE_Plugin_Mention() {
         if (!items.length) {
             var empty = popupHost.createElement("div");
             empty.className = "rte-mention-empty";
-            empty.textContent = "No matches";
+            empty.textContent = pText("mn_nomatches", "No matches");
             popupEl.appendChild(empty);
             return;
         }
@@ -34525,7 +37451,13 @@ function RTE_Plugin_Mention() {
                 btn.setAttribute("aria-selected", index === activeIndex ? "true" : "false");
                 btn.setAttribute("data-index", index);
 
-                if (activeTrigger.renderItem) {
+                if (activeTrigger.renderItem && activeTrigger.renderItem.length < 2) {
+                    // renderItem(user) returning text or a node, as the docs write it
+                    var shown = activeTrigger.renderItem(item);
+                    if (shown && shown.nodeType) btn.appendChild(shown);
+                    else if (shown != null && shown !== "") btn.textContent = String(shown);
+                    else renderDefaultItem(btn, item);
+                } else if (activeTrigger.renderItem) {
                     activeTrigger.renderItem(btn, item);
                 } else {
                     renderDefaultItem(btn, item);
@@ -34646,15 +37578,23 @@ function RTE_Plugin_Mention() {
     function insertMention(triggerDef, item) {
         var editdoc = editor.getDocument();
         var span;
-        if (triggerDef.renderInsert) {
+        var chip = function (text) {
+            var el = editdoc.createElement("span");
+            el.className = triggerDef.insertClass;
+            el.setAttribute("contenteditable", "false");
+            el.setAttribute("data-rte-mention-id", item.id != null ? item.id : "");
+            el.setAttribute("data-rte-mention-trigger", triggerDef.trigger);
+            el.textContent = text;
+            return el;
+        };
+        if (triggerDef.renderInsert && triggerDef.renderInsert.length < 2) {
+            // renderInsert(user) returning the chip's text (or a node), as the docs write it
+            var out = triggerDef.renderInsert(item);
+            span = out && out.nodeType ? out : chip(out != null && out !== "" ? String(out) : triggerDef.trigger + itemLabel(item));
+        } else if (triggerDef.renderInsert) {
             span = triggerDef.renderInsert(editdoc, item);
         } else {
-            span = editdoc.createElement("span");
-            span.className = triggerDef.insertClass;
-            span.setAttribute("contenteditable", "false");
-            span.setAttribute("data-rte-mention-id", item.id != null ? item.id : "");
-            span.setAttribute("data-rte-mention-trigger", triggerDef.trigger);
-            span.textContent = triggerDef.trigger + itemLabel(item);
+            span = chip(triggerDef.trigger + itemLabel(item));
         }
         if (!span) return;
 
@@ -34683,8 +37623,10 @@ function RTE_Plugin_Mention() {
         var r = rects && rects.length ? rects[rects.length - 1] : null;
         if (!r) r = trigger.range.getBoundingClientRect();
 
-        var left = ir.left + (r.left || 0) + window.pageXOffset;
-        var top = ir.top + (r.bottom || r.top || 0) + window.pageYOffset + 4;
+        // the caret rect is in iframe pixels, scaled on screen inside a transform:scale() ancestor
+        var sk = iframe.offsetWidth && ir.width > 0 ? ir.width / iframe.offsetWidth : 1;
+        var left = ir.left + (r.left || 0) * sk + window.pageXOffset;
+        var top = ir.top + (r.bottom || r.top || 0) * sk + window.pageYOffset + 4;
 
         popupEl.style.position = "absolute";
         popupEl.style.left = left + "px";
@@ -34692,8 +37634,8 @@ function RTE_Plugin_Mention() {
 
         var vh = window.innerHeight || document.documentElement.clientHeight;
         var popupRect = popupEl.getBoundingClientRect();
-        if (popupRect.bottom > vh - 8 && (ir.top + (r.top || 0)) > popupRect.height + 16) {
-            popupEl.style.top = (ir.top + (r.top || 0) + window.pageYOffset - popupRect.height - 4) + "px";
+        if (popupRect.bottom > vh - 8 && (ir.top + (r.top || 0) * sk) > popupRect.height + 16) {
+            popupEl.style.top = (ir.top + (r.top || 0) * sk + window.pageYOffset - popupRect.height - 4) + "px";
         }
     }
 
@@ -34720,7 +37662,14 @@ function RTE_Plugin_Mention() {
             ".rte-mention-item-active .rte-mention-subtitle{color:#315277}",
             ".rte-mention-loading,.rte-mention-empty{padding:14px 16px;color:#52657e;font-size:12px;font-weight:700;text-align:center}",
             ".rte-mention{display:inline-block;padding:1px 7px;border-radius:999px;background:#eef4ff;color:#0f3f9f;font-weight:650;cursor:default;border:1px solid rgba(37,99,235,.16)}",
-            ".rte-mention:hover{background:#e4edff}"
+            ".rte-mention:hover{background:#e4edff}",
+            ".rte-mention-popup.rte-mention-popup-dark{background:linear-gradient(180deg,#1e293b,#0f172a);border-color:#334155;color:#e2e8f0;box-shadow:0 18px 40px rgba(0,0,0,.5)}",
+            ".rte-mention-popup-dark .rte-mention-item:hover,.rte-mention-popup-dark .rte-mention-item-active{background:#1e3a8a;color:#ffffff}",
+            ".rte-mention-popup-dark .rte-mention-avatar{background:#334155;color:#e2e8f0}",
+            ".rte-mention-popup-dark .rte-mention-item-active .rte-mention-avatar{background:#0f172a;color:#bfdbfe}",
+            ".rte-mention-popup-dark .rte-mention-subtitle{color:#94a3b8}",
+            ".rte-mention-popup-dark .rte-mention-item-active .rte-mention-subtitle{color:#bfdbfe}",
+            ".rte-mention-popup-dark .rte-mention-loading,.rte-mention-popup-dark .rte-mention-empty{color:#94a3b8}"
         ].join("\n");
         host.head.appendChild(style);
         // A <style> ELEMENT is governed by style-src: under a strict policy the browser
@@ -35120,6 +38069,12 @@ function RTE_Plugin_MermaidDiagram() {
 
     obj.PluginName = "MermaidDiagram";
 
+    // 2026-10-18 the words read config.text_ keys (language packs), English as the fallback; {0} fills a template.
+    // tools/i18n/plugin-panels-language.mjs
+    function pText(key, fallback, arg) {
+        var s = (config && config["text_" + key]) || fallback;
+        return arg === undefined ? s : s.split("{0}").join(String(arg));
+    }
     obj.InitConfig = function (argconfig) { config = argconfig; };
 
     obj.InitEditor = function (argeditor) {
@@ -35335,7 +38290,7 @@ function RTE_Plugin_MermaidDiagram() {
             "min-height:80px;padding:10px 12px;border:1px solid #e2e8f0;border-radius:8px;background:#fff;overflow:auto;text-align:center");
         var note = append(wrap, "div", "font-size:11px;color:#94a3b8;margin-top:4px");
         if (typeof config.diagramResolver !== "function" && !getMermaid(win)) {
-            note.innerText = "No Mermaid renderer detected on the page — the diagram is stored as source and will render wherever Mermaid (or config.diagramResolver) is available.";
+            note.innerText = pText("dg_norenderer", "No Mermaid renderer detected on the page \u2014 the diagram is stored as source and will render wherever Mermaid (or config.diagramResolver) is available.");
         }
 
         var previewTimer = null;
@@ -35356,9 +38311,9 @@ function RTE_Plugin_MermaidDiagram() {
 
         var footer = append(wrap, "div", "display:flex;justify-content:flex-end;gap:8px;margin-top:14px");
         var cancel = append(footer, "button", "padding:6px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;cursor:pointer");
-        cancel.type = "button"; cancel.textContent = "Cancel"; cancel.onclick = close;
+        cancel.type = "button"; cancel.textContent = pText("cancel", "Cancel"); cancel.onclick = close;
         var ok = append(footer, "button", "padding:6px 14px;border:1px solid #1d67ba;border-radius:8px;background:#1d67ba;color:#fff;cursor:pointer");
-        ok.type = "button"; ok.textContent = existing ? "Update" : "Insert";
+        ok.type = "button"; ok.textContent = existing ? pText("update", "Update") : pText("insert", "Insert");
 
         ok.onclick = function () {
             var src = ta.value.trim();
@@ -35480,11 +38435,15 @@ function RTE_Plugin_MultiLevelList() {
     function applyToSelection(on) {
         var ol = nearestRootList();
         if (!ol) return false;
+        // Direct API calls need explicit undo boundaries; change notifications
+        // alone race the delayed bookmark snapshot in WebKit.
+        if (editor.commitBookmark) editor.commitBookmark();
         if (on) ol.classList.add(config.legalListClass);
         else ol.classList.remove(config.legalListClass);
         // Let the host know the document changed so undo/save stay honest.
         try { if (typeof editor.updateDesign === "function") editor.updateDesign(); } catch (e) {}
         try { editor.fireEvent && editor.fireEvent("change"); } catch (e) {}
+        if (editor.recordUndo) editor.recordUndo();
         return on;
     }
 
@@ -36796,6 +39755,21 @@ RTE_DefaultConfig.plugin_pdfexport = RTE_Plugin_PdfExport;
 if (typeof RTE_DefaultConfig.pdfExport === "undefined") RTE_DefaultConfig.pdfExport = true;
 
 function RTE_Plugin_PdfExport() {
+    // An ordered list item's number in its list style: 1, a..z then aa (CSS lower-alpha), i/I roman.
+    function listNumber(n, kind) {
+        if (kind === "a" || kind === "A") {
+            var t = "";
+            for (var k = n; k > 0; k = Math.floor((k - 1) / 26)) t = String.fromCharCode(97 + (k - 1) % 26) + t;
+            return t ? (kind === "A" ? t.toUpperCase() : t) : String(n); // 0 and below: a number, never ""
+        }
+        if ((kind === "i" || kind === "I") && n > 0 && n < 4000) {
+            var r = "", vals = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1], sy = ["m", "cm", "d", "cd", "c", "xc", "l", "xl", "x", "ix", "v", "iv", "i"];
+            for (var q = 0; q < vals.length; q++) while (n >= vals[q]) { r += sy[q]; n -= vals[q]; }
+            return kind === "I" ? r.toUpperCase() : r;
+        }
+        return String(n);
+    }
+
     var obj = this;
     var config, editor;
 
@@ -37024,8 +39998,11 @@ function RTE_Plugin_PdfExport() {
         var s = {
             bold: inherited.bold, italic: inherited.italic, underline: inherited.underline,
             strike: inherited.strike, size: inherited.size, color: inherited.color,
-            mono: inherited.mono, link: inherited.link
+            mono: inherited.mono, link: inherited.link, lang: inherited.lang
         };
+        // 2026-10-17 a run's language: the nearest lang attribute. tools/pdf/inline-lang.mjs
+        var nodeLang = node.getAttribute ? node.getAttribute("lang") : "";
+        if (nodeLang) s.lang = nodeLang;
         var tag = node.tagName ? node.tagName.toLowerCase() : "";
         if (tag === "b" || tag === "strong") s.bold = true;
         if (tag === "i" || tag === "em") s.italic = true;
@@ -37175,6 +40152,19 @@ function RTE_Plugin_PdfExport() {
         return px * 0.75;
     }
 
+        // The language a block is written in: its own lang, the nearest ancestor's inside the content, or - when its
+        // whole text is one <span lang> - that span's. "" when none is set.
+        function blockLang(node) {
+            for (var n = node; n && n.nodeType === 1 && n.tagName.toLowerCase() !== "body"; n = n.parentNode) {
+                if (n.getAttribute("lang")) return n.getAttribute("lang");
+            }
+            var el = null, k = node.childNodes;
+            for (var i = 0; i < k.length; i++) {
+                if (k[i].nodeType === 3 && k[i].nodeValue.replace(/[\s\u200b\u00a0]/g, "")) return "";
+                if (k[i].nodeType === 1) { if (el) return ""; el = k[i]; }
+            }
+            return el && el.getAttribute("lang") ? el.getAttribute("lang") : "";
+        }
         function block(node, style, indent, listMarker, listId, listOrdered, roleOverride) {
             var tag = node.tagName.toLowerCase();
             var s = styleOf(node, style);
@@ -37190,6 +40180,8 @@ function RTE_Plugin_PdfExport() {
             var lines = self.wrap(runs, width, tag === "pre" ? 1.25 : 1.4);
             self.blocks.push({
                 type: "text", lines: lines, indent: indent, align: align,
+                // 2026-10-15 the block's own language, for /Lang on its structure element. tools/pdf/paragraph-lang.mjs
+                lang: blockLang(node),
                 spaceBefore: HEADING_SCALE[tag] ? s.size * 0.6 : self.baseSize * 0.35,
                 spaceAfter: HEADING_SCALE[tag] ? s.size * 0.3 : self.baseSize * 0.35,
                 marker: listMarker || null, markerStyle: s,
@@ -37230,7 +40222,15 @@ function RTE_Plugin_PdfExport() {
 
                 if (tag === "hr") { self.blocks.push({ type: "rule", indent: indent }); continue; }
                 if (tag === "ul" || tag === "ol") {
-                    var counter = parseInt(c.getAttribute("start") || "1", 10) || 1;
+                    var counter = parseInt(c.getAttribute("start"), 10);
+                    if (isNaN(counter)) counter = 1;
+                    // 2026-10-04 a lettered / Roman list is numbered the way the editor shows it (it was
+                    // always 1. 2. 3.). tools/pdf/list-markers.mjs
+                    var lst = String((c.style && c.style.listStyleType) || "").toLowerCase(), typ = c.getAttribute("type") || "";
+                    var kind = /^(lower-alpha|lower-latin)$/.test(lst) || typ === "a" ? "a"
+                        : /^(upper-alpha|upper-latin)$/.test(lst) || typ === "A" ? "A"
+                        : lst === "lower-roman" || typ === "i" ? "i"
+                        : lst === "upper-roman" || typ === "I" ? "I" : "1";
                     // Every item of one list shares an id so the tag tree can
                     // rebuild a single <L> around them; without it each item
                     // becomes an isolated paragraph and a screen reader never
@@ -37239,7 +40239,11 @@ function RTE_Plugin_PdfExport() {
                     for (var li = 0; li < c.childNodes.length; li++) {
                         var item = c.childNodes[li];
                         if (item.nodeType !== 1 || item.tagName.toLowerCase() !== "li") continue;
-                        var marker = tag === "ol" ? (counter++) + "." : "•";
+                        var marker = tag === "ol" ? listNumber(counter++, kind) + "." : "\u2022";
+                        // 2026-10-15 a task item shows whether it is done: every item got the plain bullet, so a printed
+                        // checklist lost every tick. The standard fonts have no ballot box, so "[x]" / "[ ]".
+                        // tools/pdf/task-list-marks.mjs
+                        if (c.classList && c.classList.contains("rte-task-list")) marker = item.getAttribute("data-checked") === "true" ? "[x]" : "[ ]";
                         // The item's own text, then any nested list one level in.
                         block(item, styleOf(item, style), indent + self.baseSize * 1.6, marker, listId, tag === "ol");
                         walkNestedLists(item, styleOf(item, style), indent + self.baseSize * 1.6);
@@ -37255,6 +40259,19 @@ function RTE_Plugin_PdfExport() {
                 if (isBlockTag(tag)) {
                     var own = (tag === "blockquote" ? self.baseSize * 1.5 : 0) + cssIndentPt(c);
                     var childRole = (tag === "blockquote") ? "BlockQuote" : roleOverride;
+                    // 2026-10-15 a block holding just an image - the shape the editor gives every inserted picture,
+                    // <p><img></p> - is a Figure with its alt text. Only an <img> sitting directly at block level was;
+                    // inside a <p> it was an inline run, so the PDF had no Figure and no /Alt (WCAG 1.1.1, PDF/UA).
+                    // tools/pdf/figure-alt.mjs
+                    var soleImgs = c.getElementsByTagName("img");
+                    if (soleImgs.length === 1 && !(c.textContent || "").replace(/[\s\u200b\u00a0]/g, "") && !hasBlockChildren(c)) {
+                        var fdims = imageDims(soleImgs[0], self.contentWidth - indent - own);
+                        if (fdims.w) {
+                            var falign = String((c.style && c.style.textAlign) || "").toLowerCase();
+                            self.blocks.push({ type: "text", role: "Figure", alt: soleImgs[0].getAttribute("alt") || "", lines: [{ parts: [{ img: soleImgs[0], w: fdims.w, h: fdims.h, style: style }], width: fdims.w, size: fdims.h, height: fdims.h, image: true }], indent: indent + own, align: falign === "center" || falign === "right" ? falign : "left", spaceBefore: 4, spaceAfter: 4 });
+                            continue;
+                        }
+                    }
                     if (hasBlockChildren(c)) { walk(c, styleOf(c, style), indent + own, childRole); continue; }
                     block(c, style, indent + own, null, null, false, childRole);
                     continue;
@@ -37293,6 +40310,10 @@ function RTE_Plugin_PdfExport() {
         var rows = [];
         var trs = node.getElementsByTagName("tr");
         var maxCells = 0;
+        // 2026-10-15 rowspan: covered[col] = rows a cell above still covers there. Cells in the rows below skip those
+        // columns (they were placed from column 0, shifting a row left under the wrong header), and each covered
+        // position becomes an empty placeholder cell so the grid stays aligned. tools/pdf/table-rowspan.mjs
+        var covered = {};
         for (var r = 0; r < trs.length; r++) {
             var cells = [];
             for (var c = 0; c < trs[r].childNodes.length; c++) {
@@ -37300,38 +40321,77 @@ function RTE_Plugin_PdfExport() {
                 if (cell.nodeType !== 1) continue;
                 var tag = cell.tagName.toLowerCase();
                 if (tag !== "td" && tag !== "th") continue;
-                cells.push({ node: cell, header: tag === "th" });
+                // 2026-10-15 colspan: a cell starts at its grid column and spans its columns. tools/pdf/table-colspan.mjs
+                var span = Math.max(1, Math.min(50, parseInt(cell.getAttribute("colspan"), 10) || 1));
+                var rspan = Math.max(1, Math.min(500, parseInt(cell.getAttribute("rowspan"), 10) || 1));
+                cells.push({ node: cell, header: tag === "th", span: span, rowspan: rspan });
             }
-            if (cells.length) { rows.push(cells); if (cells.length > maxCells) maxCells = cells.length; }
+            var placed = [], gridCols = 0;
+            for (var gc = 0; gc < cells.length; gc++) {
+                while (covered[gridCols] > 0) { placed.push({ placeholder: true, start: gridCols, span: 1, header: false }); gridCols++; }
+                cells[gc].start = gridCols;
+                placed.push(cells[gc]);
+                if (cells[gc].rowspan > 1) for (var rc = gridCols; rc < gridCols + cells[gc].span; rc++) covered[rc] = cells[gc].rowspan;
+                gridCols += cells[gc].span;
+            }
+            // covered columns after the row's last cell
+            for (var tail in covered) if (+tail >= gridCols && covered[tail] > 0) { placed.push({ placeholder: true, start: +tail, span: 1, header: false }); if (+tail + 1 > gridCols) gridCols = +tail + 1; }
+            // this row is done: each covering cell has one row fewer left (a cell covering from THIS row still needs
+            // its own count, so it was set to rowspan and drops to rowspan - 1 here)
+            for (var dc in covered) { covered[dc]--; if (covered[dc] <= 0) delete covered[dc]; }
+            placed.sort(function (p1, p2) { return p1.start - p2.start; });
+            cells = cells.length ? placed : cells;
+            if (cells.length) { rows.push(cells); if (gridCols > maxCells) maxCells = gridCols; }
         }
         if (!rows.length) return;
 
         var width = this.contentWidth - indent;
         var colWidth = width / maxCells;
+        // 2026-10-15 column widths follow the <colgroup> (% or px), scaled to the table's width on the page: every
+        // table was split into equal columns. A table without one keeps equal columns. tools/pdf/table-col-widths.mjs
+        var colWidths = [], cg = [], cw = 0;
+        for (var ck = 0; ck < node.children.length; ck++) if (node.children[ck].tagName && node.children[ck].tagName.toLowerCase() === "colgroup") {
+            for (var cj = 0; cj < node.children[ck].children.length; cj++) if (node.children[ck].children[cj].tagName.toLowerCase() === "col") cg.push(node.children[ck].children[cj]);
+        }
+        if (cg.length === maxCells) {
+            for (var cq = 0; cq < cg.length; cq++) {
+                var cv = (cg[cq].style && cg[cq].style.width) || cg[cq].getAttribute("width") || "", cm = /^\s*([\d.]+)(%|px)?\s*$/.exec(cv);
+                if (!cm || !(parseFloat(cm[1]) > 0)) { colWidths = []; break; }
+                colWidths.push(parseFloat(cm[1]));
+            }
+            for (var cs2 = 0; cs2 < colWidths.length; cs2++) cw += colWidths[cs2];
+            if (cw > 0) colWidths = colWidths.map(function (v) { return v / cw * width; });
+        }
+        if (colWidths.length !== maxCells) { colWidths = []; for (var ce = 0; ce < maxCells; ce++) colWidths.push(colWidth); }
+        function spanWidth(start, span) { var s = 0; for (var sw = start; sw < start + span && sw < colWidths.length; sw++) s += colWidths[sw]; return s; }
         var pad = 4;
         var laid = [];
         for (var i = 0; i < rows.length; i++) {
             var out = [], tallest = 0;
             for (var j = 0; j < rows[i].length; j++) {
+                if (rows[i][j].placeholder) { out.push({ lines: [], header: false, start: rows[i][j].start, span: 1, placeholder: true }); continue; }
                 var cs = styleOf(rows[i][j].node, style);
                 if (rows[i][j].header) cs.bold = true;
-                var lines = self.wrap(self.runsOf(rows[i][j].node, cs), colWidth - pad * 2, 1.35);
+                var lines = self.wrap(self.runsOf(rows[i][j].node, cs), spanWidth(rows[i][j].start, rows[i][j].span) - pad * 2, 1.35);
                 var h = 0;
                 for (var k = 0; k < lines.length; k++) h += lines[k].height;
                 if (h > tallest) tallest = h;
-                out.push({ lines: lines, header: rows[i][j].header });
+                out.push({ lines: lines, header: rows[i][j].header, start: rows[i][j].start, span: rows[i][j].span, rowspan: rows[i][j].rowspan || 1 });
             }
-            laid.push({ cells: out, height: tallest + pad * 2, header: rows[i][0] && rows[i][0].header });
+            laid.push({ cells: out, height: tallest + pad * 2, header: rows[i][0] && !rows[i][0].placeholder && rows[i][0].header });
         }
         this.blocks.push({
-            type: "table", rows: laid, colWidth: colWidth, cols: maxCells,
+            type: "table", rows: laid, colWidth: colWidth, colWidths: colWidths, cols: maxCells,
             indent: indent, pad: pad,
             spaceBefore: this.baseSize * 0.5, spaceAfter: this.baseSize * 0.5
         });
     };
 
     // ------------------------------------------------------------- rendering
+    // 2026-10-15 the document language, read by the tagger to mark blocks in other languages
+    var pdfDocLang = "en";
     function buildPdf(options) {
+        pdfDocLang = String((options && options.lang) || document.documentElement.lang || "en").toLowerCase();
         var familyKey = String(options.font || config.pdfExportFont || "helvetica").toLowerCase();
         if (!FONT_FAMILIES[familyKey]) familyKey = "helvetica";
         var baseSize = Number(options.fontSize || config.pdfExportBaseFontSize || 11);
@@ -37343,6 +40403,11 @@ function RTE_Plugin_PdfExport() {
         // overlays, watermarks and formatting marks into the PDF.
         var host = document.createElement("div");
         host.innerHTML = editor.getHTMLCode() || "";
+        var liveLists = editor.getEditable().querySelectorAll("ol,ul"), exportLists = host.querySelectorAll("ol,ul");
+        if (liveLists.length === exportLists.length) for (var li = 0; li < liveLists.length; li++) {
+            var listStyle = liveLists[li].ownerDocument.defaultView.getComputedStyle(liveLists[li]).listStyleType;
+            if (listStyle) exportLists[li].style.listStyleType = listStyle;
+        }
 
         var layout = new Layout(geom, baseSize, familyKey);
         var blocks = layout.run(host);
@@ -37476,32 +40541,66 @@ function RTE_Plugin_PdfExport() {
         }
         var pagesId = pdf.alloc();
 
-        var allMarks = [];
+        var allMarks = [], heads = [], linkAnnots = [];
         for (var pi = 0; pi < pages.length; pi++) {
             var tagger = new Tagger(pi);
             var draw = renderPage(pages[pi], geom, familyKey, baseSize, imageRef, pi + 1, pages.length, options, tagger);
+            for (var hd = 0; hd < (draw.headings || []).length; hd++) { draw.headings[hd].page = pi; heads.push(draw.headings[hd]); }
             pdf.set(contentIds[pi], { dict: "<< /Length 0 >>", stream: draw.content });
             allMarks.push(draw.marks);
             for (var a = 0; a < draw.links.length; a++) {
                 var lk = draw.links[a];
-                annotIds[pi].push(pdf.add("<< /Type /Annot /Subtype /Link /Rect [" +
+                // 2026-10-15 each link annotation is in the tag tree: /StructParent (keys after the pages'), /Contents
+                // naming it, and a Link element built in buildStructTree. They were click targets a screen reader
+                // could not find (PDF/UA 7.18, Matterhorn 28-011 / 28-004). tools/pdf/link-tags.mjs
+                var lsp = pages.length + linkAnnots.length;
+                var lid = pdf.add("<< /Type /Annot /Subtype /Link /Rect [" +
                     fixed(lk.x0) + " " + fixed(lk.y0) + " " + fixed(lk.x1) + " " + fixed(lk.y1) +
-                    "] /Border [0 0 0] /A << /S /URI /URI (" + escapeString(toWinAnsi(lk.href)) + ") >> >>"));
+                    "] /Border [0 0 0] /StructParent " + lsp + " /Contents (" + escapeString(toWinAnsi(String(lk.text || lk.href).replace(/\s+/g, " ").trim() || lk.href)) + ")" +
+                    " /A << /S /URI /URI (" + escapeString(toWinAnsi(lk.href)) + ") >> >>");
+                annotIds[pi].push(lid);
+                linkAnnots.push({ id: lid, page: pi, key: lsp, owner: lk.owner });
             }
         }
 
-        var struct = buildStructTree(pdf, allMarks, pageIds);
+        var struct = buildStructTree(pdf, allMarks, pageIds, linkAnnots);
 
         for (var pj = 0; pj < pages.length; pj++) {
             pdf.set(pageIds[pj], "<< /Type /Page /Parent " + pagesId + " 0 R /MediaBox [0 0 " +
                 fixed(geom.width) + " " + fixed(geom.height) + "] /Resources << /Font << " + fontRes.join(" ") + " >>" +
                 (imageRes.length ? " /XObject << " + imageRes.join(" ") + " >>" : "") +
                 " >> /Contents " + contentIds[pj] + " 0 R /StructParents " + pj +
-                (annotIds[pj].length ? " /Annots [" + annotIds[pj].map(function (id) { return id + " 0 R"; }).join(" ") + "]" : "") +
+                (annotIds[pj].length ? " /Annots [" + annotIds[pj].map(function (id) { return id + " 0 R"; }).join(" ") + "] /Tabs /S" : "") +
                 " >>");
         }
         pdf.set(pagesId, "<< /Type /Pages /Count " + pages.length + " /Kids [" +
             pageIds.map(function (id) { return id + " 0 R"; }).join(" ") + "] >>");
+
+        // 2026-10-15 bookmarks from the headings, nested by level, each opening its heading's page at the heading
+        // (Word and Chrome export them; a long report had nothing but scrolling - WCAG 2.4.5, PDF2).
+        // tools/pdf/outline-bookmarks.mjs
+        var outlineId = 0;
+        if (heads.length) {
+            outlineId = pdf.alloc();
+            var oroot = { id: outlineId, kids: [] }, ostack = [oroot], onodes = [];
+            for (var oh = 0; oh < heads.length; oh++) {
+                var on = { h: heads[oh], id: pdf.alloc(), kids: [], parent: null };
+                while (ostack.length > 1 && ostack[ostack.length - 1].h.level >= on.h.level) ostack.pop();
+                on.parent = ostack[ostack.length - 1];
+                on.parent.kids.push(on);
+                ostack.push(on);
+                onodes.push(on);
+            }
+            var ocount = function (n) { var c = n.kids.length; for (var k = 0; k < n.kids.length; k++) c += ocount(n.kids[k]); return c; };
+            for (var oi = 0; oi < onodes.length; oi++) {
+                var n = onodes[oi], sib = n.parent.kids, at = sib.indexOf(n);
+                pdf.set(n.id, "<< /Title (" + escapeString(toWinAnsi(n.h.title)) + ") /Parent " + n.parent.id + " 0 R" +
+                    (at > 0 ? " /Prev " + sib[at - 1].id + " 0 R" : "") + (at < sib.length - 1 ? " /Next " + sib[at + 1].id + " 0 R" : "") +
+                    (n.kids.length ? " /First " + n.kids[0].id + " 0 R /Last " + n.kids[n.kids.length - 1].id + " 0 R /Count " + ocount(n) : "") +
+                    " /Dest [" + pageIds[n.h.page] + " 0 R /XYZ null " + fixed(n.h.y) + " null] >>");
+            }
+            pdf.set(outlineId, "<< /Type /Outlines /First " + oroot.kids[0].id + " 0 R /Last " + oroot.kids[oroot.kids.length - 1].id + " 0 R /Count " + ocount(oroot) + " >>");
+        }
 
         var title = options.title || config.pdfExportTitle || document.title || "Document";
         var author = options.author || config.pdfExportAuthor || "";
@@ -37512,6 +40611,7 @@ function RTE_Plugin_PdfExport() {
         var catalogId = pdf.add("<< /Type /Catalog /Pages " + pagesId + " 0 R" +
             " /Lang (" + escapeString(String(options.lang || document.documentElement.lang || "en")) + ")" +
             " /MarkInfo << /Marked true >>" +
+            (outlineId ? " /Outlines " + outlineId + " 0 R" : "") +
             " /StructTreeRoot " + struct.rootId + " 0 R" +
             " /ViewerPreferences << /DisplayDocTitle true >> >>");
         var infoId = pdf.add("<< /Title (" + escapeString(toWinAnsi(String(title))) + ")" +
@@ -37526,13 +40626,13 @@ function RTE_Plugin_PdfExport() {
     // The tree is built from the marks rather than from the block list because a
     // single block can be split across pages: its structure element then holds
     // several marked-content references, each naming the page it lives on.
-    function buildStructTree(pdf, allMarks, pageIds) {
+    function buildStructTree(pdf, allMarks, pageIds, linkAnnots) {
         var rootId = pdf.alloc();
         var nodes = [];                 // { id, role, kids, extra, children, parent }
         var parentTree = [];            // per page: array of struct ids by MCID
 
         function node(role, extra) {
-            var n = { id: pdf.alloc(), role: role, kids: [], extra: extra || "", children: [], parent: null };
+            var n = { id: pdf.alloc(), role: role, kids: [], extra: extra || "", children: [], parent: null, seq: [] };
             nodes.push(n);
             return n;
         }
@@ -37545,6 +40645,7 @@ function RTE_Plugin_PdfExport() {
         var tableNodes = new Map();     // block  -> Table node
         var rowNodes = new Map();       // row    -> TR node
         var cellNodes = new Map();      // row    -> { col -> TD/TH node }
+        var linkNodes = new Map();      // link owner -> Link node (2026-10-17, tools/pdf/link-order.mjs)
 
         for (var p = 0; p < allMarks.length; p++) {
             var marks = allMarks[p];
@@ -37553,6 +40654,7 @@ function RTE_Plugin_PdfExport() {
                 var owner = marks[m].owner, mcid = marks[m].mcid;
                 var target = resolve(owner);
                 target.kids.push({ page: p, mcid: mcid });
+                target.seq.push({ mcr: { page: p, mcid: mcid } });
                 parentTree[p][mcid] = target.id;
             }
         }
@@ -37563,9 +40665,25 @@ function RTE_Plugin_PdfExport() {
             if (child.parent) return;
             child.parent = parent;
             parent.children.push(child);
+            parent.seq.push({ elem: child });
+        }
+        // a Link element per link annotation, under the paragraph / cell holding it
+        var linkKeys = [];
+        for (var la = 0; la < (linkAnnots || []).length; la++) {
+            var lnk;
+            if (linkAnnots[la].owner && linkAnnots[la].owner.kind === "link") lnk = resolve(linkAnnots[la].owner);
+            else { lnk = node("Link"); attach(resolve(linkAnnots[la].owner), lnk); }
+            lnk.objr = linkAnnots[la];
+            linkKeys.push(linkAnnots[la].key + " " + lnk.id + " 0 R");
         }
 
         function resolve(owner) {
+            // 2026-10-17 a link's words: their own Link element under the paragraph or cell, created where they occur
+            if (owner.kind === "link") {
+                var ln = linkNodes.get(owner);
+                if (!ln) { ln = node("Link"); linkNodes.set(owner, ln); attach(resolve(owner.parent), ln); }
+                return ln;
+            }
             if (owner.kind === "cell") {
                 var table = tableNodes.get(owner.block);
                 if (!table) { table = node("Table"); tableNodes.set(owner.block, table); attach(docNode, table); }
@@ -37576,7 +40694,10 @@ function RTE_Plugin_PdfExport() {
                 if (!perRow[owner.col]) {
                     // A header cell must be TH, not TD: it is what lets a screen
                     // reader announce "Revenue, 1,240" instead of just "1,240".
-                    perRow[owner.col] = node(owner.header ? "TH" : "TD", owner.header ? " /Scope /Column" : "");
+                    // 2026-10-15 table attributes belong in /A << /O /Table >> (where PDF/UA checkers read them; /Scope
+                    // sat on the element), with /ColSpan for a merged cell. tools/pdf/table-colspan.mjs
+                    var tattr = (owner.header ? " /Scope /Column" : "") + (owner.span > 1 ? " /ColSpan " + owner.span : "") + (owner.rowspan > 1 ? " /RowSpan " + owner.rowspan : "");
+                    perRow[owner.col] = node(owner.header ? "TH" : "TD", tattr ? " /A << /O /Table" + tattr + " >>" : "");
                     attach(row, perRow[owner.col]);
                 }
                 return perRow[owner.col];
@@ -37609,6 +40730,11 @@ function RTE_Plugin_PdfExport() {
                     var extra = block.role === "Figure"
                         ? " /Alt (" + escapeString(toWinAnsi(block.alt || "Image")) + ")"
                         : "";
+                    // 2026-10-15 a block in another language says so, or it is read with the document's
+                    // pronunciation (WCAG 3.1.2, PDF/UA 7.2). tools/pdf/paragraph-lang.mjs
+                    var docLang = pdfDocLang;
+                    var bl = String(block.lang || "").replace(/[^A-Za-z0-9-]/g, "");
+                    if (bl && bl.toLowerCase() !== docLang) extra += " /Lang (" + bl + ")";
                     body = node(block.role || "P", extra);
                 }
                 bodyNodes.set(block, body);
@@ -37617,14 +40743,17 @@ function RTE_Plugin_PdfExport() {
             return body;
         }
 
-        // Emit. /K holds child elements first, then marked-content references.
+        // Emit. /K lists child elements and marked-content references in reading order (2026-10-17: child elements
+        // used to come first, so a Link sat at the start of its paragraph). tools/pdf/link-order.mjs
         for (var n = 0; n < nodes.length; n++) {
             var nd = nodes[n];
             var kids = [];
-            for (var c = 0; c < nd.children.length; c++) kids.push(nd.children[c].id + " 0 R");
-            for (var k = 0; k < nd.kids.length; k++) {
-                kids.push("<< /Type /MCR /Pg " + pageIds[nd.kids[k].page] + " 0 R /MCID " + nd.kids[k].mcid + " >>");
+            for (var k = 0; k < nd.seq.length; k++) {
+                var sq = nd.seq[k];
+                if (sq.elem) kids.push(sq.elem.id + " 0 R");
+                else kids.push("<< /Type /MCR /Pg " + pageIds[sq.mcr.page] + " 0 R /MCID " + sq.mcr.mcid + " >>");
             }
+            if (nd.objr) kids.push("<< /Type /OBJR /Obj " + nd.objr.id + " 0 R /Pg " + pageIds[nd.objr.page] + " 0 R >>");
             var parentRef = nd.parent ? nd.parent.id : rootId;
             pdf.set(nd.id, "<< /Type /StructElem /S /" + nd.role + " /P " + parentRef + " 0 R" + nd.extra +
                 (kids.length ? " /K [" + kids.join(" ") + "]" : "") + " >>");
@@ -37639,10 +40768,10 @@ function RTE_Plugin_PdfExport() {
             for (var q = 0; q < arr.length; q++) refs.push((arr[q] || docNode.id) + " 0 R");
             numsParts.push(pt + " [" + refs.join(" ") + "]");
         }
-        var parentTreeId = pdf.add("<< /Nums [" + numsParts.join(" ") + "] >>");
+        var parentTreeId = pdf.add("<< /Nums [" + numsParts.concat(linkKeys).join(" ") + "] >>");
 
         pdf.set(rootId, "<< /Type /StructTreeRoot /K [" + docNode.id + " 0 R]" +
-            " /ParentTree " + parentTreeId + " 0 R /ParentTreeNextKey " + parentTree.length + " >>");
+            " /ParentTree " + parentTreeId + " 0 R /ParentTreeNextKey " + (parentTree.length + linkKeys.length) + " >>");
 
         return { rootId: rootId };
     }
@@ -37681,11 +40810,16 @@ function RTE_Plugin_PdfExport() {
     };
 
     function renderPage(ops, geom, familyKey, baseSize, imageRef, pageNumber, pageCount, options, tagger) {
-        var out = [], links = [];
+        var out = [], links = [], headings = [];
         var left = geom.margin.left;
 
         for (var i = 0; i < ops.length; i++) {
             var op = ops[i];
+            // 2026-10-15 where each heading starts, for the bookmarks. tools/pdf/outline-bookmarks.mjs
+            if (op.op === "line" && op.first && op.block && /^H[1-6]$/.test(op.block.role || "")) {
+                var htext = (op.block.lines || []).map(function (ln) { return (ln.parts || []).map(function (pt) { return pt.text || ""; }).join(""); }).join(" ").replace(/\s+/g, " ").trim();
+                if (htext) headings.push({ level: +op.block.role.charAt(1), title: htext, y: op.y });
+            }
             if (op.op === "rule") {
                 // A horizontal rule is decoration, not content.
                 tagger.artifact(out, function () {
@@ -37709,7 +40843,7 @@ function RTE_Plugin_PdfExport() {
             });
         }
 
-        return { content: out.join("\n"), links: links, marks: tagger.marks };
+        return { content: out.join("\n"), links: links, marks: tagger.marks, headings: headings };
     }
 
     function headerFooter(options) {
@@ -37771,7 +40905,9 @@ function RTE_Plugin_PdfExport() {
         // (just indent/align), so the owner has to be the cell descriptor the
         // caller supplied. Passing the synthetic block instead makes every cell
         // a top-level paragraph and the table loses its structure entirely.
-        if (tagger) tagger.open(out, line.image ? "Figure" : "Span", op.cell || { kind: "body", block: block });
+        var lineOwner = op.cell || { kind: "body", block: block };
+        var lineOpen = false;
+        if (tagger) { tagger.open(out, line.image ? "Figure" : "Span", lineOwner); lineOpen = true; }
 
         // Wrapping split the text into words, but emitting one BT/Tj block per
         // WORD is wrong twice over: the content stream balloons, and text
@@ -37789,7 +40925,7 @@ function RTE_Plugin_PdfExport() {
             var last = segments.length ? segments[segments.length - 1] : null;
             var mergeable = last && !last.img && last.alias === alias && last.style.size === st.size &&
                 sameColor(last.style.color, st.color) && last.style.underline === st.underline &&
-                last.style.strike === st.strike && last.style.link === st.link;
+                last.style.strike === st.strike && last.style.link === st.link && (last.style.lang || "") === (st.lang || "");
             if (mergeable) { last.text += part.text; last.w += part.w; }
             else { segments.push({ text: part.text, style: st, alias: alias, x: cursor, w: part.w }); }
             cursor += part.w;
@@ -37810,8 +40946,25 @@ function RTE_Plugin_PdfExport() {
             // would only add an empty operation.
             if (!seg.text || /^\s+$/.test(seg.text)) continue;
             var sst = seg.style;
+            // 2026-10-17 a link's words are marked content of their own, owned by the Link element, so the Link holds
+            // its text at its place in the paragraph (PDF/UA 7.18.5). tools/pdf/link-order.mjs
+            var linkOwner = null;
+            if (tagger && !line.image && sst.link) {
+                if (lineOpen) { tagger.close(out); lineOpen = false; }
+                linkOwner = { kind: "link", parent: lineOwner };
+                tagger.open(out, "Span", linkOwner);
+            } else if (tagger && !lineOpen) {
+                tagger.open(out, "Span", lineOwner); lineOpen = true;
+            }
+            // 2026-10-17 a run in another language than its block (a French phrase in an English sentence) is drawn
+            // inside marked content with a /Lang property, so it is read with the right pronunciation (WCAG 3.1.2,
+            // PDF/UA 7.2). The paragraph's own /Lang is on its structure element. tools/pdf/inline-lang.mjs
+            var runLang = String(sst.lang || "").replace(/[^A-Za-z0-9-]/g, "");
+            var langMark = runLang && runLang.toLowerCase() !== String(block.lang || pdfDocLang || "").toLowerCase();
+            if (langMark) out.push("/Span << /Lang (" + runLang + ") >> BDC");
             out.push("BT /" + seg.alias + " " + fixed(sst.size) + " Tf " + colorOp(sst.color) + " " +
                 fixed(seg.x) + " " + fixed(baseline) + " Td (" + escapeString(toWinAnsi(seg.text)) + ") Tj ET");
+            if (langMark) out.push("EMC");
             if (sst.underline) {
                 out.push(colorStroke(sst.color) + " 0.5 w " + fixed(seg.x) + " " + fixed(baseline - sst.size * 0.12) +
                     " m " + fixed(seg.x + seg.w) + " " + fixed(baseline - sst.size * 0.12) + " l S");
@@ -37821,10 +40974,11 @@ function RTE_Plugin_PdfExport() {
                     " m " + fixed(seg.x + seg.w) + " " + fixed(baseline + sst.size * 0.28) + " l S");
             }
             if (sst.link) {
-                links.push({ href: sst.link, x0: seg.x, y0: baseline - 2, x1: seg.x + seg.w, y1: baseline + sst.size });
+                links.push({ href: sst.link, x0: seg.x, y0: baseline - 2, x1: seg.x + seg.w, y1: baseline + sst.size, text: seg.text || "", owner: linkOwner || lineOwner });
             }
+            if (linkOwner) tagger.close(out);
         }
-        if (tagger) tagger.close(out);
+        if (tagger && lineOpen) tagger.close(out);
     }
 
     function sameColor(a, b) {
@@ -37838,28 +40992,33 @@ function RTE_Plugin_PdfExport() {
         var top = op.y, bottom = op.y - row.height;
 
         for (var c = 0; c < row.cells.length; c++) {
-            var cellX = x + c * block.colWidth;
+            var cspan = row.cells[c].span || 1, cstart = row.cells[c].start != null ? row.cells[c].start : c;
+            var cellX = x, cellW = 0;
+            for (var wi = 0; wi < cstart + cspan; wi++) {
+                var colw = block.colWidths && block.colWidths[wi] != null ? block.colWidths[wi] : block.colWidth;
+                if (wi < cstart) cellX += colw; else cellW += colw;
+            }
             // Shading and borders are decoration; only the cell TEXT belongs to
             // the reading order.
             var paint = function () {
                 if (row.header) {
                     out.push("0.94 0.95 0.97 rg " + fixed(cellX) + " " + fixed(bottom) + " " +
-                        fixed(block.colWidth) + " " + fixed(row.height) + " re f");
+                        fixed(cellW) + " " + fixed(row.height) + " re f");
                 }
                 out.push("0.75 0.78 0.82 RG 0.5 w " + fixed(cellX) + " " + fixed(bottom) + " " +
-                    fixed(block.colWidth) + " " + fixed(row.height) + " re S");
+                    fixed(cellW) + " " + fixed(row.height) + " re S");
             };
             if (tagger) tagger.artifact(out, paint); else paint();
 
             // One structure element per CELL, identified by the row object and
             // column index so a table split across pages still resolves to the
             // right TD (and a repeated header row to the right TH).
-            var cellOwner = { kind: "cell", block: block, row: row, col: c, header: !!row.cells[c].header };
+            var cellOwner = { kind: "cell", block: block, row: row, col: cstart, span: cspan, rowspan: row.cells[c].rowspan || 1, header: !!row.cells[c].header };
             var cy = top - block.pad;
             var lines = row.cells[c].lines;
             for (var l = 0; l < lines.length; l++) {
                 renderLine({ line: lines[l], y: cy, block: { indent: 0, align: "left" }, first: l === 0, cell: cellOwner },
-                    { width: cellX + block.colWidth + geom.margin.right, margin: { right: geom.margin.right } },
+                    { width: cellX + cellW + geom.margin.right, margin: { right: geom.margin.right } },
                     out, cellX + block.pad, "helvetica", imageRef, links, tagger);
                 cy -= lines[l].height;
             }
@@ -38059,7 +41218,7 @@ function RTE_Plugin_PermanentPen() {
     function tidyRun(run) {
         if (!run) return;
         var text = run.textContent || "";
-        if (text.replace(/​/g, "") === "") {
+        if (text.replace(/\u200b/g, "") === "") {
             // Nothing was ever typed: remove the empty run entirely.
             if (run.parentNode) run.parentNode.removeChild(run);
             return;
@@ -38067,7 +41226,7 @@ function RTE_Plugin_PermanentPen() {
         var walker = run.ownerDocument.createTreeWalker(run, 4 /* SHOW_TEXT */, null, false);
         var n;
         while ((n = walker.nextNode())) {
-            if (n.nodeValue.indexOf("​") >= 0) n.nodeValue = n.nodeValue.replace(/​/g, "");
+            if (n.nodeValue.indexOf("\u200b") >= 0) n.nodeValue = n.nodeValue.replace(/\u200b/g, "");
         }
     }
 
@@ -38101,7 +41260,7 @@ function RTE_Plugin_PermanentPen() {
         // A zero-width space gives the caret something real to sit inside; an
         // empty inline element cannot hold a caret, so the first character would
         // land outside the span and the pen would appear not to work.
-        span.appendChild(doc.createTextNode("​"));
+        span.appendChild(doc.createTextNode("\u200b"));
 
         range.insertNode(span);
         var r = doc.createRange();
@@ -38165,6 +41324,20 @@ function RTE_Plugin_ReadabilityStats() {
     obj.PluginName = "ReadabilityStats";
 
     obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    // 2026-10-18 the dialog's words read config.text_ keys at the display site (getReadabilityStats keeps its English
+    // easeLabel / readingTimeText). The title read getLangText("readabilitytitle"), which returns the KEY when a pack
+    // lacks it, so every page showed "readabilitytitle". tools/i18n/readability-language.mjs
+    function rT(key, en, a) { var s = (config && config["text_" + key]) || en; return a === undefined ? s : s.split("{0}").join(String(a)); }
+    function easeText(ease) {
+        if (ease >= 90) return rT("rd_e90", "Very easy (5th grade)");
+        if (ease >= 80) return rT("rd_e80", "Easy (6th grade)");
+        if (ease >= 70) return rT("rd_e70", "Fairly easy (7th grade)");
+        if (ease >= 60) return rT("rd_e60", "Standard (8\u20139th grade)");
+        if (ease >= 50) return rT("rd_e50", "Fairly difficult (10\u201312th grade)");
+        if (ease >= 30) return rT("rd_e30", "Difficult (college)");
+        return rT("rd_e0", "Very difficult (college graduate)");
+    }
 
     obj.InitEditor = function (argeditor) {
         editor = argeditor;
@@ -38244,8 +41417,8 @@ function RTE_Plugin_ReadabilityStats() {
         if (ease >= 90) return "Very easy (5th grade)";
         if (ease >= 80) return "Easy (6th grade)";
         if (ease >= 70) return "Fairly easy (7th grade)";
-        if (ease >= 60) return "Standard (8–9th grade)";
-        if (ease >= 50) return "Fairly difficult (10–12th grade)";
+        if (ease >= 60) return "Standard (8\u20139th grade)";
+        if (ease >= 50) return "Fairly difficult (10\u201312th grade)";
         if (ease >= 30) return "Difficult (college)";
         return "Very difficult (college graduate)";
     }
@@ -38253,20 +41426,20 @@ function RTE_Plugin_ReadabilityStats() {
     function openDialog() {
         var s = compute(currentText());
         try {
-            var d = editor.createDialog((editor.getLangText && editor.getLangText("readabilitytitle")) || "Readability statistics", "rte-dialog-readability");
+            var d = editor.createDialog(rT("readabilitytitle", "Readability statistics"), "rte-dialog-readability");
             var doc = d.ownerDocument;
             var wrap = doc.createElement("div");
             wrap.style.cssText = "padding:14px 18px;min-width:340px;font:13px -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#0f172a";
 
             var rows = [
-                ["Flesch Reading Ease", s.fleschReadingEase + "  —  " + s.easeLabel, true],
-                ["Flesch–Kincaid Grade", String(s.fleschKincaidGrade), false],
-                ["Reading time", s.readingTimeText, false],
-                ["Words", String(s.words), false],
-                ["Sentences", String(s.sentences), false],
-                ["Avg words / sentence", String(s.avgWordsPerSentence), false],
-                ["Avg syllables / word", String(s.avgSyllablesPerWord), false],
-                ["Characters (no spaces)", String(s.characters), false]
+                [rT("rd_ease", "Flesch Reading Ease"), s.fleschReadingEase + "  \u2014  " + easeText(s.fleschReadingEase), true],
+                [rT("rd_grade", "Flesch\u2013Kincaid Grade"), String(s.fleschKincaidGrade), false],
+                [rT("rd_time", "Reading time"), s.readingTimeMinutes < 1 ? rT("rd_sec", "{0} sec", Math.max(1, Math.round(s.readingTimeMinutes * 60))) : rT("rd_min", "{0} min", Math.round(s.readingTimeMinutes)), false],
+                [rT("rd_words", "Words"), String(s.words), false],
+                [rT("rd_sentences", "Sentences"), String(s.sentences), false],
+                [rT("rd_avgwords", "Avg words / sentence"), String(s.avgWordsPerSentence), false],
+                [rT("rd_avgsyll", "Avg syllables / word"), String(s.avgSyllablesPerWord), false],
+                [rT("rd_chars", "Characters (no spaces)"), String(s.characters), false]
             ];
             for (var i = 0; i < rows.length; i++) {
                 var r = doc.createElement("div");
@@ -38312,6 +41485,13 @@ function RTE_Plugin_ReadAloud() {
     function supported() { return !!synth() && typeof window.SpeechSynthesisUtterance === "function"; }
 
     obj.InitConfig = function (argconfig) { config = argconfig; };
+    // 2026-10-18 the words read config.text_ keys (language packs), English as the fallback; {0} / {1} fill a template.
+    // tools/i18n/plugin-bars-language.mjs
+    function pText(key, fallback) {
+        var s = (config && config["text_" + key]) || fallback;
+        for (var i = 2; i < arguments.length; i++) s = s.split("{" + (i - 2) + "}").join(String(arguments[i]));
+        return s;
+    }
 
     obj.InitEditor = function (argeditor) {
         editor = argeditor;
@@ -38334,7 +41514,7 @@ function RTE_Plugin_ReadAloud() {
             var d = editor.createDialog((editor.getLangText && editor.getLangText("readaloudtitle")) || "Read aloud", "rte-dialog-readaloud");
             var w = d.ownerDocument.createElement("div");
             w.style.cssText = "padding:16px;min-width:320px;font:13px -apple-system,Segoe UI,sans-serif";
-            w.textContent = "This browser does not provide a speech synthesizer (Web Speech API). Read-aloud is unavailable here.";
+            w.textContent = pText("ra_unsupported", "This browser does not provide a speech synthesizer (Web Speech API). Read-aloud is unavailable here.");
             d.appendChild(w);
         } catch (e) { /* ignore */ }
     };
@@ -38373,7 +41553,7 @@ function RTE_Plugin_ReadAloud() {
 
     // Split [text] into sentence segments with absolute offsets (base added).
     function splitSentences(text, base) {
-        var segs = [], re = /[^.!?\n。！？]*[.!?\n。！？]+|\S[^.!?\n]*$/g, m;
+        var segs = [], re = /[^.!?\n\u3002\uff01\uff1f]*[.!?\n\u3002\uff01\uff1f]+|\S[^.!?\n]*$/g, m;
         while ((m = re.exec(text)) !== null) {
             if (m[0] && /\S/.test(m[0])) segs.push({ text: m[0], start: base + m.index, end: base + m.index + m[0].length });
             if (m.index === re.lastIndex) re.lastIndex++; // guard against zero-length
@@ -38387,7 +41567,7 @@ function RTE_Plugin_ReadAloud() {
         if (!supported()) { obj.NotifyUnsupported(); return; }
         obj.Stop(); // reset any prior run
         var map = buildMap();
-        if (!map.hasNodes) { setStatus("Nothing to read"); return; }
+        if (!map.hasNodes) { setStatus(pText("ra_nothing", "Nothing to read")); return; }
         // Selection range -> read just the selection; else whole doc.
         var sel = editor.getSelection ? editor.getSelection() : null;
         var rStart = 0, rEnd = map.full.length;
@@ -38402,7 +41582,7 @@ function RTE_Plugin_ReadAloud() {
         savedRange = (sel && sel.rangeCount) ? sel.getRangeAt(0).cloneRange() : null;
         var slice = map.full.substring(rStart, rEnd);
         queue = splitSentences(slice, rStart);
-        if (!queue.length) { setStatus("Nothing to read"); return; }
+        if (!queue.length) { setStatus(pText("ra_nothing", "Nothing to read")); return; }
         qIndex = 0; speaking = true; paused = false;
         obj._map = map; obj._opts = opts || {};
         updatePlayBtn();
@@ -38418,7 +41598,7 @@ function RTE_Plugin_ReadAloud() {
         u.rate = Math.min(2, Math.max(0.5, rate));
         var v = chosenVoice();
         if (v) u.voice = v;
-        u.onstart = function () { if (config.readAloudHighlight !== false) highlight(seg); setStatus("Reading… (" + (qIndex + 1) + "/" + queue.length + ")"); };
+        u.onstart = function () { if (config.readAloudHighlight !== false) highlight(seg); setStatus(pText("ra_readingof", "Reading\u2026 ({0}/{1})", qIndex + 1, queue.length)); };
         u.onend = function () { if (!speaking) return; qIndex++; speakNext(); };
         u.onerror = function () { if (!speaking) return; qIndex++; speakNext(); };
         try { s.speak(u); } catch (e) { qIndex++; speakNext(); }
@@ -38439,11 +41619,11 @@ function RTE_Plugin_ReadAloud() {
 
     obj.Pause = function () {
         var s = synth(); if (!s || !speaking) return;
-        if (!paused) { try { s.pause(); } catch (e) {} paused = true; updatePlayBtn(); setStatus("Paused"); }
+        if (!paused) { try { s.pause(); } catch (e) {} paused = true; updatePlayBtn(); setStatus(pText("ra_paused", "Paused")); }
     };
     obj.Resume = function () {
         var s = synth(); if (!s || !speaking) return;
-        if (paused) { try { s.resume(); } catch (e) {} paused = false; updatePlayBtn(); setStatus("Reading…"); }
+        if (paused) { try { s.resume(); } catch (e) {} paused = false; updatePlayBtn(); setStatus(pText("ra_reading", "Reading\u2026")); }
     };
     obj.Stop = function () {
         var s = synth();
@@ -38491,16 +41671,23 @@ function RTE_Plugin_ReadAloud() {
         if (bar) return;
         var d = document;
         bar = d.createElement("div");
-        bar.className = "rte-readaloud-bar";
-        var title = d.createElement("span"); title.className = "rte-readaloud-title"; title.textContent = "Read"; bar.appendChild(title);
-        playBtn = btn(bar, "Play", "Play / Pause");
-        var stopBtn = btn(bar, "Stop", "Stop");
-        voiceSel = d.createElement("select"); voiceSel.className = "rte-readaloud-voice"; voiceSel.title = "Voice"; bar.appendChild(voiceSel);
-        rateSel = d.createElement("select"); rateSel.className = "rte-readaloud-rate"; rateSel.title = "Speed";
+        // 2026-10-17 appended to the page body, outside the editor, so rte-dark could not reach it: mirrored (and
+        // rte-auto-dark under a dark system setting). tools/a11y/readaloud-bar-dark.mjs
+        var barDark = false;
+        try {
+            var bk = editor.container && editor.container.classList;
+            barDark = !!bk && (bk.contains("rte-dark") || (bk.contains("rte-auto-dark") && !bk.contains("rte-light") && !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches)));
+        } catch (x) { barDark = false; }
+        bar.className = "rte-readaloud-bar" + (barDark ? " rte-readaloud-dark" : "");
+        var title = d.createElement("span"); title.className = "rte-readaloud-title"; title.textContent = pText("ra_read", "Read"); bar.appendChild(title);
+        playBtn = btn(bar, pText("ra_play", "Play"), pText("ra_playpause", "Play / Pause"));
+        var stopBtn = btn(bar, pText("ra_stop", "Stop"), pText("ra_stop", "Stop"));
+        voiceSel = d.createElement("select"); voiceSel.className = "rte-readaloud-voice"; voiceSel.title = pText("ra_voice", "Voice"); bar.appendChild(voiceSel);
+        rateSel = d.createElement("select"); rateSel.className = "rte-readaloud-rate"; rateSel.title = pText("ra_speed", "Speed");
         ["0.75", "1", "1.25", "1.5", "2"].forEach(function (r) { var o = d.createElement("option"); o.value = r; o.textContent = r + "x"; if (r === "1") o.selected = true; rateSel.appendChild(o); });
         bar.appendChild(rateSel);
         statusEl = d.createElement("span"); statusEl.className = "rte-readaloud-status"; bar.appendChild(statusEl);
-        var closeBtn = btn(bar, "Close", "Close"); closeBtn.className += " is-close";
+        var closeBtn = btn(bar, pText("close", "Close"), pText("close", "Close")); closeBtn.className += " is-close";
         d.body.appendChild(bar);
 
         loadVoices();
@@ -38522,7 +41709,7 @@ function RTE_Plugin_ReadAloud() {
         bar = null; playBtn = statusEl = voiceSel = rateSel = null;
     };
 
-    function updatePlayBtn() { if (playBtn) playBtn.textContent = (speaking && !paused) ? "Pause" : "Play"; }
+    function updatePlayBtn() { if (playBtn) playBtn.textContent = (speaking && !paused) ? pText("ra_pause", "Pause") : pText("ra_play", "Play"); }
     function setStatus(t) { if (statusEl) statusEl.textContent = t; }
 }
 
@@ -38594,6 +41781,86 @@ function RTE_Plugin_RestrictedEditing() {
         refreshStyles();
     };
 
+    // 2026-10-14 The lockdown is enforced, not only drawn. A paragraph that holds a field stays contenteditable so the
+    // caret can reach the field, which left the protected text around the field editable; Delete over a locked
+    // selection, Alt+Arrow (move block) and Ctrl+Shift+D (copy block) changed protected text too, because the core
+    // handles those keys itself. While the lockdown is on, a key or an input whose selection is not entirely inside
+    // one marked region is cancelled at the editing window, in the capture phase, before anything else sees it.
+    // Backspace at a field's start and Delete at its end would reach outside it, so they are cancelled as well.
+    // tools/restricted/restricted-audit.mjs
+    var guardedWindows = [];
+    function regionOf(node) {
+        var el = node && node.nodeType === 1 ? node : (node && node.parentNode);
+        while (el && el.nodeType === 1) {
+            if (el.getAttribute && el.getAttribute(editableAttr) === "true") return el;
+            el = el.parentNode;
+        }
+        return null;
+    }
+    // the marked region that holds the whole selection, or null
+    function selectionRegion(doc) {
+        var sel = doc.getSelection();
+        if (!sel || sel.rangeCount === 0) return null;
+        var r = sel.getRangeAt(0);
+        var a = regionOf(r.startContainer), b = regionOf(r.endContainer);
+        return a && a === b ? { region: a, range: r } : null;
+    }
+    function atEdge(doc, region, range, atStart) {
+        var probe = doc.createRange();
+        probe.selectNodeContents(region);
+        if (atStart) probe.setEnd(range.startContainer, range.startOffset);
+        else probe.setStart(range.endContainer, range.endOffset);
+        return probe.toString() === "";
+    }
+    function editsDocument(e) {
+        var k = e.key || "";
+        if (e.isComposing) return true;
+        if (k === "Backspace" || k === "Delete" || k === "Enter" || k === "Tab") return true;
+        if (e.altKey && (k === "ArrowUp" || k === "ArrowDown")) return true;
+        if (e.ctrlKey || e.metaKey) {
+            var c = k.toLowerCase();
+            return c === "x" || c === "v" || c === "b" || c === "i" || c === "u" || c === "d";
+        }
+        return k.length === 1 && !e.altKey;
+    }
+    function guardKey(e) {
+        if (!enabled || !editsDocument(e)) return;
+        var doc = e.target && (e.target.ownerDocument || e.target);
+        if (!doc || !doc.getSelection) return;
+        var hit = selectionRegion(doc);
+        var refuse = !hit;
+        if (hit && hit.range.collapsed) {
+            if (e.key === "Backspace" && atEdge(doc, hit.region, hit.range, true)) refuse = true;
+            if (e.key === "Delete" && atEdge(doc, hit.region, hit.range, false)) refuse = true;
+        }
+        if (hit && (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown"))) refuse = true;
+        if (hit && (e.ctrlKey || e.metaKey) && e.shiftKey && String(e.key).toLowerCase() === "d") refuse = true;
+        if (!refuse) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+    }
+    function guardInput(e) {
+        if (!enabled) return;
+        var type = e.inputType || "";
+        if (type.indexOf("history") === 0) return;
+        var doc = e.target && (e.target.ownerDocument || e.target);
+        if (!doc || !doc.getSelection) return;
+        if (selectionRegion(doc)) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+    }
+    function ensureGuards() {
+        var body = getEditable();
+        var win = body && body.ownerDocument && body.ownerDocument.defaultView;
+        if (!win || guardedWindows.indexOf(win) >= 0) return;
+        guardedWindows.push(win);
+        win.addEventListener("keydown", guardKey, true);
+        win.addEventListener("beforeinput", guardInput, true);
+        win.addEventListener("cut", function (e) { if (enabled && !selectionRegion(e.target.ownerDocument || e.target)) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);
+        win.addEventListener("paste", function (e) { if (enabled && !selectionRegion(e.target.ownerDocument || e.target)) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);
+        win.addEventListener("drop", function (e) { if (enabled) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);
+    }
+
     function getEditable() {
         return editor.getEditable ? editor.getEditable() : null;
     }
@@ -38639,6 +41906,7 @@ function RTE_Plugin_RestrictedEditing() {
         }
         // Make the body itself NOT editable; rely on per-element contenteditable.
         body.setAttribute("contenteditable", "false");
+        ensureGuards();
         refreshStyles();
         return true;
     }
@@ -38667,6 +41935,38 @@ function RTE_Plugin_RestrictedEditing() {
         if (!sel || sel.rangeCount === 0) return null;
         var range = sel.getRangeAt(0);
         if (range.collapsed) return null;
+        // 2026-10-02 A selection that crosses blocks marks the selected text of EACH block. One span
+        // went AROUND the blocks: two paragraphs became four (<p>al</p><span><p>pha</p><p>be</p>
+        // </span><p>ta</p>), list items and table cells got a span inside <ul> / <tr> - and that
+        // span, a direct child of the body, was LOCKED by enable() (it looks for a region among a
+        // child's descendants): the region could not be typed into. Returns the first region.
+        // tools/restricted/mark-across-blocks.mjs
+        var runs = crossBlockRuns(doc, range);
+        if (runs) {
+            var regions = [];
+            // from the last run back: wrapping one never moves the text of a run still to come
+            for (var ri = runs.length - 1; ri >= 0; ri--) {
+                var sub = doc.createRange();
+                sub.setStart(runs[ri].sn, runs[ri].so);
+                sub.setEnd(runs[ri].en, runs[ri].eo);
+                widenToInlineEdges(sub, runs[ri].block);
+                var part = doc.createElement("span");
+                part.setAttribute(editableAttr, "true");
+                if (options.label) part.setAttribute("aria-label", options.label);
+                part.appendChild(sub.extractContents());
+                sub.insertNode(part);
+                regions.unshift(part);
+            }
+            if (!regions.length) return null;
+            var all = doc.createRange();
+            all.setStart(regions[0], 0);
+            all.setEnd(regions[regions.length - 1], regions[regions.length - 1].childNodes.length);
+            sel.removeAllRanges();
+            sel.addRange(all);
+            refreshStyles();
+            if (enabled) enable();
+            return regions[0];
+        }
         var span = doc.createElement("span");
         span.setAttribute(editableAttr, "true");
         if (options.label) span.setAttribute("aria-label", options.label);
@@ -38687,6 +41987,59 @@ function RTE_Plugin_RestrictedEditing() {
         refreshStyles();
         if (enabled) enable(); // recompute lockdown around new editable region
         return span;
+    }
+
+    // The runs of selected text that share a block, when the selection crosses blocks; null when it
+    // starts and ends in one block (that keeps the single-span path). Whitespace-only runs (the line
+    // break between two blocks) are dropped; text inside a non-editable element moves with its run.
+    var BLOCK_RE = /^(P|DIV|LI|UL|OL|DL|DT|DD|TABLE|TBODY|THEAD|TFOOT|TR|TD|TH|CAPTION|H[1-6]|PRE|BLOCKQUOTE|ADDRESS|FIGURE|FIGCAPTION|SECTION|ARTICLE|ASIDE|HEADER|FOOTER|NAV|MAIN|DETAILS|SUMMARY|FORM|FIELDSET|LEGEND|HR|BODY)$/;
+    function blockOf(node) {
+        for (var n = node; n; n = n.parentNode)
+            if (n.nodeType === 1 && BLOCK_RE.test(n.nodeName)) return n;
+        return null;
+    }
+    function crossBlockRuns(doc, range) {
+        if (blockOf(range.startContainer) === blockOf(range.endContainer)) return null;
+        var root = range.commonAncestorContainer;
+        if (root.nodeType !== 1) root = root.parentNode;
+        var runs = [], cur = null;
+        var w = doc.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+            acceptNode: function (n) { return n.nodeType === 1 && n.getAttribute("contenteditable") === "false" ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT; }
+        });
+        for (var n = w.nextNode(); n; n = w.nextNode()) {
+            if (n.nodeType === 1) {
+                if (BLOCK_RE.test(n.nodeName)) cur = null;
+                continue;
+            }
+            if (!range.intersectsNode(n)) continue;
+            var a = n === range.startContainer ? range.startOffset : 0, b = n === range.endContainer ? range.endOffset : n.data.length;
+            if (b <= a) continue;
+            var blk = blockOf(n);
+            if (!cur || cur.block !== blk) {
+                cur = { block: blk, sn: n, so: a, text: "" };
+                runs.push(cur);
+            }
+            cur.en = n;
+            cur.eo = b;
+            cur.text += n.data.substring(a, b);
+        }
+        var keep = [];
+        for (var i = 0; i < runs.length; i++) if (/\S/.test(runs[i].text)) keep.push(runs[i]);
+        return keep;
+    }
+    // A run starting or ending at the edge of an inline element (<b>) takes the whole element, so
+    // no empty <b></b> is left behind by extractContents.
+    function widenToInlineEdges(range, block) {
+        var n = range.startContainer;
+        if (n.nodeType === 3 && range.startOffset === 0) {
+            while (n.parentNode && n.parentNode !== block && !n.previousSibling && !BLOCK_RE.test(n.parentNode.nodeName)) n = n.parentNode;
+            range.setStartBefore(n);
+        }
+        n = range.endContainer;
+        if (n.nodeType === 3 && range.endOffset === n.data.length) {
+            while (n.parentNode && n.parentNode !== block && !n.nextSibling && !BLOCK_RE.test(n.parentNode.nodeName)) n = n.parentNode;
+            range.setEndAfter(n);
+        }
     }
 
     function unmark(node) {
@@ -38819,7 +42172,8 @@ function RTE_Plugin_RevisionHistory() {
 
         // Auto-snapshot on idle typing (opt-in).
         if (config.revisionHistoryAutoSnapshotMs > 0) {
-            editor.getDocument().addEventListener("input", function () {
+            // 2026-10-17 bound through the core (follows the live editing document). tools/keyboard/plugin-listeners-live.mjs
+            (editor.bindDocumentEvent ? function (fn) { editor.bindDocumentEvent("input", fn, true); } : function (fn) { editor.getDocument().addEventListener("input", fn, true); })(function () {
                 if (autoSnapshotTimer) clearTimeout(autoSnapshotTimer);
                 autoSnapshotTimer = setTimeout(function () {
                     var currentHtml = editor.getHTML();
@@ -38827,16 +42181,18 @@ function RTE_Plugin_RevisionHistory() {
                         snapshot("Auto", { auto: true });
                     }
                 }, config.revisionHistoryAutoSnapshotMs);
-            }, true);
+            });
         }
 
-        // Keyboard shortcut: Ctrl/Cmd + Shift + H opens the browser.
-        editor.getDocument().addEventListener("keydown", function (e) {
-            if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "H" || e.key === "h")) {
+        // Keyboard shortcut: Ctrl/Cmd + Alt + Shift + H opens the browser (Google Docs' version-history keys).
+        // 2026-10-15 it was Ctrl+Shift+H, which is also Highlight: highlighting opened this modal over the page and,
+        // once the dialog took focus, the highlight could not be toggled off. tools/keyboard/shortcut-collisions.mjs
+        (editor.bindDocumentEvent ? function (fn) { editor.bindDocumentEvent("keydown", fn, true); } : function (fn) { editor.getDocument().addEventListener("keydown", fn, true); })(function (e) {
+            if ((e.ctrlKey || e.metaKey) && e.altKey && e.shiftKey && (e.key === "H" || e.key === "h" || e.code === "KeyH")) {
                 e.preventDefault();
                 openDialog();
             }
-        }, true);
+        });
     };
 
     function appendToolbarCommand(toolbar, item) {
@@ -38850,9 +42206,50 @@ function RTE_Plugin_RevisionHistory() {
         return { id: "user", name: "User", color: "#64748b" };
     }
 
+    // 2026-10-03 One store per DOCUMENT. The key was "RTE.Revisions." + (aiToolkitPersistenceKey ||
+    // "default"), so without that key every editor and every document on a site shared one list: two
+    // editors on a page overwrote each other's saved versions, and a version taken on one document was
+    // listed - and restorable, replacing the content - on every other one (localdraft had the same
+    // defect). An explicit key wins (config.revisionHistoryKey, or aiToolkitPersistenceKey as
+    // before); otherwise the page (path + query, which tells /edit?id=1 from ?id=2) and, with several
+    // editors on it, the editor's own name. tools/revisions/revision-keys.mjs
+    var cachedStoreKey = null;
+    var LEGACY_STORE_KEY = "RTE.Revisions.default";
+
     function getStoreKey() {
-        var key = config.aiToolkitPersistenceKey || "default";
-        return "RTE.Revisions." + key;
+        if (config.revisionHistoryKey) return "RTE.Revisions." + config.revisionHistoryKey;
+        if (config.aiToolkitPersistenceKey) return "RTE.Revisions." + config.aiToolkitPersistenceKey;
+        if (cachedStoreKey) return cachedStoreKey;
+        var page = "default";
+        try { page = location.pathname + location.search; } catch (e) { }
+        var name = "";
+        try {
+            var inp = editor.input;
+            if (inp) name = inp.id || inp.getAttribute("name") || "";
+            if (!name && editor.container && editor.container.id) name = editor.container.id;
+            if (!name) {
+                var all = document.querySelectorAll(".richtexteditor");
+                for (var i = 1; i < all.length; i++) if (all[i] === editor.container) { name = "editor-" + i; break; }
+            }
+        } catch (e) { }
+        return (cachedStoreKey = "RTE.Revisions." + page + (name ? "#" + name : ""));
+    }
+
+    // Versions saved under the old shared key belong to this editor only when it is the page's only
+    // one (checked once every editor on the page exists); then they move to this editor's key.
+    function takeLegacyRevisions() {
+        if (config.revisionHistoryKey || config.aiToolkitPersistenceKey || getStore().length) return;
+        try {
+            if (!window.localStorage || document.querySelectorAll(".richtexteditor").length !== 1) return;
+            var key = getStoreKey(), raw = window.localStorage.getItem(LEGACY_STORE_KEY);
+            if (!raw || key === LEGACY_STORE_KEY || window.localStorage.getItem(key)) return;
+            var parsed = JSON.parse(raw);
+            if (!Array.isArray(parsed)) return;
+            window.localStorage.setItem(key, raw);
+            window.localStorage.removeItem(LEGACY_STORE_KEY);
+            editor.__revisions = parsed;
+            if (dialog && dialog.isConnected) renderDialog();
+        } catch (ignore) { }
     }
 
     function getStore() {
@@ -38932,6 +42329,9 @@ function RTE_Plugin_RevisionHistory() {
     }
 
     function restoreStore() {
+        // other editors on the page are created after this one: decide about the old shared
+        // versions once they all exist
+        setTimeout(takeLegacyRevisions, 0);
         try {
             if (!window.localStorage) return;
             var raw = window.localStorage.getItem(getStoreKey());
@@ -38966,10 +42366,16 @@ function RTE_Plugin_RevisionHistory() {
 
     // Prompt the user for a snapshot name via native window.prompt, then take a snapshot.
     // Returns the entry (or null if the user cancelled).
+    // 2026-10-18 the history's words read config.text_ keys (language packs), English as the fallback; {0} fills a
+    // template. tools/i18n/revision-history-language.mjs
+    function rhText(key, fallback, arg) {
+        var s = (config && config["text_" + key]) || fallback;
+        return arg === undefined ? s : s.split("{0}").join(String(arg));
+    }
     function promptAndSnapshot(defaultLabel) {
         var iframeDoc = editor.iframe ? editor.iframe.ownerDocument : document;
         var win = iframeDoc.defaultView || window;
-        var value = win.prompt("Name this version (e.g. \"Draft sent to legal\"):", defaultLabel || "");
+        var value = win.prompt(rhText("rh_nameversion", "Name this version (e.g. \"Draft sent to legal\"):"), defaultLabel || "");
         if (value === null) return null;
         var trimmed = (value || "").trim();
         if (!trimmed) return null;
@@ -39021,13 +42427,31 @@ function RTE_Plugin_RevisionHistory() {
         opts = opts || {};
         var entry = findById(id);
         if (!entry) return false;
+        // 2026-10-03 Restoring replaces the content with setHTMLCode, which is not an undo step, and saved
+        // nothing first - restoring a version by mistake threw away everything written since it, for
+        // good. The current content is now kept as a (named) version first, unless the newest version
+        // already holds it; config.revisionHistorySnapshotBeforeRestore: false for the old behaviour.
+        // tools/revisions/restore-safety.mjs
+        var keep = config.revisionHistorySnapshotBeforeRestore !== false;
         if (!opts.skipConfirm) {
             var doc = editor.iframe ? editor.iframe.ownerDocument : document;
-            if (!doc.defaultView.confirm("Restore this version? Your current content will be replaced (this itself is not auto-snapshotted).")) {
+            var message = keep
+                ? rhText("rh_restorekeep", "Restore this version? Your current content is kept as a version first, so you can go back to it.")
+                : rhText("rh_restorereplace", "Restore this version? Your current content will be replaced (this itself is not auto-snapshotted).");
+            if (!doc.defaultView.confirm(message)) {
                 return false;
             }
         }
-        if (editor.setHTMLCode) editor.setHTMLCode(entry.html);
+        if (keep) {
+            var current = editor.getHTML ? editor.getHTML() : (editor.getHTMLCode ? editor.getHTMLCode() : "");
+            var newest = null, store = getStore();
+            for (var i = 0; i < store.length; i++) if (!newest || (store[i].createdAt || 0) >= (newest.createdAt || 0)) newest = store[i];
+            if (current !== entry.html && (!newest || newest.html !== current)) {
+                snapshot(rhText("rh_beforerestore", "Before restoring {0}", entry.label), { beforeRestore: entry.id });
+            }
+        }
+        // undoable: Ctrl+Z after a restore gives back exactly the document it replaced (import-undo.mjs)
+        if (editor.setHTMLCode) editor.setHTMLCode(entry.html, { undoable: true });
         else if (editor.setHTML) editor.setHTML(entry.html);
         lastSnapshotHtml = entry.html;
         if (dialog && dialog.isConnected) closeDialog();
@@ -39150,13 +42574,68 @@ function RTE_Plugin_RevisionHistory() {
         panel.className = "rte-rev-panel";
         backdrop.appendChild(panel);
         dialog.appendChild(backdrop);
+        // 2026-10-15 keyboard: the dialog is modal, so focus moves in, Tab stays in, Escape closes, and focus goes back
+        // to where it was. Escape did nothing and the backdrop kept blocking the page. tools/a11y/revision-dialog-keyboard.mjs
+        dialogReturnFocus = host.activeElement;
+        dialog.addEventListener("keydown", onDialogKey, true);
         host.body.appendChild(dialog);
         renderDialog();
+        // the toolbar returns focus to the editor just after a command runs; move in after that, and once more
+        // if something took it back
+        setTimeout(focusFirstInDialog, 0);
+        setTimeout(function () { if (dialog && !dialog.contains(dialog.ownerDocument.activeElement)) focusFirstInDialog(); }, 250);
+    }
+
+    var dialogReturnFocus = null;
+    function dialogFocusables() {
+        if (!dialog) return [];
+        var all = dialog.querySelectorAll("button, input, select, textarea, a[href], [tabindex]:not([tabindex='-1'])");
+        var out = [];
+        for (var i = 0; i < all.length; i++) if (!all[i].disabled && all[i].offsetParent !== null) out.push(all[i]);
+        return out;
+    }
+    function focusFirstInDialog() {
+        var f = dialogFocusables();
+        if (f.length) { try { f[0].focus(); } catch (e) { /* ignore */ } }
+    }
+    // 2026-10-18 a dialog control runs its action on click, so Enter and Space work (they fire click, not mousedown;
+    // these ran on mousedown only and did nothing from the keyboard). mousedown still prevents default so a mouse
+    // press keeps the editor's selection. The action usually re-renders the dialog; after a keyboard press, focus
+    // goes back to the control with the same key. tools/a11y/revision-buttons-keyboard.mjs
+    function onActivate(el, key, fn) {
+        el.setAttribute("data-rte-rev-key", key);
+        el.addEventListener("mousedown", function (e) { e.preventDefault(); });
+        el.addEventListener("click", function (e) {
+            e.preventDefault();
+            var fromKeyboard = e.detail === 0;
+            fn();
+            if (!fromKeyboard || !dialog) return;
+            var all = dialog.querySelectorAll("[data-rte-rev-key]");
+            for (var i = 0; i < all.length; i++) {
+                if (all[i].getAttribute("data-rte-rev-key") === key) { try { all[i].focus(); } catch (x) { /* ignore */ } return; }
+            }
+            if (!dialog.contains(dialog.ownerDocument.activeElement)) focusFirstInDialog();
+        });
+    }
+    function onDialogKey(e) {
+        if (e.key === "Escape" || e.key === "Esc") { e.preventDefault(); e.stopPropagation(); closeDialog(); return; }
+        if (e.key !== "Tab") return;
+        var f = dialogFocusables();
+        if (!f.length) return;
+        var a = dialog.ownerDocument.activeElement, i = f.indexOf(a);
+        if (e.shiftKey && (i <= 0)) { e.preventDefault(); f[f.length - 1].focus(); }
+        else if (!e.shiftKey && (i === -1 || i === f.length - 1)) { e.preventDefault(); f[0].focus(); }
     }
 
     function closeDialog() {
         if (dialog && dialog.parentNode) dialog.parentNode.removeChild(dialog);
         dialog = null;
+        var back = dialogReturnFocus;
+        dialogReturnFocus = null;
+        try {
+            if (back && back.isConnected && back.tagName !== "IFRAME" && back !== back.ownerDocument.body) back.focus();
+            else if (typeof editor.focus === "function") editor.focus();
+        } catch (e) { /* ignore */ }
     }
 
     var dialogSelectedId = null;
@@ -39177,17 +42656,16 @@ function RTE_Plugin_RevisionHistory() {
         var title = host.createElement("div");
         title.id = "rte-rev-dialog-title";
         title.className = "rte-rev-title";
-        title.textContent = "Revision history";
+        title.textContent = rhText("revisionhistory", "Revision history");
         header.appendChild(title);
         var actions = host.createElement("div");
         actions.className = "rte-rev-header-actions";
         var snapBtn = host.createElement("button");
         snapBtn.type = "button";
         snapBtn.className = "rte-rev-btn rte-rev-btn-ghost";
-        snapBtn.textContent = "Save version now";
-        snapBtn.addEventListener("mousedown", function (e) {
-            e.preventDefault();
-            var label = host.defaultView.prompt("Label this version (optional):", "");
+        snapBtn.textContent = rhText("rh_savenow", "Save version now");
+        onActivate(snapBtn, "save", function () {
+            var label = host.defaultView.prompt(rhText("rh_labelversion", "Label this version (optional):"), "");
             if (label === null) return; // cancelled
             snapshot(label || "");
         });
@@ -39195,9 +42673,9 @@ function RTE_Plugin_RevisionHistory() {
         var closeBtn = host.createElement("button");
         closeBtn.type = "button";
         closeBtn.className = "rte-rev-btn rte-rev-btn-ghost";
-        closeBtn.textContent = "Close";
-        closeBtn.setAttribute("aria-label", "Close revision history");
-        closeBtn.addEventListener("mousedown", function (e) { e.preventDefault(); closeDialog(); });
+        closeBtn.textContent = rhText("close", "Close");
+        closeBtn.setAttribute("aria-label", rhText("rh_closehistory", "Close revision history"));
+        onActivate(closeBtn, "close", closeDialog);
         actions.appendChild(closeBtn);
         header.appendChild(actions);
         panel.appendChild(header);
@@ -39208,13 +42686,17 @@ function RTE_Plugin_RevisionHistory() {
         // Left: list
         var list = host.createElement("div");
         list.className = "rte-rev-list";
-        list.setAttribute("role", "listbox");
-        list.setAttribute("aria-label", "Saved revisions");
         var entries = editor.revisionHistory.list();
+        // 2026-10-15 a listbox only when it lists revisions: the empty message inside role=listbox left a listbox with
+        // no options (axe aria-required-children) that read as an empty list. tools/a11y/revision-list-roles.mjs
+        if (entries.length) {
+            list.setAttribute("role", "listbox");
+            list.setAttribute("aria-label", rhText("rh_saved", "Saved revisions"));
+        }
         if (!entries.length) {
             var empty = host.createElement("div");
             empty.className = "rte-rev-empty";
-            empty.textContent = "No revisions yet. Click \"Save version now\" to capture the current document.";
+            empty.textContent = rhText("rh_empty", "No revisions yet. Click \"Save version now\" to capture the current document.");
             list.appendChild(empty);
         } else {
             if (!dialogSelectedId || !findById(dialogSelectedId)) {
@@ -39232,7 +42714,7 @@ function RTE_Plugin_RevisionHistory() {
                     dot.style.background = (e.author && e.author.color) || "#64748b";
                     var who = host.createElement("div");
                     who.className = "rte-rev-row-who";
-                    who.textContent = (e.author && e.author.name) || "User";
+                    who.textContent = (e.author && e.author.name) || rhText("rh_user", "User");
                     var when = host.createElement("div");
                     when.className = "rte-rev-row-when";
                     when.textContent = formatDate(e.createdAt) + " \u00B7 " + (e.label || "");
@@ -39242,8 +42724,7 @@ function RTE_Plugin_RevisionHistory() {
                     col.appendChild(when);
                     row.appendChild(dot);
                     row.appendChild(col);
-                    row.addEventListener("mousedown", function (ev) {
-                        ev.preventDefault();
+                    onActivate(row, "row-" + e.id, function () {
                         dialogSelectedId = e.id;
                         renderDialog();
                     });
@@ -39262,21 +42743,21 @@ function RTE_Plugin_RevisionHistory() {
             var tabs = host.createElement("div");
             tabs.className = "rte-rev-tabs";
             tabs.setAttribute("role", "tablist");
-            tabs.setAttribute("aria-label", "Revision view");
+            tabs.setAttribute("aria-label", rhText("rh_view", "Revision view"));
             var tabPreview = host.createElement("button");
             tabPreview.type = "button";
             tabPreview.className = "rte-rev-tab" + (dialogView === "preview" ? " rte-rev-tab-active" : "");
             tabPreview.setAttribute("role", "tab");
             tabPreview.setAttribute("aria-selected", dialogView === "preview" ? "true" : "false");
-            tabPreview.textContent = "Preview";
-            tabPreview.addEventListener("mousedown", function (e) { e.preventDefault(); dialogView = "preview"; renderDialog(); });
+            tabPreview.textContent = rhText("rh_preview", "Preview");
+            onActivate(tabPreview, "tab-preview", function () { dialogView = "preview"; renderDialog(); });
             var tabDiff = host.createElement("button");
             tabDiff.type = "button";
             tabDiff.className = "rte-rev-tab" + (dialogView === "diff" ? " rte-rev-tab-active" : "");
             tabDiff.setAttribute("role", "tab");
             tabDiff.setAttribute("aria-selected", dialogView === "diff" ? "true" : "false");
-            tabDiff.textContent = "Diff vs current";
-            tabDiff.addEventListener("mousedown", function (e) { e.preventDefault(); dialogView = "diff"; renderDialog(); });
+            tabDiff.textContent = rhText("rh_diff", "Diff vs current");
+            onActivate(tabDiff, "tab-diff", function () { dialogView = "diff"; renderDialog(); });
             tabs.appendChild(tabPreview);
             tabs.appendChild(tabDiff);
             pane.appendChild(tabs);
@@ -39286,7 +42767,7 @@ function RTE_Plugin_RevisionHistory() {
             if (dialogView === "preview") {
                 var iframe = host.createElement("iframe");
                 iframe.className = "rte-rev-preview-frame";
-                iframe.setAttribute("title", "Revision preview");
+                iframe.setAttribute("title", rhText("rh_previewframe", "Revision preview"));
                 iframe.setAttribute("sandbox", "allow-same-origin");
                 content.appendChild(iframe);
                 // Write after appending so document is available.
@@ -39320,18 +42801,18 @@ function RTE_Plugin_RevisionHistory() {
             footer.className = "rte-rev-footer";
             var labelInfo = host.createElement("div");
             labelInfo.className = "rte-rev-footer-info";
-            labelInfo.textContent = selected.label ? "Label: " + selected.label : "";
+            labelInfo.textContent = selected.label ? rhText("rh_label", "Label: {0}", selected.label) : "";
             var footerBtns = host.createElement("div");
             footerBtns.className = "rte-rev-footer-btns";
             var delBtn = host.createElement("button");
             delBtn.type = "button";
             delBtn.className = "rte-rev-btn rte-rev-btn-danger";
-            delBtn.textContent = "Delete";
-            delBtn.addEventListener("mousedown", function (e) { e.preventDefault(); deleteEntry(selected.id); });
+            delBtn.textContent = rhText("delete", "Delete");
+            onActivate(delBtn, "delete", function () { deleteEntry(selected.id); });
             var restoreBtn = host.createElement("button");
             restoreBtn.type = "button";
             restoreBtn.className = "rte-rev-btn rte-rev-btn-primary";
-            restoreBtn.textContent = "Restore this version";
+            restoreBtn.textContent = rhText("rh_restore", "Restore this version");
             restoreBtn.addEventListener("mousedown", function (e) { e.preventDefault(); });
             restoreBtn.addEventListener("click", function (e) {
                 e.preventDefault();
@@ -39343,7 +42824,10 @@ function RTE_Plugin_RevisionHistory() {
             footer.appendChild(footerBtns);
             pane.appendChild(footer);
         }
-        body.appendChild(pane);
+        // 2026-10-18 nothing to preview: no empty pane (a blank half on desktop, a 360px block on a phone); the
+        // no-revisions message spans the dialog instead. tools/ui/revision-empty-state.mjs
+        if (entries.length) body.appendChild(pane);
+        else list.classList.add("rte-rev-list-solo");
         panel.appendChild(body);
     }
 
@@ -39353,7 +42837,7 @@ function RTE_Plugin_RevisionHistory() {
         var now = new Date();
         function pad(n) { return n < 10 ? "0" + n : "" + n; }
         var time = pad(d.getHours()) + ":" + pad(d.getMinutes());
-        if (d.toDateString() === now.toDateString()) return "Today " + time;
+        if (d.toDateString() === now.toDateString()) return rhText("rh_today", "Today {0}", time);
         return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + " " + time;
     }
 
@@ -39390,6 +42874,7 @@ function RTE_Plugin_RevisionHistory() {
             ".rte-rev-row-who{font-weight:720;font-size:12px;line-height:1.25;color:#172033}",
             ".rte-rev-row-when{margin-top:2px;font-size:11px;color:#637487;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
             ".rte-rev-pane{flex:1;display:flex;flex-direction:column;min-width:0;padding:10px}",
+            ".rte-rev-list.rte-rev-list-solo{flex:1 1 auto;width:auto;max-height:none;border-right:0;border-bottom:0}",
             ".rte-rev-tabs{display:flex;align-self:flex-start;gap:3px;padding:3px;margin:0 0 10px;border:1px solid rgba(117,137,163,.2);border-radius:7px;background:#eef3f8}",
             ".rte-rev-tab{padding:7px 12px;border:0;border-radius:6px;background:transparent;font:inherit;font-size:12px;font-weight:680;color:#637487;cursor:pointer}",
             ".rte-rev-tab:hover{color:#1d3557;background:rgba(255,255,255,.58)}",
@@ -39631,6 +43116,10 @@ function RTE_Plugin_RubyAnnotation() {
         if (config.rubyAnnotationEnabled === false) return;
 
         if (typeof config.rubyAnnotationParentheses !== "boolean") config.rubyAnnotationParentheses = true;
+        // 2026-10-15 no string for the button: getLangText returned the key, so it was announced "rubyannotation".
+        // tools/a11y/raw-lang-keys.mjs
+        if (!config.text_rubyannotation) config.text_rubyannotation = "Ruby annotation";
+        if (!config.text_rubyannotationtitle) config.text_rubyannotationtitle = "Ruby annotation";
 
         // BOTH toolbars. config.toolbar defaults to "default", which resolves to
         // toolbar_default, so appending only to toolbar_full would leave the
@@ -39803,48 +43292,54 @@ function RTE_Plugin_RubyAnnotation() {
         return el;
     }
 
+    // getLangText returns the key itself when there is no string, so `|| fallback` never ran ("rubyannotationtitle")
+    function rubyTitle() {
+        var t = editor.getLangText ? editor.getLangText("rubyannotationtitle") : "";
+        return t && String(t).toLowerCase() !== "rubyannotationtitle" ? t : "Ruby annotation";
+    }
+
     obj.OpenRubyDialog = function () {
         var existing = findRubyAtSelection();
         var range = currentRange();
         var baseText = existing ? baseOf(existing) : (range ? String(range.toString() || "") : "");
 
         var dlg = editor.createDialog(
-            (editor.getLangText && editor.getLangText("rubyannotationtitle")) || "Ruby annotation",
+            rubyTitle(),
             "rte-dialog-ruby"
         );
         var close = typeof dlg.close === "function" ? function () { dlg.close(); } : function () { editor.closeCurrentPopup(); };
 
         var wrap = append(dlg, "div", "padding:14px;min-width:340px;font:13px -apple-system,Segoe UI,sans-serif");
 
-        append(wrap, "div", "font-weight:600;margin-bottom:4px").innerText = "Base text";
+        append(wrap, "div", "font-weight:600;margin-bottom:4px").innerText = ((config && config.text_ruby_base) || "Base text");
         var baseView = append(wrap, "div",
             "padding:8px 10px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;min-height:20px;word-break:break-word");
         baseView.textContent = baseText;
 
-        append(wrap, "div", "font-weight:600;margin:10px 0 4px").innerText = "Reading";
+        append(wrap, "div", "font-weight:600;margin:10px 0 4px").innerText = ((config && config.text_ruby_reading) || "Reading");
         var input = append(wrap, "input",
             "width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font:13px inherit");
         input.type = "text";
         input.value = existing ? readingOf(existing) : "";
-        input.placeholder = "e.g. かんじ";
+        input.placeholder = "e.g. \u304b\u3093\u3058";
 
         var note = append(wrap, "div", "font-size:11px;color:#94a3b8;margin-top:6px");
         note.innerText = baseText
-            ? "Shown above the base text. Parentheses are emitted for readers without ruby support."
-            : "Select the text to annotate first, then reopen this dialog.";
+            ? ((config && config.text_ruby_note) || "Shown above the base text. Parentheses are emitted for readers without ruby support.")
+            : ((config && config.text_ruby_selectfirst) || "Select the text to annotate first, then reopen this dialog.");
 
         var footer = append(wrap, "div", "display:flex;justify-content:space-between;gap:8px;margin-top:14px");
         var left = append(footer, "div", "display:flex;gap:8px");
         if (existing) {
             var rm = append(left, "button", "padding:6px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#b91c1c;cursor:pointer");
-            rm.type = "button"; rm.textContent = "Remove";
+            rm.type = "button"; rm.textContent = ((config && config.text_ruby_remove) || "Remove");
             rm.onclick = function () { removeRuby(); close(); };
         }
         var right = append(footer, "div", "display:flex;gap:8px");
         var cancel = append(right, "button", "padding:6px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;cursor:pointer");
-        cancel.type = "button"; cancel.textContent = "Cancel"; cancel.onclick = close;
+        cancel.type = "button"; cancel.textContent = ((config && config.text_ruby_cancel) || "Cancel"); cancel.onclick = close;
         var ok = append(right, "button", "padding:6px 14px;border:1px solid #1d67ba;border-radius:8px;background:#1d67ba;color:#fff;cursor:pointer");
-        ok.type = "button"; ok.textContent = existing ? "Update" : "Add";
+        ok.type = "button"; ok.textContent = existing ? ((config && config.text_ruby_update) || "Update") : ((config && config.text_ruby_add) || "Add");
         ok.disabled = !baseText;
 
         ok.onclick = function () {
@@ -39951,6 +43446,10 @@ function RTE_Plugin_Sanitizer() {
         "blockquote,pre,code,figure,figcaption," +
         "section,article,header,footer,main,aside,nav,address,details,summary," +
         "a,img,picture,source,video,audio,track,map,area," +
+        // 2026-10-18 the editor's own video wrapper: its overlay (content CSS) is what lets a click select an
+        // embedded video. Unwrapped, the click went into the video's frame and the video could never be selected.
+        // tools/video/video-click-select.mjs
+        "video-container," +
         // Chips, task lists and the code plugin put these in content.
         "input,label,button," +
         // Inline SVG (icons, diagrams). Its dangerous children are dropped below.
@@ -39976,8 +43475,8 @@ function RTE_Plugin_Sanitizer() {
         // an embed MORE powerful.
         "contenteditable,spellcheck,autocomplete,draggable,sandbox,allowfullscreen,allow,frameborder,scrolling," +
         "href,src,srcset,sizes,alt,width,height,loading,decoding,referrerpolicy," +
-        "target,rel,download,type,value,name,placeholder,checked,disabled,readonly," +
-        "colspan,rowspan,headers,scope,span,align,valign,bgcolor,border,cellpadding,cellspacing," +
+        "target,rel,hreflang,media,download,type,value,name,placeholder,checked,disabled,readonly," +
+        "colspan,rowspan,headers,scope,abbr,span,align,valign,bgcolor,border,cellpadding,cellspacing," +
         "start,reversed,datetime,cite,open,controls,autoplay,loop,muted,playsinline,poster,preload,kind,srclang,label," +
         "usemap,ismap,coords,shape," +
         // SVG presentation
@@ -40071,6 +43570,28 @@ function RTE_Plugin_Sanitizer() {
     //  - allow-scripts + allow-same-origin isolates nothing when the frame is
     //    served from the page's OWN origin: the framed page can reach the parent
     //    and remove its own sandbox. Same-origin frames lose allow-same-origin.
+    // 2026-10-01 <font> is not allowed, and unknown elements are unwrapped - which threw away
+    // the font, colour and size of every <font> in loaded or pasted content (older editor
+    // versions and many tools write it). It is converted to an equivalent styled <span>
+    // instead. Every value becomes CSS, so each is validated and anything else is dropped.
+    var FONT_SIZES = { "1": "x-small", "2": "small", "3": "medium", "4": "large", "5": "x-large", "6": "xx-large", "7": "xxx-large" };
+    function fontTagStyle(el) {
+        var css = [];
+        var face = el.getAttribute("face");
+        if (face) {
+            var names = face.split(",").map(function (n) { return n.trim().replace(/^['"]|['"]$/g, ""); })
+                .filter(function (n) { return /^[A-Za-z0-9][A-Za-z0-9 \-]{0,63}$/.test(n); })
+                .map(function (n) { return /\s/.test(n) ? "'" + n + "'" : n; });
+            if (names.length) css.push("font-family:" + names.join(","));
+        }
+        var color = (el.getAttribute("color") || "").trim();
+        if (/^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i.test(color) || /^rgb\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*\)$/i.test(color) || /^[a-z]{3,20}$/i.test(color))
+            css.push("color:" + color);
+        var size = FONT_SIZES[(el.getAttribute("size") || "").trim()];
+        if (size) css.push("font-size:" + size);
+        return css.join(";");
+    }
+
     function applyDefaultSandbox(el, src) {
         var allowed = DEFAULT_IFRAME_SANDBOX.split(" ");
         var sameOrigin = false;
@@ -40227,6 +43748,26 @@ function RTE_Plugin_Sanitizer() {
                     el.parentNode.removeChild(el);
                     continue;
                 }
+            } else if (tag === "center" || tag === "big" || tag === "tt") {
+                // 2026-10-01 Other legacy presentational tags, converted like <font> instead of
+                // unwrapped: <center> lost its centring AND left its text loose at the top level,
+                // <big> lost its size, <tt> its monospace.
+                note(report.removedTags, tag);
+                var legacyEl = el.ownerDocument.createElement(tag === "center" ? "div" : tag === "big" ? "span" : "code");
+                if (tag === "center") legacyEl.setAttribute("style", "text-align:center");
+                if (tag === "big") legacyEl.setAttribute("style", "font-size:larger");
+                while (el.firstChild) legacyEl.appendChild(el.firstChild);
+                el.parentNode.replaceChild(legacyEl, el);
+                continue;
+            } else if (tag === "font") {
+                var fontCss = fontTagStyle(el);
+                note(report.removedTags, "font");
+                if (!fontCss) { unwrap(el); continue; }
+                var fontSpan = el.ownerDocument.createElement("span");
+                fontSpan.setAttribute("style", fontCss);
+                while (el.firstChild) fontSpan.appendChild(el.firstChild);
+                el.parentNode.replaceChild(fontSpan, el);
+                continue;
             } else if (DROP_WHOLE[tag]) {
                 note(report.removedTags, tag);
                 el.parentNode.removeChild(el);
@@ -40240,6 +43781,7 @@ function RTE_Plugin_Sanitizer() {
             }
 
             var attrs = [];
+            var strippedSrc = false;
             for (var a = 0; a < el.attributes.length; a++) attrs.push(el.attributes[a]);
             for (var k = 0; k < attrs.length; k++) {
                 var name = attrs[k].name.toLowerCase();
@@ -40254,16 +43796,43 @@ function RTE_Plugin_Sanitizer() {
                 }
                 if (name === "srcdoc") { note(report.removedAttributes, "srcdoc"); el.removeAttribute(attrs[k].name); continue; }
                 if (name === "style") { el.setAttribute("style", cleanStyle(value)); continue; }
+                // 2026-10-02 A lazy-load source (data-src, data-lazy-src, data-original, data-srcset)
+                // is copied into src by the HOST page's lazy-loader, so it is a URL like any other:
+                // data-src="javascript:..." kept in saved HTML was a script waiting for that loader.
+                // tools/clipboard/lazy-images-paste.mjs
+                if (/^data-(.*-)?(src|srcset|original)$/i.test(name)) {
+                    var lazyOk = /srcset$/i.test(name)
+                        ? value.split(",").every(function (part) { var u = part.trim().split(/\s+/)[0]; return !u || isSafeUrl(u, tag, "src"); })
+                        : isSafeUrl(value, tag, "src");
+                    if (!lazyOk) { note(report.removedAttributes, tag + "[" + name + "]"); el.removeAttribute(attrs[k].name); }
+                    continue;
+                }
                 if (name.indexOf("data-") === 0 || name.indexOf("aria-") === 0) continue;
 
                 if (URL_ATTRS[name]) {
-                    if (!isSafeUrl(value, tag, name)) { note(report.removedAttributes, tag + "[" + name + "]"); el.removeAttribute(attrs[k].name); }
+                    if (!isSafeUrl(value, tag, name)) {
+                        note(report.removedAttributes, tag + "[" + name + "]");
+                        el.removeAttribute(attrs[k].name);
+                        if (name === "src") strippedSrc = true;
+                    }
                     continue;
                 }
                 if (!ALLOWED_ATTRS[name] && !attrExtra(name)) {
                     note(report.removedAttributes, name);
                     el.removeAttribute(attrs[k].name);
                 }
+            }
+
+            // An <img> whose only source was just stripped is an empty box that
+            // saves as <img> with no src -- dragging a page image into the editor
+            // from a page opened on disk did exactly that (its file: src is not a
+            // safe scheme). Drop the element when nothing is left to show. Keep it
+            // when srcset or a lazy-load data-*src still carries an image, and never
+            // touch an <img> that arrived without a src (an app placeholder).
+            if (tag === "img" && strippedSrc && !el.hasAttribute("srcset") && !hasDataSource(el)) {
+                note(report.removedTags, "img");
+                el.parentNode.removeChild(el);
+                continue;
             }
 
             // A link that opens a new tab without rel="noopener" hands the
@@ -40282,9 +43851,17 @@ function RTE_Plugin_Sanitizer() {
         parent.removeChild(el);
     }
     function note(list, what) { if (list.indexOf(what) < 0) list.push(what); }
+    function hasDataSource(el) {
+        for (var i = 0; i < el.attributes.length; i++) {
+            if (/^data-(.*-)?(src|srcset|original)$/i.test(el.attributes[i].name)) return true;
+        }
+        return false;
+    }
 
     function sanitizeHtml(html) {
-        var out = html;
+        // The clipboard's fragment markers are not content (they leaked into saved HTML as
+        // <p><!--StartFragment--></p> on this path).
+        var out = String(html).replace(/<!--\s*(Start|End)Fragment\s*-->/gi, "");
         report.calls++;
         // Parsing into an inert document means nothing loads or executes while
         // we inspect it -- innerHTML on a live div would fire <img onerror>
@@ -40841,13 +44418,19 @@ function RTE_Plugin_SlashCommand() {
 
         injectStyles();
 
-        var editdoc = editor.getDocument();
-        editdoc.addEventListener("keydown", onEditDocKeyDown, true);
-        editdoc.addEventListener("input", onEditDocInput, true);
-        editdoc.addEventListener("compositionstart", function () { composing = true; });
-        editdoc.addEventListener("compositionend", function () { composing = false; });
-        editdoc.addEventListener("mousedown", function () { closePopup(); }, true);
-        editdoc.addEventListener("blur", function () { setTimeout(closePopup, 150); }, true);
+        // 2026-10-03 Bound through editor.bindDocumentEvent, so the listeners follow the live document:
+        // shell plugins move the iframe during the init loop, and listeners added to editdoc here stayed
+        // on the dead document (this feature never fired). tools/keyboard/plugin-listeners.mjs
+        var on = function (type, fn, capture) {
+            if (editor.bindDocumentEvent) editor.bindDocumentEvent(type, fn, capture);
+            else editor.getDocument().addEventListener(type, fn, capture);
+        };
+        on("keydown", onEditDocKeyDown, true);
+        on("input", onEditDocInput, true);
+        on("compositionstart", function () { composing = true; });
+        on("compositionend", function () { composing = false; });
+        on("mousedown", function () { closePopup(); }, true);
+        on("blur", function () { setTimeout(closePopup, 150); }, true);
 
         window.addEventListener("scroll", onHostScrollOrResize, true);
         window.addEventListener("resize", onHostScrollOrResize, true);
@@ -41073,9 +44656,9 @@ function RTE_Plugin_SlashCommand() {
         if (typeof editor.setTableLayoutMode === "function") {
             push("Insert", "layouttable", "Layout table", "Insert a borderless table for positioning content (role=presentation)", ["layout", "table", "grid", "email", "columns", "presentation"], iconTable(),
                 function () { editor.insertLayoutTable(2, 2); });
-            push("Tools", "tablelayoutmode", "Mark table as layout", "This table only positions content — stop screen readers announcing it as data", ["layout", "table", "presentation", "accessibility", "screen reader"], iconTable(),
+            push("Tools", "tablelayoutmode", "Mark table as layout", "This table only positions content \u2014 stop screen readers announcing it as data", ["layout", "table", "presentation", "accessibility", "screen reader"], iconTable(),
                 function () { editor.setTableLayoutMode("layout"); });
-            push("Tools", "tabledatamode", "Mark table as data", "This table states relationships — restore its header cells", ["data", "table", "header", "accessibility"], iconTable(),
+            push("Tools", "tabledatamode", "Mark table as data", "This table states relationships \u2014 restore its header cells", ["data", "table", "header", "accessibility"], iconTable(),
                 function () { editor.setTableLayoutMode("data", null, { promoteFirstRow: true }); });
         }
         if (typeof editor.moveBlockUp === "function") {
@@ -41183,7 +44766,7 @@ function RTE_Plugin_SlashCommand() {
         // this menu without any error. These checks are re-run by refreshDefaults()
         // after all plugins have initialised and again each time the menu opens.
         if (typeof editor.exportToPdf === "function") {
-            push("Tools", "exportpdf", "Export to PDF", "Real text, not a screenshot — selectable, searchable and screen-reader friendly", ["pdf", "export", "download", "save", "print", "text", "accessible", "searchable"], iconPdfText(),
+            push("Tools", "exportpdf", "Export to PDF", "Real text, not a screenshot \u2014 selectable, searchable and screen-reader friendly", ["pdf", "export", "download", "save", "print", "text", "accessible", "searchable"], iconPdfText(),
                 function () { editor.exportToPdf(); });
         }
         if (typeof editor.exportToDocx === "function") {
@@ -41221,6 +44804,8 @@ function RTE_Plugin_SlashCommand() {
                 function () { editor.copyAsMarkdown(); });
             push("Tools", "downloadmarkdown", "Download as Markdown", "Save the document as a .md file", ["markdown", "md", "download", "export", "save", "file"], iconMarkdown(),
                 function () { editor.downloadMarkdown(); });
+            push("Tools", "markdownmode", "Edit as Markdown", "Show the document as Markdown text, and back to the visual view", ["markdown", "md", "source", "text", "edit", "mode"], iconMarkdown(),
+                function () { editor.toggleMarkdownMode(); });
         }
         if (typeof editor.toggleTypewriterMode === "function") {
             push("Tools", "typewriter", "Typewriter mode", "Keep the caret line centred as you type", ["typewriter", "center", "scroll", "focus", "distraction", "zen"], iconTypewriter(),
@@ -41233,6 +44818,10 @@ function RTE_Plugin_SlashCommand() {
             function () { editor.execCommand("inserttable"); });
         push("Insert", "image", "Image", "Upload or embed an image", ["picture", "photo", "img"], iconImage(),
             function () { editor.execCommand("imageupload"); });
+        if (typeof editor.openImageGenerator === "function") {
+            push("Insert", "generate-image", "Generate image", "Describe an image and insert it (your own image provider)", ["picture", "generate", "ai", "draw", "image", "create"], iconImage(),
+                function () { editor.openImageGenerator(); });
+        }
         push("Insert", "link", "Link", "Insert a hyperlink", ["url", "anchor"], iconLink(),
             function () { editor.execCommand("insertlink"); });
         push("Insert", "emoji", "Emoji", "Insert an emoji", ["smiley", "icon"], iconEmoji(),
@@ -41423,7 +45012,7 @@ function RTE_Plugin_SlashCommand() {
             if (host && host.classList && host.classList.contains("rte-dark")) popupEl.className += " rte-slash-popup-dark";
         } catch (e) {}
         popupEl.setAttribute("role", "listbox");
-        popupEl.setAttribute("aria-label", "Slash commands");
+        popupEl.setAttribute("aria-label", (config && config.text_slash_aria) || "Slash commands");
         popupHost.body.appendChild(popupEl);
     }
 
@@ -41434,7 +45023,7 @@ function RTE_Plugin_SlashCommand() {
         if (!filtered.length) {
             var empty = popupHost.createElement("div");
             empty.className = "rte-slash-empty";
-            empty.textContent = "No matching commands";
+            empty.textContent = (config && config.text_slash_none) || "No matching commands";
             popupEl.appendChild(empty);
             return;
         }
@@ -41581,8 +45170,10 @@ function RTE_Plugin_SlashCommand() {
         var r = rects && rects.length ? rects[rects.length - 1] : null;
         if (!r) r = trigger.range.getBoundingClientRect();
 
-        var left = ir.left + (r.left || 0) + window.pageXOffset;
-        var top = ir.top + (r.bottom || r.top || 0) + window.pageYOffset + 4;
+        // the caret rect is in iframe pixels, scaled on screen inside a transform:scale() ancestor
+        var sk = iframe.offsetWidth && ir.width > 0 ? ir.width / iframe.offsetWidth : 1;
+        var left = ir.left + (r.left || 0) * sk + window.pageXOffset;
+        var top = ir.top + (r.bottom || r.top || 0) * sk + window.pageYOffset + 4;
 
         popupEl.style.position = "absolute";
         popupEl.style.left = left + "px";
@@ -41591,8 +45182,8 @@ function RTE_Plugin_SlashCommand() {
         // Flip up if would overflow viewport
         var vh = window.innerHeight || document.documentElement.clientHeight;
         var popupRect = popupEl.getBoundingClientRect();
-        if (popupRect.bottom > vh - 8 && (ir.top + (r.top || 0)) > popupRect.height + 16) {
-            popupEl.style.top = (ir.top + (r.top || 0) + window.pageYOffset - popupRect.height - 4) + "px";
+        if (popupRect.bottom > vh - 8 && (ir.top + (r.top || 0) * sk) > popupRect.height + 16) {
+            popupEl.style.top = (ir.top + (r.top || 0) * sk + window.pageYOffset - popupRect.height - 4) + "px";
         }
     }
 
@@ -41722,6 +45313,14 @@ function RTE_Plugin_SmartChips() {
     obj.PluginName = "SmartChips";
 
     obj.InitConfig = function (argconfig) { config = argconfig; };
+    // 2026-10-18 the dialogs' words read config.text_ keys (language packs), English as the fallback; {0} / {1} fill a
+    // template. The chip's own date text is document content and keeps its format.
+    // tools/i18n/smart-chips-language.mjs
+    function chText(key, fallback) {
+        var s = (config && config["text_" + key]) || fallback;
+        for (var i = 2; i < arguments.length; i++) s = s.split("{" + (i - 2) + "}").join(String(arguments[i]));
+        return s;
+    }
 
     obj.InitEditor = function (argeditor) {
         editor = argeditor;
@@ -41745,6 +45344,12 @@ function RTE_Plugin_SmartChips() {
     function fmtDate(d) {
         if (config.chipDateFormat && typeof config.chipDateFormat === "function") {
             try { return String(config.chipDateFormat(d)); } catch (e) { /* fall through */ }
+        }
+        // 2026-10-18 with a language pack the date is written in its locale (2026年10月18日, 18.10.2026); an English
+        // page keeps "Oct 18, 2026". tools/i18n/date-chip-locale.mjs
+        var locale = config && config.text_uilocale;
+        if (locale && !/^en(-|$)/i.test(locale) && typeof Intl !== "undefined" && Intl.DateTimeFormat) {
+            try { return new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric" }).format(d); } catch (e) { /* English */ }
         }
         return MONTHS[d.getMonth()] + " " + d.getDate() + ", " + d.getFullYear();
     }
@@ -41773,7 +45378,7 @@ function RTE_Plugin_SmartChips() {
     function insertChip(type, label, value, href) {
         injectStyles();
         // trailing zero-width space so the caret lands after the atomic pill
-        editor.insertHTML(chipHtml(type, label, value, href) + "​");
+        editor.insertHTML(chipHtml(type, label, value, href) + "\u200b");
         editor.focus();
     }
 
@@ -41783,11 +45388,11 @@ function RTE_Plugin_SmartChips() {
         var dlg = editor.createDialog((editor.getLangText && editor.getLangText("insertdatechiptitle")) || "Date", "rte-dialog-datechip");
         var close = typeof dlg.close === "function" ? function () { dlg.close(); } : function () { editor.closeCurrentPopup(); };
         var wrap = append(dlg, "div", "", "rte-chip-dialog rte-chip-date-dialog");
-        append(wrap, "div", "", "rte-chip-dialog-copy").textContent = "Choose a quick date or insert a custom date chip.";
+        append(wrap, "div", "", "rte-chip-dialog-copy").textContent = chText("ch_datecopy", "Choose a quick date or insert a custom date chip.");
 
         function quick(label, d) {
             var b = append(wrap, "button", "", "rte-chip-quick");
-            b.type = "button"; b.textContent = label + " — " + fmtDate(d);
+            b.type = "button"; b.textContent = label + " \u2014 " + fmtDate(d);
             b.onmouseover = function () { b.style.background = "#eef2ff"; };
             b.onmouseout = function () { b.style.background = "transparent"; };
             b.textContent = "";
@@ -41795,23 +45400,23 @@ function RTE_Plugin_SmartChips() {
             append(b, "span", "", "rte-chip-quick-value").textContent = fmtDate(d);
             b.onmouseover = null;
             b.onmouseout = null;
-            b.setAttribute("aria-label", "Insert " + label + ", " + fmtDate(d));
+            b.setAttribute("aria-label", chText("ch_insertlabel", "Insert {0}, {1}", label, fmtDate(d)));
             b.onclick = function () { close(); insertChip("date", fmtDate(d), isoDate(d)); };
             return b;
         }
         var now = new Date(editor.__chipNow || Date.now());
         function addDays(base, n) { var x = new Date(base.getTime()); x.setDate(x.getDate() + n); return x; }
-        quick("Today", now);
-        quick("Tomorrow", addDays(now, 1));
-        quick("Yesterday", addDays(now, -1));
-        quick("Next week", addDays(now, 7));
+        quick(chText("ch_today", "Today"), now);
+        quick(chText("ch_tomorrow", "Tomorrow"), addDays(now, 1));
+        quick(chText("ch_yesterday", "Yesterday"), addDays(now, -1));
+        quick(chText("ch_nextweek", "Next week"), addDays(now, 7));
 
         var pickRow = append(wrap, "div", "", "rte-chip-pick-row");
         var di = append(pickRow, "input", "", "rte-chip-input");
         di.type = "date"; di.value = isoDate(now);
-        di.setAttribute("aria-label", "Custom date");
+        di.setAttribute("aria-label", chText("ch_customdate", "Custom date"));
         var go = append(pickRow, "button", "", "rte-chip-action rte-chip-action-primary");
-        go.type = "button"; go.textContent = "Insert";
+        go.type = "button"; go.textContent = chText("insert", "Insert");
         go.onclick = function () {
             var parts = (di.value || "").split("-");
             if (parts.length === 3) {
@@ -41828,12 +45433,12 @@ function RTE_Plugin_SmartChips() {
         var dlg = editor.createDialog((editor.getLangText && editor.getLangText("insertchiptitle")) || "Insert chip", "rte-dialog-chip");
         var close = typeof dlg.close === "function" ? function () { dlg.close(); } : function () { editor.closeCurrentPopup(); };
         var wrap = append(dlg, "div", "", "rte-chip-dialog rte-chip-menu-dialog");
-        append(wrap, "div", "", "rte-chip-dialog-copy").textContent = "Insert a date, person, or link chip into the document.";
+        append(wrap, "div", "", "rte-chip-dialog-copy").textContent = chText("ch_chipcopy", "Insert a date, person, or link chip into the document.");
 
         var typeRow = append(wrap, "div", "", "rte-chip-type-tabs");
         typeRow.setAttribute("role", "tablist");
-        typeRow.setAttribute("aria-label", "Chip type");
-        var types = [["date", "Date"], ["person", "Person"], ["link", "Link"]];
+        typeRow.setAttribute("aria-label", chText("ch_chiptype", "Chip type"));
+        var types = [["date", chText("ch_date", "Date")], ["person", chText("ch_person", "Person")], ["link", chText("link", "Link")]];
         var current = "date";
         var body = append(wrap, "div", "", "rte-chip-dialog-body");
         var typeButtons = {};
@@ -41857,24 +45462,24 @@ function RTE_Plugin_SmartChips() {
             body.innerHTML = "";
             if (current === "date") {
                 var note = append(body, "div", "", "rte-chip-field-label");
-                note.textContent = "Insert a date chip:";
+                note.textContent = chText("ch_insertdate", "Insert a date chip:");
                 var di = append(body, "input", "", "rte-chip-input");
                 di.type = "date"; di.value = isoDate(new Date(editor.__chipNow || Date.now()));
-                di.setAttribute("aria-label", "Date chip value");
+                di.setAttribute("aria-label", chText("ch_datevalue", "Date chip value"));
                 addInsert(function () {
                     var p = (di.value || "").split("-");
                     if (p.length === 3) { var d = new Date(+p[0], +p[1] - 1, +p[2]); close(); insertChip("date", fmtDate(d), di.value); }
                 });
             } else {
                 var lbl = append(body, "div", "", "rte-chip-field-label");
-                lbl.textContent = current === "person" ? "Name (or search):" : "URL:";
+                lbl.textContent = current === "person" ? chText("ch_name", "Name (or search):") : chText("ch_url", "URL:");
                 var input = append(body, "input", "", "rte-chip-input");
                 input.type = current === "link" ? "url" : "text";
-                input.placeholder = current === "person" ? "Jane Doe" : "https://example.com";
-                input.setAttribute("aria-label", current === "person" ? "Person chip name" : "Link chip URL");
+                input.placeholder = current === "person" ? chText("ch_nameph", "Jane Doe") : "https://example.com";
+                input.setAttribute("aria-label", current === "person" ? chText("ch_personname", "Person chip name") : chText("ch_linkurl", "Link chip URL"));
                 var results = append(body, "div", "", "rte-chip-results");
                 results.setAttribute("role", "listbox");
-                results.setAttribute("aria-label", "Chip suggestions");
+                results.setAttribute("aria-label", chText("ch_suggestions", "Chip suggestions"));
                 // BYOK resolver: live suggestions
                 if (config.chipResolver && typeof config.chipResolver === "function") {
                     input.oninput = function () {
@@ -41901,11 +45506,11 @@ function RTE_Plugin_SmartChips() {
                         // Validate the URL: reject javascript:/data:/vbscript:/file:,
                         // prefix https:// only on bare domains, else refuse.
                         if (/^(javascript|data|vbscript|file):/i.test(v)) {
-                            input.style.borderColor = "#dc2626"; input.placeholder = "Enter a valid http(s) URL"; input.value = ""; return;
+                            input.style.borderColor = "#dc2626"; input.placeholder = chText("ch_invalidurl", "Enter a valid http(s) URL"); input.value = ""; return;
                         }
                         if (!/^https?:\/\//i.test(v)) {
                             if (/^[a-z0-9.-]+\.[a-z]{2,}([\/?#].*)?$/i.test(v)) v = "https://" + v;
-                            else { input.style.borderColor = "#dc2626"; input.placeholder = "Enter a valid http(s) URL"; input.value = ""; return; }
+                            else { input.style.borderColor = "#dc2626"; input.placeholder = chText("ch_invalidurl", "Enter a valid http(s) URL"); input.value = ""; return; }
                         }
                         close();
                         insertChip("link", v.replace(/^https?:\/\//i, "").replace(/\/$/, ""), v, v);
@@ -41920,7 +45525,7 @@ function RTE_Plugin_SmartChips() {
         function addInsert(fn) {
             var foot = append(body, "div", "", "rte-chip-dialog-footer");
             var ok = append(foot, "button", "", "rte-chip-action rte-chip-action-primary");
-            ok.type = "button"; ok.textContent = "Insert"; ok.onclick = fn;
+            ok.type = "button"; ok.textContent = chText("insert", "Insert"); ok.onclick = fn;
         }
         highlight(); renderBody();
     };
@@ -41983,6 +45588,13 @@ function RTE_Plugin_SpellCheck() {
     obj.PluginName = "SpellCheck";
 
     obj.InitConfig = function (argconfig) { config = argconfig; };
+    // 2026-10-18 the words read config.text_ keys (language packs), English as the fallback; {0} / {1} fill a template.
+    // tools/i18n/plugin-bars-language.mjs
+    function pText(key, fallback) {
+        var s = (config && config["text_" + key]) || fallback;
+        for (var i = 2; i < arguments.length; i++) s = s.split("{" + (i - 2) + "}").join(String(arguments[i]));
+        return s;
+    }
 
     obj.InitEditor = function (argeditor) {
         editor = argeditor;
@@ -42016,7 +45628,9 @@ function RTE_Plugin_SpellCheck() {
         try { if (!editor.InvokeEventHook || !editor.InvokeEventHook("customdialog", "spellcheck", msg)) { /* fall through to toast */ } } catch (e) { }
         try {
             var editable = editor.getEditable();
-            var host = editable.ownerDocument;
+            // 2026-10-14 The toast is a message for the person, so it goes to the host page (where its stylesheet is),
+            // never into the editable's own body, where it would be saved with the content. tools/spellcheck/spellcheck-toast.mjs
+            var host = (editor && editor.iframe && editor.iframe.ownerDocument) || editable.ownerDocument;
             var t = host.createElement("div");
             t.className = "rte-spell-toast";
             t.setAttribute("role", "status");
@@ -42057,13 +45671,13 @@ function RTE_Plugin_SpellCheck() {
                 editable.setAttribute("spellcheck", "true");
                 editable.focus();
             } catch (e) { }
-            notify((editor.getLangText && editor.getLangText("spellchecknative")) || "Browser spell-check is on — misspellings are underlined as you type.");
+            notify((editor.getLangText && editor.getLangText("spellchecknative")) || "Browser spell-check is on \u2014 misspellings are underlined as you type.");
             return;
         }
 
         var text;
         try { text = editor.getEditable().innerText || ""; } catch (e) { text = ""; }
-        if (!text.trim()) { notify("Nothing to check."); return; }
+        if (!text.trim()) { notify(pText("sp_nothing", "Nothing to check.")); return; }
 
         var dlg = editor.createDialog(
             (editor.getLangText && editor.getLangText("spellchecktitle")) || "Spelling",
@@ -42072,7 +45686,7 @@ function RTE_Plugin_SpellCheck() {
         var close = typeof dlg.close === "function" ? function () { dlg.close(); } : function () { editor.closeCurrentPopup(); };
         var wrap = append(dlg, "div", "box-sizing:border-box;width:min(420px,calc(100vw - 32px));max-height:60vh;overflow:auto;padding:14px;font:13px -apple-system,Segoe UI,sans-serif");
         var status = append(wrap, "div", "color:#64748b;margin-bottom:8px");
-        status.innerText = "Checking…";
+        status.innerText = pText("sp_checking", "Checking\u2026");
         var list = append(wrap, "div", "");
 
         function renderIssues(issues) {
@@ -42112,14 +45726,14 @@ function RTE_Plugin_SpellCheck() {
         try {
             var p = config.spellCheckResolver(text);
             if (p && typeof p.then === "function") {
-                p.then(function (r) { finish(r || []); }, function () { status.innerText = "Spell-check service error."; });
-                setTimeout(function () { if (!done) { status.innerText = "Spell-check timed out."; done = true; } }, 12000);
+                p.then(function (r) { finish(r || []); }, function () { status.innerText = pText("sp_serviceerror", "Spell-check service error."); });
+                setTimeout(function () { if (!done) { status.innerText = pText("sp_timeout", "Spell-check timed out."); done = true; } }, 12000);
             } else { finish(p || []); }
-        } catch (e) { status.innerText = "Spell-check error."; }
+        } catch (e) { status.innerText = pText("sp_error", "Spell-check error."); }
 
         var footer = append(wrap, "div", "display:flex;justify-content:flex-end;margin-top:12px");
         var closeBtn = append(footer, "button", "padding:6px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;cursor:pointer");
-        closeBtn.type = "button"; closeBtn.textContent = "Done"; closeBtn.onclick = function () { close(); editor.focus(); };
+        closeBtn.type = "button"; closeBtn.textContent = pText("sp_done", "Done"); closeBtn.onclick = function () { close(); editor.focus(); };
     };
 
     function injectStyles() {
@@ -42253,6 +45867,16 @@ function RTE_Plugin_StateInspector() {
             appendToolbarCommand("toolbar_default", "#{stateinspector}");
             appendToolbarCommand("toolbar_full", "#{stateinspector}");
         }
+        // 2026-10-03 Build the shell NOW, before the editor creates its iframe. ensureShell() moves the
+        // editor container; done in InitEditor it moved the live iframe, which then gets a fresh
+        // document - and every plugin that had already bound listeners to the old one went deaf (the
+        // slash menu, @mentions and emoji autocomplete, until they moved to editor.bindDocumentEvent;
+        // customer plugins binding the document directly still were). Nothing is loaded yet here.
+        // InitEditor's own ensureShell() call finds the shell and returns it.
+        // tools/keyboard/plugin-listeners.mjs
+        if (config.stateInspectorEnabled !== false && config.container && config.container.parentNode) {
+            try { ensureShell(); } catch (e) { /* InitEditor builds it */ }
+        }
     };
 
     obj.InitEditor = function (argeditor) {
@@ -42347,7 +45971,7 @@ function RTE_Plugin_StateInspector() {
         if (!list) return attrs;
         for (var i = 0; i < list.length; i++) {
             var value = list[i].value;
-            attrs[list[i].name] = value.length > 220 ? value.substring(0, 220) + "…" : value;
+            attrs[list[i].name] = value.length > 220 ? value.substring(0, 220) + "\u2026" : value;
         }
         return attrs;
     }
@@ -42360,7 +45984,7 @@ function RTE_Plugin_StateInspector() {
             return {
                 type: "text",
                 length: text.length,
-                text: text.length > 80 ? text.substring(0, 80) + "…" : text
+                text: text.length > 80 ? text.substring(0, 80) + "\u2026" : text
             };
         }
         if (node.nodeType === 8) {
@@ -42433,7 +46057,7 @@ function RTE_Plugin_StateInspector() {
         try {
             var selected = String(range.toString() || "");
             info.textLength = selected.length;
-            info.text = selected.length > 120 ? selected.substring(0, 120) + "…" : selected;
+            info.text = selected.length > 120 ? selected.substring(0, 120) + "\u2026" : selected;
         } catch (e) {
             info.textLength = 0;
         }
@@ -42865,9 +46489,9 @@ function RTE_Plugin_StateInspector() {
             // Kept short on purpose: the toolbar row ellipsises, and "3 errors" is
             // the part that must survive the truncation. Full counts are in the
             // snapshot and the tree tab.
-            summaryEl.innerText = tree.counters.elements + " el · " +
+            summaryEl.innerText = tree.counters.elements + " el \xb7 " +
                 analysis.issues.length + " issue" + (analysis.issues.length === 1 ? "" : "s") +
-                (errors ? " · " + errors + " error" + (errors === 1 ? "" : "s") : "");
+                (errors ? " \xb7 " + errors + " error" + (errors === 1 ? "" : "s") : "");
         }
 
         clear(body);
@@ -42896,7 +46520,7 @@ function RTE_Plugin_StateInspector() {
             msg.innerText = item.message;
             var meta = hostDoc.createElement("div");
             meta.className = "rte-state-inspector-issue-meta";
-            meta.innerText = (item.detail || "(document root)") + "  ·  " + item.id;
+            meta.innerText = (item.detail || "(document root)") + "  \xb7  " + item.id;
             wrap.appendChild(msg);
             wrap.appendChild(meta);
             body.appendChild(wrap);
@@ -42936,10 +46560,10 @@ function RTE_Plugin_StateInspector() {
             for (var i = 0; i < keys.length && i < 4; i++) {
                 label += " " + keys[i] + "=" + JSON.stringify(node.attrs[keys[i]]);
             }
-            if (keys.length > 4) label += " …+" + (keys.length - 4);
+            if (keys.length > 4) label += " \u2026+" + (keys.length - 4);
         }
         label += ">";
-        if (node.truncated) label += "  … " + node.childCount + " children (depth limit)";
+        if (node.truncated) label += "  \u2026 " + node.childCount + " children (depth limit)";
         lines.push(label);
         for (var c = 0; c < (node.children || []).length; c++) {
             lines = lines.concat(formatTree(node.children[c], depth + 1));
@@ -42970,7 +46594,7 @@ function RTE_Plugin_StateInspector() {
         var out = boundary.node + " @ " + boundary.offset;
         if (typeof boundary.length === "number") out += " (len " + boundary.length + ")";
         if (typeof boundary.childCount === "number") out += " (" + boundary.childCount + " children)";
-        if (boundary.zeroLength) out += "  ← zero-length text node";
+        if (boundary.zeroLength) out += "  \u2190 zero-length text node";
         return out;
     }
 
@@ -43054,7 +46678,8 @@ if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
 RTE_DefaultConfig.plugin_tableofcontents = RTE_Plugin_TableOfContents;
 
 // Heading above the list. Set to "" to omit it.
-if (typeof RTE_DefaultConfig.tocTitle === "undefined") RTE_DefaultConfig.tocTitle = "Contents";
+// 2026-10-18 the default title comes from the language pack (loaded before the plugins) when there is one.
+if (typeof RTE_DefaultConfig.tocTitle === "undefined") RTE_DefaultConfig.tocTitle = RTE_DefaultConfig.text_toc_title || "Contents";
 // Heading levels included, inclusive.
 if (typeof RTE_DefaultConfig.tocMinLevel === "undefined") RTE_DefaultConfig.tocMinLevel = 1;
 if (typeof RTE_DefaultConfig.tocMaxLevel === "undefined") RTE_DefaultConfig.tocMaxLevel = 3;
@@ -43215,6 +46840,8 @@ function RTE_Plugin_TableOfContents() {
     };
 
     obj.Remove = function () {
+        // 2026-10-14 Suggesting mode: removing this is not tracked yet, so the track hook refuses it. tools/review/suggesting-structure-audit.mjs
+        if (editor.__trackHook && editor.__trackHook("remove", {}) === true) return false;
         var b = block();
         if (!b || !b.parentNode) return false;
         b.parentNode.removeChild(b);
@@ -43264,7 +46891,7 @@ function RTE_Plugin_TableOfContents() {
         if (!hs.length) {
             var empty = doc.createElement("div");
             empty.className = "rte-toc-empty";
-            empty.textContent = "No headings yet.";
+            empty.textContent = ((typeof config !== "undefined" && config && config.text_toc_empty) || "No headings yet.");
             nav.appendChild(empty);
             return [];
         }
@@ -43414,7 +47041,31 @@ function RTE_Plugin_TableTools() {
 
     obj.PluginName = "TableTools";
 
-    obj.InitConfig = function (argconfig) { config = argconfig; };
+    obj.InitConfig = function (argconfig) {
+        config = argconfig;
+        // 2026-10-15 Move Row Up/Down and Move Column Left/Right in the table menus: the single-pointer way to do what
+        // the row and column grips do by dragging (WCAG 2.2 SC 2.5.7, Dragging Movements). tools/tables/table-move-buttons.mjs
+        appendMenuItems("subtoolbar_tablerow", ["tablerowmoveup", "tablerowmovedown"]);
+        appendMenuItems("subtoolbar_tablecolumn", ["tablecolumnmoveleft", "tablecolumnmoveright"]);
+        var labels = { tablerowmoveup: "Move Row Up", tablerowmovedown: "Move Row Down", tablecolumnmoveleft: "Move Column Left", tablecolumnmoveright: "Move Column Right" };
+        var arrows = { tablerowmoveup: "M12 19V5M6 11l6-6 6 6", tablerowmovedown: "M12 5v14M6 13l6 6 6-6", tablecolumnmoveleft: "M19 12H5M11 6l-6 6 6 6", tablecolumnmoveright: "M5 12h14M13 6l6 6-6 6" };
+        for (var k in labels) {
+            if (config["text_" + k] == null) config["text_" + k] = labels[k];
+            if (config["svgCode_" + k] == null) config["svgCode_" + k] = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="' + arrows[k] + '"/></svg>';
+        }
+    };
+
+    // subtoolbar_* lists are comma-separated, sometimes inside braces
+    function appendMenuItems(name, items) {
+        var val = config[name];
+        if (typeof val !== "string" || !val) return;
+        for (var i = 0; i < items.length; i++) {
+            if (val.indexOf(items[i]) !== -1) continue;
+            var at = val.lastIndexOf("}");
+            val = at === -1 ? val + "," + items[i] : val.substring(0, at) + "," + items[i] + val.substring(at);
+        }
+        config[name] = val;
+    }
 
     obj.InitEditor = function (argeditor) {
         editor = argeditor;
@@ -43434,6 +47085,22 @@ function RTE_Plugin_TableTools() {
         editor.canSortTable = function () { return canSort(tableAtCaret()); };
         editor.addTableRowNumbers = function (opts) { return obj.AddRowNumbers(opts); };
         editor.removeTableRowNumbers = function () { return obj.RemoveRowNumbers(); };
+        ["tablerowmoveup", "tablerowmovedown", "tablecolumnmoveleft", "tablecolumnmoveright"].forEach(function (cmd) {
+            editor.toolbarFactoryMap = editor.toolbarFactoryMap || {};
+            if (!editor.toolbarFactoryMap[cmd]) editor.toolbarFactoryMap[cmd] = function (c) { return editor.createToolbarButton(c); };
+            editor.attachEvent("exec_command_" + cmd, function (state) {
+                state.returnValue = true;
+                state.stopBubble = true;
+                if (cmd === "tablerowmoveup") moveRowBy(-1);
+                else if (cmd === "tablerowmovedown") moveRowBy(1);
+                else if (cmd === "tablecolumnmoveleft") moveColumnBy(-1);
+                else moveColumnBy(1);
+            });
+        });
+        editor.moveTableRow = function (dir) { return moveRowBy(dir < 0 ? -1 : 1); };
+        editor.moveTableColumn = function (dir) { return moveColumnBy(dir < 0 ? -1 : 1); };
+        if (config.tableRowDrag !== false) initRowDrag();
+        if (config.tableColumnDrag !== false) initColumnDrag();
         editor.hasTableRowNumbers = function () {
             var t = tableAtCaret();
             return !!(t && t.querySelector("[data-rte-rownum]"));
@@ -43525,7 +47192,7 @@ function RTE_Plugin_TableTools() {
         if (/\d/.test(t)) {
             // Strip currency, spaces, thousands separators; (500) is accounting
             // notation for negative.
-            var num = t.replace(/[\s ,]/g, "").replace(/^\(([^)]*)\)$/, "-$1").replace(/[^0-9.eE+-]/g, "");
+            var num = t.replace(/[\s\xa0,]/g, "").replace(/^\(([^)]*)\)$/, "-$1").replace(/[^0-9.eE+-]/g, "");
             if (num && /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(num)) {
                 return { type: "number", v: parseFloat(num) };
             }
@@ -43562,6 +47229,11 @@ function RTE_Plugin_TableTools() {
     obj.Sort = function (table, index, dir) {
         var check = canSort(table);
         if (!check.ok) return check;
+        // 2026-10-14 Suggesting mode: a sort reorders rows and is not tracked yet, so the track hook refuses it.
+        // tools/tables/table-row-move.mjs
+        if (editor.__trackHook && editor.__trackHook("move", { direction: 0 }) === true) {
+            return { ok: false, reason: "Suggesting is on, so the table was not sorted. Turn suggesting off to sort it." };
+        }
         var descending = String(dir).toLowerCase() === "desc";
         var rows = bodyRows(table);
         var type = columnType(rows, index);
@@ -43613,6 +47285,337 @@ function RTE_Plugin_TableTools() {
         return { ok: true, reason: "", sortedBy: index, direction: descending ? "desc" : "asc", detectedType: type };
     };
 
+    // 2026-10-14 Row drag: a grip beside a body row drags that row to another place in its table. It is the same move
+    // as Alt+ArrowUp / Alt+ArrowDown, with the same limits: the header rows stay put, a table with merged cells is left
+    // alone, and suggesting mode refuses the move because a move is not tracked yet. config.tableRowDrag = false turns
+    // the grip off. Escape cancels a drag. tools/tables/table-row-drag.mjs
+    // 2026-10-15 grips and drop lines use z-index 99998, under the floating table toolbar (99999), so they never cover
+    // its menu buttons. tools/tables/table-move-buttons.mjs
+    function initRowDrag() {
+        var frame = editor.iframe;
+        if (!frame || !frame.ownerDocument) return;
+        var host = frame.ownerDocument;
+        var edoc = editor.getDocument();
+        var grip = host.createElement("div");
+        grip.className = "rte-row-grip";
+        grip.setAttribute("aria-hidden", "true");
+        // 2026-10-15 this was the quoted text "String.fromCharCode(0x283f)", shown as code in the grip. tools/tables/table-column-drag.mjs
+        grip.textContent = "\u283f";
+        var gs = grip.style;
+        gs.position = "fixed"; gs.display = "none"; gs.zIndex = "99998"; gs.width = "12px"; gs.height = "22px";
+        gs.lineHeight = "22px"; gs.textAlign = "center"; gs.fontSize = "14px"; gs.color = "#64748b"; gs.cursor = "grab";
+        gs.userSelect = "none"; gs.borderRadius = "3px"; gs.background = "rgba(15,23,42,.06)";
+        var line = host.createElement("div");
+        line.className = "rte-row-drop";
+        var ls = line.style;
+        ls.position = "fixed"; ls.display = "none"; ls.zIndex = "99998"; ls.height = "2px";
+        ls.background = "#2563eb"; ls.pointerEvents = "none";
+        host.body.appendChild(grip);
+        host.body.appendChild(line);
+
+        var hoverRow = null, hideTid = 0, drag = null;
+
+        function frameRect() { return frame.getBoundingClientRect(); }
+        function inEditable(node) { try { return !!editor.getEditable() && editor.getEditable().contains(node); } catch (e) { return false; } }
+        // The row under a node, if it is a body row that may move.
+        function movableRowAt(node) {
+            var el = node && node.nodeType === 1 ? node : (node && node.parentNode);
+            while (el && el.nodeName !== "TR") el = el.parentNode;
+            if (!el || !inEditable(el)) return null;
+            var sec = el.parentNode && el.parentNode.nodeName;
+            if (sec === "THEAD" || sec === "TFOOT") return null;
+            var table = el.closest ? el.closest("table") : null;
+            if (!table || bodyRows(table).indexOf(el) < 0) return null;
+            return el;
+        }
+        function placeGrip(row) {
+            var fr = frameRect(), tr = row.getBoundingClientRect(), table = row.closest("table");
+            var left = table.getBoundingClientRect().left - 14;
+            // no room in the gutter: no grip, so it never covers the first cell (the keyboard still moves rows)
+            if (left < fr.left) { gs.display = "none"; return; }
+            gs.left = Math.round(left) + "px";
+            gs.top = Math.round(fr.top + tr.top + tr.height / 2 - 11) + "px";
+            gs.display = "block";
+        }
+        function hideGripSoon() {
+            clearTimeout(hideTid);
+            hideTid = setTimeout(function () { if (!drag) { gs.display = "none"; hoverRow = null; } }, 350);
+        }
+        // a pointer event from the editing frame has its y in the frame; the grip lives in the host page
+        function hostY(e) { return e.view === frame.contentWindow ? frameRect().top + e.clientY : e.clientY; }
+        function hasMergedCells(table) {
+            var rows = bodyRows(table);
+            for (var i = 0; i < rows.length; i++) for (var c = 0; c < rows[i].cells.length; c++) {
+                var cell = rows[i].cells[c];
+                if ((cell.rowSpan || 1) > 1 || (cell.colSpan || 1) > 1) return true;
+            }
+            return false;
+        }
+        function say(text) { try { if (typeof editor.announce === "function") editor.announce(text); } catch (e) { /* ignore */ } }
+
+        edoc.addEventListener("mousemove", function (e) {
+            if (drag) return;
+            var row = movableRowAt(e.target);
+            if (row) { clearTimeout(hideTid); hoverRow = row; placeGrip(row); } else { hideGripSoon(); }
+        });
+        grip.addEventListener("mouseenter", function () { clearTimeout(hideTid); });
+        grip.addEventListener("mouseleave", hideGripSoon);
+
+        function endDrag() {
+            drag = null;
+            host.removeEventListener("mousemove", onDragMove, true);
+            edoc.removeEventListener("mousemove", onDragMove, true);
+            host.removeEventListener("mouseup", onDragEnd, true);
+            edoc.removeEventListener("mouseup", onDragEnd, true);
+            host.removeEventListener("keydown", onDragKey, true);
+            edoc.removeEventListener("keydown", onDragKey, true);
+            ls.display = "none"; gs.display = "none"; gs.cursor = "grab";
+        }
+        function onDragMove(e) {
+            if (!drag) return;
+            var y = hostY(e), fr = frameRect(), rows = drag.rows, drop = rows.length;
+            for (var i = 0; i < rows.length; i++) {
+                var rr = rows[i].getBoundingClientRect();
+                if (y < fr.top + rr.top + rr.height / 2) { drop = i; break; }
+            }
+            drag.drop = drop;
+            // dropping the row where it already is, or just below itself, changes nothing
+            var noop = drop === drag.from || drop === drag.from + 1;
+            drag.noop = noop;
+            var at = drop < rows.length ? fr.top + rows[drop].getBoundingClientRect().top
+                : fr.top + rows[rows.length - 1].getBoundingClientRect().bottom;
+            var tb = drag.table.getBoundingClientRect();
+            ls.left = Math.round(fr.left + tb.left) + "px";
+            ls.width = Math.round(tb.width) + "px";
+            ls.top = Math.round(at - 1) + "px";
+            ls.display = noop ? "none" : "block";
+        }
+        function moveRow(d) {
+            // 2026-10-14 Read-only (designMode off) or comments-only: a move changes the document, so it does nothing. tools/review/readonly-audit.mjs
+            try { if (String(editor.getDocument().designMode).toLowerCase() === "off" || (editor.getCommentsOnly && editor.getCommentsOnly())) return false; } catch (e) { /* ignore */ }
+            if (hasMergedCells(d.table)) { say("This table has merged cells, so the row was not moved."); return false; }
+            // a move is not tracked yet: suggesting mode refuses it (the track hook answers "move")
+            if (editor.__trackHook && editor.__trackHook("move", { direction: 0 }) === true) return false;
+            var ref = d.drop < d.rows.length ? d.rows[d.drop] : null;
+            if (typeof editor.recordUndo === "function") editor.recordUndo();
+            d.row.parentNode.insertBefore(d.row, ref);
+            renumber(d.table);
+            // the caret goes into the moved row and the editor takes focus, so Ctrl+Z reaches the editor (as after Alt+Arrow)
+            try { restoreCaret(d.row.cells[0]); if (typeof editor.focus === "function") editor.focus(); } catch (e) { /* ignore */ }
+            fireChange();
+            return true;
+        }
+        function onDragEnd(e) {
+            if (!drag) return;
+            var d = drag;
+            endDrag();
+            if (d.drop < 0 || d.noop) return;
+            moveRow(d);
+        }
+        function onDragKey(e) {
+            if (e.key === "Escape") { endDrag(); }
+        }
+        grip.addEventListener("mousedown", function (e) {
+            if (!hoverRow || e.button !== 0) return;
+            e.preventDefault();
+            var table = hoverRow.closest("table");
+            var rows = bodyRows(table).filter(function (r) { return r.parentNode === hoverRow.parentNode; });
+            drag = { row: hoverRow, table: table, rows: rows, from: rows.indexOf(hoverRow), drop: -1, noop: true };
+            gs.cursor = "grabbing";
+            host.addEventListener("mousemove", onDragMove, true);
+            edoc.addEventListener("mousemove", onDragMove, true);
+            host.addEventListener("mouseup", onDragEnd, true);
+            edoc.addEventListener("mouseup", onDragEnd, true);
+            host.addEventListener("keydown", onDragKey, true);
+            edoc.addEventListener("keydown", onDragKey, true);
+        });
+    }
+
+    // 2026-10-15 Column drag: a grip above a column drags it to another place in its table (Tiptap, CKEditor and
+    // BlockNote move columns). Every row moves the cell, header rows too, and the column's <col> width goes with it.
+    // Same limits as the row grip: merged cells or ragged rows leave the table alone, suggesting mode refuses (a move
+    // is not tracked), read-only does nothing, and the row-number column stays first. config.tableColumnDrag = false
+    // turns it off; Escape cancels. tools/tables/table-column-drag.mjs
+    function say(text) { try { if (typeof editor.announce === "function") editor.announce(text); } catch (e) { /* ignore */ } }
+    // read-only and comments-only change nothing; suggesting mode refuses a move, which is not tracked yet
+    function moveRefused() {
+        try { if (String(editor.getDocument().designMode).toLowerCase() === "off" || (editor.getCommentsOnly && editor.getCommentsOnly())) return true; } catch (e) { /* ignore */ }
+        return !!(editor.__trackHook && editor.__trackHook("move", { direction: 0 }) === true);
+    }
+    // a rectangular table: every row has the same number of cells and none spans
+    function isRectangular(table) {
+        var rows = table.rows, n = rows.length ? rows[0].cells.length : 0;
+        for (var i = 0; i < rows.length; i++) {
+            if (rows[i].cells.length !== n) return false;
+            for (var c = 0; c < n; c++) if ((rows[i].cells[c].rowSpan || 1) > 1 || (rows[i].cells[c].colSpan || 1) > 1) return false;
+        }
+        return n > 1;
+    }
+    // the first column that may move: the row-number column stays put
+    function firstMovableColumn(table) { return table.querySelector("[data-rte-rownum]") ? 1 : 0; }
+    // Move column `from` so it sits before column `drop` (drop = column count: to the end). caretCell, when given,
+    // keeps the caret; otherwise it goes into the moved column's first body cell.
+    function moveColumnTo(table, from, drop, caretCell) {
+        if (moveRefused()) return false;
+        if (!isRectangular(table)) { say("This table has merged cells, so the column was not moved."); return false; }
+        var rows = table.rows, n = rows[0].cells.length;
+        if (from < 0 || from >= n || drop < 0 || drop > n || drop === from || drop === from + 1) return false;
+        if (typeof editor.recordUndo === "function") editor.recordUndo();
+        for (var i = 0; i < rows.length; i++) {
+            var cells = rows[i].cells;
+            rows[i].insertBefore(cells[from], drop < n ? cells[drop] : null);
+        }
+        // the <col> widths follow, when the colgroup describes these columns (it may leave out the number column)
+        var cols = [];
+        for (var k = 0; k < table.children.length; k++) {
+            var g = table.children[k];
+            if (g.nodeName === "COLGROUP") for (var m = 0; m < g.children.length; m++) if (g.children[m].nodeName === "COL") cols.push(g.children[m]);
+        }
+        var off = n - cols.length, spans = false;
+        for (var s = 0; s < cols.length; s++) if ((parseInt(cols[s].getAttribute("span"), 10) || 1) > 1) spans = true;
+        if (cols.length && !spans && (off === 0 || off === firstMovableColumn(table)) && from >= off) {
+            var col = cols[from - off], ref = drop < n ? cols[drop - off] : null;
+            if (col && col !== ref) (ref ? ref.parentNode : col.parentNode).insertBefore(col, ref);
+        }
+        var at = drop > from ? drop - 1 : drop;
+        try { restoreCaret(caretCell || rows[rows.length > 1 ? 1 : 0].cells[at]); if (typeof editor.focus === "function") editor.focus(); } catch (e) { /* ignore */ }
+        fireChange();
+        return true;
+    }
+    function moveColumnBy(dir) {
+        var cell = cellAtCaret();
+        if (!cell || cell.hasAttribute("data-rte-rownum")) return false;
+        var table = cell.closest("table");
+        if (!table || !table.rows.length) return false;
+        var from = cell.cellIndex, n = table.rows[0].cells.length;
+        if (dir < 0 ? from - 1 < firstMovableColumn(table) : from + 1 >= n) return false;
+        return moveColumnTo(table, from, dir < 0 ? from - 1 : from + 2, cell);
+    }
+    // a body row moves one place within its section; header rows stay put, as for the grip and Alt+Arrow
+    function moveRowBy(dir) {
+        var cell = cellAtCaret();
+        if (!cell) return false;
+        var row = cell.parentNode, table = cell.closest("table");
+        var rows = bodyRows(table).filter(function (r) { return r.parentNode === row.parentNode; });
+        var i = rows.indexOf(row), j = i + (dir < 0 ? -1 : 1);
+        if (i < 0 || j < 0 || j >= rows.length) return false;
+        if (moveRefused()) return false;
+        for (var r = 0; r < rows.length; r++) for (var c = 0; c < rows[r].cells.length; c++) {
+            if ((rows[r].cells[c].rowSpan || 1) > 1 || (rows[r].cells[c].colSpan || 1) > 1) { say("This table has merged cells, so the row was not moved."); return false; }
+        }
+        if (typeof editor.recordUndo === "function") editor.recordUndo();
+        row.parentNode.insertBefore(row, dir < 0 ? rows[j] : rows[j].nextSibling);
+        renumber(table);
+        try { restoreCaret(cell); if (typeof editor.focus === "function") editor.focus(); } catch (e) { /* ignore */ }
+        fireChange();
+        return true;
+    }
+
+    function initColumnDrag() {
+        var frame = editor.iframe;
+        if (!frame || !frame.ownerDocument) return;
+        var host = frame.ownerDocument;
+        var edoc = editor.getDocument();
+        var grip = host.createElement("div");
+        grip.className = "rte-col-grip";
+        grip.setAttribute("aria-hidden", "true");
+        grip.textContent = "\u283f";
+        var gs = grip.style;
+        gs.position = "fixed"; gs.display = "none"; gs.zIndex = "99998"; gs.width = "22px"; gs.height = "12px";
+        gs.lineHeight = "12px"; gs.textAlign = "center"; gs.fontSize = "12px"; gs.color = "#64748b"; gs.cursor = "grab";
+        gs.userSelect = "none"; gs.borderRadius = "3px"; gs.background = "rgba(15,23,42,.06)"; gs.overflow = "hidden";
+        var line = host.createElement("div");
+        line.className = "rte-col-drop";
+        var ls = line.style;
+        ls.position = "fixed"; ls.display = "none"; ls.zIndex = "99998"; ls.width = "2px";
+        ls.background = "#2563eb"; ls.pointerEvents = "none";
+        host.body.appendChild(grip);
+        host.body.appendChild(line);
+
+        var hoverCell = null, hideTid = 0, drag = null;
+        function frameRect() { return frame.getBoundingClientRect(); }
+        function inEditable(node) { try { return !!editor.getEditable() && editor.getEditable().contains(node); } catch (e) { return false; } }
+        function cellAt(node) {
+            var el = node && node.nodeType === 1 ? node : (node && node.parentNode);
+            while (el && el.nodeName !== "TD" && el.nodeName !== "TH") el = el.parentNode;
+            if (!el || !inEditable(el) || el.hasAttribute("data-rte-rownum")) return null;
+            return el.closest && el.closest("table") ? el : null;
+        }
+        function placeGrip(cell) {
+            var fr = frameRect(), cr = cell.getBoundingClientRect(), tb = cell.closest("table").getBoundingClientRect();
+            var top = fr.top + tb.top - 14;
+            // no room above the table: no grip, so it never covers the first row
+            if (top < fr.top) { gs.display = "none"; return; }
+            gs.left = Math.round(fr.left + cr.left + cr.width / 2 - 11) + "px";
+            gs.top = Math.round(top) + "px";
+            gs.display = "block";
+        }
+        function hideGripSoon() {
+            clearTimeout(hideTid);
+            hideTid = setTimeout(function () { if (!drag) { gs.display = "none"; hoverCell = null; } }, 350);
+        }
+        function hostX(e) { return e.view === frame.contentWindow ? frameRect().left + e.clientX : e.clientX; }
+
+        edoc.addEventListener("mousemove", function (e) {
+            if (drag) return;
+            var cell = cellAt(e.target);
+            if (cell) { clearTimeout(hideTid); hoverCell = cell; placeGrip(cell); } else { hideGripSoon(); }
+        });
+        grip.addEventListener("mouseenter", function () { clearTimeout(hideTid); });
+        grip.addEventListener("mouseleave", hideGripSoon);
+
+        function endDrag() {
+            drag = null;
+            host.removeEventListener("mousemove", onDragMove, true);
+            edoc.removeEventListener("mousemove", onDragMove, true);
+            host.removeEventListener("mouseup", onDragEnd, true);
+            edoc.removeEventListener("mouseup", onDragEnd, true);
+            host.removeEventListener("keydown", onDragKey, true);
+            edoc.removeEventListener("keydown", onDragKey, true);
+            ls.display = "none"; gs.display = "none"; gs.cursor = "grab";
+        }
+        function onDragMove(e) {
+            if (!drag) return;
+            var x = hostX(e), fr = frameRect(), cells = drag.table.rows[0].cells, n = cells.length, drop = n;
+            for (var i = drag.min; i < n; i++) {
+                var cr = cells[i].getBoundingClientRect();
+                if (x < fr.left + cr.left + cr.width / 2) { drop = i; break; }
+            }
+            drag.drop = drop;
+            // dropping the column where it already is, or just after itself, changes nothing
+            drag.noop = drop === drag.from || drop === drag.from + 1;
+            var at = drop < n ? fr.left + cells[drop].getBoundingClientRect().left : fr.left + cells[n - 1].getBoundingClientRect().right;
+            var tb = drag.table.getBoundingClientRect();
+            ls.left = Math.round(at - 1) + "px";
+            ls.top = Math.round(fr.top + tb.top) + "px";
+            ls.height = Math.round(tb.height) + "px";
+            ls.display = drag.noop ? "none" : "block";
+        }
+        function moveColumn(d) { return moveColumnTo(d.table, d.from, d.drop); }
+        function onDragEnd() {
+            if (!drag) return;
+            var d = drag;
+            endDrag();
+            if (d.drop < 0 || d.noop) return;
+            moveColumn(d);
+        }
+        function onDragKey(e) { if (e.key === "Escape") endDrag(); }
+        grip.addEventListener("mousedown", function (e) {
+            if (!hoverCell || e.button !== 0) return;
+            e.preventDefault();
+            var table = hoverCell.closest("table");
+            if (!table.rows.length) return;
+            drag = { table: table, from: hoverCell.cellIndex, min: firstMovableColumn(table), drop: -1, noop: true };
+            gs.cursor = "grabbing";
+            host.addEventListener("mousemove", onDragMove, true);
+            edoc.addEventListener("mousemove", onDragMove, true);
+            host.addEventListener("mouseup", onDragEnd, true);
+            edoc.addEventListener("mouseup", onDragEnd, true);
+            host.addEventListener("keydown", onDragKey, true);
+            edoc.addEventListener("keydown", onDragKey, true);
+        });
+    }
+
     // ---- row numbering ----------------------------------------------------
 
     function seriesLabel(n, series) {
@@ -43642,7 +47645,13 @@ function RTE_Plugin_TableTools() {
     obj.AddRowNumbers = function (opts) {
         var table = tableAtCaret();
         if (!table) return false;
-        if (table.querySelector("[data-rte-rownum]")) { renumber(table); return true; }
+        if (editor.commitBookmark) editor.commitBookmark();
+        if (table.querySelector("[data-rte-rownum]")) {
+            renumber(table);
+            fireChange();
+            if (editor.recordUndo) editor.recordUndo();
+            return true;
+        }
         opts = opts || {};
         var series = opts.series || config.tableNumberSeries;
         var doc = table.ownerDocument;
@@ -43664,6 +47673,7 @@ function RTE_Plugin_TableTools() {
         table.setAttribute("data-rte-rownum-series", series);
         renumber(table);
         fireChange();
+        if (editor.recordUndo) editor.recordUndo();
         return true;
     };
 
@@ -43679,9 +47689,11 @@ function RTE_Plugin_TableTools() {
         if (!table) return false;
         var cells = table.querySelectorAll("[data-rte-rownum]");
         if (!cells.length) return false;
+        if (editor.commitBookmark) editor.commitBookmark();
         for (var i = 0; i < cells.length; i++) if (cells[i].parentNode) cells[i].parentNode.removeChild(cells[i]);
         table.removeAttribute("data-rte-rownum-series");
         fireChange();
+        if (editor.recordUndo) editor.recordUndo();
         return true;
     };
 
@@ -43769,14 +47781,22 @@ function RTE_Plugin_TextDirection() {
 
     // Strongly right-to-left ranges: Hebrew, Arabic (+ supplement, extended),
     // Syriac, Thaana, NKo, Samaritan, Mandaic, and the Arabic presentation forms.
-    var RTL_RE = /[֐-׿؀-ۿ܀-ݏݐ-ݿހ-޿߀-߿ࠀ-࠿ࡀ-࡟ࢠ-ࣿיִ-﷿ﹰ-﻿]/;
+    var RTL_RE = /[\u0590-\u05ff\u0600-\u06ff\u0700-\u074f\u0750-\u077f\u0780-\u07bf\u07c0-\u07ff\u0800-\u083f\u0840-\u085f\u08a0-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]/;
     // Strongly left-to-right: Latin, Greek, Cyrillic, Armenian, and CJK/Kana
     // (which are LTR for bidi purposes).
-    var LTR_RE = /[A-Za-zÀ-ʯͰ-֏ऀ-႟Ḁ-῿Ⰰ-ⷿ⺀-꓏가-힯]/;
+    var LTR_RE = /[A-Za-z\xc0-\u02af\u0370-\u058f\u0900-\u109f\u1e00-\u1fff\u2c00-\u2dff\u2e80-\ua4cf\uac00-\ud7af]/;
 
     obj.PluginName = "TextDirection";
 
     obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    // record the change as its own undo step: seal the step before, run, save the snapshot, seal it
+    function undoStep(run) {
+        try { if (editor.commitBookmark) editor.commitBookmark(); } catch (er) { /* ignore */ }
+        var result = run();
+        try { if (editor.recordUndo) editor.recordUndo(); else if (editor.notifySelectionChange) editor.notifySelectionChange(); if (editor.commitBookmark) editor.commitBookmark(); } catch (er) { /* ignore */ }
+        return result;
+    }
 
     obj.InitEditor = function (argeditor) {
         editor = argeditor;
@@ -43794,10 +47814,12 @@ function RTE_Plugin_TextDirection() {
         setTimeout(function () { setup(); afterLoad(); }, 0);
 
         // Public API.
-        editor.setTextDirection = function (dir) { return obj.Apply(dir); };
-        editor.toggleTextDirection = function () { return obj.Toggle(); };
+        // 2026-10-04 one undo step when called directly (execCommand does this for the button; a direct
+        // call could not be undone). tools/api/plugin-api-undo.mjs
+        editor.setTextDirection = function (dir) { return undoStep(function () { return obj.Apply(dir); }); };
+        editor.toggleTextDirection = function () { return undoStep(function () { return obj.Toggle(); }); };
         editor.getTextDirection = function () { return obj.Current(); };
-        editor.setBaseDirection = function (dir) { return obj.Base(dir); };
+        editor.setBaseDirection = function (dir) { return undoStep(function () { return obj.Base(dir); }); };
         editor.getBaseDirection = function () {
             var ed = getEditable();
             return ed ? (ed.getAttribute("dir") || "ltr") : "ltr";
@@ -43909,6 +47931,9 @@ function RTE_Plugin_TextDirection() {
         dir = (dir === "rtl") ? "rtl" : (dir === "auto" ? "auto" : "ltr");
         var blocks = blocksInSelection();
         if (!blocks.length) return false;
+        // 2026-10-14 Suggesting mode: a direction change is not tracked yet, so the track hook refuses it.
+        // tools/review/suggesting-structure-audit.mjs
+        if (editor.__trackHook && editor.__trackHook("refuse", { message: "Suggesting is on, so the direction was not changed. Turn suggesting off to change it." }) === true) return false;
         for (var i = 0; i < blocks.length; i++) {
             var b = blocks[i];
             var was = b.getAttribute("dir") || "ltr";
@@ -44086,34 +48111,34 @@ if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
 RTE_DefaultConfig.plugin_textpartlanguage = RTE_Plugin_TextPartLanguage;
 
 // The dropdown list. `dir` is only needed for right-to-left languages.
-if (typeof RTE_DefaultConfig.textPartLanguages === "undefined") {
-    RTE_DefaultConfig.textPartLanguages = [
-        { code: "ar", label: "Arabic", dir: "rtl" },
-        { code: "zh-Hans", label: "Chinese (Simplified)" },
-        { code: "zh-Hant", label: "Chinese (Traditional)" },
-        { code: "cs", label: "Czech" },
-        { code: "nl", label: "Dutch" },
-        { code: "en", label: "English" },
-        { code: "fr", label: "French" },
-        { code: "de", label: "German" },
-        { code: "el", label: "Greek" },
-        { code: "he", label: "Hebrew", dir: "rtl" },
-        { code: "hi", label: "Hindi" },
-        { code: "it", label: "Italian" },
-        { code: "ja", label: "Japanese" },
-        { code: "ko", label: "Korean" },
-        { code: "fa", label: "Persian", dir: "rtl" },
-        { code: "pl", label: "Polish" },
-        { code: "pt", label: "Portuguese" },
-        { code: "ru", label: "Russian" },
-        { code: "es", label: "Spanish" },
-        { code: "sv", label: "Swedish" },
-        { code: "tr", label: "Turkish" },
-        { code: "uk", label: "Ukrainian" },
-        { code: "ur", label: "Urdu", dir: "rtl" },
-        { code: "vi", label: "Vietnamese" }
-    ];
-}
+// Kept by name so the menu can tell a built-in entry (named in the page's language) from the application's own label.
+var RTE_TextPartLanguageDefaults = [
+    { code: "ar", label: "Arabic", dir: "rtl" },
+    { code: "zh-Hans", label: "Chinese (Simplified)" },
+    { code: "zh-Hant", label: "Chinese (Traditional)" },
+    { code: "cs", label: "Czech" },
+    { code: "nl", label: "Dutch" },
+    { code: "en", label: "English" },
+    { code: "fr", label: "French" },
+    { code: "de", label: "German" },
+    { code: "el", label: "Greek" },
+    { code: "he", label: "Hebrew", dir: "rtl" },
+    { code: "hi", label: "Hindi" },
+    { code: "it", label: "Italian" },
+    { code: "ja", label: "Japanese" },
+    { code: "ko", label: "Korean" },
+    { code: "fa", label: "Persian", dir: "rtl" },
+    { code: "pl", label: "Polish" },
+    { code: "pt", label: "Portuguese" },
+    { code: "ru", label: "Russian" },
+    { code: "es", label: "Spanish" },
+    { code: "sv", label: "Swedish" },
+    { code: "tr", label: "Turkish" },
+    { code: "uk", label: "Ukrainian" },
+    { code: "ur", label: "Urdu", dir: "rtl" },
+    { code: "vi", label: "Vietnamese" }
+];
+if (typeof RTE_DefaultConfig.textPartLanguages === "undefined") RTE_DefaultConfig.textPartLanguages = RTE_TextPartLanguageDefaults.slice();
 
 // Show marked phrases with a dotted underline while editing. Editor-only: the
 // rule lives in the editing document, never in the saved HTML.
@@ -44127,6 +48152,14 @@ function RTE_Plugin_TextPartLanguage() {
     obj.PluginName = "TextPartLanguage";
 
     obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    // record the change as its own undo step: seal the step before, run, save the snapshot, seal it
+    function undoStep(run) {
+        try { if (editor.commitBookmark) editor.commitBookmark(); } catch (er) { /* ignore */ }
+        var result = run();
+        try { if (editor.recordUndo) editor.recordUndo(); else if (editor.notifySelectionChange) editor.notifySelectionChange(); if (editor.commitBookmark) editor.commitBookmark(); } catch (er) { /* ignore */ }
+        return result;
+    }
 
     obj.InitEditor = function (argeditor) {
         editor = argeditor;
@@ -44150,8 +48183,9 @@ function RTE_Plugin_TextPartLanguage() {
         setTimeout(setup, 0);
 
         // Public API.
-        editor.setTextLanguage = function (code) { return obj.Apply(code); };
-        editor.removeTextLanguage = function () { return obj.Remove(); };
+        editor.setTextLanguage = function (code) { return undoStep(function () { return obj.Apply(code); }); };
+        // 2026-10-04 one undo step when called directly (it could not be undone). tools/api/plugin-api-undo.mjs
+        editor.removeTextLanguage = function () { return undoStep(function () { return obj.Remove(); }); };
         editor.getTextLanguage = function () { return obj.Current(); };
         editor.listTextLanguages = function () { return languages().slice(); };
         editor.getMarkedLanguages = function () { return obj.List(); };
@@ -44169,6 +48203,30 @@ function RTE_Plugin_TextPartLanguage() {
         var list = languages();
         for (var i = 0; i < list.length; i++) if (list[i].code === code) return list[i];
         return { code: code, label: code };
+    }
+
+    // 2026-10-18 The menu names languages in the page's language: a built-in entry is named by Intl.DisplayNames in
+    // the language pack's locale (text_uilocale); a label the application set is kept as written; an entry with no
+    // label (it showed "undefined") gets the English name, else its code. tools/i18n/text-language-names.mjs
+    var displayNames = {};
+    function nameIn(locale, code) {
+        try {
+            if (typeof Intl === "undefined" || !Intl.DisplayNames) return "";
+            if (!displayNames[locale]) displayNames[locale] = new Intl.DisplayNames([locale], { type: "language" });
+            var n = displayNames[locale].of(code);
+            return n && n !== code ? n : "";
+        } catch (e) { return ""; }
+    }
+    function displayLabel(item) {
+        var code = item && item.code;
+        if (!code) return "";
+        var builtIn = null;
+        var defs = typeof RTE_TextPartLanguageDefaults !== "undefined" ? RTE_TextPartLanguageDefaults : [];
+        for (var i = 0; i < defs.length; i++) if (defs[i].code === code) builtIn = defs[i].label;
+        if (item.label && item.label !== builtIn) return item.label;
+        var locale = config && config.text_uilocale;
+        if (locale && !/^en(-|$)/i.test(locale)) { var local = nameIn(locale, code); if (local) return local; }
+        return item.label || nameIn("en", code) || code;
     }
 
     // ---- state -----------------------------------------------------------
@@ -44229,6 +48287,8 @@ function RTE_Plugin_TextPartLanguage() {
         var doc = getDoc();
         var r = selectionRange();
         if (!doc || !r) return false;
+        // 2026-10-14 Suggesting mode: a language change is not tracked yet, so the track hook refuses it. tools/review/suggesting-structure-audit.mjs
+        if (editor.__trackHook && editor.__trackHook("refuse", { message: "Suggesting is on, so the language was not changed. Turn suggesting off to change it." }) === true) return false;
 
         // Re-picking the current language toggles it off.
         if (obj.Current() === code) return obj.Remove();
@@ -44238,6 +48298,43 @@ function RTE_Plugin_TextPartLanguage() {
             var host = langAncestor(r.startContainer);
             if (!host) return false;
             stamp(host, code);
+            fireChange();
+            return code;
+        }
+
+        // 2026-10-02 A selection that crosses blocks marks the selected text of EACH block. One
+        // span went AROUND the blocks: two paragraphs became four
+        // (<p>al</p><span lang="fr"><p>pha</p><p>be</p></span><p>ta</p>), list items and table cells
+        // got a span straight inside <ul> / <tr> and were split, a heading was split in two (with its
+        // id twice) - and removing the language left them split. CKEditor marks each block's text.
+        // tools/format/text-part-language.mjs
+        var runs = crossBlockRuns(doc, r);
+        if (runs) {
+            var spans = [];
+            // from the last run back: wrapping one never moves the text of a run still to come
+            for (var ri = runs.length - 1; ri >= 0; ri--) {
+                var sub = doc.createRange();
+                sub.setStart(runs[ri].sn, runs[ri].so);
+                sub.setEnd(runs[ri].en, runs[ri].eo);
+                widenToInlineEdges(sub, runs[ri].block);
+                var part = doc.createElement("span");
+                stamp(part, code);
+                part.appendChild(sub.extractContents());
+                sub.insertNode(part);
+                unwrapInner(part);
+                pruneEmptyText(part);
+                if (!part.firstChild) { part.parentNode.removeChild(part); continue; }
+                spans.unshift(mergeSiblings(part));
+            }
+            if (!spans.length) return false;
+            try {
+                var all = doc.createRange();
+                all.setStart(spans[0], 0);
+                all.setEnd(spans[spans.length - 1], spans[spans.length - 1].childNodes.length);
+                var sel = editor.getSelection();
+                sel.removeAllRanges();
+                sel.addRange(all);
+            } catch (e) {}
             fireChange();
             return code;
         }
@@ -44269,6 +48366,8 @@ function RTE_Plugin_TextPartLanguage() {
     };
 
     obj.Remove = function () {
+        // 2026-10-14 Suggesting mode: removing this is not tracked yet, so the track hook refuses it. tools/review/suggesting-structure-audit.mjs
+        if (editor.__trackHook && editor.__trackHook("remove", {}) === true) return false;
         var r = selectionRange();
         if (!r) return false;
         var ed = getEditable();
@@ -44301,6 +48400,59 @@ function RTE_Plugin_TextPartLanguage() {
             return range.compareBoundaryPoints(Range.END_TO_START, er) < 0 &&
                    range.compareBoundaryPoints(Range.START_TO_END, er) > 0;
         } catch (e) { return false; }
+    }
+
+    // The runs of selected text that share a block, when the selection crosses blocks; null when it
+    // starts and ends in one block (that keeps the single-span path). Whitespace-only runs (the line
+    // break between two blocks) are dropped; text inside a non-editable element moves with its run.
+    var BLOCK_RE = /^(P|DIV|LI|UL|OL|DL|DT|DD|TABLE|TBODY|THEAD|TFOOT|TR|TD|TH|CAPTION|H[1-6]|PRE|BLOCKQUOTE|ADDRESS|FIGURE|FIGCAPTION|SECTION|ARTICLE|ASIDE|HEADER|FOOTER|NAV|MAIN|DETAILS|SUMMARY|FORM|FIELDSET|LEGEND|HR|BODY)$/;
+    function blockOf(node) {
+        for (var n = node; n; n = n.parentNode)
+            if (n.nodeType === 1 && BLOCK_RE.test(n.nodeName)) return n;
+        return null;
+    }
+    function crossBlockRuns(doc, range) {
+        if (range.collapsed || blockOf(range.startContainer) === blockOf(range.endContainer)) return null;
+        var root = range.commonAncestorContainer;
+        if (root.nodeType !== 1) root = root.parentNode;
+        var runs = [], cur = null;
+        var w = doc.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+            acceptNode: function (n) { return n.nodeType === 1 && n.getAttribute("contenteditable") === "false" ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT; }
+        });
+        for (var n = w.nextNode(); n; n = w.nextNode()) {
+            if (n.nodeType === 1) {
+                if (BLOCK_RE.test(n.nodeName)) cur = null;
+                continue;
+            }
+            if (!range.intersectsNode(n)) continue;
+            var a = n === range.startContainer ? range.startOffset : 0, b = n === range.endContainer ? range.endOffset : n.data.length;
+            if (b <= a) continue;
+            var blk = blockOf(n);
+            if (!cur || cur.block !== blk) {
+                cur = { block: blk, sn: n, so: a, text: "" };
+                runs.push(cur);
+            }
+            cur.en = n;
+            cur.eo = b;
+            cur.text += n.data.substring(a, b);
+        }
+        var keep = [];
+        for (var i = 0; i < runs.length; i++) if (/\S/.test(runs[i].text)) keep.push(runs[i]);
+        return keep;
+    }
+    // A run starting or ending at the edge of an inline element (<b>) takes the whole element, so
+    // no empty <b></b> is left behind by extractContents.
+    function widenToInlineEdges(range, block) {
+        var n = range.startContainer;
+        if (n.nodeType === 3 && range.startOffset === 0) {
+            while (n.parentNode && n.parentNode !== block && !n.previousSibling && !BLOCK_RE.test(n.parentNode.nodeName)) n = n.parentNode;
+            range.setStartBefore(n);
+        }
+        n = range.endContainer;
+        if (n.nodeType === 3 && range.endOffset === n.data.length) {
+            while (n.parentNode && n.parentNode !== block && !n.nextSibling && !BLOCK_RE.test(n.parentNode.nodeName)) n = n.parentNode;
+            range.setEndAfter(n);
+        }
     }
 
     function stamp(el, code) {
@@ -44397,7 +48549,7 @@ function RTE_Plugin_TextPartLanguage() {
 
         for (var i = 0; i < list.length; i++) {
             (function (item) {
-                addRow(panel, item.label, item.code, current === item.code, function () { obj.Apply(item.code); });
+                addRow(panel, displayLabel(item), item.code, current === item.code, function () { obj.Apply(item.code); });
             })(list[i]);
         }
 
@@ -44444,7 +48596,9 @@ function RTE_Plugin_TextPartLanguage() {
 
         if (code) {
             var tag = doc.createElement("span");
-            tag.style.cssText = "opacity:.55;font-size:11px;";
+            // 2026-10-15 opacity .55 left the code at 4.06:1 in dark mode and 3.23:1 in light; .75 clears 4.5:1 in both.
+            // tools/a11y/dark-mode-contrast.mjs
+            tag.style.cssText = "opacity:.75;font-size:11px;";
             tag.appendChild(doc.createTextNode(code));
             row.appendChild(tag);
         }
@@ -44596,13 +48750,18 @@ function RTE_Plugin_TodoList() {
             e.preventDefault();
             fireChange();
         });
-        // Keep new items (created by Enter) well-formed: a checkbox + an unchecked state.
+        // 2026-10-02 Enter in a task item is handled here. The browser's own Enter made a bare <li>
+        // and the keyup below then put the checkbox in FRONT of the caret: in Chromium and Firefox
+        // every item after the first saved as <li>two<span class="rte-task-checkbox"></span></li>,
+        // Firefox sometimes dropped the typed text altogether, and WebKit put the caret back at
+        // the end of the previous item. tools/keyboard/todolist-enter.mjs
+        editable.addEventListener("keydown", function (e) {
+            if (e.key !== "Enter" || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.isComposing || e.keyCode === 229) return;
+            try { if (splitTaskItem()) e.preventDefault(); } catch (er) { /* the browser's own Enter */ }
+        }, true);
+        // Keep items made any other way well-formed: a checkbox + a done state.
         editable.addEventListener("keyup", function (e) {
-            if (e.key === "Enter" && !e.shiftKey) {
-                obj.Normalize();
-                var li = currentTaskItem();
-                if (li) li.setAttribute("data-checked", "false"); // a freshly split/created item starts open
-            }
+            if (e.key === "Enter" && !e.shiftKey) obj.Normalize();
         });
         // Inject CSS once the iframe head exists.
         setTimeout(function () { injectStyles(editdoc); }, 0);
@@ -44656,6 +48815,85 @@ function RTE_Plugin_TodoList() {
         cb.className = "rte-task-checkbox";
         cb.setAttribute("contenteditable", "false");
         return cb;
+    }
+
+    function isEmptyItem(li) {
+        return !/[^\s\u200b]/.test(li.textContent || "") && !li.querySelector("img,iframe,video,audio,svg,object,embed,table");
+    }
+    // The caret's place in an item that holds only its checkbox: a zero-width text node after
+    // it (as InsertTaskList does) - next to a contenteditable="false" span alone, WebKit moves
+    // the caret back into the previous item.
+    function caretAfterCheckbox(li) {
+        var zw = editdoc.createTextNode("\u200b");
+        var cb = li.firstChild && li.firstChild.nodeType === 1 && li.firstChild.classList && li.firstChild.classList.contains("rte-task-checkbox") ? li.firstChild : null;
+        li.insertBefore(zw, cb ? cb.nextSibling : li.firstChild);
+        return zw;
+    }
+    function placeCaret(node, offset) {
+        var r = editdoc.createRange();
+        r.setStart(node, offset);
+        r.collapse(true);
+        var s = editor.getSelection();
+        s.removeAllRanges();
+        s.addRange(r);
+    }
+    function newItem() {
+        var li = editdoc.createElement("li");
+        li.className = "rte-task-item";
+        li.setAttribute("data-checked", "false"); // a new item starts open
+        li.appendChild(makeCheckbox());
+        return li;
+    }
+    // Enter in a task item: an empty item leaves the list (a paragraph takes its place, the list
+    // splits around it); at the start of an item a new open item goes above; otherwise the text
+    // after the caret moves into a new open item below, checkbox first, caret before that text.
+    function splitTaskItem() {
+        var s = editor.getSelection();
+        if (!s || s.rangeCount === 0) return false;
+        var r = s.getRangeAt(0);
+        var li = closestClass(r.startContainer, "rte-task-item", editable);
+        if (!li || li !== closestClass(r.endContainer, "rte-task-item", editable) || li.parentNode.nodeName !== "UL") return false;
+        if (typeof editor.commitBookmark === "function") { try { editor.commitBookmark(); } catch (er) { /* ignore */ } }
+        if (!r.collapsed) r.deleteContents();
+        var ul = li.parentNode;
+        if (isEmptyItem(li)) {
+            var tag = String((config && config.enterKeyTag) || "p").toLowerCase();
+            if (tag === "br") tag = "div";
+            var p = editdoc.createElement(tag);
+            p.appendChild(editdoc.createElement("br"));
+            if (li.nextSibling) {
+                var rest = ul.cloneNode(false);
+                while (li.nextSibling) rest.appendChild(li.nextSibling);
+                ul.parentNode.insertBefore(rest, ul.nextSibling);
+            }
+            ul.parentNode.insertBefore(p, ul.nextSibling);
+            ul.removeChild(li);
+            if (!ul.querySelector("li")) ul.parentNode.removeChild(ul);
+            placeCaret(p, 0);
+            fireChange();
+            return true;
+        }
+        var head = editdoc.createRange();
+        head.setStart(li, 0);
+        head.setEnd(r.startContainer, r.startOffset);
+        if (!/[^\s\u200b]/.test(head.toString()) && !head.cloneContents().querySelector("img,iframe,video,audio,svg,object,embed")) {
+            var above = newItem();
+            caretAfterCheckbox(above);
+            ul.insertBefore(above, li);
+            fireChange();
+            return true;
+        }
+        var tail = editdoc.createRange();
+        tail.setStart(r.startContainer, r.startOffset);
+        tail.setEnd(li, li.childNodes.length);
+        var moved = tail.extractContents();
+        var below = newItem();
+        below.appendChild(moved);
+        var zw = caretAfterCheckbox(below);
+        ul.insertBefore(below, li.nextSibling);
+        placeCaret(zw, 1);
+        fireChange();
+        return true;
     }
 
     // Ensure every <li> in a task list has a checkbox span + a data-checked value.
@@ -44749,25 +48987,32 @@ function RTE_Plugin_TrackedChanges() {
             enable: function (user) { enable(user); },
             disable: function () { disable(); },
             isEnabled: function () { return enabled; },
-            acceptAll: function (filter) { return acceptAll(filter); },
-            rejectAll: function (filter) { return rejectAll(filter); },
-            accept: function (id) { return acceptEntry(id); },
-            reject: function (id) { return rejectEntry(id); },
+            acceptAll: function (filter) { syncFromDocument(); return acceptAll(filter); },
+            rejectAll: function (filter) { syncFromDocument(); return rejectAll(filter); },
+            accept: function (id) { syncFromDocument(); return acceptEntry(id); },
+            reject: function (id) { syncFromDocument(); return rejectEntry(id); },
             canDecide: function (id, action) {
+                syncFromDocument();
                 var entry = editor.reviewLedger && editor.reviewLedger.get(id);
                 return !!entry && canDecide(entry, action || "accept");
             },
             list: function (opts) {
                 if (!editor.reviewLedger) return [];
+                syncFromDocument();
                 // Default to the PENDING review queue (matches the internal
                 // accept/reject semantics). Pass {all:true} for full history
                 // including accepted/rejected entries (also via reviewLedger.list()).
                 var includeAll = opts && opts.all === true;
                 return editor.reviewLedger.list().filter(function (e) {
-                    if (e.changeType !== "insert" && e.changeType !== "delete") return false;
+                    if (e.changeType !== "insert" && e.changeType !== "delete" && e.changeType !== "format") return false;
                     return includeAll || e.status === "pending";
                 });
-            }
+            },
+            // 2026-10-17 step through the pending suggestions and report the one at the caret.
+            // tools/review/suggestion-card.mjs
+            next: function () { return stepSuggestion(1); },
+            previous: function () { return stepSuggestion(-1); },
+            current: function () { var el = suggestionAtCaret(); return el ? el.getAttribute("data-tc-id") : null; }
         };
 
         injectStyles();
@@ -44797,7 +49042,99 @@ function RTE_Plugin_TrackedChanges() {
             else enable();
         });
 
-        editor.getEditable().addEventListener("beforeinput", onBeforeInput, true);
+        // 2026-10-17 bound through the core so they follow the live editing document (these worked only because this
+        // plugin initialises after the last plugin that moves the iframe). tools/keyboard/plugin-listeners-live.mjs
+        var bindEd = editor.bindEditableEvent ? function (type, fn) { editor.bindEditableEvent(type, fn, true); } : function (type, fn) { editor.getEditable().addEventListener(type, fn, true); };
+        bindEd("beforeinput", onBeforeInput);
+        // the suggestion card follows the caret (tools/review/suggestion-card.mjs)
+        if (editor.bindDocumentEvent) editor.bindDocumentEvent("selectionchange", function () { scheduleCard(); });
+        // 2026-10-17 Alt+F10 moves focus to the suggestion card while it shows (else the core takes it to a toolbar).
+        // tools/review/suggestion-card-keyboard.mjs
+        if (editor.bindDocumentEvent) editor.bindDocumentEvent("keydown", function (e) {
+            if (!(e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && (e.key === "F10" || e.keyCode === 121))) return;
+            if (!sugCard || !sugCard.isConnected) return;
+            var first = sugCard.querySelector("button:not([disabled])");
+            if (!first) return;
+            e.preventDefault();
+            e.stopPropagation();
+            try { var ks = editor.getDocument().getSelection(); sugCard.__returnRange = ks && ks.rangeCount ? ks.getRangeAt(0).cloneRange() : null; } catch (x) { sugCard.__returnRange = null; }
+            try { (sugCard.ownerDocument.defaultView || window).focus(); } catch (x) { /* ignore */ }
+            first.focus();
+        }, true);
+        else { try { editor.getDocument().addEventListener("selectionchange", scheduleCard); } catch (x) { /* no card */ } }
+        bindEd("compositionstart", onCompositionStart);
+        bindEd("compositionend", onCompositionEnd);
+        bindEd("keydown", function (e) { shiftEnter = e.key === "Enter" && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey; });
+
+        // The document is loaded after this runs (the textarea's value, then any setHTMLCode),
+        // and an undo or a collaborator can bring tracked spans back: catch the ledger up each time.
+        ["setHTMLCode", "setHTML"].forEach(function (name) {
+            var original = editor[name];
+            if (typeof original !== "function") return;
+            editor[name] = function () {
+                var result = original.apply(this, arguments);
+                syncFromDocument();
+                return result;
+            };
+        });
+        editor.attachEvent("change", function () { syncFromDocument(); });
+        setTimeout(syncFromDocument, 0);
+
+        // 2026-10-03 Paragraph structure. The core makes a paragraph split (Enter) and a join
+        // (Backspace at the start of a block, Delete at its end) before beforeinput reaches this
+        // plugin, so both went in for real in suggesting mode. The core asks here first: a split is
+        // made by the core (info.split) and marked here; a join is only marked.
+        // tools/review/tracked-structure.mjs
+        editor.__trackHook = function (kind, info) {
+            if (!enabled || !editor.reviewLedger || !config.currentUser) return null;
+            if (kind === "enter") return trackSplit(info);
+            if (kind === "join") return trackJoin(info);
+            if (kind === "paste") return trackPaste(info);
+            if (kind === "delete") return trackDeleteHook(info);
+            if (kind === "command") return trackCommand(info);
+            if (kind === "replace") return trackReplace(info);
+            if (kind === "insert") return trackInsert(info);
+            if (kind === "insert-element") return trackElementInsert(info);
+            // 2026-10-14 An edit made while this plugin is recording a command (trackFormat, trackBlockFormat and
+            // trackInsertCommand run the command inside the suggestion) is already tracked, so the refusals below,
+            // which are for edits that would go in untracked, step aside. Without this, change case run as a
+            // command was refused instead of suggested. tools/review/tracked-plugin-formatting.mjs
+            if ((kind === "refuse" || kind === "remove" || kind === "insert-block" || kind === "duplicate" || kind === "move") &&
+                (formatRunning || blockRunning || commandRunning)) return null;
+            // 2026-10-14 A move (the core's Alt+Arrow, the grip's drop, Move up / Move down) is not tracked yet, so
+            // suggesting mode refuses it and says so. tools/tables/table-row-move.mjs
+            // 2026-10-14 A copy of a block or row (Ctrl+Shift+D, the block menu's Duplicate) is not tracked yet, so
+            // suggesting mode refuses it and says so. tools/blocks/duplicate-block-suggesting.mjs
+            if (kind === "duplicate") {
+                if (typeof editor.announce === "function") editor.announce("Suggesting is on, so this copy was not made. Turn suggesting off to copy the block.");
+                return true;
+            }
+            // 2026-10-14 An empty paragraph added by the API (insertParagraphAt / After / Before) is not tracked yet, so
+            // suggesting mode refuses it and says so. tools/review/suggesting-structure-audit.mjs
+            if (kind === "insert-block") {
+                if (typeof editor.announce === "function") editor.announce("Suggesting is on, so no paragraph was added. Turn suggesting off to add one.");
+                return true;
+            }
+            // 2026-10-14 Removing a table of contents or a text language is not tracked yet, so suggesting mode refuses it.
+            // tools/review/suggesting-structure-audit.mjs
+            if (kind === "remove") {
+                if (typeof editor.announce === "function") editor.announce("Suggesting is on, so nothing was removed. Turn suggesting off to remove it.");
+                return true;
+            }
+            // 2026-10-14 A command that cannot be tracked yet (a case or direction change) says why it was refused.
+            if (kind === "refuse") {
+                if (typeof editor.announce === "function" && info && info.message) editor.announce(info.message);
+                return true;
+            }
+            if (kind === "move") {
+                if (typeof editor.announce === "function") editor.announce("Suggesting is on, so this move was not made. Turn suggesting off to move it.");
+                return true;
+            }
+            return null;
+        };
+
+        // Inline formatting in suggesting mode is a suggestion (trackFormat): the core asks the hook
+        // ("command") before any command handler - its own or a plugin's - runs.
     };
 
     function appendToolbarCommand(toolbar, item) {
@@ -44837,6 +49174,11 @@ function RTE_Plugin_TrackedChanges() {
 
         var type = e.inputType;
         if (!type) return;
+        // a command this plugin is carrying out itself (trackInsertCommand) is left to the browser;
+        // and an insertText with no text is not typing - WebKit fires one for a native command such as
+        // insertHorizontalRule, and cancelling it made the command do nothing
+        if (commandRunning) return;
+        if ((type === "insertText" || type === "insertReplacementText") && !e.data && !(e.dataTransfer && e.dataTransfer.getData && e.dataTransfer.getData("text/plain"))) return;
 
         if (type === "insertText" || type === "insertReplacementText") {
             e.preventDefault();
@@ -44848,7 +49190,15 @@ function RTE_Plugin_TrackedChanges() {
             handleDelete(type);
             return;
         }
-        // insertParagraph, insertCompositionText, insertFromPaste, historyUndo/Redo: pass through for v1.
+        // Shift+Enter is a line break; a WebKit build that reports it as insertParagraph too
+        if (type === "insertLineBreak" || (type === "insertParagraph" && shiftEnter)) {
+            e.preventDefault();
+            handleLineBreak();
+            return;
+        }
+        // insertParagraph (the core's Enter, tracked through editor.__trackHook), insertCompositionText
+        // (wrapped when the composition ends, onCompositionEnd), insertFromPaste (the core's paste,
+        // tracked through the hook), historyUndo/Redo: pass through.
     }
 
     // --- insert tracking ---
@@ -44859,10 +49209,11 @@ function RTE_Plugin_TrackedChanges() {
         if (!sel || sel.rangeCount === 0) return;
         var range = sel.getRangeAt(0);
         if (!range.collapsed) {
-            // Selection replace: wrap selection as delete, then insert new text.
-            if (!wrapRangeAsDelete(range)) return;
-            // After wrapping, caret should be past the delete span; re-fetch selection.
+            // Selection replace: the selection is a suggested deletion (across blocks too), then the
+            // new text goes in after it.
+            trackSelectionDelete(range, true);
             range = sel.getRangeAt(0);
+            if (!range.collapsed) { range.collapse(false); placeRange(range); }
             createInsertSpan(text, range);
             return;
         }
@@ -44936,6 +49287,168 @@ function RTE_Plugin_TrackedChanges() {
         updateEntryForSpan(span);
     }
 
+    // --- find & replace ---
+
+    // 2026-10-03 A Find & Replace replacement in suggesting mode: the match is a suggested deletion and
+    // the new text a suggested insertion right after it. A match inside text that is already a
+    // suggested deletion is left alone. tools/review/tracked-find-replace.mjs
+    function trackReplace(info) {
+        var range = info && info.range;
+        if (!range || typeof info.text !== "string") return null;
+        if (isInsideDeleteSpan(range.startContainer) || isInsideDeleteSpan(range.endContainer)) return true;
+        var sel = editor.getSelection();
+        if (!sel) return null;
+        if (!range.collapsed) {
+            trackSelectionDelete(range.cloneRange(), true);
+        } else {
+            placeRange(range.cloneRange());
+        }
+        if (info.text) {
+            var at = sel.rangeCount ? sel.getRangeAt(0) : null;
+            if (!at) return true;
+            if (!at.collapsed) { at = at.cloneRange(); at.collapse(false); placeRange(at); }
+            createInsertSpan(info.text, at);
+        }
+        return true;
+    }
+
+    // --- IME and line breaks ---
+
+    // 2026-10-03 Text typed through an IME (Chinese, Japanese, Korean) and a Shift+Enter line break
+    // were let through untracked, so everything a CJK reviewer typed went into the document for
+    // real. A composition cannot be cancelled while it runs: it is left to the browser, and when it
+    // ends the text it committed - just before the caret - is wrapped as an insertion (or joins
+    // the reviewer's insertion it was typed into or next to). A composition over a selection makes
+    // the selection a suggested deletion first. tools/review/tracked-ime-linebreak.mjs
+    var composing = false, shiftEnter = false;
+
+    function onCompositionStart() {
+        composing = false;
+        if (!enabled || !editor.reviewLedger) return;
+        var sel = editor.getSelection();
+        if (!sel || !sel.rangeCount) return;
+        var range = sel.getRangeAt(0);
+        if (!range.collapsed) {
+            trackSelectionDelete(range, true);
+            var after = sel.rangeCount ? sel.getRangeAt(0) : null;
+            if (after && !after.collapsed) { after.collapse(false); placeRange(after); }
+        }
+        composing = true;
+    }
+
+    function onCompositionEnd(e) {
+        if (!composing) return;
+        composing = false;
+        var text = e && e.data ? e.data : "";
+        if (!text || !enabled || !editor.reviewLedger) return;
+        // the committed text is normally in place already; an engine that fires compositionend first
+        // has it a moment later
+        if (!wrapComposed(text)) setTimeout(function () { wrapComposed(text); }, 0);
+    }
+
+    function wrapComposed(text) {
+        var sel = editor.getSelection();
+        if (!sel || !sel.rangeCount) return false;
+        var r = sel.getRangeAt(0);
+        if (!r.collapsed) return false;
+        var node = r.startContainer, off = r.startOffset;
+        if (node.nodeType !== 3) {
+            var prev = node.childNodes[off - 1];
+            if (!prev || prev.nodeType !== 3) return false;
+            node = prev;
+            off = prev.data.length;
+        }
+        if (off < text.length || node.data.slice(off - text.length, off) !== text) return false;
+        if (isInsideDeleteSpan(node)) {
+            var del = node.parentNode;
+            while (del && !(del.classList && del.classList.contains("rte-tc-delete"))) del = del.parentNode;
+            // only the text at the very end of a deletion is the composition that followed it
+            if (!del || off !== node.data.length || lastTextLeaf(del) !== node) return false;
+            var moved = off - text.length > 0 ? node.splitText(off - text.length) : node;
+            del.parentNode.insertBefore(moved, del.nextSibling);
+            node = moved;
+            off = moved.data.length;
+        }
+        if (isMyInsert(node.parentNode)) { updateEntryForSpan(node.parentNode); return true; }
+        if (off < node.data.length) node.splitText(off);
+        var piece = off - text.length > 0 ? node.splitText(off - text.length) : node;
+        var before = piece.previousSibling;
+        while (before && before.nodeType === 3 && !before.data.length) before = before.previousSibling;
+        var span;
+        if (before && isMyInsert(before)) {
+            span = before;
+            span.appendChild(piece);
+            updateEntryForSpan(span);
+        } else {
+            span = newInsertSpan();
+            piece.parentNode.insertBefore(span, piece);
+            span.appendChild(piece);
+            addInsertEntry(span, text);
+        }
+        placeCaretAtEnd(piece);
+        return true;
+    }
+
+    // Shift+Enter: a <br> in an insertion. At the very end of a block a lone <br> shows no new line;
+    // the browser adds a second, and so does this (inside the insertion, so a reject takes both).
+    function handleLineBreak() {
+        var sel = editor.getSelection();
+        if (!sel || !sel.rangeCount) return;
+        var range = sel.getRangeAt(0);
+        if (!range.collapsed) {
+            trackSelectionDelete(range, true);
+            range = sel.getRangeAt(0);
+            if (!range.collapsed) { range.collapse(false); placeRange(range); }
+        }
+        var doc = editor.getDocument();
+        var block = containerOf(range.startContainer);
+        var tail = doc.createRange();
+        tail.setStart(range.startContainer, range.startOffset);
+        tail.setEnd(block, block.childNodes.length);
+        var atEnd = !tail.toString() && !tail.cloneContents().querySelector("img,br,iframe,video,audio,svg,input,table,hr,[contenteditable='false']");
+        var span = adjacentInsertSpan(range), fresh = !span;
+        var br = doc.createElement("br");
+        if (fresh) {
+            span = newInsertSpan();
+            range.insertNode(span);
+            span.appendChild(br);
+        } else {
+            // inside or right after your own insertion: at the caret
+            range.insertNode(br);
+        }
+        if (atEnd) br.parentNode.insertBefore(doc.createElement("br"), br.nextSibling);
+        if (fresh) addInsertEntry(span, "\n");
+        else updateEntryForSpan(span);
+        var cr = doc.createRange();
+        cr.setStartAfter(br);
+        cr.collapse(true);
+        placeRange(cr);
+    }
+
+    function newInsertSpan() {
+        var span = editor.getDocument().createElement("span");
+        var user = config.currentUser;
+        span.className = config.trackChangesInsertClass;
+        span.setAttribute("data-tc-id", newId());
+        span.setAttribute("data-tc-author", user.id);
+        span.setAttribute("data-tc-at", new Date().toISOString());
+        span.style.color = user.color;
+        span.style.textDecoration = "underline";
+        return span;
+    }
+
+    function addInsertEntry(span, text) {
+        editor.reviewLedger.add({
+            id: span.getAttribute("data-tc-id"),
+            changeType: "insert",
+            author: config.currentUser,
+            text: text,
+            status: "pending",
+            sourceLabel: "Suggested insert",
+            createdAt: Date.now()
+        });
+    }
+
     function createInsertSpan(text, range) {
         var editdoc = editor.getDocument();
         var span = editdoc.createElement("span");
@@ -44975,9 +49488,23 @@ function RTE_Plugin_TrackedChanges() {
         var sel = editor.getSelection();
         if (!sel || sel.rangeCount === 0) return;
         var range = sel.getRangeAt(0);
+        if (mode === "deleteByCut") {
+            var cells = editor.getDocument().querySelectorAll("[__rte_selected_cell]");
+            if (cells.length > 1) {
+                var cellRanges = [];
+                for (var ci = 0; ci < cells.length; ci++) {
+                    var cr = editor.getDocument().createRange();
+                    cr.selectNodeContents(cells[ci]);
+                    cellRanges.push(cr);
+                }
+                markLeavesDeleted(cellRanges, null);
+                return;
+            }
+            if (range.collapsed) return;
+        }
 
         if (!range.collapsed) {
-            wrapRangeAsDelete(range);
+            trackSelectionDelete(range, false);
             return;
         }
 
@@ -45299,6 +49826,1263 @@ function RTE_Plugin_TrackedChanges() {
         sel.addRange(range);
     }
 
+    // --- the document is the record ---
+
+    // 2026-10-03 A suggestion lives in two places: its span in the document and its entry in the
+    // review ledger, which list(), accept(), acceptAll(), rejectAll() and the Review drawer read.
+    // Only the span is saved with the document; the ledger is kept in memory (or in THIS browser's
+    // localStorage, with aiToolkitPersistenceKey). So the review workflow - suggest and save, a
+    // reviewer opens it later and decides - never worked: after a reload list() was empty,
+    // acceptAll() and rejectAll() returned 0, and the marked-up text stayed in the document for
+    // good. Every tracked span in the document is a PENDING suggestion: add the ones the ledger
+    // lacks (the span carries id, author and time), and reopen a decided one whose span is back
+    // (an older version reopened, a decision undone). tools/review/tracked-changes.mjs
+    function syncFromDocument() {
+        var ledger = editor.reviewLedger;
+        var editable = editor.getEditable && editor.getEditable();
+        if (!ledger || !editable || !editable.querySelectorAll) return;
+        var spans = editable.querySelectorAll(".rte-tc-insert[data-tc-id], .rte-tc-delete[data-tc-id], [data-tc-break][data-tc-id], [data-tc-block][data-tc-id]");
+        var seen = {};
+        for (var i = 0; i < spans.length; i++) {
+            var span = spans[i];
+            var id = span.getAttribute("data-tc-id");
+            if (!id) continue;
+            seen[id] = true;
+            var entry = ledger.get(id);
+            if (entry) {
+                if (entry.status !== "pending" && (entry.changeType === "insert" || entry.changeType === "delete" || entry.changeType === "format")) {
+                    ledger.update(id, { status: "pending", decidedAt: 0, decidedBy: null });
+                }
+                continue;
+            }
+            if (span.hasAttribute("data-tc-break")) {
+                ledger.add(breakEntry(span, spanAuthor(span)));
+                continue;
+            }
+            if (span.hasAttribute("data-tc-block")) {
+                var blockFmt = span.hasAttribute("data-tc-format");
+                ledger.add({
+                    id: id, changeType: blockFmt ? "format" : span.getAttribute("data-tc-block") === "delete" ? "delete" : "insert", author: spanAuthor(span), text: span.textContent, isBlock: true,
+                    status: "pending", sourceLabel: blockFmt ? "Suggested formatting" : span.getAttribute("data-tc-block") === "delete" ? "Suggested delete" : "Suggested insert",
+                    createdAt: Date.parse(span.getAttribute("data-tc-at") || "") || Date.now()
+                });
+                continue;
+            }
+            var isInsert = span.classList.contains("rte-tc-insert");
+            ledger.add({
+                id: id,
+                changeType: span.hasAttribute("data-tc-format") ? "format" : isInsert ? "insert" : "delete",
+                author: spanAuthor(span),
+                text: span.textContent,
+                originalHtml: isInsert ? "" : span.innerHTML,
+                status: "pending",
+                sourceLabel: isInsert ? "Suggested insert" : "Suggested delete",
+                createdAt: Date.parse(span.getAttribute("data-tc-at") || "") || Date.now()
+            });
+        }
+        // and the other way: a pending suggestion of ours whose mark has left the document (undone,
+        // taken back, another document loaded) is no longer a suggestion - it was listed for good
+        var entries = ledger.list();
+        for (var j = 0; j < entries.length; j++) {
+            var en = entries[j];
+            if (en.status !== "pending" || (en.changeType !== "insert" && en.changeType !== "delete" && en.changeType !== "format")) continue;
+            if (String(en.id).indexOf("tc-") !== 0 || seen[en.id]) continue;
+            ledger.remove(en.id);
+        }
+    }
+
+    // The span stores only the author's id: the current user's own suggestions get their name back,
+    // anyone else's show the id.
+    function spanAuthor(span) {
+        var id = span.getAttribute("data-tc-author") || "user";
+        var me = config.currentUser;
+        if (me && me.id === id) return me;
+        return { id: id, name: id, color: (span.style && span.style.color) || "" };
+    }
+
+    // --- paragraph breaks ---
+
+    var PILCROW = String.fromCharCode(182);
+    var BREAK_ATTRS = ["data-tc-id", "data-tc-author", "data-tc-at", "data-tc-break", "data-tc-code-first-line"];
+    var TEXT_BLOCK = /^(P|DIV|H[1-6]|LI)$/;
+
+    function trackSplit(info) {
+        var res = info && typeof info.split === "function" ? info.split() : null;
+        if (!res || !res.created) return false;
+        markBreak(res.created, "insert");
+        return true;
+    }
+
+    function trackJoin(info) {
+        var a = info && info.first, b = info && info.second;
+        if (!a || !b) return null;
+        var brk = b.getAttribute("data-tc-break");
+        if (typeof info.begin === "function") info.begin();
+        if (brk === "insert" && b.getAttribute("data-tc-author") === config.currentUser.id) {
+            // taking back your own suggested break: the paragraphs go back together, as on reject
+            var id = b.getAttribute("data-tc-id");
+            var caret = undoSplit(b);
+            if (id && !trackedElements(id).length) editor.reviewLedger.remove(id);
+            if (caret) placeRange(caret);
+            return true;
+        }
+        if (!brk) markBreak(b, "delete");
+        if (info.codeFirstLine) b.setAttribute("data-tc-code-first-line", "true");
+        // a join already suggested, or someone else's suggested break: only the caret moves
+        if (info.backward) caretToEnd(a);
+        return true;
+    }
+
+    function markBreak(block, kind) {
+        var user = config.currentUser;
+        block.setAttribute("data-tc-id", "tc-" + Date.now() + "-" + Math.floor(Math.random() * 10000));
+        block.setAttribute("data-tc-author", user.id);
+        block.setAttribute("data-tc-at", new Date().toISOString());
+        block.setAttribute("data-tc-break", kind);
+        editor.reviewLedger.add(breakEntry(block, user));
+    }
+
+    function breakEntry(block, author) {
+        var insert = block.getAttribute("data-tc-break") === "insert";
+        return {
+            id: block.getAttribute("data-tc-id"),
+            changeType: insert ? "insert" : "delete",
+            author: author,
+            text: PILCROW,
+            isBlock: true,
+            status: "pending",
+            sourceLabel: insert ? "Suggested paragraph break" : "Suggested paragraph join",
+            createdAt: Date.parse(block.getAttribute("data-tc-at") || "") || Date.now()
+        };
+    }
+
+    function clearBreak(block) {
+        for (var i = 0; i < BREAK_ATTRS.length; i++) block.removeAttribute(BREAK_ATTRS[i]);
+    }
+
+    // Reject a suggested break: the new block goes back into the one it was split from, which keeps
+    // its own attributes and id; an inline wrapper the split cut in two is one again.
+    function undoSplit(block) {
+        var a = block.previousElementSibling;
+        clearBreak(block);
+        if (!a || !TEXT_BLOCK.test(a.nodeName) || typeof editor.__joinTextBlocks !== "function") return null;
+        // the layout whitespace between the two blocks (a reloaded document has it) goes with the break
+        for (var ws = block.previousSibling; ws && ws !== a && ws.nodeType === 3 && !/\S/.test(ws.data); ws = block.previousSibling) ws.parentNode.removeChild(ws);
+        return mergeAtJoin(editor.__joinTextBlocks(a, block, true));
+    }
+
+    // Accept a suggested join: exactly what an untracked Backspace does.
+    function joinBreak(block, keepFirst) {
+        var a = block.previousElementSibling;
+        var codeFirstLine = block.getAttribute("data-tc-code-first-line") === "true";
+        clearBreak(block);
+        if (codeFirstLine && a && TEXT_BLOCK.test(a.nodeName) && block.nodeName === "PRE" && typeof editor.__joinFirstCodeLine === "function") {
+            editor.__joinFirstCodeLine(a, block);
+            return;
+        }
+        if (!a || !TEXT_BLOCK.test(a.nodeName) || !TEXT_BLOCK.test(block.nodeName) || typeof editor.__joinTextBlocks !== "function") return;
+        editor.__joinTextBlocks(a, block, !!keepFirst);
+    }
+
+    function sameShell(x, y) {
+        if (x.nodeName !== y.nodeName || /^(BR|IMG|HR|INPUT|IFRAME|VIDEO|AUDIO|SVG|OBJECT|EMBED|TABLE)$/i.test(x.nodeName)) return false;
+        if (x.getAttribute("contenteditable") === "false") return false;
+        if (x.attributes.length !== y.attributes.length) return false;
+        for (var i = 0; i < x.attributes.length; i++) {
+            if (y.getAttribute(x.attributes[i].name) !== x.attributes[i].value) return false;
+        }
+        return true;
+    }
+
+    function mergeAtJoin(caret) {
+        if (!caret) return caret;
+        var c = caret.startContainer, o = caret.startOffset;
+        if (c.nodeType !== 1) return caret;
+        var left = c.childNodes[o - 1], right = left ? left.nextSibling : null, parent = null, merged = false;
+        while (left && right && left.nodeType === 1 && right.nodeType === 1 && sameShell(left, right)) {
+            var inner = left.lastChild;
+            while (right.firstChild) left.appendChild(right.firstChild);
+            right.parentNode.removeChild(right);
+            parent = left;
+            left = inner;
+            right = inner ? inner.nextSibling : null;
+            merged = true;
+        }
+        if (!merged) return caret;
+        var r = editor.getDocument().createRange();
+        if (left && left.nodeType === 3) r.setStart(left, left.data.length);
+        else if (left) r.setStartAfter(left);
+        else r.setStart(parent, 0);
+        r.collapse(true);
+        return r;
+    }
+
+    function caretToEnd(block) {
+        var doc = editor.getDocument();
+        var r = doc.createRange();
+        var w = doc.createTreeWalker(block, NodeFilter.SHOW_TEXT), t, last = null;
+        while ((t = w.nextNode())) if (t.data.length) last = t;
+        var del = last && isInsideDeleteSpan(last) ? last.parentNode : null;
+        while (del && !(del.classList && del.classList.contains("rte-tc-delete"))) del = del.parentNode;
+        if (del) r.setStartAfter(del);
+        else if (last) r.setStart(last, last.data.length);
+        else r.setStart(block, 0);
+        r.collapse(true);
+        placeRange(r);
+    }
+
+    function placeRange(r) {
+        var sel = editor.getSelection();
+        if (!sel) return;
+        sel.removeAllRanges();
+        sel.addRange(r);
+    }
+
+    // --- paste ---
+
+    // 2026-10-03 A paste in suggesting mode. The core runs its whole pipeline and hands the RESULT
+    // here (info.html) with its own insert (info.insert, its __InsertHTML): the inline runs go in as
+    // one insertion, a table / list / rule as a wholly inserted block, and every paragraph the paste
+    // started is a suggested break - so a reject gives the document back exactly and an accept is the
+    // untracked paste. Pasted over a selection, the selection is a suggested deletion first.
+    // tools/review/tracked-paste.mjs
+    var PASTE_BLOCK = /^(P|DIV|H[1-6]|UL|OL|DL|LI|DT|DD|TABLE|THEAD|TBODY|TFOOT|TR|TD|TH|CAPTION|BLOCKQUOTE|PRE|HR|FIGURE|FIGCAPTION|SECTION|ARTICLE|ASIDE|HEADER|FOOTER|NAV|ADDRESS|DETAILS|SUMMARY|FIELDSET|FORM)$/;
+    var PASTE_BLOCK_SELECTOR = "p,div,h1,h2,h3,h4,h5,h6,ul,ol,dl,li,table,blockquote,pre,hr,figure,section,article,aside,header,footer,nav,address,details,fieldset,form";
+    var PASTE_ATOMS = "img,br,iframe,video,audio,svg,canvas,object,embed,input,table,hr";
+    var ZWSP = String.fromCharCode(8203);
+
+    function newId() {
+        return "tc-" + Date.now() + "-" + Math.floor(Math.random() * 10000);
+    }
+
+    // 2026-10-03 Inserted ELEMENTS (an image, a table, a picture pasted or dropped as a file) and native
+    // insert commands (a horizontal rule, which splits the paragraph) are suggested insertions: an
+    // inline element goes in an insertion, a block is a wholly inserted block, and a paragraph the
+    // command split off is a suggested break - so reject gives the document back and accept is the
+    // untracked insert. tools/review/tracked-insert-elements.mjs
+    function caretInMyInsert() {
+        var sel = editor.getSelection();
+        if (!sel || !sel.rangeCount) return false;
+        var r = sel.getRangeAt(0);
+        return r.collapsed ? isMyInsertAncestor(r.startContainer.nodeType === 3 ? r.startContainer : (r.startContainer.childNodes[r.startOffset] || r.startContainer)) : rangeAllMine(r);
+    }
+
+    function deleteSelectionFirst() {
+        var sel = editor.getSelection();
+        if (!sel || !sel.rangeCount || sel.isCollapsed) return;
+        trackSelectionDelete(sel.getRangeAt(0).cloneRange(), true);
+        var r = sel.rangeCount ? sel.getRangeAt(0) : null;
+        if (r && !r.collapsed) { r = r.cloneRange(); r.collapse(false); placeRange(r); }
+    }
+
+    function markInserted(node, st, fromCommand) {
+        if (!node || !node.parentNode) return;
+        if (PASTE_BLOCK.test(node.nodeName) || /^(IFRAME|VIDEO|AUDIO|FIGURE)$/.test(node.nodeName) && node.parentNode === editor.getEditable()) {
+            if (fromCommand && TEXT_BLOCK.test(node.nodeName)) node.setAttribute("data-tc-break", "insert");
+            else node.setAttribute("data-tc-block", "insert");
+            st.mark(node);
+            return;
+        }
+        var span = editor.getDocument().createElement("span");
+        span.className = config.trackChangesInsertClass;
+        st.mark(span);
+        node.parentNode.insertBefore(span, node);
+        span.appendChild(node);
+    }
+
+    function addElementEntry(st, text, what) {
+        editor.reviewLedger.add({
+            id: st.id, changeType: "insert", author: st.user, text: text, isBlock: true,
+            status: "pending", sourceLabel: "Suggested insert" + (what ? " (" + what + ")" : ""), createdAt: Date.now()
+        });
+    }
+
+    function trackElementInsert(info) {
+        // an element a format command makes (a link around text) is part of that formatting suggestion
+        if (formatRunning) return null;
+        var el = info && info.element;
+        if (!el || typeof info.run !== "function") return null;
+        if (caretInMyInsert()) return null;
+        deleteSelectionFirst();
+        info.run();
+        if (!el.parentNode || !editor.getEditable().contains(el)) return true;
+        var st = deletionStamp();
+        markInserted(el, st);
+        addElementEntry(st, el.textContent || "", el.nodeName.toLowerCase());
+        return true;
+    }
+
+    // 2026-10-10 A PAGE BREAK inserted in suggesting mode is a suggested insertion: the command runs, the new
+    // break element is marked as a whole block (data-tc-block="insert"; a text-block mark would read as a
+    // paragraph split and reject would merge it back) and shows until decided. tools/review/tracked-page-break.mjs
+    function trackPageBreak(info) {
+        var editable = editor.getEditable();
+        var mo = typeof MutationObserver === "function" ? new MutationObserver(function () { }) : null;
+        if (mo) mo.observe(editable, { childList: true, subtree: true });
+        var recs = [];
+        try { info.run(); } finally { if (mo) { recs = mo.takeRecords(); mo.disconnect(); } }
+        var added = [];
+        for (var i = 0; i < recs.length; i++) {
+            for (var j = 0; j < recs[i].addedNodes.length; j++) {
+                var n = recs[i].addedNodes[j];
+                if (n.nodeType === 1 && editable.contains(n) && added.indexOf(n) < 0) added.push(n);
+            }
+        }
+        var top = added.filter(function (n) { return !added.some(function (o) { return o !== n && o.contains(n); }); });
+        if (!top.length) return true;
+        var st = deletionStamp();
+        for (var k = 0; k < top.length; k++) {
+            top[k].setAttribute("data-tc-block", "insert");
+            st.mark(top[k]);
+        }
+        editor.reviewLedger.add({
+            id: st.id, changeType: "insert", author: st.user, text: "", isBlock: true,
+            status: "pending", sourceLabel: "Suggested insert (page break)", createdAt: Date.now()
+        });
+        return true;
+    }
+
+    function trackInsertCommand(info) {
+        var editable = editor.getEditable();
+        deleteSelectionFirst();
+        var recs = [];
+        var mo = typeof MutationObserver === "function" ? new MutationObserver(function () { }) : null;
+        if (mo) mo.observe(editable, { childList: true, subtree: true });
+        commandRunning = true;
+        try { info.run(); } finally { commandRunning = false; if (mo) { recs = mo.takeRecords(); mo.disconnect(); } }
+        var added = [];
+        for (var i = 0; i < recs.length; i++) {
+            for (var j = 0; j < recs[i].addedNodes.length; j++) {
+                var n = recs[i].addedNodes[j];
+                if (n.nodeType === 1 && editable.contains(n) && added.indexOf(n) < 0) added.push(n);
+            }
+        }
+        var top = added.filter(function (n) { return !added.some(function (o) { return o !== n && o.contains(n); }); });
+        if (!top.length) return true;
+        var st = deletionStamp();
+        for (var k = 0; k < top.length; k++) markInserted(top[k], st, true);
+        addElementEntry(st, "", info.name);
+        return true;
+    }
+
+    // 2026-10-03 BLOCK formatting in suggesting mode - a heading or other paragraph style, a list, a block
+    // quote, alignment, indent, line height - changed the blocks for real. Now the command runs, the
+    // blocks it changed are marked as a formatting suggestion, and the blocks as they were are kept,
+    // hidden, just before them (their ids parked in data-tc-was-id, so no id is in the document twice):
+    // accept drops the originals - the untracked result; reject drops the new blocks and shows the
+    // originals again, exactly. Reformatting your own suggested block just applies.
+    // tools/review/tracked-block-format.mjs
+    // 2026-10-10 table structure and appearance changes (a column inserted, a header, cell alignment, columns distributed,
+    // a caption) changed the table with no suggestion: now a formatting suggestion of the whole table. tools/review/tracked-table-format.mjs
+    var BLOCK_FORMAT = /^(formatblock|insertunorderedlist|insertorderedlist|insertblockquote|justifyleft|justifycenter|justifyright|justifyfull|indent|outdent|lineheight|linkedit|tablecolumninsertleft|tablecolumninsertright|tablecellsplitver|tablecellsplithor|tablecellmerge|tableheader|tablecellvalign|tablecellhalign|tabledistributecolumns|tablecaption|liststart|tablecellbackcolor|tablecellforecolor|tabledistributerows|tablecelltype)$/;
+    // containers the comparison goes down into when only their children changed
+    var BLOCK_SCOPE = /^(UL|OL|LI|BLOCKQUOTE|DIV|SECTION|ARTICLE|TABLE|TBODY|THEAD|TFOOT|TR|TD|TH)$/;
+    var TABLE_PART = /^(TBODY|THEAD|TFOOT|TR|TD|TH|CAPTION|COLGROUP|COL)$/;
+    var TC_BLOCK_ATTRS = ["data-tc-id", "data-tc-author", "data-tc-at", "data-tc-block", "data-tc-break", "data-tc-format"];
+    var blockRunning = false;
+
+    function trackBlockFormat(info) {
+        var sel = editor.getSelection(), editable = editor.getEditable();
+        if (!sel || !sel.rangeCount) return null;
+        var r = sel.getRangeAt(0);
+        if (!editable.contains(r.startContainer) || !editable.contains(r.endContainer)) return null;
+        // the blocks the selection is in, and one more on each side (a list joins its neighbour)
+        var kids = elementKids(editable);
+        if (!kids || !kids.length) return null;
+        var a = topChildAt(editable, r.startContainer, r.startOffset), b = topChildAt(editable, r.endContainer, r.endOffset);
+        var lo = Math.max(0, (a ? kids.indexOf(a) : 0) - 1);
+        var hi = b ? kids.indexOf(b) : kids.length - 1;
+        hi = Math.min(kids.length - 1, (hi < 0 ? kids.length - 1 : hi) + 1);
+        var copies = kids.slice(lo, hi + 1).map(function (k) { return k.cloneNode(true); });
+        var prevAnchor = kids[lo - 1] || null, nextAnchor = kids[hi + 1] || null;
+        // the hidden originals of earlier block suggestions step out while the command runs: a new
+        // list joined the hidden list beside it, and its items were hidden with it
+        var hidden = editable.querySelectorAll('[data-tc-block="delete"][data-tc-format]'), parked = [], i;
+        for (i = 0; i < hidden.length; i++) {
+            var ph = editor.getDocument().createComment("rte-tc");
+            hidden[i].parentNode.replaceChild(ph, hidden[i]);
+            parked.push([ph, hidden[i]]);
+        }
+        blockRunning = commandRunning = true;
+        try { info.run(); } finally {
+            blockRunning = commandRunning = false;
+            for (i = parked.length - 1; i >= 0; i--) if (parked[i][0].parentNode) parked[i][0].parentNode.replaceChild(parked[i][1], parked[i][0]);
+        }
+        if ((prevAnchor && prevAnchor.parentNode !== editable) || (nextAnchor && nextAnchor.parentNode !== editable)) return true;
+        var now = [];
+        for (var n = prevAnchor ? prevAnchor.nextSibling : editable.firstChild; n && n !== nextAnchor; n = n.nextSibling) {
+            if (n.nodeType === 1) now.push(n);
+            else if (n.nodeType === 3 && /\S/.test(n.data)) return true;
+        }
+        var d = diffBlocks(copies, now, editable, nextAnchor);
+        var removed = d.removed, added = d.added;
+        if (!removed.length && !added.length) return true;
+        // your own suggested blocks: the formatting just applies, and the new blocks stay yours
+        if (removed.length && removed.every(isMyBlock)) {
+            for (i = 0; i < added.length; i++) if (!added[i].hasAttribute("data-tc-id")) copyBlockMarks(removed[Math.min(i, removed.length - 1)], added[i]);
+            return true;
+        }
+        // blocks that are already part of another suggestion (a suggested break or block) are left
+        // as the command made them, as before
+        if (removed.some(hasBlockMark) || added.some(hasBlockMark)) return true;
+        var st = deletionStamp(), text = [];
+        for (i = 0; i < removed.length; i++) {
+            var c = removed[i];
+            parkIds(c);
+            c.setAttribute("data-tc-block", "delete");
+            c.setAttribute("data-tc-format", "1");
+            st.mark(c);
+            d.parent.insertBefore(c, d.before);
+        }
+        for (i = 0; i < added.length; i++) {
+            added[i].setAttribute("data-tc-block", "insert");
+            added[i].setAttribute("data-tc-format", "1");
+            st.mark(added[i]);
+            text.push(added[i].textContent);
+        }
+        editor.reviewLedger.add({
+            id: st.id, changeType: "format", author: st.user, text: text.join("\n"), isBlock: true,
+            status: "pending", sourceLabel: "Suggested formatting (" + info.name + ")", createdAt: Date.now()
+        });
+        return true;
+    }
+
+    // the element children of a container, or null when it holds text of its own
+    function elementKids(el) {
+        var out = [];
+        for (var n = el.firstChild; n; n = n.nextSibling) {
+            if (n.nodeType === 1) out.push(n);
+            else if (n.nodeType === 3 && /\S/.test(n.data)) return null;
+        }
+        return out;
+    }
+
+    // the child of the editable a boundary point is in
+    function topChildAt(editable, node, offset) {
+        if (node === editable) return editable.childNodes[Math.min(offset, editable.childNodes.length - 1)] || null;
+        while (node && node.parentNode !== editable) node = node.parentNode;
+        return node;
+    }
+
+    // what changed, as the blocks it was (copies) and the blocks it is (live), at the deepest level
+    // where only one container's children changed
+    function diffBlocks(olds, news, parent, tail) {
+        var p = 0, s = 0;
+        while (p < olds.length && p < news.length && olds[p].outerHTML === news[p].outerHTML) p++;
+        while (s < olds.length - p && s < news.length - p && olds[olds.length - 1 - s].outerHTML === news[news.length - 1 - s].outerHTML) s++;
+        var removed = olds.slice(p, olds.length - s), added = news.slice(p, news.length - s);
+        if (removed.length === 1 && added.length === 1 && BLOCK_SCOPE.test(added[0].nodeName) && sameAttrs(removed[0], added[0])) {
+            var ok = elementKids(removed[0]), nk = elementKids(added[0]);
+            if (ok && nk && ok.length && nk.length) {
+                var inner = diffBlocks(ok, nk, added[0], null);
+                // a cell, row or row group is never a unit: its hidden original would be one more cell
+                // or row in the live table - the part above it is, up to the table itself
+                if (!inner.removed.concat(inner.added).some(function (x) { return TABLE_PART.test(x.nodeName); })) return inner;
+            }
+        }
+        return { removed: removed, added: added, parent: parent, before: added[0] || news[news.length - s] || tail };
+    }
+
+    function sameAttrs(x, y) {
+        if (x.nodeName !== y.nodeName || x.attributes.length !== y.attributes.length) return false;
+        for (var i = 0; i < x.attributes.length; i++) if (y.getAttribute(x.attributes[i].name) !== x.attributes[i].value) return false;
+        return true;
+    }
+
+    function hasBlockMark(el) {
+        return el.hasAttribute("data-tc-block") || el.hasAttribute("data-tc-break");
+    }
+
+    function isMyBlock(el) {
+        return el.getAttribute("data-tc-block") === "insert" && el.getAttribute("data-tc-author") === config.currentUser.id;
+    }
+
+    function copyBlockMarks(from, to) {
+        for (var i = 0; i < TC_BLOCK_ATTRS.length; i++) {
+            var v = from.getAttribute(TC_BLOCK_ATTRS[i]);
+            if (v != null) to.setAttribute(TC_BLOCK_ATTRS[i], v);
+        }
+    }
+
+    function parkIds(el) {
+        var list = [el].concat(Array.prototype.slice.call(el.querySelectorAll("[id]")));
+        for (var i = 0; i < list.length; i++) {
+            if (!list[i].hasAttribute("id")) continue;
+            list[i].setAttribute("data-tc-was-id", list[i].getAttribute("id"));
+            list[i].removeAttribute("id");
+        }
+    }
+
+    function unparkIds(el) {
+        var list = [el].concat(Array.prototype.slice.call(el.querySelectorAll("[data-tc-was-id]")));
+        for (var i = 0; i < list.length; i++) {
+            if (!list[i].hasAttribute("data-tc-was-id")) continue;
+            list[i].setAttribute("id", list[i].getAttribute("data-tc-was-id"));
+            list[i].removeAttribute("data-tc-was-id");
+        }
+    }
+
+    // 2026-10-03 The public insert API (editor.insertHTML / insertText) - plugins, dialogs, integrators -
+    // marks its content like a paste. Inside the reviewer's own suggested insertion it just goes in:
+    // it is part of that insertion already. tools/review/tracked-insert.mjs
+    function trackInsert(info) {
+        var sel = editor.getSelection();
+        if (sel && sel.rangeCount) {
+            var r = sel.getRangeAt(0);
+            if (r.collapsed ? isMyInsertAncestor(r.startContainer.nodeType === 3 ? r.startContainer : (r.startContainer.childNodes[r.startOffset] || r.startContainer)) : rangeAllMine(r)) return null;
+        }
+        return trackPaste(info, "Suggested insert");
+    }
+
+    function trackPaste(info, label) {
+        if (!info || typeof info.insert !== "function" || typeof info.html !== "string" || !info.html) return null;
+        var sel = editor.getSelection();
+        if (!sel || !sel.rangeCount) return null;
+        var doc = editor.getDocument(), editable = editor.getEditable();
+        var user = config.currentUser, id = newId(), at = new Date().toISOString();
+        var stamp = function (el) {
+            el.setAttribute("data-tc-id", id);
+            el.setAttribute("data-tc-author", user.id);
+            el.setAttribute("data-tc-at", at);
+        };
+        // marked in an inert document: nothing in the pasted HTML loads or runs while it is wrapped
+        var inert = doc.implementation.createHTMLDocument("");
+        var box = inert.createElement("div");
+        box.innerHTML = info.html;
+        var text = box.textContent;
+        var hasBlock = markPasted(box, inert, stamp);
+
+        if (typeof info.begin === "function") info.begin();
+        var range = sel.getRangeAt(0);
+        if (!range.collapsed) {
+            // the text it replaces is a suggested deletion, not a silent removal
+            if (!wrapRangeAsDelete(range)) { range.collapse(false); placeRange(range); }
+            range = sel.getRangeAt(0);
+        }
+        // the block the core splits for a block paste, and what followed it
+        var host = null;
+        for (var n = range.startContainer; n && n !== editable; n = n.parentNode) {
+            if (n.nodeType === 1 && /^(P|H[1-6])$/.test(n.nodeName)) { host = n; break; }
+        }
+        var hostNext = host ? host.nextElementSibling : null;
+        // The core drops a host whose first half is EMPTY (a paste at its start, or into an empty
+        // paragraph) - with its id and attributes. A zero-width space at the caret keeps it for the
+        // length of the insert; it is always taken out again.
+        var guard = null;
+        if (hasBlock && host && firstHalfEmpty(host, range)) {
+            guard = doc.createTextNode(ZWSP);
+            range.insertNode(guard);
+            range.setStartAfter(guard);
+            range.collapse(true);
+            placeRange(range);
+        }
+        try {
+            info.insert(box.innerHTML);
+        } finally {
+            if (guard && guard.parentNode) guard.parentNode.removeChild(guard);
+        }
+
+        if (host && host.parentNode && editable.contains(host)) {
+            // every block after the host up to what followed it is one the paste started
+            for (var el = host.nextElementSibling; el && el !== hostNext; el = el.nextElementSibling) {
+                if (el.hasAttribute("data-tc-block") || el.hasAttribute("data-tc-break")) continue;
+                if (TEXT_BLOCK.test(el.nodeName)) el.setAttribute("data-tc-break", "insert");
+                else el.setAttribute("data-tc-block", "insert");
+                stamp(el);
+            }
+            if (guard) {
+                // the host is left empty; accepting the paste lets it go, as an untracked paste does
+                if (!host.firstChild) host.appendChild(doc.createElement("br"));
+                if (!host.hasAttribute("data-tc-break")) {
+                    host.setAttribute("data-tc-break", "delete");
+                    stamp(host);
+                }
+            }
+        }
+        // pasted paragraphs that went in INSIDE another block (a cell, an item, a div): wholly inserted
+        var landed = editable.querySelectorAll("[data-tc-new]");
+        for (var k = 0; k < landed.length; k++) {
+            landed[k].removeAttribute("data-tc-new");
+            if (!landed[k].hasAttribute("data-tc-break") && !landed[k].hasAttribute("data-tc-block")) {
+                landed[k].setAttribute("data-tc-block", "insert");
+                stamp(landed[k]);
+            }
+        }
+        editor.reviewLedger.add({
+            id: id,
+            changeType: "insert",
+            author: user,
+            text: text,
+            isBlock: hasBlock,
+            status: "pending",
+            sourceLabel: label || "Suggested paste",
+            createdAt: Date.now()
+        });
+        // 2026-10-03 the caret goes after what went in, as after an untracked paste or insert: left
+        // selected, the next keystroke (or a second insertHTML) replaced the whole paste, and with your
+        // own insertion that took its suggestion too. At the end of the last inserted text - the end
+        // of the range after pasted paragraphs is the start of the paragraph that followed.
+        // tools/review/tracked-paste.mjs, tracked-insert.mjs
+        var ins = editable.querySelectorAll('.rte-tc-insert[data-tc-id="' + cssEscape(id) + '"]');
+        var endSel = editor.getSelection(), endR = null;
+        if (ins.length) {
+            endR = doc.createRange();
+            endR.selectNodeContents(ins[ins.length - 1]);
+        } else if (endSel && endSel.rangeCount && !endSel.isCollapsed) {
+            endR = endSel.getRangeAt(0).cloneRange();
+        }
+        if (endR) {
+            endR.collapse(false);
+            placeRange(endR);
+        }
+        return true;
+    }
+
+    // Wrap the pasted fragment: inline runs in insert spans; a plain text block keeps its tag and gets
+    // its runs wrapped (and a mark, to find it once it is in); anything else is one inserted block.
+    function markPasted(box, inert, stamp) {
+        var hasBlock = false, c;
+        for (c = box.firstChild; c; c = c.nextSibling) {
+            if (c.nodeType === 1 && PASTE_BLOCK.test(c.nodeName)) { hasBlock = true; break; }
+        }
+        var child = box.firstChild;
+        while (child) {
+            if (child.nodeType === 1 && PASTE_BLOCK.test(child.nodeName)) {
+                var next = child.nextSibling;
+                if (/^(P|DIV|H[1-6])$/.test(child.nodeName) && !child.querySelector(PASTE_BLOCK_SELECTOR)) {
+                    var inner = [];
+                    for (var ic = child.firstChild; ic; ic = ic.nextSibling) inner.push(ic);
+                    wrapPastedRun(child, inner, inert, stamp, false);
+                    child.setAttribute("data-tc-new", "1");
+                } else {
+                    child.setAttribute("data-tc-block", "insert");
+                    stamp(child);
+                }
+                child = next;
+                continue;
+            }
+            var run = [];
+            while (child && !(child.nodeType === 1 && PASTE_BLOCK.test(child.nodeName))) {
+                run.push(child);
+                child = child.nextSibling;
+            }
+            // whitespace between pasted blocks is layout, not content
+            wrapPastedRun(box, run, inert, stamp, hasBlock);
+        }
+        return hasBlock;
+    }
+
+    function wrapPastedRun(parent, nodes, inert, stamp, skipBlank) {
+        if (!nodes.length) return;
+        if (skipBlank) {
+            var blank = true;
+            for (var i = 0; i < nodes.length && blank; i++) {
+                var nd = nodes[i];
+                if (nd.nodeType === 3) blank = !nd.data.replace(/[\s\xa0]/g, "");
+                else if (nd.nodeType === 1) blank = !(nd.textContent || "").replace(/[\s\xa0]/g, "") && !(nd.matches && nd.matches(PASTE_ATOMS)) && !(nd.querySelector && nd.querySelector(PASTE_ATOMS));
+            }
+            if (blank) return;
+        }
+        var span = inert.createElement("span");
+        span.className = config.trackChangesInsertClass;
+        stamp(span);
+        parent.insertBefore(span, nodes[0]);
+        for (var j = 0; j < nodes.length; j++) span.appendChild(nodes[j]);
+    }
+
+    function firstHalfEmpty(host, range) {
+        var r = editor.getDocument().createRange();
+        r.setStart(host, 0);
+        r.setEnd(range.startContainer, range.startOffset);
+        var f = r.cloneContents();
+        return !(f.textContent || "").split(ZWSP).join("").replace(/[\s\xa0]/g, "") && !f.querySelector("img,iframe,video,audio,table,hr,input,svg,canvas,object,embed");
+    }
+
+    function clearBlock(el) {
+        el.removeAttribute("data-tc-id");
+        el.removeAttribute("data-tc-author");
+        el.removeAttribute("data-tc-at");
+        el.removeAttribute("data-tc-block");
+        el.removeAttribute("data-tc-format");
+    }
+
+    // --- selection deletes ---
+
+    // 2026-10-03 Deleting a SELECTION in suggesting mode - Backspace/Delete, a selected image, typing,
+    // Enter or a paste over it, a cut. The core deletes most of these itself and asks first
+    // (editor.__trackHook "delete"); cut and the browser's replace arrive as beforeinput. Inside one
+    // block: wrapRangeAsDelete as before. Across sibling text blocks: the selected text of the first
+    // and last block is wrapped (text node by text node, so formatting is never split), a wholly
+    // covered block in between is a deleted block, and the last block is a suggested join - accept is
+    // exactly the untracked delete, reject is the document as it was. Any other shape (list items,
+    // cells): the text is wrapped and the structure left alone. Nothing is removed.
+    // tools/review/tracked-selection-delete.mjs
+    var DELETE_ATOMS = "img,iframe,video,audio,svg,canvas,object,embed,input,[contenteditable='false']";
+    var CONTAINER_BLOCK = /^(P|DIV|H[1-6]|LI|TD|TH|DT|DD|BLOCKQUOTE|PRE|FIGCAPTION|CAPTION)$/;
+    var LAYOUT_PARENT = /^(UL|OL|DL|TABLE|THEAD|TBODY|TFOOT|TR|BODY|BLOCKQUOTE|SECTION|ARTICLE|FIGURE)$/;
+
+    function trackDeleteHook(info) {
+        var cells = info && info.ranges && info.ranges.length ? info.ranges : null;
+        if (!info || (!cells && (!info.range || info.range.collapsed))) return null;
+        if (typeof info.begin === "function") info.begin();
+        if (cells) markLeavesDeleted(cells, null);
+        else trackSelectionDelete(info.range.cloneRange(), !!info.typing);
+        // suggesting mode never deletes for real, even when there is nothing to mark
+        return true;
+    }
+
+    function containerOf(node) {
+        var editable = editor.getEditable();
+        for (var n = node; n && n !== editable; n = n.parentNode) if (n.nodeType === 1 && CONTAINER_BLOCK.test(n.nodeName)) return n;
+        return editable;
+    }
+
+    // the leaf text block (P/DIV/H) a node is in, or null inside a list item, cell, quote...
+    function textBlockOf(node) {
+        var editable = editor.getEditable();
+        for (var n = node; n && n !== editable; n = n.parentNode) {
+            if (n.nodeType !== 1) continue;
+            if (/^(P|DIV|H[1-6])$/.test(n.nodeName)) return n;
+            if (/^(LI|TD|TH|UL|OL|TABLE|BLOCKQUOTE|FIGURE|PRE)$/.test(n.nodeName)) return null;
+        }
+        return null;
+    }
+
+    function blankRange(r) {
+        return !(r.toString() || "").replace(/[\s\xa0]/g, "") && !r.cloneContents().querySelector(DELETE_ATOMS);
+    }
+
+    function trackSelectionDelete(range, keepFirst) {
+        if (!range || range.collapsed) return false;
+        var doc = editor.getDocument();
+        // a triple-click ends at the very start of the next block: that block is not part of it
+        var endBlock = textBlockOf(range.endContainer);
+        if (endBlock && endBlock !== textBlockOf(range.startContainer) && endBlock.previousElementSibling) {
+            var head = doc.createRange();
+            head.setStart(endBlock, 0);
+            head.setEnd(range.endContainer, range.endOffset);
+            if (head.toString() === "" && !head.cloneContents().querySelector(DELETE_ATOMS)) range.setEnd(endBlock.previousElementSibling, endBlock.previousElementSibling.childNodes.length);
+        }
+        if (range.collapsed) return false;
+        var c1 = containerOf(range.startContainer), c2 = containerOf(range.endContainer);
+        if (c1 === c2 && !range.cloneContents().querySelector(PASTE_BLOCK_SELECTOR)) {
+            if (wrapRangeAsDelete(range)) return true;
+            return markLeavesDeleted([range], null);
+        }
+        var a = textBlockOf(range.startContainer), b = textBlockOf(range.endContainer);
+        if (a && b && a !== b && a.parentNode === b.parentNode && (a.compareDocumentPosition(b) & 4)) return markBlocksDeleted(range, a, b, keepFirst);
+        return markLeavesDeleted([range], null);
+    }
+
+    function deletionStamp() {
+        var user = config.currentUser, id = newId(), at = new Date().toISOString();
+        return {
+            id: id, user: user,
+            mark: function (el) {
+                el.setAttribute("data-tc-id", id);
+                el.setAttribute("data-tc-author", user.id);
+                el.setAttribute("data-tc-at", at);
+            }
+        };
+    }
+
+    function markBlocksDeleted(range, a, b, keepFirst) {
+        var doc = editor.getDocument();
+        var blocks = [];
+        for (var el = a; el; el = el.nextElementSibling) { blocks.push(el); if (el === b) break; }
+        if (blocks[blocks.length - 1] !== b) return markLeavesDeleted([range], null);
+        var text = range.toString();
+        var head = doc.createRange(); head.setStart(a, 0); head.setEnd(range.startContainer, range.startOffset);
+        var tail = doc.createRange(); tail.setStart(range.endContainer, range.endOffset); tail.setEnd(b, b.childNodes.length);
+        var next = b.nextElementSibling;
+        // whole blocks, nothing typed in their place, and somewhere for the caret: they go whole
+        var whole = blankRange(head) && blankRange(tail) && !keepFirst && !!next;
+        var st = deletionStamp(), parts = [];
+        for (var i = 0; i < blocks.length; i++) {
+            var blk = blocks[i], first = i === 0, last = i === blocks.length - 1;
+            if (whole || (!first && !last)) {
+                if (!blk.hasAttribute("data-tc-block") && !blk.hasAttribute("data-tc-break")) {
+                    blk.setAttribute("data-tc-block", "delete");
+                    st.mark(blk);
+                }
+                continue;
+            }
+            var r = doc.createRange();
+            if (first) { r.setStart(range.startContainer, range.startOffset); r.setEnd(blk, blk.childNodes.length); }
+            else { r.setStart(blk, 0); r.setEnd(range.endContainer, range.endOffset); }
+            parts.push(r);
+            if (last && !blk.hasAttribute("data-tc-break")) {
+                blk.setAttribute("data-tc-break", "delete");
+                st.mark(blk);
+            }
+        }
+        markLeavesDeleted(parts, st, true);
+        editor.reviewLedger.add({
+            id: st.id, changeType: "delete", author: st.user, text: text, isBlock: true,
+            status: "pending", sourceLabel: "Suggested delete", createdAt: Date.now()
+        });
+        if (whole) {
+            var cr = doc.createRange();
+            cr.setStart(next, 0);
+            cr.collapse(true);
+            placeRange(cr);
+        }
+        else caretToEnd(a);
+        return true;
+    }
+
+    // Wrap every piece of text (and every atom) the ranges cover in a delete span of its own, without
+    // splitting any element. With no stamp given this is a deletion of its own, listed here.
+    function markLeavesDeleted(ranges, st, noEntry) {
+        var doc = editor.getDocument();
+        var own = !st;
+        if (own) st = deletionStamp();
+        var targets = [], text = "";
+        for (var k = 0; k < ranges.length; k++) {
+            var range = ranges[k];
+            if (range.collapsed) continue;
+            text += range.toString();
+            var root = range.commonAncestorContainer;
+            if (root.nodeType !== 1) root = root.parentNode;
+            var w = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, null, false), n;
+            while ((n = w.nextNode())) {
+                if (!range.intersectsNode(n) || isInsideDeleteSpan(n)) continue;
+                if (n.nodeType === 1) {
+                    if (n.matches(DELETE_ATOMS) && !(n.parentNode && n.parentNode.closest && n.parentNode.closest("[contenteditable='false']"))) {
+                        var nr = doc.createRange(); nr.selectNode(n);
+                        if (range.compareBoundaryPoints(Range.START_TO_START, nr) <= 0 && range.compareBoundaryPoints(Range.END_TO_END, nr) >= 0) targets.push({ atom: n });
+                    }
+                    continue;
+                }
+                if (n.parentNode && n.parentNode.closest && n.parentNode.closest("[contenteditable='false']")) continue;
+                var s0 = n === range.startContainer ? range.startOffset : 0;
+                var e0 = n === range.endContainer ? range.endOffset : n.data.length;
+                if (e0 <= s0) continue;
+                // whitespace between blocks is layout, not text
+                if (!/\S/.test(n.data) && n.parentNode && LAYOUT_PARENT.test(n.parentNode.nodeName)) continue;
+                targets.push({ node: n, s: s0, e: e0 });
+            }
+        }
+        var lastSpan = null;
+        for (var t = targets.length - 1; t >= 0; t--) {
+            var tg = targets[t], piece = tg.atom;
+            if (!piece) {
+                piece = tg.node;
+                if (tg.e < piece.data.length) piece.splitText(tg.e);
+                if (tg.s > 0) piece = piece.splitText(tg.s);
+            }
+            var span = doc.createElement("span");
+            span.className = config.trackChangesDeleteClass;
+            st.mark(span);
+            span.style.color = st.user.color;
+            span.style.textDecoration = "line-through";
+            piece.parentNode.insertBefore(span, piece);
+            span.appendChild(piece);
+            if (!lastSpan) lastSpan = span;
+        }
+        if (own) {
+            if (!targets.length) return false;
+            editor.reviewLedger.add({
+                id: st.id, changeType: "delete", author: st.user, text: text,
+                status: "pending", sourceLabel: "Suggested delete", createdAt: Date.now()
+            });
+            var cr = doc.createRange();
+            cr.setStartAfter(lastSpan);
+            cr.collapse(true);
+            placeRange(cr);
+        }
+        return targets.length > 0;
+    }
+
+    // --- formatting ---
+
+    // 2026-10-03 Inline formatting in suggesting mode - bold, italic, underline, strikethrough,
+    // sub/superscript, colours, font, size, remove formatting - went in for real. Now the command
+    // runs, and the formatted text is marked as a formatting suggestion while the text as it was
+    // (with its formatting) is kept beside it as a hidden deletion: accept drops the original - the
+    // untracked result; reject drops the formatted copy and brings the original back, exactly.
+    // Formatting your own suggested insertion just applies. tools/review/tracked-formatting.mjs
+    // 2026-10-09 highlight and unlink went in untracked in suggesting mode (no suggestion to decide)
+    var INLINE_FORMAT = /^(bold|italic|underline|strikethrough|superscript|subscript|forecolor|backcolor|fontname|fontsize|removeformat|inlinecode|changecase|createlink|highlight|unlink)$/;
+    // commands that act on the word under a caret: the word is the selection they format
+    var WORD_COMMANDS = /^(inlinecode|changecase)$/;
+    var WORD_CHAR = /[^\s.,;:!?()"'\[\]{}<>]/;
+
+    // native insert commands the browser carries out (a horizontal rule splits the paragraph)
+    var INSERT_COMMANDS = /^(inserthorizontalrule)$/;
+    var commandRunning = false;
+
+    // 2026-10-09 Deleting a table ROW, COLUMN or whole TABLE in suggesting mode is a suggested deletion: the
+    // row, cells or table stay visible (struck through) until decided; accept removes them, reject clears the
+    // mark - the table as it was. The command is not run, so the table keeps its structure meanwhile.
+    // Merged cells and a multi-cell selection stay untracked. tools/review/tracked-table-delete.mjs
+    var TABLE_DELETE = /^(tablerowdelete|tablecolumndelete|tabledelete)$/;
+
+    function trackTableDelete(info) {
+        var sel = editor.getSelection();
+        if (!sel || !sel.rangeCount) return null;
+        var doc = editor.getDocument(), editable = editor.getEditable();
+        if (doc.querySelectorAll("[__rte_selected_cell]").length > 1) return null;
+        var node = sel.getRangeAt(0).startContainer;
+        var cell = node.nodeType === 1 ? node : node.parentNode;
+        while (cell && !/^(TD|TH)$/.test(cell.nodeName)) cell = cell.parentNode;
+        if (!cell || !editable.contains(cell)) return null;
+        var row = cell.parentNode, table = cell.parentNode && cell.parentNode.parentNode && cell.parentNode.parentNode.parentNode;
+        while (table && table.nodeName !== "TABLE") table = table.parentNode;
+        if (!table) return null;
+        var targets = [], i, r;
+        if (info.name === "tabledelete" || (info.name === "tablerowdelete" && table.rows.length <= 1) || (info.name === "tablecolumndelete" && row.cells.length <= 1)) {
+            targets = [table];
+        } else if (info.name === "tablerowdelete") {
+            targets = [row];
+        } else {
+            var idx = cell.cellIndex;
+            for (r = 0; r < table.rows.length; r++) {
+                var c = table.rows[r].cells[idx];
+                if (!c) continue;
+                if (c.colSpan > 1 || c.rowSpan > 1) return null;
+                targets.push(c);
+            }
+        }
+        for (i = 0; i < targets.length; i++) {
+            var tg = targets[i];
+            if (tg.hasAttribute("data-tc-block") || tg.hasAttribute("data-tc-break") || tg.querySelector("[data-tc-block], [data-tc-break]")) return null;
+        }
+        if (!targets.length) return null;
+        var st = deletionStamp(), text = [];
+        for (i = 0; i < targets.length; i++) {
+            targets[i].setAttribute("data-tc-block", "delete");
+            st.mark(targets[i]);
+            text.push(targets[i].textContent);
+        }
+        editor.reviewLedger.add({
+            id: st.id, changeType: "delete", author: st.user, text: text.join(" "), isBlock: true,
+            status: "pending",
+            sourceLabel: "Suggested delete (" + (targets[0].nodeName === "TABLE" ? "table" : targets[0].nodeName === "TR" ? "table row" : "table column") + ")",
+            createdAt: Date.now()
+        });
+        return true;
+    }
+
+    // 2026-10-09 Inserting a table ROW above or below in suggesting mode is a suggested insertion: the command
+    // runs, the new row is marked (data-tc-block="insert") and shows until decided; accept keeps it, reject
+    // removes it - the table as it was. tools/review/tracked-table-insert.mjs
+    var TABLE_ROW_INSERT = /^(tablerowinsertabove|tablerowinsertbelow)$/;
+
+    function trackTableRowInsert(info) {
+        var editable = editor.getEditable();
+        var mo = typeof MutationObserver === "function" ? new MutationObserver(function () { }) : null;
+        if (mo) mo.observe(editable, { childList: true, subtree: true });
+        var recs = [];
+        try { info.run(); } finally { if (mo) { recs = mo.takeRecords(); mo.disconnect(); } }
+        var rows = [];
+        for (var i = 0; i < recs.length; i++) {
+            for (var j = 0; j < recs[i].addedNodes.length; j++) {
+                var n = recs[i].addedNodes[j];
+                if (n.nodeName === "TR" && editable.contains(n) && rows.indexOf(n) < 0) rows.push(n);
+            }
+        }
+        if (!rows.length) return true;
+        var st = deletionStamp();
+        for (var k = 0; k < rows.length; k++) {
+            rows[k].setAttribute("data-tc-block", "insert");
+            st.mark(rows[k]);
+        }
+        editor.reviewLedger.add({
+            id: st.id, changeType: "insert", author: st.user, text: "", isBlock: true,
+            status: "pending", sourceLabel: "Suggested insert (table row)", createdAt: Date.now()
+        });
+        return true;
+    }
+
+    function trackCommand(info) {
+        if (!formatRunning && !blockRunning && info && TABLE_ROW_INSERT.test(info.name || "") && typeof info.run === "function") return trackTableRowInsert(info);
+        if (!formatRunning && !blockRunning && info && TABLE_DELETE.test(info.name || "") && typeof info.run === "function") {
+            var tableDelete = trackTableDelete(info);
+            if (tableDelete === true) return true;
+        }
+        if (!formatRunning && !blockRunning && info && BLOCK_FORMAT.test(info.name || "") && typeof info.run === "function") return trackBlockFormat(info);
+        if (!formatRunning && info && info.name === "insertpagebreak" && typeof info.run === "function") return trackPageBreak(info);
+        if (!formatRunning && info && INSERT_COMMANDS.test(info.name || "") && typeof info.run === "function") return trackInsertCommand(info);
+        if (formatRunning || !info || !INLINE_FORMAT.test(info.name || "")) return null;
+        var sel = editor.getSelection();
+        if (sel && sel.rangeCount && sel.isCollapsed && WORD_COMMANDS.test(info.name)) selectWordAtCaret(sel);
+        return trackFormat(info.name, info.value, info.run) ? true : null;
+    }
+
+    function selectWordAtCaret(sel) {
+        var r = sel.getRangeAt(0), n = r.startContainer;
+        if (n.nodeType !== 3) return false;
+        var s0 = r.startOffset, e0 = s0;
+        while (s0 > 0 && WORD_CHAR.test(n.data.charAt(s0 - 1))) s0--;
+        while (e0 < n.data.length && WORD_CHAR.test(n.data.charAt(e0))) e0++;
+        if (e0 <= s0) return false;
+        var w = editor.getDocument().createRange();
+        w.setStart(n, s0);
+        w.setEnd(n, e0);
+        placeRange(w);
+        return true;
+    }
+    var CONTAINER_SELECTOR = "p,div,h1,h2,h3,h4,h5,h6,li,td,th,dt,dd,blockquote,pre,figcaption,caption";
+    var INLINE_WRAPPER = /^(B|STRONG|I|EM|U|S|STRIKE|DEL|INS|SPAN|FONT|SUB|SUP|MARK|CODE|SMALL|BIG|A)$/;
+    var formatRunning = false;
+
+    function trackFormat(cmd, value, run) {
+        var sel = editor.getSelection();
+        if (!sel || !sel.rangeCount) return false;
+        var doc = editor.getDocument();
+        // a dragged cell selection: the caret sits collapsed in the first cell and the core formats
+        // every marked cell's content itself - each cell is a part of the one suggestion
+        var cells = doc.querySelectorAll("[__rte_selected_cell]"), ranges = [], i;
+        if (cells.length > 1) {
+            for (i = 0; i < cells.length; i++) { var cr = doc.createRange(); cr.selectNodeContents(cells[i]); ranges.push(cr); }
+        } else {
+            if (sel.isCollapsed) return false;
+            ranges.push(sel.getRangeAt(0));
+            if (rangeAllMine(ranges[0])) return false;
+        }
+        var parts = [];
+        for (var k = 0; k < ranges.length; k++) {
+            var blocks = blocksInRange(ranges[k]);
+            for (i = 0; i < blocks.length; i++) {
+                var r = clipToBlock(ranges[k], blocks[i]);
+                if (r.collapsed || blankRange(r)) continue;
+                parts.push({ block: blocks[i], frag: cloneWithContext(r, blocks[i]), before: blocks[i].innerHTML });
+            }
+        }
+        if (!parts.length) return false;
+        // where the selection is, as text offsets in its blocks: a command that leaves the selection
+        // collapsed or elsewhere (inline code does) still tells us what it formatted
+        var anchor = null;
+        if (cells.length < 2) {
+            var r0 = ranges[0], sb = containerOf(r0.startContainer), eb = containerOf(r0.endContainer);
+            anchor = { sb: sb, so: textOffsetIn(sb, r0.startContainer, r0.startOffset), eb: eb, eo: textOffsetIn(eb, r0.endContainer, r0.endOffset) };
+        }
+        formatRunning = true;
+        try { if (typeof run === "function") run(); else editor.execCommand(cmd, value); } finally { formatRunning = false; }
+        var after = cells.length > 1 ? null : sel.rangeCount ? sel.getRangeAt(0) : null;
+        if (cells.length < 2) {
+            var usable = !!after && !after.collapsed;
+            // usable only if it covers some of what was selected in EVERY block
+            for (var pi = 0; usable && pi < parts.length; pi++) if (!after.intersectsNode(parts[pi].block) || blankRange(clipToBlock(after, parts[pi].block))) usable = false;
+            if (!usable && anchor && anchor.sb.parentNode && anchor.eb.parentNode) {
+                var sp = pointAtTextOffset(anchor.sb, anchor.so), ep = pointAtTextOffset(anchor.eb, anchor.eo);
+                after = doc.createRange();
+                after.setStart(sp.node, sp.offset);
+                after.setEnd(ep.node, ep.offset);
+            }
+            if (!after || after.collapsed) return true;
+        }
+        var st = deletionStamp(), text = "", first = null, last = null;
+        for (i = 0; i < parts.length; i++) {
+            var part = parts[i];
+            if (!part.block.parentNode) continue;
+            // a block the command left as it was is not part of the suggestion (a plugin command on a
+            // cell selection changes only the caret's word, not every selected cell)
+            if (part.block.innerHTML === part.before) continue;
+            var whole = null;
+            if (!after) { whole = doc.createRange(); whole.selectNodeContents(part.block); }
+            var pr = whole || clipToBlock(after, part.block);
+            if (pr.collapsed) continue;
+            text += pr.toString();
+            var at = outerStart(pr, part.block);
+            var spans = wrapFormatted(pr, st);
+            if (!spans.length) continue;
+            if (!first) first = spans[0];
+            last = spans[spans.length - 1];
+            var del = doc.createElement("span");
+            del.className = config.trackChangesDeleteClass;
+            st.mark(del);
+            del.setAttribute("data-tc-format", "1");
+            del.appendChild(stripContext(part.frag, at.startContainer, part.block));
+            at.insertNode(del);
+        }
+        if (!first) return true;
+        editor.reviewLedger.add({
+            id: st.id, changeType: "format", author: st.user, text: text,
+            status: "pending", sourceLabel: "Suggested formatting (" + cmd + ")", createdAt: Date.now()
+        });
+        var nr = doc.createRange();
+        nr.setStart(first, 0);
+        nr.setEnd(last, last.childNodes.length);
+        placeRange(nr);
+        return true;
+    }
+
+    // every character the range covers is in the reviewer's own suggested insertion
+    function rangeAllMine(range) {
+        var root = range.commonAncestorContainer;
+        if (root.nodeType === 3) return isMyInsertAncestor(root);
+        var w = editor.getDocument().createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false), n, any = false;
+        while ((n = w.nextNode())) {
+            if (!range.intersectsNode(n)) continue;
+            var s0 = n === range.startContainer ? range.startOffset : 0;
+            var e0 = n === range.endContainer ? range.endOffset : n.data.length;
+            if (e0 <= s0) continue;
+            if (!isMyInsertAncestor(n)) return false;
+            any = true;
+        }
+        return any;
+    }
+
+    function isMyInsertAncestor(node) {
+        var editable = editor.getEditable();
+        for (var a = node.parentNode; a && a !== editable; a = a.parentNode) if (isMyInsert(a)) return true;
+        return false;
+    }
+
+    function textOffsetIn(block, node, offset) {
+        var r = editor.getDocument().createRange();
+        r.setStart(block, 0);
+        r.setEnd(node, offset);
+        return r.toString().length;
+    }
+
+    function pointAtTextOffset(block, n) {
+        var w = editor.getDocument().createTreeWalker(block, NodeFilter.SHOW_TEXT, null, false), tn, left = n, last = null;
+        while ((tn = w.nextNode())) {
+            last = tn;
+            if (left <= tn.data.length) return { node: tn, offset: left };
+            left -= tn.data.length;
+        }
+        return last ? { node: last, offset: last.data.length } : { node: block, offset: block.childNodes.length };
+    }
+
+    // the leaf container blocks a range runs through, in document order
+    function blocksInRange(range) {
+        var c1 = containerOf(range.startContainer), c2 = containerOf(range.endContainer);
+        if (c1 === c2 && !c1.querySelector(CONTAINER_SELECTOR)) return [c1];
+        var root = range.commonAncestorContainer;
+        if (root.nodeType !== 1) root = root.parentNode;
+        var out = [], list = root.querySelectorAll(CONTAINER_SELECTOR);
+        for (var i = 0; i < list.length; i++) {
+            if (range.intersectsNode(list[i]) && !list[i].querySelector(CONTAINER_SELECTOR)) out.push(list[i]);
+        }
+        return out.length ? out : [c1];
+    }
+
+    function clipToBlock(range, block) {
+        var r = range.cloneRange();
+        if (!block.contains(range.startContainer) && block !== range.startContainer) r.setStart(block, 0);
+        if (!block.contains(range.endContainer) && block !== range.endContainer) r.setEnd(block, block.childNodes.length);
+        return r;
+    }
+
+    // the selected content with every inline element around it, up to the block
+    function cloneWithContext(r, block) {
+        var doc = editor.getDocument();
+        var frag = r.cloneContents();
+        var n = r.commonAncestorContainer;
+        if (n.nodeType !== 1) n = n.parentNode;
+        for (; n && n !== block && n.nodeType === 1; n = n.parentNode) {
+            var w = n.cloneNode(false);
+            w.removeAttribute("id");
+            w.appendChild(frag);
+            frag = doc.createDocumentFragment();
+            frag.appendChild(w);
+        }
+        return frag;
+    }
+
+    // the start of a range moved out of every element it starts at the very beginning of: the spot
+    // just before what the command wrapped around the selection
+    function outerStart(range, block) {
+        var r = range.cloneRange();
+        r.collapse(true);
+        var c = r.startContainer, o = r.startOffset;
+        while (c !== block && o === 0 && c.parentNode) {
+            var parent = c.parentNode, idx = 0;
+            for (var x = c; x.previousSibling; x = x.previousSibling) idx++;
+            c = parent;
+            o = idx;
+        }
+        r.setStart(c, o);
+        r.collapse(true);
+        return r;
+    }
+
+    // drop the outer context the insertion point already has (the original goes back inside it)
+    function stripContext(frag, container, block) {
+        var outer = [];
+        for (var n = container.nodeType === 1 ? container : container.parentNode; n && n !== block; n = n.parentNode) outer.unshift(n);
+        var k = 0;
+        while (k < outer.length && frag.childNodes.length === 1 && frag.firstChild.nodeType === 1 && sameShell(frag.firstChild, outer[k])) {
+            var only = frag.firstChild, inner = editor.getDocument().createDocumentFragment();
+            while (only.firstChild) inner.appendChild(only.firstChild);
+            frag = inner;
+            k++;
+        }
+        return frag;
+    }
+
+    function wrapFormatted(range, st) {
+        var doc = editor.getDocument();
+        var root = range.commonAncestorContainer;
+        if (root.nodeType !== 1) root = root.parentNode;
+        var targets = [], w = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, null, false), n;
+        while ((n = w.nextNode())) {
+            if (!range.intersectsNode(n) || isInsideDeleteSpan(n)) continue;
+            if (n.nodeType === 1) {
+                if (n.matches(DELETE_ATOMS)) {
+                    var nr = doc.createRange(); nr.selectNode(n);
+                    if (range.compareBoundaryPoints(Range.START_TO_START, nr) <= 0 && range.compareBoundaryPoints(Range.END_TO_END, nr) >= 0) targets.push({ atom: n });
+                }
+                continue;
+            }
+            if (n.parentNode && n.parentNode.closest && n.parentNode.closest("[contenteditable='false']")) continue;
+            var s0 = n === range.startContainer ? range.startOffset : 0;
+            var e0 = n === range.endContainer ? range.endOffset : n.data.length;
+            if (e0 <= s0) continue;
+            if (!/\S/.test(n.data) && n.parentNode && LAYOUT_PARENT.test(n.parentNode.nodeName)) continue;
+            targets.push({ node: n, s: s0, e: e0 });
+        }
+        var spans = [];
+        for (var t = targets.length - 1; t >= 0; t--) {
+            var tg = targets[t], piece = tg.atom;
+            if (!piece) {
+                piece = tg.node;
+                if (tg.e < piece.data.length) piece.splitText(tg.e);
+                if (tg.s > 0) piece = piece.splitText(tg.s);
+            }
+            var span = doc.createElement("span");
+            span.className = config.trackChangesInsertClass;
+            st.mark(span);
+            span.setAttribute("data-tc-format", "1");
+            piece.parentNode.insertBefore(span, piece);
+            span.appendChild(piece);
+            spans.unshift(span);
+        }
+        return spans;
+    }
+
+    // a rejected formatted piece goes with the wrappers the command made around it, now empty
+    function removeFormattedPiece(el, seams) {
+        var editable = editor.getEditable(), top = el, parent = el.parentNode;
+        while (parent && parent !== editable && INLINE_WRAPPER.test(parent.nodeName) && parent.childNodes.length === 1) { top = parent; parent = parent.parentNode; }
+        if (top.previousSibling) seams.push(top.previousSibling);
+        if (top.parentNode) top.parentNode.removeChild(top);
+    }
+
+    // two neighbours with the same tag and attributes (one wrapper a command split) become one again
+    function mergePair(left) {
+        while (left && left.nodeType === 1) {
+            var right = left.nextSibling;
+            if (!right || right.nodeType !== 1 || !sameShell(left, right)) break;
+            var inner = left.lastChild;
+            while (right.firstChild) left.appendChild(right.firstChild);
+            right.parentNode.removeChild(right);
+            // the seam inside, then this level again: the next neighbour may be a third piece
+            mergePair(inner);
+        }
+    }
+
+    function trackedElements(id) {
+        var list = editor.getEditable().querySelectorAll('[data-tc-id="' + cssEscape(id) + '"]');
+        var out = [];
+        for (var i = 0; i < list.length; i++) out.push(list[i]);
+        return out;
+    }
+
     // --- accept / reject ---
 
     function decisionUser() {
@@ -45320,16 +51104,210 @@ function RTE_Plugin_TrackedChanges() {
         return false;
     }
 
+    // 2026-10-17 Accepting or rejecting one suggestion on screen. Nothing in the editor could - only accept(id) from
+    // code; the AI review drawer shows AI suggestions only - while CKEditor, TinyMCE's suggested edits and Google Docs
+    // put Accept / Reject on each one. With the caret in a pending suggestion a card shows what it is and who made it,
+    // with Accept, Reject, Previous and Next. tools/review/suggestion-card.mjs
+    var sugCard = null, sugCardId = null, sugCardTimer = 0;
+    function suggestionAtCaret() {
+        var doc = editor.getDocument(), ed = editor.getEditable();
+        var sel = doc && doc.getSelection();
+        if (!sel || !sel.rangeCount || !ed) return null;
+        for (var n = sel.getRangeAt(0).startContainer; n && n !== ed; n = n.parentNode)
+            if (n.nodeType === 1 && n.getAttribute("data-tc-id")) return n;
+        return null;
+    }
+    function pendingEntry(id) {
+        if (!id || !editor.reviewLedger) return null;
+        var entry = editor.reviewLedger.get(id);
+        if (!entry) { syncFromDocument(); entry = editor.reviewLedger.get(id); }
+        return entry && entry.status === "pending" ? entry : null;
+    }
+    function scheduleCard() {
+        clearTimeout(sugCardTimer);
+        sugCardTimer = setTimeout(updateSuggestionCard, 60);
+    }
+    function hideSuggestionCard() {
+        if (sugCard && sugCard.parentNode) sugCard.parentNode.removeChild(sugCard);
+        sugCard = null;
+        sugCardId = null;
+    }
+    // 2026-10-17 the card is appended to the page body, outside the editor's element, so the editor's rte-dark class
+    // cannot reach it: mirror it (as the comment sidebar does), and rte-auto-dark under a dark system setting.
+    // tools/review/suggestion-card-dark.mjs
+    function editorIsDark() {
+        try {
+            var hostEl = editor.container || (editor.iframe && editor.iframe.closest && editor.iframe.closest(".richtexteditor"));
+            if (!hostEl || !hostEl.classList) return false;
+            if (hostEl.classList.contains("rte-dark")) return true;
+            var w = hostEl.ownerDocument.defaultView || window;
+            return hostEl.classList.contains("rte-auto-dark") && !hostEl.classList.contains("rte-light") && !!(w.matchMedia && w.matchMedia("(prefers-color-scheme: dark)").matches);
+        } catch (x) { return false; }
+    }
+    // 2026-10-18 the card's words come from config.text_ keys (language packs), English as the fallback.
+    // tools/i18n/suggestion-card-language.mjs
+    function tcText(key, fallback) { return (config && config["text_" + key]) || fallback; }
+    function suggestionLabel(el, entry) {
+        var brk = el.getAttribute("data-tc-break");
+        if (brk) return brk === "insert" ? tcText("tc_break", "Suggested paragraph break") : tcText("tc_join", "Suggested paragraph join");
+        if (entry.changeType === "insert") return tcText("tc_insert", "Suggested insertion");
+        if (entry.changeType === "delete") return tcText("tc_delete", "Suggested deletion");
+        return tcText("tc_format", "Suggested formatting");
+    }
+    function updateSuggestionCard() {
+        var el = suggestionAtCaret();
+        var id = el && el.getAttribute("data-tc-id");
+        var entry = pendingEntry(id);
+        if (!entry) { hideSuggestionCard(); return; }
+        if (!sugCard || sugCardId !== id || !sugCard.isConnected) {
+            hideSuggestionCard();
+            var host = (editor.iframe && editor.iframe.ownerDocument) || document;
+            sugCard = host.createElement("div");
+            sugCard.className = "rte-suggestion-card" + (editorIsDark() ? " rte-suggestion-card-dark" : "");
+            sugCard.setAttribute("role", "group");
+            sugCard.setAttribute("aria-label", tcText("tc_suggestion", "Suggestion"));
+            var head = host.createElement("div");
+            head.className = "rte-suggestion-card-title";
+            var who = entry.author && (entry.author.name || entry.author.id);
+            head.textContent = suggestionLabel(el, entry) + (who ? " " + tcText("tc_by", "by") + " " + who : "");
+            sugCard.appendChild(head);
+            var excerpt = String(entry.text || "").replace(/\s+/g, " ").trim();
+            if (excerpt && excerpt.length > 1) {
+                var ex = host.createElement("div");
+                ex.className = "rte-suggestion-card-text";
+                ex.textContent = excerpt.length > 60 ? excerpt.slice(0, 57) + "..." : excerpt;
+                sugCard.appendChild(ex);
+            }
+            var row = host.createElement("div");
+            row.className = "rte-suggestion-card-actions";
+            var mk = function (label, cls, enabled, run) {
+                var b = host.createElement("button");
+                b.type = "button";
+                b.className = "rte-suggestion-card-button " + cls;
+                b.textContent = label;
+                if (!enabled) b.disabled = true;
+                b.addEventListener("mousedown", function (e) { e.preventDefault(); });
+                b.addEventListener("click", function (e) { e.preventDefault(); run(); });
+                row.appendChild(b);
+            };
+            var cid = id;
+            mk(tcText("tc_accept", "Accept"), "rte-suggestion-card-accept", canDecide(entry, "accept"), function () { hideSuggestionCard(); acceptEntry(cid); try { editor.focus(); } catch (x) { /* best effort */ } });
+            mk(tcText("tc_reject", "Reject"), "rte-suggestion-card-reject", canDecide(entry, "reject"), function () { hideSuggestionCard(); rejectEntry(cid); try { editor.focus(); } catch (x) { /* best effort */ } });
+            mk(tcText("findprevious", "Previous"), "rte-suggestion-card-prev", true, function () { stepSuggestion(-1); });
+            mk(tcText("findnext", "Next"), "rte-suggestion-card-next", true, function () { stepSuggestion(1); });
+            sugCard.appendChild(row);
+            // 2026-10-17 Accept all / Reject all when more than one suggestion is pending (Google Docs, CKEditor):
+            // acceptAll() / rejectAll() had no button. tools/review/suggestion-card-all.mjs
+            var pendingCount = 0;
+            try { pendingCount = editor.trackedChanges.list().length; } catch (x) { pendingCount = 0; }
+            if (pendingCount > 1) {
+                var allRow = host.createElement("div");
+                allRow.className = "rte-suggestion-card-actions rte-suggestion-card-all";
+                var keepRow = row;
+                row = allRow;
+                mk(tcText("tc_acceptall", "Accept all") + " (" + pendingCount + ")", "rte-suggestion-card-accept", true, function () { hideSuggestionCard(); acceptAll(); try { editor.focus(); } catch (x) { /* best effort */ } });
+                mk(tcText("tc_rejectall", "Reject all"), "rte-suggestion-card-reject", true, function () { hideSuggestionCard(); rejectAll(); try { editor.focus(); } catch (x) { /* best effort */ } });
+                row = keepRow;
+                sugCard.appendChild(allRow);
+            }
+            // Left / Right / Home / End move between the buttons; Escape returns to the editor with the caret where it
+            // was (the card stays: the caret is still in the suggestion). tools/review/suggestion-card-keyboard.mjs
+            sugCard.addEventListener("keydown", function (e) {
+                var btns = [].slice.call(sugCard.querySelectorAll("button:not([disabled])"));
+                var at = btns.indexOf(e.target), next = -1;
+                if (e.key === "ArrowRight") next = (at + 1) % btns.length;
+                else if (e.key === "ArrowLeft") next = (at - 1 + btns.length) % btns.length;
+                else if (e.key === "Home") next = 0;
+                else if (e.key === "End") next = btns.length - 1;
+                else if (e.key === "Escape") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    var back = sugCard.__returnRange;
+                    try { editor.focus(); } catch (x) { /* best effort */ }
+                    if (back) { try { var bs = editor.getDocument().getSelection(); bs.removeAllRanges(); bs.addRange(back); } catch (x) { /* best effort */ } }
+                    return;
+                }
+                if (next < 0 || at < 0) return;
+                e.preventDefault();
+                btns[next].focus();
+            });
+            host.body.appendChild(sugCard);
+            sugCardId = id;
+        }
+        // under the suggestion (the iframe's offset added)
+        var rect = el.getBoundingClientRect();
+        var fx = 0, fy = 0;
+        try { if (editor.iframe) { var fr = editor.iframe.getBoundingClientRect(); fx = fr.left; fy = fr.top; } } catch (x) { /* no frame */ }
+        var top = fy + rect.bottom + 6, left = Math.max(8, fx + rect.left);
+        var vw = (sugCard.ownerDocument.defaultView || window).innerWidth;
+        if (left + 300 > vw) left = Math.max(8, vw - 308);
+        sugCard.style.top = top + "px";
+        sugCard.style.left = left + "px";
+    }
+    // the next / previous pending suggestion after / before the caret (wrapping), selected
+    function stepSuggestion(dir) {
+        var doc = editor.getDocument(), ed = editor.getEditable();
+        if (!doc || !ed) return null;
+        var els = ed.querySelectorAll("[data-tc-id]"), firsts = [], seen = {};
+        for (var i = 0; i < els.length; i++) {
+            var sid = els[i].getAttribute("data-tc-id");
+            if (seen[sid] || !pendingEntry(sid)) continue;
+            seen[sid] = true;
+            firsts.push(els[i]);
+        }
+        if (!firsts.length) return null;
+        var sel = doc.getSelection(), cur = sel && sel.rangeCount ? sel.getRangeAt(0) : null, pick = null;
+        if (cur) {
+            if (dir > 0) {
+                for (var a = 0; a < firsts.length && !pick; a++) {
+                    var ra = doc.createRange(); ra.selectNodeContents(firsts[a]);
+                    if (ra.compareBoundaryPoints(Range.START_TO_START, cur) > 0) pick = firsts[a];
+                }
+            }
+            else {
+                for (var b = firsts.length - 1; b >= 0 && !pick; b--) {
+                    var rb = doc.createRange(); rb.selectNodeContents(firsts[b]);
+                    if (rb.compareBoundaryPoints(Range.START_TO_START, cur) < 0) pick = firsts[b];
+                }
+            }
+        }
+        if (!pick) pick = dir > 0 ? firsts[0] : firsts[firsts.length - 1];
+        var pid = pick.getAttribute("data-tc-id");
+        var all = trackedElements(pid);
+        var r = doc.createRange();
+        r.setStart(all[0], 0);
+        r.setEnd(all[all.length - 1], all[all.length - 1].childNodes.length);
+        try { editor.focus(); } catch (x) { /* best effort */ }
+        sel.removeAllRanges();
+        sel.addRange(r);
+        try { pick.scrollIntoView({ block: "nearest" }); } catch (x) { /* best effort */ }
+        updateSuggestionCard();
+        return pid;
+    }
+
     function acceptEntry(id) {
         var entry = editor.reviewLedger.get(id);
         if (!entry) return false;
         if (!canDecide(entry, "accept")) return false;
-        var span = editor.getEditable().querySelector('[data-tc-id="' + cssEscape(id) + '"]');
-        if (entry.changeType === "insert") {
-            if (span) unwrapKeepChildren(span);
-        } else if (entry.changeType === "delete") {
-            if (span) span.remove();
+        // every element of it (a split cuts an insert span in two), and paragraph breaks
+        var els = trackedElements(id), joins = [], i;
+        // a join that is part of a selection deletion keeps the block before it, as the untracked
+        // delete does (__JoinTextBlocks keepFirst); a lone Backspace join does not
+        for (i = 0; i < els.length; i++) {
+            if (els[i].getAttribute("data-tc-break") !== "delete") continue;
+            var prev = els[i].previousElementSibling;
+            joins.push({ el: els[i], keep: !!prev && (prev.getAttribute("data-tc-id") === id || !!prev.querySelector('[data-tc-id="' + cssEscape(id) + '"]')) });
         }
+        for (i = 0; i < els.length; i++) {
+            var el = els[i], brk = el.getAttribute("data-tc-break"), blk = el.getAttribute("data-tc-block");
+            if (brk === "insert") clearBreak(el);
+            else if (brk === "delete") continue;
+            else if (blk === "delete") { if (el.parentNode) el.parentNode.removeChild(el); }
+            else if (blk) clearBlock(el);
+            else if (el.classList.contains("rte-tc-delete")) { if (el.parentNode) el.parentNode.removeChild(el); }
+            else unwrapKeepChildren(el);
+        }
+        for (i = 0; i < joins.length; i++) joinBreak(joins[i].el, joins[i].keep);
         editor.reviewLedger.update(id, { status: "accepted", decidedAt: Date.now(), decidedBy: decisionUser() });
         return true;
     }
@@ -45338,19 +51316,35 @@ function RTE_Plugin_TrackedChanges() {
         var entry = editor.reviewLedger.get(id);
         if (!entry) return false;
         if (!canDecide(entry, "reject")) return false;
-        var span = editor.getEditable().querySelector('[data-tc-id="' + cssEscape(id) + '"]');
-        if (entry.changeType === "insert") {
-            if (span) span.remove();
-        } else if (entry.changeType === "delete") {
-            if (span) unwrapKeepChildren(span);
+        var els = trackedElements(id), splits = [], seams = [];
+        for (var i = 0; i < els.length; i++) {
+            var el = els[i], brk = el.getAttribute("data-tc-break");
+            var blk = el.getAttribute("data-tc-block");
+            var fmt = el.hasAttribute("data-tc-format");
+            if (brk === "insert") splits.push(el);
+            else if (brk === "delete") clearBreak(el);
+            else if (blk === "delete") { clearBlock(el); if (fmt) unparkIds(el); }
+            else if (blk) { if (el.parentNode) el.parentNode.removeChild(el); }
+            else if (el.classList.contains("rte-tc-delete")) {
+                if (fmt) { if (el.previousSibling) seams.push(el.previousSibling); if (el.lastChild) seams.push(el.lastChild); }
+                unwrapKeepChildren(el);
+            }
+            else if (fmt) removeFormattedPiece(el, seams);
+            else if (el.parentNode) el.parentNode.removeChild(el);
         }
+        for (var j = splits.length - 1; j >= 0; j--) undoSplit(splits[j]);
+        for (var k = 0; k < seams.length; k++) if (seams[k].parentNode && editor.getEditable().contains(seams[k])) mergePair(seams[k]);
         editor.reviewLedger.update(id, { status: "rejected", decidedAt: Date.now(), decidedBy: decisionUser() });
+        // 2026-10-09 A rejected footnote drops its reference AND its note: the footnotes plugin removes a note
+        // whose marker is gone only in its own renumber pass, which a reject never ran (the note and an empty
+        // Footnotes section stayed). tools/review/tracked-footnote-reject.mjs
+        try { if (typeof editor.syncFootnotes === "function") editor.syncFootnotes(); } catch (er) { /* ignore */ }
         return true;
     }
 
     function acceptAll(filter) {
         var entries = editor.reviewLedger.list(filter).filter(function (e) {
-            return (e.changeType === "insert" || e.changeType === "delete") && e.status === "pending";
+            return (e.changeType === "insert" || e.changeType === "delete" || e.changeType === "format") && e.status === "pending";
         });
         var accepted = 0;
         for (var i = 0; i < entries.length; i++) if (acceptEntry(entries[i].id)) accepted++;
@@ -45359,7 +51353,7 @@ function RTE_Plugin_TrackedChanges() {
 
     function rejectAll(filter) {
         var entries = editor.reviewLedger.list(filter).filter(function (e) {
-            return (e.changeType === "insert" || e.changeType === "delete") && e.status === "pending";
+            return (e.changeType === "insert" || e.changeType === "delete" || e.changeType === "format") && e.status === "pending";
         });
         var rejected = 0;
         for (var i = 0; i < entries.length; i++) if (rejectEntry(entries[i].id)) rejected++;
@@ -45399,6 +51393,23 @@ function RTE_Plugin_TrackedChanges() {
                 ".richtexteditor rte-toolbar-button.rte_command_trackchanges.rte-ui-active{background:linear-gradient(135deg,#e9f7ef,#eef5ff);color:#17633f;box-shadow:inset 0 0 0 1px rgba(34,132,82,.28),0 6px 14px rgba(34,132,82,.12)}",
                 ".richtexteditor rte-toolbar-button.rte_command_trackchanges.rte-ui-active:after{content:'';position:absolute;right:5px;top:5px;width:6px;height:6px;border-radius:50%;background:#22a66a;box-shadow:0 0 0 2px #fff}",
                 ".rte-tc{border-radius:4px;padding:0 2px;box-decoration-break:clone;-webkit-box-decoration-break:clone}",
+                ".rte-suggestion-card{position:fixed;z-index:100000;max-width:300px;padding:8px 10px;border:1px solid rgba(100,116,139,.28);border-radius:8px;background:#fff;color:#1e293b;box-shadow:0 10px 26px rgba(15,23,42,.16);font:13px/1.4 system-ui,-apple-system,Segoe UI,sans-serif}",
+                ".rte-suggestion-card-title{font-weight:600;margin-bottom:2px}",
+                ".rte-suggestion-card-text{color:#475569;margin-bottom:6px;word-break:break-word}",
+                ".rte-suggestion-card-actions{display:flex;gap:6px;flex-wrap:wrap}",
+                ".rte-suggestion-card-all{margin-top:6px;padding-top:6px;border-top:1px solid rgba(100,116,139,.18)}",
+                ".rte-suggestion-card-button{font:inherit;padding:3px 9px;border:1px solid rgba(100,116,139,.35);border-radius:6px;background:#fff;color:#1e293b;cursor:pointer}",
+                ".rte-suggestion-card-button:focus-visible{outline:2px solid #2563eb;outline-offset:1px}",
+                ".rte-suggestion-card-button:disabled{opacity:.5;cursor:default}",
+                ".rte-suggestion-card-accept{background:#e9f7ef;border-color:#86c8a2;color:#125b39}",
+                ".rte-suggestion-card-reject{background:#fff1f1;border-color:#e3a3a3;color:#9f1d1d}",
+                ".rte-suggestion-card-dark{background:#1e293b;color:#e2e8f0;border-color:#334155;box-shadow:0 10px 26px rgba(0,0,0,.45)}",
+                ".rte-suggestion-card-dark .rte-suggestion-card-text{color:#cbd5e1}",
+                ".rte-suggestion-card-dark .rte-suggestion-card-all{border-top-color:#334155}",
+                ".rte-suggestion-card-dark .rte-suggestion-card-button{background:#0f172a;color:#e2e8f0;border-color:#475569}",
+                ".rte-suggestion-card-dark .rte-suggestion-card-accept{background:#14532d;border-color:#22c55e;color:#dcfce7}",
+                ".rte-suggestion-card-dark .rte-suggestion-card-reject{background:#7f1d1d;border-color:#f87171;color:#fee2e2}",
+                ".rte-suggestion-card-dark .rte-suggestion-card-button:focus-visible{outline-color:#93c5fd}",
                 ".rte-tc-insert{background:linear-gradient(180deg,rgba(232,248,239,.78),rgba(232,248,239,.38));color:#125b39;text-decoration:underline;text-decoration-color:#22a66a;text-decoration-thickness:2px;text-underline-offset:3px}",
                 ".rte-tc-delete{background:linear-gradient(180deg,rgba(255,240,240,.82),rgba(255,240,240,.42));color:#9f1d1d;text-decoration:line-through;text-decoration-color:#dc4c4c;text-decoration-thickness:2px;opacity:.92}"
             ].join("\n");
@@ -45419,7 +51430,21 @@ function RTE_Plugin_TrackedChanges() {
             iStyle.textContent = [
                 ".rte-tc{border-radius:4px;padding:0 2px;box-decoration-break:clone;-webkit-box-decoration-break:clone}",
                 ".rte-tc-insert{background:linear-gradient(180deg,rgba(232,248,239,.78),rgba(232,248,239,.38));color:#125b39;text-decoration:underline;text-decoration-color:#22a66a;text-decoration-thickness:2px;text-underline-offset:3px}",
-                ".rte-tc-delete{background:linear-gradient(180deg,rgba(255,240,240,.82),rgba(255,240,240,.42));color:#9f1d1d;text-decoration:line-through;text-decoration-color:#dc4c4c;text-decoration-thickness:2px;opacity:.92}"
+                ".rte-tc-delete{background:linear-gradient(180deg,rgba(255,240,240,.82),rgba(255,240,240,.42));color:#9f1d1d;text-decoration:line-through;text-decoration-color:#dc4c4c;text-decoration-thickness:2px;opacity:.92}",
+                // a suggested paragraph break / join: a bar on the block after it, a pilcrow where it is
+                "[data-tc-break=insert]{box-shadow:inset 3px 0 0 #22a66a}",
+                "[data-tc-break=delete]{box-shadow:inset 3px 0 0 #dc4c4c}",
+                "[data-tc-block=insert]{outline:2px solid rgba(34,166,106,.6);outline-offset:1px;background:rgba(232,248,239,.45)}",
+                // a suggested deletion of a table row, column or table: struck through until decided
+                "tr[data-tc-block=delete], td[data-tc-block=delete], th[data-tc-block=delete], table[data-tc-block=delete]{text-decoration:line-through;color:#9f1d1d;opacity:.85}",
+                // a formatting suggestion shows the text with its NEW formatting (colours included)
+                ".rte-tc-delete[data-tc-format]{display:none}",
+                ".rte-tc-insert[data-tc-format]{color:inherit;background:none;text-decoration:underline dotted #b45309;text-decoration-thickness:2px;text-underline-offset:3px}",
+                // a block formatting suggestion: the blocks as they will be; the originals wait hidden
+                "[data-tc-block=delete][data-tc-format]{display:none}",
+                "[data-tc-block=insert][data-tc-format]{outline:2px dotted #b45309;outline-offset:2px;background:none}",
+                ":has(+ [data-tc-break=insert])::after{content:'" + PILCROW + "';color:#22a66a;font-weight:600;padding-left:2px}",
+                ":has(+ [data-tc-break=delete])::after{content:'" + PILCROW + "';color:#dc4c4c;font-weight:600;padding-left:2px;text-decoration:line-through}"
             ].join("\n");
             editdoc.head.appendChild(iStyle);
             // A <style> ELEMENT is governed by style-src: under a strict policy the browser
@@ -45940,7 +51965,7 @@ function RTE_Plugin_WordExport() {
                 editor.slashCommands.register({
                     id: "export-word",
                     title: "Export to Word (legacy .doc)",
-                    description: "HTML wrapped for Word — use Export to Word (.docx) for a real OOXML file",
+                    description: "HTML wrapped for Word \u2014 use Export to Word (.docx) for a real OOXML file",
                     keywords: ["word", "doc", "legacy", "html", "export", "download"],
                     run: function () { editor.exportToWord(); }
                 });
@@ -46061,7 +52086,7 @@ function RTE_Plugin_WordExport() {
     function triggerDownload(text, filename) {
         try {
             // Prefix a UTF-8 BOM so Word reads the encoding correctly.
-            var blob = new Blob(["﻿", text], { type: "application/msword;charset=utf-8" });
+            var blob = new Blob(["\ufeff", text], { type: "application/msword;charset=utf-8" });
             var url = URL.createObjectURL(blob);
             var a = document.createElement("a");
             a.href = url;
@@ -46822,6 +52847,11 @@ function RTE_Plugin_YjsCollab() {
         var peers = getRemotePeers();
         var iframe = editor.iframe;
         var ir = iframe.getBoundingClientRect();
+        // 2026-10-03 The caret rect comes from INSIDE the iframe, in the iframe's own pixels; under a
+        // scaled container (transform: scale()) those are not screen pixels, and the caret was drawn
+        // scale-times away from the character it marks. tools/collab/remote-cursor-scaled.mjs
+        var sx = iframe.offsetWidth ? ir.width / iframe.offsetWidth : 1;
+        var sy = iframe.offsetHeight ? ir.height / iframe.offsetHeight : 1;
 
         for (var i = 0; i < peers.length; i++) {
             var peer = peers[i];
@@ -46839,9 +52869,9 @@ function RTE_Plugin_YjsCollab() {
             // pageX/YOffset: a page-absolute caret inside an absolute overlay on
             // <body> extends document height on scrolled/tall pages and, with the
             // scroll re-render below, runs away (host page ballooned to ~83000px).
-            caretEl.style.left = (ir.left + rect.left) + "px";
-            caretEl.style.top = (ir.top + rect.top) + "px";
-            caretEl.style.height = (rect.height || 18) + "px";
+            caretEl.style.left = (ir.left + rect.left * sx) + "px";
+            caretEl.style.top = (ir.top + rect.top * sy) + "px";
+            caretEl.style.height = ((rect.height || 18) * sy) + "px";
             caretEl.style.background = peer.user.color;
 
             var label = document.createElement("div");
@@ -46876,7 +52906,7 @@ function RTE_Plugin_YjsCollab() {
         );
         var title = document.createElement("span");
         title.className = "rte-collab-presence-title";
-        title.textContent = "Online (" + all.length + ")";
+        title.textContent = ((typeof config !== "undefined" && config && config.text_collab_online) || "Online ({0})").split("{0}").join(String(all.length));
         presencePanel.appendChild(title);
         for (var i = 0; i < all.length; i++) {
             var u = all[i].user;
@@ -46938,7 +52968,16 @@ function RTE_Plugin_RichTextBoxDialogStyle() {
 
     obj.PluginName = "RichTextBoxDialogStyle";
 
+    // 2026-10-18 the dialog words read config.text_ keys (English as the fallback). tools/i18n/plugin-misc-language.mjs
+    var cfg = null;
+    function dT(key, en, a) {
+        var c = cfg || window.RTE_DefaultConfig || {};
+        var s = c["text_" + key] || en;
+        return a === undefined ? s : s.split("{0}").join(String(a));
+    }
+
     obj.InitConfig = function (config) {
+        cfg = config;
         if (!config.imageItems) {
             config.imageItems = [];
         }
@@ -47043,7 +53082,7 @@ function RTE_Plugin_RichTextBoxDialogStyle() {
         if (!preview) {
             preview = append(panel, "div", "", "rte-insertimage-preview is-empty");
             var image = append(preview, "img", "", "rte-insertimage-preview-image");
-            image.alt = "Image preview";
+            image.alt = dT("dlg_imgalt", "Image preview");
             append(preview, "div", "", "rte-insertimage-preview-caption");
         }
 
@@ -47060,26 +53099,26 @@ function RTE_Plugin_RichTextBoxDialogStyle() {
                 preview.classList.add("is-empty");
                 preview.classList.remove("is-error");
                 previewImage.removeAttribute("src");
-                previewCaption.innerText = "Enter an image URL to preview it here.";
+                previewCaption.innerText = dT("dlg_imgempty", "Enter an image URL to preview it here.");
                 return;
             }
 
             preview.classList.remove("is-empty");
             preview.classList.remove("is-error");
-            previewCaption.innerText = "Loading preview...";
+            previewCaption.innerText = dT("dlg_imgloading", "Loading preview...");
             previewImage.src = value;
         }
 
         previewImage.onload = function () {
             preview.classList.remove("is-empty");
             preview.classList.remove("is-error");
-            previewCaption.innerText = "Ready to insert this image.";
+            previewCaption.innerText = dT("dlg_imgready", "Ready to insert this image.");
         };
 
         previewImage.onerror = function () {
             preview.classList.remove("is-empty");
             preview.classList.add("is-error");
-            previewCaption.innerText = "Preview unavailable for this URL.";
+            previewCaption.innerText = dT("dlg_imgerror", "Preview unavailable for this URL.");
         };
 
         bindInput(input, updatePreview, "__rteRichTextBoxImagePreviewBound");
@@ -47123,8 +53162,8 @@ function RTE_Plugin_RichTextBoxDialogStyle() {
             if (!value) {
                 preview.classList.add("is-empty");
                 ext.innerText = "DOC";
-                title.innerText = "No document selected";
-                meta.innerText = "Enter a document URL to preview the inserted link.";
+                title.innerText = dT("dlg_docnone", "No document selected");
+                meta.innerText = dT("dlg_docempty", "Enter a document URL to preview the inserted link.");
                 return;
             }
 
@@ -47134,8 +53173,8 @@ function RTE_Plugin_RichTextBoxDialogStyle() {
 
             var host = getUrlHost(value);
             meta.innerText = host
-                ? ("Source: " + host + "  |  The editor inserts a clickable link.")
-                : "The editor inserts a clickable link at the current cursor position.";
+                ? dT("dlg_docsource", "Source: {0}  |  The editor inserts a clickable link.", host)
+                : dT("dlg_doclink", "The editor inserts a clickable link at the current cursor position.");
         }
 
         bindInput(input, updatePreview, "__rteRichTextBoxDocumentPreviewBound");
@@ -47163,12 +53202,12 @@ function RTE_Plugin_RichTextBoxDialogStyle() {
 
             var uploadTab = panel.querySelector(".fileuploader-dragdrop");
             if (uploadTab) {
-                ensureUploadIntro(uploadTab, "rte-insertimage-intro", "Drop an image here or click anywhere in this panel to browse.");
+                ensureUploadIntro(uploadTab, "rte-insertimage-intro", dT("dlg_imgdrop", "Drop an image here or click anywhere in this panel to browse."));
             }
 
             var urlTab = panel.querySelector(".rte_insertimage_byurl");
             if (urlTab) {
-                ensureUploadIntro(urlTab, "rte-insertimage-intro", "Paste a hosted image URL and verify the preview before inserting.");
+                ensureUploadIntro(urlTab, "rte-insertimage-intro", dT("dlg_imgurl", "Paste a hosted image URL and verify the preview before inserting."));
                 ensureImagePreview(urlTab, urlTab.querySelector(".rte-dialog-line-url"));
             }
 
@@ -47200,12 +53239,12 @@ function RTE_Plugin_RichTextBoxDialogStyle() {
 
             var uploadTab = panel.querySelector(".fileuploader-dragdrop");
             if (uploadTab) {
-                ensureUploadIntro(uploadTab, "rte-insertdocument-intro", "Upload a local file or drag it into the dialog to create a document link.");
+                ensureUploadIntro(uploadTab, "rte-insertdocument-intro", dT("dlg_docdrop", "Upload a local file or drag it into the dialog to create a document link."));
             }
 
             var urlTab = panel.querySelector(".rte_insertdocument_byurl");
             if (urlTab) {
-                ensureUploadIntro(urlTab, "rte-insertdocument-intro", "Paste a hosted file URL and review the link details before inserting.");
+                ensureUploadIntro(urlTab, "rte-insertdocument-intro", dT("dlg_docurl", "Paste a hosted file URL and review the link details before inserting."));
                 ensureDocumentPreview(urlTab, urlTab.querySelector(".rte-dialog-line-url"));
             }
 

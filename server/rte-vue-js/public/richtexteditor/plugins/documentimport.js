@@ -140,7 +140,9 @@ function RTE_Plugin_DocumentImport() {
         if (mode === "insert") {
             if (typeof editor.insertHTML === "function") { editor.insertHTML(html); return true; }
         }
-        if (typeof editor.setHTMLCode === "function") { editor.setHTMLCode(html); return true; }
+        // 2026-10-03 undoable: Ctrl+Z after an import gives back exactly the document it replaced
+        // (tools/import/import-undo.mjs)
+        if (typeof editor.setHTMLCode === "function") { editor.setHTMLCode(html, { undoable: true }); return true; }
         return false;
     }
 
@@ -168,14 +170,14 @@ function RTE_Plugin_DocumentImport() {
                     // Library-free .docx: unzip word/document.xml (native
                     // DecompressionStream) + transform WordprocessingML -> HTML.
                     if (!docxSupported()) {
-                        notify("This browser can't unpack .docx (no DecompressionStream). Save as .doc/.html/.md, or wire config.documentImportResolver.");
+                        notify((config && config.text_imp_nounpack) || "This browser can't unpack .docx (no DecompressionStream). Save as .doc/.html/.md, or wire config.documentImportResolver.");
                         resolve(false);
                         return;
                     }
                     readDocx(file).then(function (html) {
                         if (html != null) resolve(applyHtml(html, mode));
-                        else { notify("Could not read this .docx file."); resolve(false); }
-                    }, function () { notify("Could not read this .docx file."); resolve(false); });
+                        else { notify((config && config.text_imp_badfile) || "Could not read this .docx file."); resolve(false); }
+                    }, function () { notify((config && config.text_imp_badfile) || "Could not read this .docx file."); resolve(false); });
                     return;
                 }
                 if (typeof FileReader === "undefined") { resolve(false); return; }
@@ -343,6 +345,13 @@ function RTE_Plugin_DocumentImport() {
             if (byName["word/_rels/document.xml.rels"]) {
                 jobs.push(entryBytes(byName["word/_rels/document.xml.rels"]).then(function (b) {
                     ctx.rels = parseRels(utf8(b));
+                }));
+            }
+            // 2026-10-15 the document's default language, so it is not repeated as lang= on every run. tools/docx/run-props.mjs
+            if (byName["word/styles.xml"]) {
+                jobs.push(entryBytes(byName["word/styles.xml"]).then(function (b) {
+                    var mm = /<w:docDefaults>[\s\S]*?<w:lang[^>]*w:val="([^"]+)"/.exec(utf8(b));
+                    if (mm) ctx.defaultLang = mm[1].toLowerCase();
                 }));
             }
             if (byName["word/numbering.xml"]) {
@@ -517,6 +526,9 @@ function RTE_Plugin_DocumentImport() {
                     var ilvl = lvls[j].getAttributeNS(W, "ilvl") || lvls[j].getAttribute("w:ilvl") || "0";
                     var fmt = val(lvls[j].getElementsByTagNameNS(W, "numFmt")[0]);
                     levels[ilvl] = fmt || "decimal";
+                    // 2026-10-04 the level's start number ("s" + ilvl), read by the list builder
+                    var stEl = lvls[j].getElementsByTagNameNS(W, "start")[0];
+                    if (stEl) levels["s" + ilvl] = parseInt(val(stEl), 10) || 1;
                 }
                 if (aid != null) abstracts[aid] = levels;
             }
@@ -526,7 +538,18 @@ function RTE_Plugin_DocumentImport() {
                 var nid = nums[k].getAttributeNS(W, "numId") || nums[k].getAttribute("w:numId");
                 var ref = nums[k].getElementsByTagNameNS(W, "abstractNumId")[0];
                 var aref = val(ref);
-                if (nid != null && abstracts[aref]) out[nid] = abstracts[aref];
+                if (nid != null && abstracts[aref]) {
+                    // a copy per num: its lvlOverride/startOverride (how Word restarts a list) is its own
+                    var own = {};
+                    for (var key in abstracts[aref]) own[key] = abstracts[aref][key];
+                    var ovs = nums[k].getElementsByTagNameNS(W, "lvlOverride");
+                    for (var oi = 0; oi < ovs.length; oi++) {
+                        var oIl = ovs[oi].getAttributeNS(W, "ilvl") || ovs[oi].getAttribute("w:ilvl") || "0";
+                        var so = ovs[oi].getElementsByTagNameNS(W, "startOverride")[0];
+                        if (so) own["s" + oIl] = parseInt(val(so), 10) || 1;
+                    }
+                    out[nid] = own;
+                }
             }
         } catch (e) {}
         return out;
@@ -555,34 +578,34 @@ function RTE_Plugin_DocumentImport() {
     // Passing "∑" through untouched produces a glyph that KaTeX cannot size or
     // place limits on.
     var MATH_SYMBOLS = {
-        "∑": "\\sum", "∏": "\\prod", "∐": "\\coprod",
-        "∫": "\\int", "∬": "\\iint", "∭": "\\iiint", "∮": "\\oint",
-        "⋃": "\\bigcup", "⋂": "\\bigcap",
-        "±": "\\pm", "∓": "\\mp", "×": "\\times", "÷": "\\div",
-        "−": "-", "≠": "\\neq", "≤": "\\leq", "≥": "\\geq",
-        "≈": "\\approx", "≡": "\\equiv", "∝": "\\propto",
-        "∞": "\\infty", "∂": "\\partial", "∇": "\\nabla",
-        "√": "\\sqrt", "∠": "\\angle", "⋅": "\\cdot", "…": "\\dots",
-        "→": "\\to", "←": "\\leftarrow", "⇒": "\\Rightarrow", "⇔": "\\Leftrightarrow",
-        "∈": "\\in", "∉": "\\notin", "⊂": "\\subset", "⊆": "\\subseteq",
-        "∪": "\\cup", "∩": "\\cap", "∅": "\\emptyset",
-        "∀": "\\forall", "∃": "\\exists", "¬": "\\neg",
-        "∧": "\\land", "∨": "\\lor", "∴": "\\therefore",
-        "α": "\\alpha", "β": "\\beta", "γ": "\\gamma", "δ": "\\delta",
-        "ε": "\\epsilon", "ζ": "\\zeta", "η": "\\eta", "θ": "\\theta",
-        "ι": "\\iota", "κ": "\\kappa", "λ": "\\lambda", "μ": "\\mu",
-        "ν": "\\nu", "ξ": "\\xi", "π": "\\pi", "ρ": "\\rho",
-        "σ": "\\sigma", "τ": "\\tau", "υ": "\\upsilon", "φ": "\\varphi",
-        "χ": "\\chi", "ψ": "\\psi", "ω": "\\omega",
-        "Γ": "\\Gamma", "Δ": "\\Delta", "Θ": "\\Theta", "Λ": "\\Lambda",
-        "Ξ": "\\Xi", "Π": "\\Pi", "Σ": "\\Sigma", "Φ": "\\Phi",
-        "Ψ": "\\Psi", "Ω": "\\Omega"
+        "\u2211": "\\sum", "\u220f": "\\prod", "\u2210": "\\coprod",
+        "\u222b": "\\int", "\u222c": "\\iint", "\u222d": "\\iiint", "\u222e": "\\oint",
+        "\u22c3": "\\bigcup", "\u22c2": "\\bigcap",
+        "\xb1": "\\pm", "\u2213": "\\mp", "\xd7": "\\times", "\xf7": "\\div",
+        "\u2212": "-", "\u2260": "\\neq", "\u2264": "\\leq", "\u2265": "\\geq",
+        "\u2248": "\\approx", "\u2261": "\\equiv", "\u221d": "\\propto",
+        "\u221e": "\\infty", "\u2202": "\\partial", "\u2207": "\\nabla",
+        "\u221a": "\\sqrt", "\u2220": "\\angle", "\u22c5": "\\cdot", "\u2026": "\\dots",
+        "\u2192": "\\to", "\u2190": "\\leftarrow", "\u21d2": "\\Rightarrow", "\u21d4": "\\Leftrightarrow",
+        "\u2208": "\\in", "\u2209": "\\notin", "\u2282": "\\subset", "\u2286": "\\subseteq",
+        "\u222a": "\\cup", "\u2229": "\\cap", "\u2205": "\\emptyset",
+        "\u2200": "\\forall", "\u2203": "\\exists", "\xac": "\\neg",
+        "\u2227": "\\land", "\u2228": "\\lor", "\u2234": "\\therefore",
+        "\u03b1": "\\alpha", "\u03b2": "\\beta", "\u03b3": "\\gamma", "\u03b4": "\\delta",
+        "\u03b5": "\\epsilon", "\u03b6": "\\zeta", "\u03b7": "\\eta", "\u03b8": "\\theta",
+        "\u03b9": "\\iota", "\u03ba": "\\kappa", "\u03bb": "\\lambda", "\u03bc": "\\mu",
+        "\u03bd": "\\nu", "\u03be": "\\xi", "\u03c0": "\\pi", "\u03c1": "\\rho",
+        "\u03c3": "\\sigma", "\u03c4": "\\tau", "\u03c5": "\\upsilon", "\u03c6": "\\varphi",
+        "\u03c7": "\\chi", "\u03c8": "\\psi", "\u03c9": "\\omega",
+        "\u0393": "\\Gamma", "\u0394": "\\Delta", "\u0398": "\\Theta", "\u039b": "\\Lambda",
+        "\u039e": "\\Xi", "\u03a0": "\\Pi", "\u03a3": "\\Sigma", "\u03a6": "\\Phi",
+        "\u03a8": "\\Psi", "\u03a9": "\\Omega"
     };
     // Accent character -> TeX accent command (m:acc carries the mark as a chr).
     var MATH_ACCENTS = {
-        "̂": "\\hat", "̃": "\\tilde", "̄": "\\bar", "̅": "\\overline",
-        "̆": "\\breve", "̇": "\\dot", "̈": "\\ddot", "̊": "\\mathring",
-        "̌": "\\check", "→": "\\vec", "⃗": "\\vec", "́": "\\acute", "̀": "\\grave"
+        "\u0302": "\\hat", "\u0303": "\\tilde", "\u0304": "\\bar", "\u0305": "\\overline",
+        "\u0306": "\\breve", "\u0307": "\\dot", "\u0308": "\\ddot", "\u030a": "\\mathring",
+        "\u030c": "\\check", "\u2192": "\\vec", "\u20d7": "\\vec", "\u0301": "\\acute", "\u0300": "\\grave"
     };
 
     function ommlToTex(node) {
@@ -702,7 +725,7 @@ function RTE_Plugin_DocumentImport() {
                 case "nary": {
                     // The operator itself is an ATTRIBUTE (m:chr), not text. Miss
                     // it and every summation imports as a bare limit pair.
-                    var chr = propOf(el, "naryPr", "chr") || "∫";
+                    var chr = propOf(el, "naryPr", "chr") || "\u222b";
                     var op = MATH_SYMBOLS[chr] || mapText(chr);
                     var subHide = propOf(el, "naryPr", "subHide");
                     var supHide = propOf(el, "naryPr", "supHide");
@@ -725,7 +748,7 @@ function RTE_Plugin_DocumentImport() {
                         if (!ch) return side === "l" ? "\\left." : "\\right.";
                         if (ch === "{" || ch === "}") return "\\" + ch;
                         if (ch === "|") return "|";
-                        if (ch === "‖") return "\\|";
+                        if (ch === "\u2016") return "\\|";
                         // THREE different codepoints render as an angle
                         // bracket and are indistinguishable on screen: the
                         // mathematical pair (U+27E8/9), the CJK pair
@@ -736,10 +759,10 @@ function RTE_Plugin_DocumentImport() {
                         var cp = ch.charCodeAt(0);
                         if (cp === 0x27E8 || cp === 0x3008 || cp === 0x2329) return "\\langle";
                         if (cp === 0x27E9 || cp === 0x3009 || cp === 0x232A) return "\\rangle";
-                        if (ch === "⌊") return "\\lfloor";
-                        if (ch === "⌋") return "\\rfloor";
-                        if (ch === "⌈") return "\\lceil";
-                        if (ch === "⌉") return "\\rceil";
+                        if (ch === "\u230a") return "\\lfloor";
+                        if (ch === "\u230b") return "\\rfloor";
+                        if (ch === "\u2308") return "\\lceil";
+                        if (ch === "\u2309") return "\\rceil";
                         return ch;
                     }
                     var parts = children(el, "e");
@@ -763,7 +786,7 @@ function RTE_Plugin_DocumentImport() {
                 case "limUpp":
                     return "\\overset" + arg(child(el, "lim")) + arg(child(el, "e"));
                 case "acc": {
-                    var mark = propOf(el, "accPr", "chr") || "̂";
+                    var mark = propOf(el, "accPr", "chr") || "\u0302";
                     var cmd = MATH_ACCENTS[mark] || "\\hat";
                     return cmd + arg(child(el, "e"));
                 }
@@ -771,7 +794,7 @@ function RTE_Plugin_DocumentImport() {
                     return (propOf(el, "barPr", "pos") === "bot" ? "\\underline" : "\\overline") + arg(child(el, "e"));
                 case "groupChr": {
                     var g = propOf(el, "groupChrPr", "chr");
-                    if (g === "⏟") return "\\underbrace" + arg(child(el, "e"));
+                    if (g === "\u23df") return "\\underbrace" + arg(child(el, "e"));
                     return "\\overbrace" + arg(child(el, "e"));
                 }
                 case "borderBox":
@@ -820,6 +843,23 @@ function RTE_Plugin_DocumentImport() {
         }
 
         // <w:drawing>/<w:pict> -> <img> from word/media, inlined as a data URI.
+        // 2026-10-15 with its alt text (<wp:docPr descr>, else title) and size (<wp:extent>, EMU; or a VML shape's
+        // width/height in pt): every picture came back alt="" at natural size. tools/docx/image-alt-size.mjs
+        function imageAttrs(node) {
+            var all = node.getElementsByTagName("*"), alt = "", w = 0, h = 0;
+            for (var i = 0; i < all.length; i++) {
+                var e = all[i], ln = e.localName;
+                if (ln === "docPr") alt = e.getAttribute("descr") || e.getAttribute("title") || "";
+                else if (ln === "extent" && !w) { w = Math.round((parseInt(e.getAttribute("cx"), 10) || 0) * 96 / 914400); h = Math.round((parseInt(e.getAttribute("cy"), 10) || 0) * 96 / 914400); }
+                else if (ln === "shape" && !w) {
+                    var st = e.getAttribute("style") || "", mw = /width:\s*([\d.]+)pt/.exec(st), mh = /height:\s*([\d.]+)pt/.exec(st);
+                    if (mw && mh) { w = Math.round(parseFloat(mw[1]) * 96 / 72); h = Math.round(parseFloat(mh[1]) * 96 / 72); }
+                    if (!alt) alt = e.getAttribute("alt") || "";
+                }
+            }
+            // esc() leaves quotes alone; this is an attribute value
+            return ' alt="' + esc(alt).replace(/"/g, "&quot;") + '"' + (w > 0 && h > 0 ? ' width="' + w + '" height="' + h + '"' : "");
+        }
         function imageHtml(node) {
             var blips = node.getElementsByTagName("*");
             for (var i = 0; i < blips.length; i++) {
@@ -830,8 +870,8 @@ function RTE_Plugin_DocumentImport() {
                 var path = rel.target.replace(/^\.\//, "");
                 var key = path.indexOf("word/") === 0 ? path : "word/" + path;
                 var uri = ctx.media[key];
-                if (uri) return '<img src="' + uri + '" alt="">';
-                if (rel.external) return '<img src="' + esc(rel.target) + '" alt="">';
+                if (uri) return '<img src="' + uri + '"' + imageAttrs(node) + '>';
+                if (rel.external) return '<img src="' + esc(rel.target) + '"' + imageAttrs(node) + '>';
                 // A vector metafile (WMF/EMF) has no browser-renderable form, so
                 // there is no data URI for it. Dropping it silently leaves the
                 // reader with no idea a figure was ever there -- and no filename
@@ -840,7 +880,7 @@ function RTE_Plugin_DocumentImport() {
                     var fileName = path.split("/").pop();
                     queueBlock('<p class="rte-imported-unsupported" data-source="' + esc(fileName) +
                                '"><em>[Unsupported image: ' + esc(fileName) +
-                               " — Windows metafiles have no browser-renderable form]</em></p>");
+                               " \u2014 Windows metafiles have no browser-renderable form]</em></p>");
                     return "";
                 }
             }
@@ -885,6 +925,9 @@ function RTE_Plugin_DocumentImport() {
                 // and every tracked deletion imports as an empty run.
                 if (c.localName === "t" || c.localName === "delText") t += c.textContent || "";
                 else if (c.localName === "tab") t += "\t";
+                // 2026-10-15 a PAGE break is not a line break: mark it so the paragraph can be split around the
+                // editor's page-break marker. tools/docx/page-breaks.mjs
+                else if (c.localName === "br" && (c.getAttributeNS(W, "type") || c.getAttribute("w:type")) === "page") t += "\f";
                 else if (c.localName === "br" || c.localName === "cr") t += "\n";
             }
             return t;
@@ -975,7 +1018,20 @@ function RTE_Plugin_DocumentImport() {
                     var sv = parseInt(sz.getAttributeNS(W, "val") || sz.getAttribute("w:val") || "", 10);
                     if (sv > 0) css += "font-size:" + (sv / 2) + "pt;";
                 }
-                if (css) txt = '<span style="' + css + '">' + txt + "</span>";
+                // 2026-10-15 small caps, caps, letter spacing and the phrase's language. tools/docx/run-props.mjs
+                var sc = firstChildEl(rpr, "smallCaps"), cp = firstChildEl(rpr, "caps");
+                function on(el) { var v = el.getAttributeNS(W, "val") || el.getAttribute("w:val") || ""; return !/^(0|false|off)$/.test(v); }
+                if (sc && on(sc)) css += "font-variant:small-caps;";
+                if (cp && on(cp)) css += "text-transform:uppercase;";
+                var spc = firstChildEl(rpr, "spacing");
+                if (spc) { var spv = parseInt(spc.getAttributeNS(W, "val") || spc.getAttribute("w:val") || "", 10); if (spv) css += "letter-spacing:" + (Math.round(spv / 15 * 100) / 100) + "px;"; }
+                var lg = firstChildEl(rpr, "lang"), lang = "";
+                if (lg) {
+                    lang = (lg.getAttributeNS(W, "val") || lg.getAttribute("w:val") || "").replace(/[^A-Za-z0-9-]/g, "");
+                    // a run in the document's own language says nothing: Word stamps it on nearly every run
+                    if (ctx.defaultLang ? lang.toLowerCase() === ctx.defaultLang : /^en(-|$)/i.test(lang)) lang = "";
+                }
+                if (css || lang) txt = "<span" + (lang ? ' lang="' + lang + '"' : "") + (css ? ' style="' + css + '"' : "") + ">" + txt + "</span>";
             }
             return pics + txt;
         }
@@ -1051,7 +1107,7 @@ function RTE_Plugin_DocumentImport() {
                 items += '<li class="rte-fn-note" data-fn-id="' + f.id + '" data-fn-number="' + (i + 1) +
                          '" id="fn-' + f.id + '">' + esc(f.text) +
                          '<a class="rte-fn-back" data-fn-id="' + f.id + '" href="#fnref-' + f.id +
-                         '" contenteditable="false" title="Back to reference">↩</a></li>';
+                         '" contenteditable="false" title="Back to reference">\u21a9</a></li>';
             }
             return '<section class="rte-footnotes"><h2 class="rte-fn-title">Footnotes</h2>' +
                    '<ol class="rte-fn-list" data-numbering="decimal">' + items + "</ol></section>";
@@ -1165,6 +1221,10 @@ function RTE_Plugin_DocumentImport() {
                 // ordered list. Defaulting to bullet when numbering.xml is absent
                 // matches the old behaviour rather than inventing <ol>s.
                 info.ordered = !!fmt && fmt !== "bullet" && fmt !== "none";
+                info.numId = nid;
+                info.start = (levels && levels["s" + info.level]) || 1;
+                // 2026-10-04 Word's lettered / Roman formats come back as list-style-type (they became 1. 2. 3.)
+                info.listStyle = { lowerLetter: "lower-alpha", upperLetter: "upper-alpha", lowerRoman: "lower-roman", upperRoman: "upper-roman" }[fmt] || "";
             }
             // Word paragraph indentation. Nothing read this before 2026-09-04,
             // so every indented paragraph in every imported .docx arrived
@@ -1178,7 +1238,23 @@ function RTE_Plugin_DocumentImport() {
                 // indent, already carried by the blockquote element itself.
                 if (tw > 0 && !(info.quote && tw === 720))
                     info.indentPx = Math.round(tw / 15);
+                // 2026-10-15 first-line / hanging indent, line spacing and direction were not read.
+                // tools/docx/paragraph-props.mjs
+                var fl = parseInt(ind.getAttributeNS(W, "firstLine") || ind.getAttribute("w:firstLine") || "", 10);
+                var hg = parseInt(ind.getAttributeNS(W, "hanging") || ind.getAttribute("w:hanging") || "", 10);
+                if (hg > 0) info.textIndentPx = -Math.round(hg / 15);
+                else if (fl > 0) info.textIndentPx = Math.round(fl / 15);
             }
+            var sp = firstChildEl(ppr, "spacing");
+            if (sp) {
+                var ln = parseInt(sp.getAttributeNS(W, "line") || sp.getAttribute("w:line") || "", 10);
+                var rule = sp.getAttributeNS(W, "lineRule") || sp.getAttribute("w:lineRule") || "auto";
+                // Word's default single spacing (240 auto) is not worth a style
+                if (ln > 0 && !(rule === "auto" && ln === 240)) info.lineHeight = rule === "auto" ? String(Math.round(ln / 240 * 100) / 100) : Math.round(ln / 15) + "px";
+            }
+            var bidi = firstChildEl(ppr, "bidi");
+            if (bidi && !/^(0|false|off)$/.test(bidi.getAttributeNS(W, "val") || bidi.getAttribute("w:val") || "")) info.rtl = true;
+            if (firstChildEl(ppr, "pageBreakBefore")) info.pageBreakBefore = true;
             var jc = firstChildEl(ppr, "jc");
             if (jc) {
                 var a = jc.getAttributeNS(W, "val") || jc.getAttribute("w:val") || "";
@@ -1198,6 +1274,10 @@ function RTE_Plugin_DocumentImport() {
         // markup out of an importer undermines the whole clean-output promise.
         var listStack = [];
         var liOpen = [];
+        // 2026-10-04 items already numbered per numId and level: Word continues a list across
+        // other paragraphs (same numId), so a list reopened here numbers on, and a list that does not
+        // start at 1 keeps its start. Both restarted at 1. tools/docx/import-list-start.mjs
+        var numCount = {};
         function closeListsTo(depth) {
             while (listStack.length > depth) {
                 var d = listStack.length - 1;
@@ -1223,6 +1303,32 @@ function RTE_Plugin_DocumentImport() {
             if (node.localName === "p") {
                 var st = paraStyle(node);
                 var inner = paraInner(node);
+                // 2026-10-15 page breaks come back as the editor's page-break marker (they were dropped):
+                // <w:pageBreakBefore/> before the paragraph, <w:br w:type="page"/> splitting it. tools/docx/page-breaks.mjs
+                if (st.pageBreakBefore) { closeListsTo(0); out.push(pageBreakHtml()); }
+                if (inner && inner.indexOf("\f") !== -1) {
+                    if (!st.list && !st.heading && !st.pre && !st.quote) {
+                        var pbParts = inner.split("\f");
+                        inner = pbParts.pop();
+                        closeListsTo(0);
+                        for (var pbi = 0; pbi < pbParts.length; pbi++) {
+                            if (pbParts[pbi].replace(/<[^>]*>/g, "").trim()) out.push("<p>" + pbParts[pbi] + "</p>");
+                            out.push(pageBreakHtml());
+                        }
+                    } else inner = inner.split("\f").join("");
+                }
+                // 2026-10-15 a paragraph that starts with a ballot box (open U+2610, ticked U+2611 / U+2612) is a task
+                // item: that is how our export and Google Docs write a checklist, and how one is typed in Word. Each
+                // becomes a one-item task list; adjacent ones are joined at the end. tools/docx/task-list.mjs
+                var taskM = !st.list && !st.heading && inner && /^((?:<[^>]+>)*)\s*([\u2610\u2611\u2612])[\s\u00a0]?/.exec(inner);
+                if (taskM) {
+                    closeListsTo(0);
+                    var taskBody = taskM[1] + inner.slice(taskM[0].length);
+                    out.push('<ul class="rte-task-list"><li class="rte-task-item" data-checked="' + (taskM[2] === "\u2610" ? "false" : "true") + '"><span class="rte-task-checkbox" contenteditable="false"></span>' + (taskBody || "<br>") + "</li></ul>");
+                    var tboxes = flushBlocks();
+                    if (tboxes) out.push(tboxes);
+                    continue;
+                }
                 if (st.list) {
                     var want = (st.level || 0) + 1;
                     var tag = st.ordered ? "ol" : "ul";
@@ -1235,11 +1341,24 @@ function RTE_Plugin_DocumentImport() {
                     // Going deeper leaves the parent <li> open so the sublist
                     // nests inside it.
                     while (listStack.length < want) {
-                        out.push("<" + tag + ">");
+                        var olStart = (tag === "ol" && listStack.length === want - 1) ? (st.start || 1) + (numCount[st.numId + ":" + st.level] || 0) : 1;
+                        var olAttrs = (olStart !== 1 ? " start=\"" + olStart + "\"" : "") +
+                            (tag === "ol" && listStack.length === want - 1 && st.listStyle ? " style=\"list-style-type: " + st.listStyle + "\"" : "");
+                        out.push("<" + tag + olAttrs + ">");
                         listStack.push(tag);
                         liOpen.push(false);
                     }
                     if (liOpen[want - 1]) { out.push("</li>"); liOpen[want - 1] = false; }
+                    if (st.ordered) {
+                        var ck = st.numId + ":" + st.level;
+                        numCount[ck] = (numCount[ck] || 0) + 1;
+                    }
+                    // any higher-level item - a BULLET too (2026-10-05 review) - restarts the numbered
+                    // levels below it (Word's default lvlRestart)
+                    for (var cKey in numCount) {
+                        var cp = cKey.split(":");
+                        if (cp[0] === String(st.numId) && +cp[1] > st.level) numCount[cKey] = 0;
+                    }
                     out.push("<li>" + (inner || ""));
                     liOpen[want - 1] = true;
                     continue;
@@ -1264,7 +1383,9 @@ function RTE_Plugin_DocumentImport() {
                     // indentUseMargin defaults to margin, and margin is what
                     // w:ind means, so import writes margin-left to match.
                     if (st.indentPx) decl.push("margin-left:" + st.indentPx + "px");
-                    var style = decl.length ? ' style="' + decl.join(";") + '"' : "";
+                    if (st.textIndentPx) decl.push("text-indent:" + st.textIndentPx + "px");
+                    if (st.lineHeight) decl.push("line-height:" + st.lineHeight);
+                    var style = (st.rtl ? ' dir="rtl"' : "") + (decl.length ? ' style="' + decl.join(";") + '"' : "");
                     // A paragraph that contained ONLY a text box has no text of
                     // its own; emitting an empty <p> before the box adds a blank
                     // line that was never in the document.
@@ -1285,10 +1406,23 @@ function RTE_Plugin_DocumentImport() {
         // The notes section goes last, after every marker has been collected.
         var notes = footnotesSection();
         if (notes) out.push(notes);
-        return out.join("\n");
+        // one task list per run of task items
+        return out.join("\n").replace(/<\/ul>\n<ul class="rte-task-list">/g, "");
 
+        // the editor's own page-break marker (rte.js __UI_InsertPageBreak), so it looks and behaves the same
+        function pageBreakHtml() {
+            var lbl = editor && editor.getLangText ? editor.getLangText("insertpagebreak") : "";
+            if (!lbl || lbl === "insertpagebreak") lbl = "Page break";
+            return '<div data-rte-page-break="true" contenteditable="false" style="position:relative;text-align:center;border-top:2px dashed #94a3b8;margin:18px 0 14px;padding:0;height:0;line-height:0;user-select:none;">' +
+                '<span style="position:relative;top:-0.75em;display:inline-block;padding:0 10px;background:#fff;color:#64748b;font-size:12px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;line-height:1.6;">' + esc(lbl) + "</span></div>";
+        }
         function tableHtml(tbl) {
             var rows = [], kids = tbl.childNodes;
+            // 2026-10-15 merged cells: <w:gridSpan> is colspan; <w:vMerge w:val="restart"/> starts a rowspan and each
+            // bare <w:vMerge/> below it, at the same grid column, extends it instead of becoming a cell. Both were
+            // ignored, so merged cells came back split. tools/docx/merged-cells.mjs
+            var openMerge = {};
+            function wv(el) { return el ? (el.getAttributeNS(W, "val") || el.getAttribute("w:val") || "") : ""; }
             for (var i = 0; i < kids.length; i++) {
                 var tr = kids[i];
                 if (tr.nodeType !== 1 || tr.localName !== "tr") continue;
@@ -1299,26 +1433,61 @@ function RTE_Plugin_DocumentImport() {
                 var trPr = firstChildEl(tr, "trPr");
                 var isHeaderRow = !!(trPr && firstChildEl(trPr, "tblHeader"));
                 var cellTag = isHeaderRow ? "th" : "td";
-                var cells = [];
+                var cells = [], gcol = 0;
                 for (var j = 0; j < tr.childNodes.length; j++) {
                     var tc = tr.childNodes[j];
                     if (tc.nodeType !== 1 || tc.localName !== "tc") continue;
+                    var tcPr = firstChildEl(tc, "tcPr");
+                    var span = parseInt(wv(tcPr && firstChildEl(tcPr, "gridSpan")), 10) || 1;
+                    var vm = tcPr && firstChildEl(tcPr, "vMerge");
+                    if (vm && wv(vm) !== "restart" && openMerge[gcol]) { openMerge[gcol].rowspan++; gcol += span; continue; }
                     var cellHtml = "";
                     for (var k = 0; k < tc.childNodes.length; k++) {
                         if (tc.childNodes[k].localName === "p") cellHtml += "<p>" + (paraInner(tc.childNodes[k]) || "<br>") + "</p>";
                     }
-                    cells.push("<" + cellTag + ">" + cellHtml + "</" + cellTag + ">");
+                    var cellObj = { tag: cellTag, html: cellHtml, colspan: span, rowspan: 1 };
+                    cells.push(cellObj);
+                    for (var sc = gcol; sc < gcol + span; sc++) delete openMerge[sc];
+                    if (vm && wv(vm) === "restart") openMerge[gcol] = cellObj;
+                    gcol += span;
                 }
-                rows.push("<tr>" + cells.join("") + "</tr>");
+                rows.push(cells);
             }
-            return "<table>" + rows.join("") + "</table>";
+            // 2026-10-15 the grid's column widths (as percentages, so the ratio holds at any page width) and a
+            // percentage table width. tools/docx/table-widths.mjs
+            var head = "<table", colgroup = "";
+            var tPr = firstChildEl(tbl, "tblPr"), tW = tPr && firstChildEl(tPr, "tblW");
+            if (tW && (tW.getAttributeNS(W, "type") || tW.getAttribute("w:type")) === "pct") {
+                var pv = String(tW.getAttributeNS(W, "w") || tW.getAttribute("w:w") || "");
+                var pn = /%$/.test(pv) ? parseFloat(pv) : parseFloat(pv) / 50;
+                if (pn > 0) head += ' style="width:' + (Math.round(pn * 10) / 10) + '%"';
+            }
+            var grid = firstChildEl(tbl, "tblGrid");
+            if (grid) {
+                var gws = [], gsum = 0;
+                for (var gi = 0; gi < grid.childNodes.length; gi++) {
+                    var gc = grid.childNodes[gi];
+                    if (gc.nodeType !== 1 || gc.localName !== "gridCol") continue;
+                    var gw = parseInt(gc.getAttributeNS(W, "w") || gc.getAttribute("w:w") || "", 10) || 0;
+                    gws.push(gw); gsum += gw;
+                }
+                if (gws.length > 1 && gsum > 0 && gws.every(function (g) { return g > 0; }))
+                    colgroup = "<colgroup>" + gws.map(function (g) { return '<col style="width:' + (Math.round(g / gsum * 1000) / 10) + '%">'; }).join("") + "</colgroup>";
+            }
+            return head + ">" + colgroup + rows.map(function (cs) {
+                return "<tr>" + cs.map(function (c) {
+                    return "<" + c.tag + (c.colspan > 1 ? ' colspan="' + c.colspan + '"' : "") + (c.rowspan > 1 ? ' rowspan="' + c.rowspan + '"' : "") + ">" + c.html + "</" + c.tag + ">";
+                }).join("") + "</tr>";
+            }).join("") + "</table>";
         }
     }
 
     function notify(msg) {
         try {
             if (editor && typeof editor.createDialog === "function") {
-                var d = editor.createDialog((editor.getLangText && editor.getLangText("importtitle")) || "Import document", "rte-dialog-import");
+                // 2026-10-18 getLangText returns the KEY when a pack lacks it, so this dialog was titled "importtitle" on every
+                // page; the title and messages read config.text_ keys. tools/i18n/raw-key-titles.mjs
+                var d = editor.createDialog((config && config.text_importtitle) || "Import document", "rte-dialog-import");
                 var w = d.ownerDocument.createElement("div");
                 w.style.cssText = "padding:16px;max-width:420px;font:13px -apple-system,Segoe UI,sans-serif;line-height:1.5";
                 w.textContent = msg;

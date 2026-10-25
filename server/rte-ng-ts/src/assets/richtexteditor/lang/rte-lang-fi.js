@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "Lisää";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "Tyylit";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "Tekstityylit";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "fi";	// this pack's locale (Intl names, e.g. the text-part language menu)

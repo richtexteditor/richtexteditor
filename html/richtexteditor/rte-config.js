@@ -59,6 +59,7 @@ RTE_DefaultConfig.autoGrow = false; // When true, the editor auto-expands to fit
 RTE_DefaultConfig.autoHeadingAnchors = true; // Auto-assign stable slug IDs to h1-h6 elements so deep-links / TOC navigation work.
 RTE_DefaultConfig.copyHeadingLink = true; // Show a 🔗 "copy link" icon on hover over h1-h6 in the editor.
 RTE_DefaultConfig.smartPasteToast = true; // Show a brief "Cleaned from Word / Google Docs" toast after a successful paste-cleanup.
+RTE_DefaultConfig.pasteStripThemeStyles = true; // On paste, drop inline styles that only repeat the editor's own theme (browsers inline computed styles on copy, so text copied inside the editor arrived carrying its margin, font-size and colour). Styles the author set that differ from the theme are kept.
 RTE_DefaultConfig.smartLinkPaste = true;  // Paste a URL while text is selected -> wrap the selection in <a href> instead of replacing it. Matches Google Docs / Notion / TipTap behavior.
 RTE_DefaultConfig.aiContextMenu = true; // Right-click on selected text shows Ask AI / Rewrite / Summarize / Translate (when AI Toolkit is loaded).
 RTE_DefaultConfig.tableColumnResize = true; // Hover near a table column border to drag-resize the column.
@@ -169,6 +170,7 @@ RTE_DefaultConfig.sanitizerGuardLiveDom = true;
 
 RTE_DefaultConfig.tabSpaces = 4;	//Gets or sets the number of spaces to be inserted when the user hits the "tab" key.
 RTE_DefaultConfig.enterKeyTag = "p" // Determines what happens when the "enter" key is pressed in the editor. div, p or br.
+RTE_DefaultConfig.styleWithCSS = false; // false (default): Bold/Italic/Underline save <b>/<i>/<u>, which boldTag/italicTag normalise and which screen readers announce as emphasis. true: inline styles (<span style="font-weight: bold">) instead. Before core 2.6.8 this depended on whether the plugin bundle happened to load first.
 RTE_DefaultConfig.boldTag = "b"        // Tag the Bold command writes to the saved HTML: "b" (default) or "strong".
 RTE_DefaultConfig.italicTag = "i"      // Tag the Italic command writes to the saved HTML: "i" (default) or "em".
 RTE_DefaultConfig.strikeTag = "s"      // Tag the Strikethrough command writes to the saved HTML: "s" (default), "strike" or "del".
@@ -224,7 +226,7 @@ RTE_DefaultConfig.insertCellTag = "<td><br/></td>"; // Default cell attributes w
 
 
 
-RTE_DefaultConfig.insertOrderedListItems = [["decimal", "1,2,3,4,5"], ["lower-alpha", "a,b,c,d,e"], ["upper-alpha", "A,B,C,D,E"], ["lower-roman", "ⅰ,ⅱ,ⅲ,ⅳ,ⅴ"], ["upper-roman", "Ⅰ,Ⅱ,Ⅲ,Ⅳ,Ⅴ"]];
+RTE_DefaultConfig.insertOrderedListItems = [["decimal", "1,2,3,4,5"], ["lower-alpha", "a,b,c,d,e"], ["upper-alpha", "A,B,C,D,E"], ["lower-roman", "\u2170,\u2171,\u2172,\u2173,\u2174"], ["upper-roman", "\u2160,\u2161,\u2162,\u2163,\u2164"]];
 
 RTE_DefaultConfig.insertUnorderedListItems = [["disc", "Disc"], ["circle", "Circle"], ["square", "Square"]];
 
@@ -375,7 +377,7 @@ RTE_DefaultConfig.stylesMerge = false; // true: the Quick Styles lists below are
 //   { title: "Callouts", items: [ ... ] }    a labelled GROUP; items are indented under a heading
 // Groups render as a heading plus indented items, not as a flyout submenu.
 RTE_DefaultConfig.inlineStyles = [["Red", "color:red", "color:red"], ["Bold", "font-weight:bold", "font-weight:bold"], ["Mark", "my-cls-mark"], ["Warning", "my-cls-warning"]]; // Default CSS styles for inline styles dropdown. 
-RTE_DefaultConfig.paragraphStyles = [["Red", "color:red", "color:red"], ["Bold", "font-weight:bold", "font-weight:bold"], ["Quote", "my-cls-quote"], ["LargeCenter", "my-cls-largecenter"]]; // Default CSS styles for paragraph styles dropdown. 
+RTE_DefaultConfig.paragraphStyles = [["Red", "color:red", "color:red"], ["Bold", "font-weight:bold", "font-weight:bold"], ["Quote", "my-cls-quote"], ["Large Center", "my-cls-largecenter"]]; // Default CSS styles for paragraph styles dropdown. 
 RTE_DefaultConfig.imageStyles = [["Border", "border: 1px solid #ddd; border-radius: 4px; padding: 5px;"], ["grayscale", "filter: grayscale(100%);"], ["Shadow", "box-shadow:0 0 8px gray"], ["Margin10", "margin:10px"], ["Padding:10", "padding:10px"]
 	, ["Rounded Corners", "border-radius: 10px;"], ["Rounded Images", "border-radius: 50%;"], ["Thumbnail Image", "border: 1px solid #ddd; border-radius: 4px; padding: 5px;width:150px"]// Default CSS styles for image Styles dropdown. 
 ];
@@ -418,13 +420,15 @@ RTE_DefaultConfig.subtoolbar_more_full = "{strike,ucase,lcase,titlecase,insertho
 RTE_DefaultConfig.subtoolbar_more_mobile = "{save} #{newdoc,help}"; // A set of buttons that appears in the subtoolbar of mobile toolbar set.
 RTE_DefaultConfig.subtoolbar_paste = "pasteauto,pastetext,pasteword";  // A set of buttons that appears in the rich text editor's paste subtoolbar.
 RTE_DefaultConfig.subtoolbar_paragraphop = "{justifyleft,justifycenter,justifyright,insertorderedlist,insertunorderedlist,indent,outdent,insertblockquote}"   // A set of buttons that appears in the rich text editor's paragraph subtoolbar.
-RTE_DefaultConfig.subtoolbar_table = "controlsizeauto,controlsize100,controlsize75,controlsize50,tabledistributecolumns,tabledistributerows,tableproperties,tabledelete";   // A set of buttons that appears in the table subtoolbar.
+RTE_DefaultConfig.subtoolbar_table = "controlsizeauto,controlsize100,controlsize75,controlsize50,tabledistributecolumns,tabledistributerows,tablecaption,tableproperties,tabledelete";   // A set of buttons that appears in the table subtoolbar.
 RTE_DefaultConfig.subtoolbar_tablerow = "tablerowinsertabove,tablerowinsertbelow,tablerowdelete";  // A set of buttons that appears in the tablerow subtoolbar.
 RTE_DefaultConfig.subtoolbar_tablecell = "tablecellmerge,tablecellsplitver,tablecellsplithor,tablecellforecolor,tablecellbackcolor,tablecelltype,tablecellproperties"; // A set of buttons that appears in the tablecell subtoolbar.
 
 // Icons + tooltips for the table/cell commands added 2026-06-18 (Lucide-style line icons).
 RTE_DefaultConfig.text_tablecellproperties = "Cell Properties";
 RTE_DefaultConfig.text_tableproperties = "Table Properties";
+RTE_DefaultConfig.text_tablecaption = "Table Caption";
+RTE_DefaultConfig.svgCode_tablecaption = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="4" x2="18" y2="4"/><rect x="3" y="8" width="18" height="13" rx="1"/><line x1="3" y1="14.5" x2="21" y2="14.5"/><line x1="12" y1="8" x2="12" y2="21"/></svg>';
 RTE_DefaultConfig.text_tablecelltype = "Toggle Header Cell";
 RTE_DefaultConfig.text_tabledistributecolumns = "Distribute Columns";
 RTE_DefaultConfig.text_tabledistributerows = "Distribute Rows";
@@ -647,22 +651,22 @@ RTE_DefaultConfig.text_ok = "OK";
 RTE_DefaultConfig.text_cancel = "Cancel";
 
 RTE_DefaultConfig.text_normal = "Normal"
-RTE_DefaultConfig.text_h1 = "Headline 1"
-RTE_DefaultConfig.text_h2 = "Headline 2"
-RTE_DefaultConfig.text_h3 = "Headline 3"
-RTE_DefaultConfig.text_h4 = "Headline 4"
-RTE_DefaultConfig.text_h5 = "Headline 5"
-RTE_DefaultConfig.text_h6 = "Headline 6"
-RTE_DefaultConfig.text_h7 = "Headline 7"
+RTE_DefaultConfig.text_h1 = "Heading 1"
+RTE_DefaultConfig.text_h2 = "Heading 2"
+RTE_DefaultConfig.text_h3 = "Heading 3"
+RTE_DefaultConfig.text_h4 = "Heading 4"
+RTE_DefaultConfig.text_h5 = "Heading 5"
+RTE_DefaultConfig.text_h6 = "Heading 6"
+RTE_DefaultConfig.text_h7 = "Heading 7"
 
 RTE_DefaultConfig.text_close = "Close";
 
 RTE_DefaultConfig.text_bold = "Bold";
 RTE_DefaultConfig.text_italic = "Italic";
 RTE_DefaultConfig.text_underline = "Underline";
-RTE_DefaultConfig.text_strike = "Strike Line";
+RTE_DefaultConfig.text_strike = "Strikethrough";
 RTE_DefaultConfig.text_superscript = "Superscript";
-RTE_DefaultConfig.text_subscript = "Subcript";
+RTE_DefaultConfig.text_subscript = "Subscript";
 RTE_DefaultConfig.text_ucase = "Upper Case";
 RTE_DefaultConfig.text_lcase = "Lower Case";
 RTE_DefaultConfig.text_titlecase = "Title Case";
@@ -673,17 +677,17 @@ RTE_DefaultConfig.text_titlecase = "Title Case";
 // translate without forking the plugin source.
 RTE_DefaultConfig.svgCode_documentoutline = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="6" x2="20" y2="6"/><line x1="9" y1="11" x2="20" y2="11"/><line x1="12" y1="16" x2="20" y2="16"/><line x1="3" y1="6" x2="3.5" y2="6"/><line x1="6" y1="11" x2="6.5" y2="11"/><line x1="9" y1="16" x2="9.5" y2="16"/></svg>';
 RTE_DefaultConfig.text_documentoutline = "Document outline";
-RTE_DefaultConfig.text_documentoutlinehint = "Live table of contents — click any heading to jump to it.";
+RTE_DefaultConfig.text_documentoutlinehint = "Live table of contents \u2014 click any heading to jump to it.";
 
 RTE_DefaultConfig.svgCode_contentminimap = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="6" y1="7" x2="14" y2="7"/><line x1="6" y1="11" x2="18" y2="11"/><line x1="6" y1="15" x2="12" y2="15"/><line x1="6" y1="19" x2="16" y2="19"/></svg>';
 RTE_DefaultConfig.text_contentminimap = "Content minimap";
-RTE_DefaultConfig.text_contentminimaphint = "Bird's-eye view of the document — drag the highlight box to scroll.";
+RTE_DefaultConfig.text_contentminimaphint = "Bird's-eye view of the document \u2014 drag the highlight box to scroll.";
 
 RTE_DefaultConfig.svgCode_accessibilitychecker = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="7" r="1.4" fill="currentColor"/><path d="M9 11.5h6"/><path d="M12 11.5v8"/><path d="M9 19.5l3-4 3 4"/></svg>';
 RTE_DefaultConfig.text_accessibilitychecker = "Accessibility checker";
 RTE_DefaultConfig.text_accessibilitycheckerhint = "Scan the document for missing alt text, empty headings, low contrast, and other a11y issues.";
 
-RTE_DefaultConfig.text_removeformat = "Remove Format";
+RTE_DefaultConfig.text_removeformat = "Clear Formatting";
 
 RTE_DefaultConfig.text_insertlink = "Insert Link";
 RTE_DefaultConfig.text_openlink = "Open Link";
@@ -702,8 +706,8 @@ RTE_DefaultConfig.text_outdent = "Outdent";
 
 RTE_DefaultConfig.text_insertblockquote = "Block Quote";
 
-RTE_DefaultConfig.text_insertorderedlist = "Ordered List";
-RTE_DefaultConfig.text_insertunorderedlist = "Unordered List";
+RTE_DefaultConfig.text_insertorderedlist = "Numbered List";
+RTE_DefaultConfig.text_insertunorderedlist = "Bulleted List";
 
 RTE_DefaultConfig.text_inserthorizontalrule = "Insert Horizontal Rule";
 RTE_DefaultConfig.text_insertdate = "Insert Date";
@@ -743,13 +747,13 @@ RTE_DefaultConfig.text_inlinestyles = "Text styles";// Quick Styles applied to t
 RTE_DefaultConfig.text_fontname = "Font";
 RTE_DefaultConfig.text_fontsize = "Size";
 RTE_DefaultConfig.text_forecolor = "Text Color";
-RTE_DefaultConfig.text_backcolor = "Back Color";
+RTE_DefaultConfig.text_backcolor = "Background Color";
 
 RTE_DefaultConfig.text_justify = "Justify"
-RTE_DefaultConfig.text_justifyleft = "Justify Left"
-RTE_DefaultConfig.text_justifyright = "Justify Right"
-RTE_DefaultConfig.text_justifycenter = "Justify Center"
-RTE_DefaultConfig.text_justifyfull = "Justify Full"
+RTE_DefaultConfig.text_justifyleft = "Align Left"
+RTE_DefaultConfig.text_justifyright = "Align Right"
+RTE_DefaultConfig.text_justifycenter = "Align Center"
+RTE_DefaultConfig.text_justifyfull = "Justify"
 RTE_DefaultConfig.text_justifynone = "Justify None"
 
 RTE_DefaultConfig.text_delete = "Delete";
@@ -762,11 +766,11 @@ RTE_DefaultConfig.text_preview = "Preview";
 RTE_DefaultConfig.text_print = "Print";
 RTE_DefaultConfig.text_undo = "Undo";
 RTE_DefaultConfig.text_redo = "Redo";
-RTE_DefaultConfig.text_more = "More...";
+RTE_DefaultConfig.text_more = "More\u2026";
 RTE_DefaultConfig.text_newdoc = "New Doc";
 RTE_DefaultConfig.text_help = "Help";
 
-RTE_DefaultConfig.text_fullscreenenter = "Fit to Window";
+RTE_DefaultConfig.text_fullscreenenter = "Full Screen";
 RTE_DefaultConfig.text_fullscreenexit = "Exit Full Screen";
 RTE_DefaultConfig.text_fullscreen = "@text_fullscreenenter";
 
@@ -780,9 +784,9 @@ RTE_DefaultConfig.text_paragraphstyle = "Paragraph Styles";
 RTE_DefaultConfig.text_linkstyle = "Link Styles";
 RTE_DefaultConfig.text_link = "Link";
 RTE_DefaultConfig.text_style = "Styles";
-RTE_DefaultConfig.text_cssclass = "Css Classes";
-RTE_DefaultConfig.text_url = "Url";
-RTE_DefaultConfig.text_byurl = "By Url";
+RTE_DefaultConfig.text_cssclass = "CSS Classes";
+RTE_DefaultConfig.text_url = "URL";
+RTE_DefaultConfig.text_byurl = "By URL";
 RTE_DefaultConfig.text_upload = "Upload";
 RTE_DefaultConfig.text_size = "Size";
 
@@ -793,7 +797,7 @@ RTE_DefaultConfig.text_opennewwin = "Open in new tab";
 RTE_DefaultConfig.text_insert = "Insert";
 RTE_DefaultConfig.text_update = "Update";
 
-RTE_DefaultConfig.text_find = "Find&Replace";
+RTE_DefaultConfig.text_find = "Find and Replace";
 RTE_DefaultConfig.text_findwhat = "Find";
 RTE_DefaultConfig.text_replacewith = "Replace";
 
@@ -852,9 +856,9 @@ RTE_DefaultConfig.text_pmoveup = "Move Up";
 RTE_DefaultConfig.text_pmovedown = "Move Down";
 RTE_DefaultConfig.text_pduplicate = "Duplicate";
 RTE_DefaultConfig.text_pdelete = "Delete";
-RTE_DefaultConfig.text_pmore = "More..";
+RTE_DefaultConfig.text_pmore = "More\u2026";
 
-RTE_DefaultConfig.text_togglemore = "More..";
+RTE_DefaultConfig.text_togglemore = "More\u2026";
 RTE_DefaultConfig.text_toggleborder = "Toggle Border";
 
 RTE_DefaultConfig.text_cut = "Cut";
@@ -875,7 +879,7 @@ RTE_DefaultConfig.text_insertbookmarktitle = "Insert bookmark";
 RTE_DefaultConfig.text_insertbookmarklabel = "Link URL";
 RTE_DefaultConfig.text_spellcheck = "Spell Check";
 RTE_DefaultConfig.text_spellchecktitle = "Spelling";
-RTE_DefaultConfig.text_spellchecknative = "Browser spell-check is on — misspellings are underlined as you type.";
+RTE_DefaultConfig.text_spellchecknative = "Browser spell-check is on \u2014 misspellings are underlined as you type.";
 RTE_DefaultConfig.text_spellcheckclean = "No spelling issues found.";
 RTE_DefaultConfig.text_insertdatechip = "Date Chip";
 RTE_DefaultConfig.text_insertchip = "Smart Chip";
@@ -916,6 +920,7 @@ RTE_DefaultConfig.text_tablecolumn = "Table Column";
 RTE_DefaultConfig.text_colorauto = "Automatic";
 
 RTE_DefaultConfig.text_colormore = "More Colors...";
+RTE_DefaultConfig.text_colorrecent = "Recent colors";
 RTE_DefaultConfig.text_colorpicker = "Color Picker";
 
 RTE_DefaultConfig.text_colorwebpalette = "Web Palette";
@@ -951,14 +956,80 @@ RTE_DefaultConfig.translation = RTE_DefaultConfig.translation || {
 RTE_DefaultConfig.plugin_insertcomment = function () {
     var obj = this;
     obj.PluginName = "InsertComment";
+    // Wraps each block's part of range in its own make() element, and returns them. The selection is
+    // cut into runs of text that share a block; a run starting or ending at the edge of an inline
+    // element (<b>) takes the whole element, so no empty <b></b> is left behind; text inside a
+    // non-editable element (a chip) moves with its run; a whitespace-only run (the line break between
+    // two blocks) gets nothing.
+    function markEachBlock(doc, range, make) {
+        var BLOCK = /^(P|DIV|LI|UL|OL|DL|DT|DD|TABLE|TBODY|THEAD|TFOOT|TR|TD|TH|CAPTION|H[1-6]|PRE|BLOCKQUOTE|ADDRESS|FIGURE|FIGCAPTION|SECTION|ARTICLE|ASIDE|HEADER|FOOTER|NAV|MAIN|DETAILS|SUMMARY|FORM|FIELDSET|LEGEND|HR|BODY)$/;
+        function blockOf(node) {
+            for (var n = node; n; n = n.parentNode)
+                if (n.nodeType === 1 && BLOCK.test(n.nodeName)) return n;
+            return null;
+        }
+        var root = range.commonAncestorContainer;
+        if (root.nodeType !== 1) root = root.parentNode;
+        var runs = [], cur = null;
+        var w = doc.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+            acceptNode: function (n) { return n.nodeType === 1 && n.getAttribute("contenteditable") === "false" ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT; }
+        });
+        for (var n = w.nextNode(); n; n = w.nextNode()) {
+            if (n.nodeType === 1) {
+                if (BLOCK.test(n.nodeName)) cur = null;
+                continue;
+            }
+            if (!range.intersectsNode(n)) continue;
+            var a = n === range.startContainer ? range.startOffset : 0, b = n === range.endContainer ? range.endOffset : n.data.length;
+            if (b <= a) continue;
+            var blk = blockOf(n);
+            if (!cur || cur.block !== blk) {
+                cur = { block: blk, sn: n, so: a, text: "" };
+                runs.push(cur);
+            }
+            cur.en = n;
+            cur.eo = b;
+            cur.text += n.data.substring(a, b);
+        }
+        var out = [];
+        // from the last run back: wrapping one never moves the text of a run still to come
+        for (var i = runs.length - 1; i >= 0; i--) {
+            var run = runs[i];
+            if (!/\S/.test(run.text)) continue;
+            var sub = doc.createRange();
+            sub.setStart(run.sn, run.so);
+            sub.setEnd(run.en, run.eo);
+            var x = sub.startContainer;
+            if (x.nodeType === 3 && sub.startOffset === 0) {
+                while (x.parentNode && x.parentNode !== run.block && !x.previousSibling && !BLOCK.test(x.parentNode.nodeName)) x = x.parentNode;
+                sub.setStartBefore(x);
+            }
+            x = sub.endContainer;
+            if (x.nodeType === 3 && sub.endOffset === x.data.length) {
+                while (x.parentNode && x.parentNode !== run.block && !x.nextSibling && !BLOCK.test(x.parentNode.nodeName)) x = x.parentNode;
+                sub.setEndAfter(x);
+            }
+            var el = make();
+            el.appendChild(sub.extractContents());
+            sub.insertNode(el);
+            out.unshift(el);
+        }
+        return out;
+    }
     obj.InitConfig = function () {};
     obj.InitEditor = function (editor) {
         editor.attachEvent("exec_command_insertcomment", function (state) {
             var edDoc = editor.document;
             var sel = edDoc.defaultView.getSelection();
             var selectedText = sel && !sel.isCollapsed ? sel.toString() : "";
+            // 2026-10-02 The range is kept from the moment the dialog opens: read on submit, after
+            // focus had moved into the dialog, it could be collapsed (an EMPTY mark landed at the
+            // start of the document in Firefox). tools/comments/comment-dialog.mjs
+            var savedRange = selectedText ? sel.getRangeAt(0).cloneRange() : null;
 
-            var dialoginner = editor.createDialog("Add Comment", "rte-dialog-insertcomment");
+            // 2026-10-18 the dialog's words read config.text_ keys (English as the fallback).
+            // tools/i18n/core-dialogs-language.mjs
+            var dialoginner = editor.createDialog((editor.config || {}).text_commentapply || "Add Comment", "rte-dialog-insertcomment");
             dialoginner.style.padding = "14px";
             if (selectedText) {
                 var preview = document.createElement("div");
@@ -967,30 +1038,39 @@ RTE_DefaultConfig.plugin_insertcomment = function () {
                 dialoginner.appendChild(preview);
             }
             var label = document.createElement("label");
-            label.innerText = "Comment:";
+            label.innerText = (editor.config || {}).text_dlg_commentlabel || "Comment:";
             label.className = "rte-comment-dialog-label";
             dialoginner.appendChild(label);
             var textarea = document.createElement("textarea");
             textarea.id = "rte-comment-input-" + new Date().getTime();
             label.htmlFor = textarea.id;
-            textarea.placeholder = "Type your comment...";
+            textarea.placeholder = (editor.config || {}).text_commentplaceholder || "Type your comment...";
             textarea.className = "rte-comment-dialog-input";
             dialoginner.appendChild(textarea);
             var btnRow = document.createElement("div");
             btnRow.className = "rte-comment-dialog-actions";
             var insertBtn = document.createElement("button");
-            insertBtn.innerText = "Add Comment";
+            insertBtn.innerText = (editor.config || {}).text_commentapply || "Add Comment";
             insertBtn.type = "button";
             insertBtn.className = "rte-comment-dialog-submit";
+            // 2026-10-15 unstyled, the buttons were 21px tall: WCAG 2.5.8 asks for 24px targets. tools/a11y/dialog-axe.mjs
+            insertBtn.style.cssText = "min-height:28px;padding:4px 14px;margin-right:6px;cursor:pointer;";
             insertBtn.onclick = function () {
                 var comment = textarea.value.replace(/^\s+|\s+$/g, "");
-                if (comment && selectedText) {
-                    var range = sel.getRangeAt(0);
-                    var mark = edDoc.createElement("mark");
-                    mark.style.cssText = "background:#fff9c4;border-bottom:2px solid #f9a825;cursor:pointer;position:relative;";
-                    mark.setAttribute("title", comment);
-                    mark.setAttribute("data-comment", comment);
-                    try { range.surroundContents(mark); } catch (e) {}
+                if (comment && savedRange) {
+                    // 2026-10-02 range.surroundContents THREW whenever the selection crossed an
+                    // element edge - starting inside a bold word, two paragraphs, two list items - and
+                    // the throw was swallowed: the dialog closed and the typed comment was gone. Each
+                    // block's part of the selection now gets its own mark (a mark around blocks would
+                    // split them, as links and the comments plugin did).
+                    if (editor.commitBookmark) editor.commitBookmark();
+                    markEachBlock(edDoc, savedRange, function () {
+                        var mark = edDoc.createElement("mark");
+                        mark.style.cssText = "background:#fff9c4;border-bottom:2px solid #f9a825;cursor:pointer;position:relative;";
+                        mark.setAttribute("title", comment);
+                        mark.setAttribute("data-comment", comment);
+                        return mark;
+                    });
                 } else if (comment) {
                     var safeComment = comment.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
                     editor.insertHTML('<span class="rte-comment-marker" contenteditable="false" style="background:#fff9c4;border:1px solid #f9a825;border-radius:3px;padding:1px 6px;font-size:11px;color:#f57f17;cursor:pointer;" title="' + safeComment + '">&#128172; Comment</span>');
@@ -999,9 +1079,10 @@ RTE_DefaultConfig.plugin_insertcomment = function () {
                 editor.focus();
             };
             var cancelBtn = document.createElement("button");
-            cancelBtn.innerText = "Cancel";
+            cancelBtn.innerText = (editor.config || {}).text_cancel || "Cancel";
             cancelBtn.type = "button";
             cancelBtn.className = "rte-comment-dialog-cancel";
+            cancelBtn.style.cssText = "min-height:28px;padding:4px 14px;cursor:pointer;";
             cancelBtn.onclick = function () {
                 dialoginner.close();
                 editor.focus();
@@ -1027,16 +1108,18 @@ RTE_DefaultConfig.plugin_insertcomment = function () {
     };
 };
 
-// === Apply keyboard shortcut hints to tooltips (must run AFTER text_* defaults). ===
+// === Keyboard shortcut hints for the toolbar tooltips (config.keyboardShortcutHints). ===
 (function () {
 	if (!RTE_DefaultConfig.showKeyboardShortcutsInTooltips) return;
 	var isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || "");
-	var mod = isMac ? "⌘" : "Ctrl";
-	var shift = isMac ? "⇧" : "Shift";
+	var mod = isMac ? "\u2318" : "Ctrl";
+	var shift = isMac ? "\u21e7" : "Shift";
+	// 2026-10-18 a map read by rte.js for the toolbar TOOLTIPS; the label strings are no longer rewritten, so a
+	// dialog title or a button's accessible name never carries " (Ctrl+K)" and a language pack keeps the hints.
+	// tools/i18n/shortcut-hints.mjs
+	var hints = RTE_DefaultConfig.keyboardShortcutHints = RTE_DefaultConfig.keyboardShortcutHints || {};
 	function add(cmd, key) {
-		var base = RTE_DefaultConfig["text_" + cmd];
-		if (!base || / \(.+\)$/.test(base)) return;
-		RTE_DefaultConfig["text_" + cmd] = base + " (" + key + ")";
+		if (!hints[cmd]) hints[cmd] = key;
 	}
 	add("bold", mod + "+B");
 	add("italic", mod + "+I");

@@ -33,6 +33,10 @@ function RTE_Plugin_RubyAnnotation() {
         if (config.rubyAnnotationEnabled === false) return;
 
         if (typeof config.rubyAnnotationParentheses !== "boolean") config.rubyAnnotationParentheses = true;
+        // 2026-10-15 no string for the button: getLangText returned the key, so it was announced "rubyannotation".
+        // tools/a11y/raw-lang-keys.mjs
+        if (!config.text_rubyannotation) config.text_rubyannotation = "Ruby annotation";
+        if (!config.text_rubyannotationtitle) config.text_rubyannotationtitle = "Ruby annotation";
 
         // BOTH toolbars. config.toolbar defaults to "default", which resolves to
         // toolbar_default, so appending only to toolbar_full would leave the
@@ -205,48 +209,54 @@ function RTE_Plugin_RubyAnnotation() {
         return el;
     }
 
+    // getLangText returns the key itself when there is no string, so `|| fallback` never ran ("rubyannotationtitle")
+    function rubyTitle() {
+        var t = editor.getLangText ? editor.getLangText("rubyannotationtitle") : "";
+        return t && String(t).toLowerCase() !== "rubyannotationtitle" ? t : "Ruby annotation";
+    }
+
     obj.OpenRubyDialog = function () {
         var existing = findRubyAtSelection();
         var range = currentRange();
         var baseText = existing ? baseOf(existing) : (range ? String(range.toString() || "") : "");
 
         var dlg = editor.createDialog(
-            (editor.getLangText && editor.getLangText("rubyannotationtitle")) || "Ruby annotation",
+            rubyTitle(),
             "rte-dialog-ruby"
         );
         var close = typeof dlg.close === "function" ? function () { dlg.close(); } : function () { editor.closeCurrentPopup(); };
 
         var wrap = append(dlg, "div", "padding:14px;min-width:340px;font:13px -apple-system,Segoe UI,sans-serif");
 
-        append(wrap, "div", "font-weight:600;margin-bottom:4px").innerText = "Base text";
+        append(wrap, "div", "font-weight:600;margin-bottom:4px").innerText = ((config && config.text_ruby_base) || "Base text");
         var baseView = append(wrap, "div",
             "padding:8px 10px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;min-height:20px;word-break:break-word");
         baseView.textContent = baseText;
 
-        append(wrap, "div", "font-weight:600;margin:10px 0 4px").innerText = "Reading";
+        append(wrap, "div", "font-weight:600;margin:10px 0 4px").innerText = ((config && config.text_ruby_reading) || "Reading");
         var input = append(wrap, "input",
             "width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font:13px inherit");
         input.type = "text";
         input.value = existing ? readingOf(existing) : "";
-        input.placeholder = "e.g. かんじ";
+        input.placeholder = "e.g. \u304b\u3093\u3058";
 
         var note = append(wrap, "div", "font-size:11px;color:#94a3b8;margin-top:6px");
         note.innerText = baseText
-            ? "Shown above the base text. Parentheses are emitted for readers without ruby support."
-            : "Select the text to annotate first, then reopen this dialog.";
+            ? ((config && config.text_ruby_note) || "Shown above the base text. Parentheses are emitted for readers without ruby support.")
+            : ((config && config.text_ruby_selectfirst) || "Select the text to annotate first, then reopen this dialog.");
 
         var footer = append(wrap, "div", "display:flex;justify-content:space-between;gap:8px;margin-top:14px");
         var left = append(footer, "div", "display:flex;gap:8px");
         if (existing) {
             var rm = append(left, "button", "padding:6px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#b91c1c;cursor:pointer");
-            rm.type = "button"; rm.textContent = "Remove";
+            rm.type = "button"; rm.textContent = ((config && config.text_ruby_remove) || "Remove");
             rm.onclick = function () { removeRuby(); close(); };
         }
         var right = append(footer, "div", "display:flex;gap:8px");
         var cancel = append(right, "button", "padding:6px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;cursor:pointer");
-        cancel.type = "button"; cancel.textContent = "Cancel"; cancel.onclick = close;
+        cancel.type = "button"; cancel.textContent = ((config && config.text_ruby_cancel) || "Cancel"); cancel.onclick = close;
         var ok = append(right, "button", "padding:6px 14px;border:1px solid #1d67ba;border-radius:8px;background:#1d67ba;color:#fff;cursor:pointer");
-        ok.type = "button"; ok.textContent = existing ? "Update" : "Add";
+        ok.type = "button"; ok.textContent = existing ? ((config && config.text_ruby_update) || "Update") : ((config && config.text_ruby_add) || "Add");
         ok.disabled = !baseText;
 
         ok.onclick = function () {

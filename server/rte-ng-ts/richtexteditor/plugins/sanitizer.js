@@ -91,6 +91,10 @@ function RTE_Plugin_Sanitizer() {
         "blockquote,pre,code,figure,figcaption," +
         "section,article,header,footer,main,aside,nav,address,details,summary," +
         "a,img,picture,source,video,audio,track,map,area," +
+        // 2026-10-18 the editor's own video wrapper: its overlay (content CSS) is what lets a click select an
+        // embedded video. Unwrapped, the click went into the video's frame and the video could never be selected.
+        // tools/video/video-click-select.mjs
+        "video-container," +
         // Chips, task lists and the code plugin put these in content.
         "input,label,button," +
         // Inline SVG (icons, diagrams). Its dangerous children are dropped below.
@@ -116,8 +120,8 @@ function RTE_Plugin_Sanitizer() {
         // an embed MORE powerful.
         "contenteditable,spellcheck,autocomplete,draggable,sandbox,allowfullscreen,allow,frameborder,scrolling," +
         "href,src,srcset,sizes,alt,width,height,loading,decoding,referrerpolicy," +
-        "target,rel,download,type,value,name,placeholder,checked,disabled,readonly," +
-        "colspan,rowspan,headers,scope,span,align,valign,bgcolor,border,cellpadding,cellspacing," +
+        "target,rel,hreflang,media,download,type,value,name,placeholder,checked,disabled,readonly," +
+        "colspan,rowspan,headers,scope,abbr,span,align,valign,bgcolor,border,cellpadding,cellspacing," +
         "start,reversed,datetime,cite,open,controls,autoplay,loop,muted,playsinline,poster,preload,kind,srclang,label," +
         "usemap,ismap,coords,shape," +
         // SVG presentation
@@ -211,6 +215,28 @@ function RTE_Plugin_Sanitizer() {
     //  - allow-scripts + allow-same-origin isolates nothing when the frame is
     //    served from the page's OWN origin: the framed page can reach the parent
     //    and remove its own sandbox. Same-origin frames lose allow-same-origin.
+    // 2026-10-01 <font> is not allowed, and unknown elements are unwrapped - which threw away
+    // the font, colour and size of every <font> in loaded or pasted content (older editor
+    // versions and many tools write it). It is converted to an equivalent styled <span>
+    // instead. Every value becomes CSS, so each is validated and anything else is dropped.
+    var FONT_SIZES = { "1": "x-small", "2": "small", "3": "medium", "4": "large", "5": "x-large", "6": "xx-large", "7": "xxx-large" };
+    function fontTagStyle(el) {
+        var css = [];
+        var face = el.getAttribute("face");
+        if (face) {
+            var names = face.split(",").map(function (n) { return n.trim().replace(/^['"]|['"]$/g, ""); })
+                .filter(function (n) { return /^[A-Za-z0-9][A-Za-z0-9 \-]{0,63}$/.test(n); })
+                .map(function (n) { return /\s/.test(n) ? "'" + n + "'" : n; });
+            if (names.length) css.push("font-family:" + names.join(","));
+        }
+        var color = (el.getAttribute("color") || "").trim();
+        if (/^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i.test(color) || /^rgb\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*\)$/i.test(color) || /^[a-z]{3,20}$/i.test(color))
+            css.push("color:" + color);
+        var size = FONT_SIZES[(el.getAttribute("size") || "").trim()];
+        if (size) css.push("font-size:" + size);
+        return css.join(";");
+    }
+
     function applyDefaultSandbox(el, src) {
         var allowed = DEFAULT_IFRAME_SANDBOX.split(" ");
         var sameOrigin = false;
@@ -367,6 +393,26 @@ function RTE_Plugin_Sanitizer() {
                     el.parentNode.removeChild(el);
                     continue;
                 }
+            } else if (tag === "center" || tag === "big" || tag === "tt") {
+                // 2026-10-01 Other legacy presentational tags, converted like <font> instead of
+                // unwrapped: <center> lost its centring AND left its text loose at the top level,
+                // <big> lost its size, <tt> its monospace.
+                note(report.removedTags, tag);
+                var legacyEl = el.ownerDocument.createElement(tag === "center" ? "div" : tag === "big" ? "span" : "code");
+                if (tag === "center") legacyEl.setAttribute("style", "text-align:center");
+                if (tag === "big") legacyEl.setAttribute("style", "font-size:larger");
+                while (el.firstChild) legacyEl.appendChild(el.firstChild);
+                el.parentNode.replaceChild(legacyEl, el);
+                continue;
+            } else if (tag === "font") {
+                var fontCss = fontTagStyle(el);
+                note(report.removedTags, "font");
+                if (!fontCss) { unwrap(el); continue; }
+                var fontSpan = el.ownerDocument.createElement("span");
+                fontSpan.setAttribute("style", fontCss);
+                while (el.firstChild) fontSpan.appendChild(el.firstChild);
+                el.parentNode.replaceChild(fontSpan, el);
+                continue;
             } else if (DROP_WHOLE[tag]) {
                 note(report.removedTags, tag);
                 el.parentNode.removeChild(el);
@@ -380,6 +426,7 @@ function RTE_Plugin_Sanitizer() {
             }
 
             var attrs = [];
+            var strippedSrc = false;
             for (var a = 0; a < el.attributes.length; a++) attrs.push(el.attributes[a]);
             for (var k = 0; k < attrs.length; k++) {
                 var name = attrs[k].name.toLowerCase();
@@ -394,16 +441,43 @@ function RTE_Plugin_Sanitizer() {
                 }
                 if (name === "srcdoc") { note(report.removedAttributes, "srcdoc"); el.removeAttribute(attrs[k].name); continue; }
                 if (name === "style") { el.setAttribute("style", cleanStyle(value)); continue; }
+                // 2026-10-02 A lazy-load source (data-src, data-lazy-src, data-original, data-srcset)
+                // is copied into src by the HOST page's lazy-loader, so it is a URL like any other:
+                // data-src="javascript:..." kept in saved HTML was a script waiting for that loader.
+                // tools/clipboard/lazy-images-paste.mjs
+                if (/^data-(.*-)?(src|srcset|original)$/i.test(name)) {
+                    var lazyOk = /srcset$/i.test(name)
+                        ? value.split(",").every(function (part) { var u = part.trim().split(/\s+/)[0]; return !u || isSafeUrl(u, tag, "src"); })
+                        : isSafeUrl(value, tag, "src");
+                    if (!lazyOk) { note(report.removedAttributes, tag + "[" + name + "]"); el.removeAttribute(attrs[k].name); }
+                    continue;
+                }
                 if (name.indexOf("data-") === 0 || name.indexOf("aria-") === 0) continue;
 
                 if (URL_ATTRS[name]) {
-                    if (!isSafeUrl(value, tag, name)) { note(report.removedAttributes, tag + "[" + name + "]"); el.removeAttribute(attrs[k].name); }
+                    if (!isSafeUrl(value, tag, name)) {
+                        note(report.removedAttributes, tag + "[" + name + "]");
+                        el.removeAttribute(attrs[k].name);
+                        if (name === "src") strippedSrc = true;
+                    }
                     continue;
                 }
                 if (!ALLOWED_ATTRS[name] && !attrExtra(name)) {
                     note(report.removedAttributes, name);
                     el.removeAttribute(attrs[k].name);
                 }
+            }
+
+            // An <img> whose only source was just stripped is an empty box that
+            // saves as <img> with no src -- dragging a page image into the editor
+            // from a page opened on disk did exactly that (its file: src is not a
+            // safe scheme). Drop the element when nothing is left to show. Keep it
+            // when srcset or a lazy-load data-*src still carries an image, and never
+            // touch an <img> that arrived without a src (an app placeholder).
+            if (tag === "img" && strippedSrc && !el.hasAttribute("srcset") && !hasDataSource(el)) {
+                note(report.removedTags, "img");
+                el.parentNode.removeChild(el);
+                continue;
             }
 
             // A link that opens a new tab without rel="noopener" hands the
@@ -422,9 +496,17 @@ function RTE_Plugin_Sanitizer() {
         parent.removeChild(el);
     }
     function note(list, what) { if (list.indexOf(what) < 0) list.push(what); }
+    function hasDataSource(el) {
+        for (var i = 0; i < el.attributes.length; i++) {
+            if (/^data-(.*-)?(src|srcset|original)$/i.test(el.attributes[i].name)) return true;
+        }
+        return false;
+    }
 
     function sanitizeHtml(html) {
-        var out = html;
+        // The clipboard's fragment markers are not content (they leaked into saved HTML as
+        // <p><!--StartFragment--></p> on this path).
+        var out = String(html).replace(/<!--\s*(Start|End)Fragment\s*-->/gi, "");
         report.calls++;
         // Parsing into an inert document means nothing loads or executes while
         // we inspect it -- innerHTML on a live div would fire <img onerror>

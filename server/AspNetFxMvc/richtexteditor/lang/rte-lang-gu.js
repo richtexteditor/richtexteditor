@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "દાખલ કરો";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "શૈલીઓ";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "ટેક્સ્ટ શૈલીઓ";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "gu";	// this pack's locale (Intl names, e.g. the text-part language menu)

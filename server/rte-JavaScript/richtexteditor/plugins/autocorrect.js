@@ -73,20 +73,20 @@ function RTE_Plugin_Autocorrect() {
 
     // Multi-character sequences replaced the moment they are completed.
     var SEQUENCES = [
-        { from: "...", to: "…" },        // ellipsis
-        { from: "-->", to: "⟶" },        // long right arrow
-        { from: "->", to: "→" },
-        { from: "<-", to: "←" },
-        { from: "<=", to: "≤" },
-        { from: ">=", to: "≥" },
-        { from: "!=", to: "≠" },
-        { from: "(c)", to: "©" },
-        { from: "(r)", to: "®" },
-        { from: "(tm)", to: "™" },
-        { from: "1/2", to: "½" },
-        { from: "1/4", to: "¼" },
-        { from: "3/4", to: "¾" },
-        { from: "+-", to: "±" }
+        { from: "...", to: "\u2026" },        // ellipsis
+        { from: "-->", to: "\u27f6" },        // long right arrow
+        { from: "->", to: "\u2192" },
+        { from: "<-", to: "\u2190" },
+        { from: "<=", to: "\u2264" },
+        { from: ">=", to: "\u2265" },
+        { from: "!=", to: "\u2260" },
+        { from: "(c)", to: "\xa9" },
+        { from: "(r)", to: "\xae" },
+        { from: "(tm)", to: "\u2122" },
+        { from: "1/2", to: "\xbd" },
+        { from: "1/4", to: "\xbc" },
+        { from: "3/4", to: "\xbe" },
+        { from: "+-", to: "\xb1" }
     ];
 
     obj.PluginName = "Autocorrect";
@@ -186,7 +186,10 @@ function RTE_Plugin_Autocorrect() {
     // ---- the Backspace escape hatch --------------------------------------
 
     function onKeyDown(e) {
-        if (e.key !== "Backspace" || !lastFix) return;
+        // Ctrl/Cmd+Z straight after a correction reverts just the correction (Word, CKEditor),
+        // where the editor's own undo would also throw away the typing it was grouped with.
+        var isUndo = (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && (e.code === "KeyZ" || e.key === "z" || e.key === "Z");
+        if ((e.key !== "Backspace" && !isUndo) || !lastFix) return;
         var c = caret();
         if (!c || c.node !== lastFix.node) { lastFix = null; return; }
         // Only when the caret is still exactly where the correction left it —
@@ -217,7 +220,7 @@ function RTE_Plugin_Autocorrect() {
     }
 
     function isBoundary(ch) {
-        return ch === " " || ch === " " || ".,;:!?)]}\"'’”".indexOf(ch) >= 0;
+        return ch === " " || ch === "\xa0" || ".,;:!?)]}\"'\u2019\u201d".indexOf(ch) >= 0;
     }
 
     // Substitutions that resolve as soon as the triggering character lands.
@@ -229,8 +232,8 @@ function RTE_Plugin_Autocorrect() {
         // whitespace or an opening bracket it opens, otherwise it closes.
         if (ch === '"' || ch === "'") {
             var prev = at >= 2 ? text.charAt(at - 2) : "";
-            var opening = !prev || /[\s(\[{—–\-]/.test(prev);
-            var repl = ch === '"' ? (opening ? "“" : "”") : (opening ? "‘" : "’");
+            var opening = !prev || /[\s(\[{\u2014\u2013\-]/.test(prev);
+            var repl = ch === '"' ? (opening ? "\u201c" : "\u201d") : (opening ? "\u2018" : "\u2019");
             return replaceRange(c, at - 1, at, repl, ch);
         }
 
@@ -240,9 +243,9 @@ function RTE_Plugin_Autocorrect() {
         // start of a line and a "--flag" are left alone.
         if (ch === "-" && at >= 2 && text.charAt(at - 2) === "-") {
             var before = at >= 3 ? text.charAt(at - 3) : "";
-            var ok = /[\w\)\]"'’]/.test(before);
-            if (!ok && /\s/.test(before)) ok = /[\w\)\]"'’]\s*$/.test(text.slice(0, at - 3));
-            if (ok) return replaceRange(c, at - 2, at, "—", "--");
+            var ok = /[\w\)\]"'\u2019]/.test(before);
+            if (!ok && /\s/.test(before)) ok = /[\w\)\]"'\u2019]\s*$/.test(text.slice(0, at - 3));
+            if (ok) return replaceRange(c, at - 2, at, "\u2014", "--");
         }
 
         for (var i = 0; i < SEQUENCES.length; i++) {
@@ -263,9 +266,17 @@ function RTE_Plugin_Autocorrect() {
         var text = c.node.nodeValue;
         var end = c.offset - 1;               // the boundary char we just typed
         var start = end;
-        while (start > 0 && /[A-Za-z'’]/.test(text.charAt(start - 1))) start--;
+        while (start > 0 && /[A-Za-z'\u2019]/.test(text.charAt(start - 1))) start--;
         if (start === end) return;
         var word = text.substring(start, end);
+        // a single letter followed by "." is the start of "i.e." / "e.g." - the "." is typed before
+        // the rest of the abbreviation exists, so leave it (it became "I.e.")
+        if (ch === "." && word.length === 1) return;
+        // 2026-10-03 A dotted abbreviation ("i.e.", "e.g.") keeps its case: "i.e." became "I.e.".
+        // tools/autolink/autolink.mjs
+        var tokEnd = end;
+        while (tokEnd < text.length && !/\s/.test(text.charAt(tokEnd))) tokEnd++;
+        if (/^[a-z]\.[a-z]\.?$/i.test(text.substring(start, tokEnd))) return;
 
         // Spelling THEN capitalisation, applied in sequence to the same word.
         // Treating them as alternatives means "teh cat" opening a sentence comes
@@ -277,9 +288,11 @@ function RTE_Plugin_Autocorrect() {
             // The table stores plain apostrophes so it stays easy to extend, but
             // typing ' produces a curly one — emit the same character here or
             // "don't" ends up with a different apostrophe than "it's".
-            if (config.autocorrectTypography !== false) fixed = fixed.replace(/'/g, "’");
+            if (config.autocorrectTypography !== false) fixed = fixed.replace(/'/g, "\u2019");
         }
-        if (config.autocorrectCapitalize !== false && startsSentence(text, start, c.node)) {
+        // A word inside a web address or email ("www.", "me@x.org", "https://a.example.org/path")
+        // is never a sentence start: capitalising it corrupts the link built from that text.
+        if (config.autocorrectCapitalize !== false && !inAddress(text, start, end) && startsSentence(text, start, c.node)) {
             var first = fixed.charAt(0);
             if (first !== first.toUpperCase()) fixed = first.toUpperCase() + fixed.substring(1);
         }
@@ -296,12 +309,34 @@ function RTE_Plugin_Autocorrect() {
         return fixed;
     }
 
+    function inAddress(text, start, end) {
+        var s = start;
+        while (s > 0 && !/\s/.test(text.charAt(s - 1))) s--;
+        // 2026-10-03 Read the WHOLE token (to the next space) and ignore an opening bracket or quote:
+        // "(https://x" was read as "(https:" - no slash yet - and capitalised to "(Https://".
+        // tools/autolink/autolink.mjs
+        var e2 = end;
+        while (e2 < text.length && !/\s/.test(text.charAt(e2))) e2++;
+        var token = text.substring(s, Math.max(e2, end + 1)).toLowerCase().replace(/^[(\[{<'"\u2018\u201c]+/, "");
+        return /^www\./.test(token) || /^[a-z][a-z0-9+.-]*:/.test(token) || /[\/@]/.test(token);
+    }
+
     function startsSentence(text, start, node) {
+        var spaced = false;
         for (var i = start - 1; i >= 0; i--) {
             var ch = text.charAt(i);
-            if (/\s/.test(ch)) continue;
-            if (ch === '"' || ch === "'" || ch === "“" || ch === "‘" || ch === "(") continue;
-            return ".!?".indexOf(ch) >= 0;
+            if (/\s/.test(ch)) { spaced = true; continue; }
+            if (ch === '"' || ch === "'" || ch === "\u201c" || ch === "\u2018" || ch === "(") continue;
+            // ".!?" ends a sentence only when space follows it: "example.com" and "e.g" have none.
+            // 2026-10-03 ...and the full stop of an abbreviation never does (Word, Google Docs):
+            // "e.g. Apples", "etc. And" were capitalised. tools/autolink/autolink.mjs
+            if (spaced && ch === ".") {
+                var ws = i;
+                while (ws > 0 && !/\s/.test(text.charAt(ws - 1))) ws--;
+                var prevTok = text.substring(ws, i + 1).toLowerCase().replace(/^[("'\u2018\u201c]+/, "");
+                if (/^(e\.g|i\.e|etc|vs|cf|approx|incl|viz|al|resp|esp|ca)\.$/.test(prevTok)) return false;
+            }
+            return spaced && ".!?".indexOf(ch) >= 0;
         }
         // Nothing before it in this node: only a sentence start if nothing
         // precedes the node in its block either.
@@ -344,10 +379,10 @@ function RTE_Plugin_Autocorrect() {
         for (var i = 0; i < SEQUENCES.length; i++) {
             out = out.split(SEQUENCES[i].from).join(SEQUENCES[i].to);
         }
-        out = out.replace(/(^|[\s(\[{])"/g, "$1“").replace(/"/g, "”");
-        out = out.replace(/(^|[\s(\[{])'/g, "$1‘").replace(/'/g, "’");
-        out = out.replace(/(\w)--(\w)/g, "$1—$2");
-        out = out.replace(/(\w)\s--\s(\w)/g, "$1 — $2");
+        out = out.replace(/(^|[\s(\[{])"/g, "$1\u201c").replace(/"/g, "\u201d");
+        out = out.replace(/(^|[\s(\[{])'/g, "$1\u2018").replace(/'/g, "\u2019");
+        out = out.replace(/(\w)--(\w)/g, "$1\u2014$2");
+        out = out.replace(/(\w)\s--\s(\w)/g, "$1 \u2014 $2");
         return out;
     }
 }

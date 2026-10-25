@@ -22,6 +22,12 @@ function RTE_Plugin_Mention() {
 
     obj.PluginName = "Mention";
 
+    // 2026-10-18 the words read config.text_ keys (language packs), English as the fallback; {0} fills a template.
+    // tools/i18n/plugin-panels-language.mjs
+    function pText(key, fallback, arg) {
+        var s = (config && config["text_" + key]) || fallback;
+        return arg === undefined ? s : s.split("{0}").join(String(arg));
+    }
     obj.InitConfig = function (argconfig) {
         config = argconfig;
         if (config.mentionEnabled === false) return;
@@ -66,28 +72,55 @@ function RTE_Plugin_Mention() {
 
         injectStyles();
 
-        var editdoc = editor.getDocument();
-        editdoc.addEventListener("keydown", onEditDocKeyDown, true);
-        editdoc.addEventListener("input", onEditDocInput, true);
-        editdoc.addEventListener("compositionstart", function () { composing = true; });
-        editdoc.addEventListener("compositionend", function () { composing = false; });
-        editdoc.addEventListener("mousedown", function (e) {
+        // 2026-10-03 Bound through editor.bindDocumentEvent, so the listeners follow the live document:
+        // shell plugins move the iframe during the init loop, and listeners added to editdoc here stayed
+        // on the dead document (this feature never fired). tools/keyboard/plugin-listeners.mjs
+        var on = function (type, fn, capture) {
+            if (editor.bindDocumentEvent) editor.bindDocumentEvent(type, fn, capture);
+            else editor.getDocument().addEventListener(type, fn, capture);
+        };
+        on("keydown", onEditDocKeyDown, true);
+        on("input", onEditDocInput, true);
+        on("compositionstart", function () { composing = true; });
+        on("compositionend", function () { composing = false; });
+        on("mousedown", function (e) {
             // Don't close when the user is clicking on a mention span (for selection/delete).
             if (e.target && e.target.closest && e.target.closest("." + config.mentionInsertClass)) return;
             closePopup();
         }, true);
-        editdoc.addEventListener("blur", function () { setTimeout(closePopup, 150); }, true);
+        on("blur", function () { setTimeout(closePopup, 150); }, true);
 
         window.addEventListener("scroll", onHostScrollOrResize, true);
         window.addEventListener("resize", onHostScrollOrResize, true);
     };
 
+    // 2026-10-19 The docs, the migration guide and the demos all register with search(query, done) or an
+    // async search(query) returning the list - but only source was accepted, so those triggers were
+    // silently dropped and @ did nothing (richtexteditor.com/demos/mentions included). search is now
+    // accepted in both forms, and a definition with neither is reported. tools/mentions/mention-search-api.mjs
+    function adaptSearch(search) {
+        return function (query, ctx) {
+            return new Promise(function (resolve, reject) {
+                var settled = false;
+                var done = function (results) { if (!settled) { settled = true; resolve(results); } };
+                var ret;
+                try { ret = search(query, done, ctx); } catch (err) { reject(err); return; }
+                if (ret !== undefined) Promise.resolve(ret).then(function (r) { if (r !== undefined) done(r); }, reject);
+            });
+        };
+    }
+
     function registerTrigger(def) {
-        if (!def || !def.trigger || typeof def.source !== "function") return;
+        if (!def || !def.trigger) return;
+        var source = typeof def.source === "function" ? def.source : (typeof def.search === "function" ? adaptSearch(def.search) : null);
+        if (!source) {
+            if (window.console && console.warn) console.warn("RichTextEditor mentions: trigger \"" + def.trigger + "\" was not registered - pass search(query, done) or source(query).");
+            return;
+        }
         var existingIdx = findTriggerIndex(def.trigger);
         var normalized = {
             trigger: def.trigger,
-            source: def.source,
+            source: source,
             renderItem: def.renderItem || null,
             renderInsert: def.renderInsert || null,
             insertClass: def.insertClass || config.mentionInsertClass,
@@ -283,7 +316,14 @@ function RTE_Plugin_Mention() {
     function renderPopup() {
         popupHost = editor.iframe.ownerDocument;
         popupEl = popupHost.createElement("div");
-        popupEl.className = "rte-mention-popup";
+        // 2026-10-17 appended to the page body, outside the editor, so rte-dark could not reach it: mirrored (and
+        // rte-auto-dark under a dark system setting). tools/mentions/mention-popup-dark.mjs
+        var mDark = false;
+        try {
+            var mk = editor.container && editor.container.classList;
+            mDark = !!mk && (mk.contains("rte-dark") || (mk.contains("rte-auto-dark") && !mk.contains("rte-light") && !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches)));
+        } catch (x) { mDark = false; }
+        popupEl.className = "rte-mention-popup" + (mDark ? " rte-mention-popup-dark" : "");
         popupEl.setAttribute("role", "listbox");
         popupEl.setAttribute("aria-label", activeTrigger.label);
         popupHost.body.appendChild(popupEl);
@@ -294,7 +334,7 @@ function RTE_Plugin_Mention() {
         popupEl.innerHTML = "";
         var loader = popupHost.createElement("div");
         loader.className = "rte-mention-loading";
-        loader.textContent = "Searching\u2026";
+        loader.textContent = pText("mn_searching", "Searching\u2026");
         popupEl.appendChild(loader);
         statusEl = loader;
     }
@@ -307,7 +347,7 @@ function RTE_Plugin_Mention() {
         if (!items.length) {
             var empty = popupHost.createElement("div");
             empty.className = "rte-mention-empty";
-            empty.textContent = "No matches";
+            empty.textContent = pText("mn_nomatches", "No matches");
             popupEl.appendChild(empty);
             return;
         }
@@ -321,7 +361,13 @@ function RTE_Plugin_Mention() {
                 btn.setAttribute("aria-selected", index === activeIndex ? "true" : "false");
                 btn.setAttribute("data-index", index);
 
-                if (activeTrigger.renderItem) {
+                if (activeTrigger.renderItem && activeTrigger.renderItem.length < 2) {
+                    // renderItem(user) returning text or a node, as the docs write it
+                    var shown = activeTrigger.renderItem(item);
+                    if (shown && shown.nodeType) btn.appendChild(shown);
+                    else if (shown != null && shown !== "") btn.textContent = String(shown);
+                    else renderDefaultItem(btn, item);
+                } else if (activeTrigger.renderItem) {
                     activeTrigger.renderItem(btn, item);
                 } else {
                     renderDefaultItem(btn, item);
@@ -442,15 +488,23 @@ function RTE_Plugin_Mention() {
     function insertMention(triggerDef, item) {
         var editdoc = editor.getDocument();
         var span;
-        if (triggerDef.renderInsert) {
+        var chip = function (text) {
+            var el = editdoc.createElement("span");
+            el.className = triggerDef.insertClass;
+            el.setAttribute("contenteditable", "false");
+            el.setAttribute("data-rte-mention-id", item.id != null ? item.id : "");
+            el.setAttribute("data-rte-mention-trigger", triggerDef.trigger);
+            el.textContent = text;
+            return el;
+        };
+        if (triggerDef.renderInsert && triggerDef.renderInsert.length < 2) {
+            // renderInsert(user) returning the chip's text (or a node), as the docs write it
+            var out = triggerDef.renderInsert(item);
+            span = out && out.nodeType ? out : chip(out != null && out !== "" ? String(out) : triggerDef.trigger + itemLabel(item));
+        } else if (triggerDef.renderInsert) {
             span = triggerDef.renderInsert(editdoc, item);
         } else {
-            span = editdoc.createElement("span");
-            span.className = triggerDef.insertClass;
-            span.setAttribute("contenteditable", "false");
-            span.setAttribute("data-rte-mention-id", item.id != null ? item.id : "");
-            span.setAttribute("data-rte-mention-trigger", triggerDef.trigger);
-            span.textContent = triggerDef.trigger + itemLabel(item);
+            span = chip(triggerDef.trigger + itemLabel(item));
         }
         if (!span) return;
 
@@ -479,8 +533,10 @@ function RTE_Plugin_Mention() {
         var r = rects && rects.length ? rects[rects.length - 1] : null;
         if (!r) r = trigger.range.getBoundingClientRect();
 
-        var left = ir.left + (r.left || 0) + window.pageXOffset;
-        var top = ir.top + (r.bottom || r.top || 0) + window.pageYOffset + 4;
+        // the caret rect is in iframe pixels, scaled on screen inside a transform:scale() ancestor
+        var sk = iframe.offsetWidth && ir.width > 0 ? ir.width / iframe.offsetWidth : 1;
+        var left = ir.left + (r.left || 0) * sk + window.pageXOffset;
+        var top = ir.top + (r.bottom || r.top || 0) * sk + window.pageYOffset + 4;
 
         popupEl.style.position = "absolute";
         popupEl.style.left = left + "px";
@@ -488,8 +544,8 @@ function RTE_Plugin_Mention() {
 
         var vh = window.innerHeight || document.documentElement.clientHeight;
         var popupRect = popupEl.getBoundingClientRect();
-        if (popupRect.bottom > vh - 8 && (ir.top + (r.top || 0)) > popupRect.height + 16) {
-            popupEl.style.top = (ir.top + (r.top || 0) + window.pageYOffset - popupRect.height - 4) + "px";
+        if (popupRect.bottom > vh - 8 && (ir.top + (r.top || 0) * sk) > popupRect.height + 16) {
+            popupEl.style.top = (ir.top + (r.top || 0) * sk + window.pageYOffset - popupRect.height - 4) + "px";
         }
     }
 
@@ -516,7 +572,14 @@ function RTE_Plugin_Mention() {
             ".rte-mention-item-active .rte-mention-subtitle{color:#315277}",
             ".rte-mention-loading,.rte-mention-empty{padding:14px 16px;color:#52657e;font-size:12px;font-weight:700;text-align:center}",
             ".rte-mention{display:inline-block;padding:1px 7px;border-radius:999px;background:#eef4ff;color:#0f3f9f;font-weight:650;cursor:default;border:1px solid rgba(37,99,235,.16)}",
-            ".rte-mention:hover{background:#e4edff}"
+            ".rte-mention:hover{background:#e4edff}",
+            ".rte-mention-popup.rte-mention-popup-dark{background:linear-gradient(180deg,#1e293b,#0f172a);border-color:#334155;color:#e2e8f0;box-shadow:0 18px 40px rgba(0,0,0,.5)}",
+            ".rte-mention-popup-dark .rte-mention-item:hover,.rte-mention-popup-dark .rte-mention-item-active{background:#1e3a8a;color:#ffffff}",
+            ".rte-mention-popup-dark .rte-mention-avatar{background:#334155;color:#e2e8f0}",
+            ".rte-mention-popup-dark .rte-mention-item-active .rte-mention-avatar{background:#0f172a;color:#bfdbfe}",
+            ".rte-mention-popup-dark .rte-mention-subtitle{color:#94a3b8}",
+            ".rte-mention-popup-dark .rte-mention-item-active .rte-mention-subtitle{color:#bfdbfe}",
+            ".rte-mention-popup-dark .rte-mention-loading,.rte-mention-popup-dark .rte-mention-empty{color:#94a3b8}"
         ].join("\n");
         host.head.appendChild(style);
         // A <style> ELEMENT is governed by style-src: under a strict policy the browser

@@ -36,6 +36,21 @@ RTE_DefaultConfig.plugin_pdfexport = RTE_Plugin_PdfExport;
 if (typeof RTE_DefaultConfig.pdfExport === "undefined") RTE_DefaultConfig.pdfExport = true;
 
 function RTE_Plugin_PdfExport() {
+    // An ordered list item's number in its list style: 1, a..z then aa (CSS lower-alpha), i/I roman.
+    function listNumber(n, kind) {
+        if (kind === "a" || kind === "A") {
+            var t = "";
+            for (var k = n; k > 0; k = Math.floor((k - 1) / 26)) t = String.fromCharCode(97 + (k - 1) % 26) + t;
+            return t ? (kind === "A" ? t.toUpperCase() : t) : String(n); // 0 and below: a number, never ""
+        }
+        if ((kind === "i" || kind === "I") && n > 0 && n < 4000) {
+            var r = "", vals = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1], sy = ["m", "cm", "d", "cd", "c", "xc", "l", "xl", "x", "ix", "v", "iv", "i"];
+            for (var q = 0; q < vals.length; q++) while (n >= vals[q]) { r += sy[q]; n -= vals[q]; }
+            return kind === "I" ? r.toUpperCase() : r;
+        }
+        return String(n);
+    }
+
     var obj = this;
     var config, editor;
 
@@ -264,8 +279,11 @@ function RTE_Plugin_PdfExport() {
         var s = {
             bold: inherited.bold, italic: inherited.italic, underline: inherited.underline,
             strike: inherited.strike, size: inherited.size, color: inherited.color,
-            mono: inherited.mono, link: inherited.link
+            mono: inherited.mono, link: inherited.link, lang: inherited.lang
         };
+        // 2026-10-17 a run's language: the nearest lang attribute. tools/pdf/inline-lang.mjs
+        var nodeLang = node.getAttribute ? node.getAttribute("lang") : "";
+        if (nodeLang) s.lang = nodeLang;
         var tag = node.tagName ? node.tagName.toLowerCase() : "";
         if (tag === "b" || tag === "strong") s.bold = true;
         if (tag === "i" || tag === "em") s.italic = true;
@@ -415,6 +433,19 @@ function RTE_Plugin_PdfExport() {
         return px * 0.75;
     }
 
+        // The language a block is written in: its own lang, the nearest ancestor's inside the content, or - when its
+        // whole text is one <span lang> - that span's. "" when none is set.
+        function blockLang(node) {
+            for (var n = node; n && n.nodeType === 1 && n.tagName.toLowerCase() !== "body"; n = n.parentNode) {
+                if (n.getAttribute("lang")) return n.getAttribute("lang");
+            }
+            var el = null, k = node.childNodes;
+            for (var i = 0; i < k.length; i++) {
+                if (k[i].nodeType === 3 && k[i].nodeValue.replace(/[\s\u200b\u00a0]/g, "")) return "";
+                if (k[i].nodeType === 1) { if (el) return ""; el = k[i]; }
+            }
+            return el && el.getAttribute("lang") ? el.getAttribute("lang") : "";
+        }
         function block(node, style, indent, listMarker, listId, listOrdered, roleOverride) {
             var tag = node.tagName.toLowerCase();
             var s = styleOf(node, style);
@@ -430,6 +461,8 @@ function RTE_Plugin_PdfExport() {
             var lines = self.wrap(runs, width, tag === "pre" ? 1.25 : 1.4);
             self.blocks.push({
                 type: "text", lines: lines, indent: indent, align: align,
+                // 2026-10-15 the block's own language, for /Lang on its structure element. tools/pdf/paragraph-lang.mjs
+                lang: blockLang(node),
                 spaceBefore: HEADING_SCALE[tag] ? s.size * 0.6 : self.baseSize * 0.35,
                 spaceAfter: HEADING_SCALE[tag] ? s.size * 0.3 : self.baseSize * 0.35,
                 marker: listMarker || null, markerStyle: s,
@@ -470,7 +503,15 @@ function RTE_Plugin_PdfExport() {
 
                 if (tag === "hr") { self.blocks.push({ type: "rule", indent: indent }); continue; }
                 if (tag === "ul" || tag === "ol") {
-                    var counter = parseInt(c.getAttribute("start") || "1", 10) || 1;
+                    var counter = parseInt(c.getAttribute("start"), 10);
+                    if (isNaN(counter)) counter = 1;
+                    // 2026-10-04 a lettered / Roman list is numbered the way the editor shows it (it was
+                    // always 1. 2. 3.). tools/pdf/list-markers.mjs
+                    var lst = String((c.style && c.style.listStyleType) || "").toLowerCase(), typ = c.getAttribute("type") || "";
+                    var kind = /^(lower-alpha|lower-latin)$/.test(lst) || typ === "a" ? "a"
+                        : /^(upper-alpha|upper-latin)$/.test(lst) || typ === "A" ? "A"
+                        : lst === "lower-roman" || typ === "i" ? "i"
+                        : lst === "upper-roman" || typ === "I" ? "I" : "1";
                     // Every item of one list shares an id so the tag tree can
                     // rebuild a single <L> around them; without it each item
                     // becomes an isolated paragraph and a screen reader never
@@ -479,7 +520,11 @@ function RTE_Plugin_PdfExport() {
                     for (var li = 0; li < c.childNodes.length; li++) {
                         var item = c.childNodes[li];
                         if (item.nodeType !== 1 || item.tagName.toLowerCase() !== "li") continue;
-                        var marker = tag === "ol" ? (counter++) + "." : "•";
+                        var marker = tag === "ol" ? listNumber(counter++, kind) + "." : "\u2022";
+                        // 2026-10-15 a task item shows whether it is done: every item got the plain bullet, so a printed
+                        // checklist lost every tick. The standard fonts have no ballot box, so "[x]" / "[ ]".
+                        // tools/pdf/task-list-marks.mjs
+                        if (c.classList && c.classList.contains("rte-task-list")) marker = item.getAttribute("data-checked") === "true" ? "[x]" : "[ ]";
                         // The item's own text, then any nested list one level in.
                         block(item, styleOf(item, style), indent + self.baseSize * 1.6, marker, listId, tag === "ol");
                         walkNestedLists(item, styleOf(item, style), indent + self.baseSize * 1.6);
@@ -495,6 +540,19 @@ function RTE_Plugin_PdfExport() {
                 if (isBlockTag(tag)) {
                     var own = (tag === "blockquote" ? self.baseSize * 1.5 : 0) + cssIndentPt(c);
                     var childRole = (tag === "blockquote") ? "BlockQuote" : roleOverride;
+                    // 2026-10-15 a block holding just an image - the shape the editor gives every inserted picture,
+                    // <p><img></p> - is a Figure with its alt text. Only an <img> sitting directly at block level was;
+                    // inside a <p> it was an inline run, so the PDF had no Figure and no /Alt (WCAG 1.1.1, PDF/UA).
+                    // tools/pdf/figure-alt.mjs
+                    var soleImgs = c.getElementsByTagName("img");
+                    if (soleImgs.length === 1 && !(c.textContent || "").replace(/[\s\u200b\u00a0]/g, "") && !hasBlockChildren(c)) {
+                        var fdims = imageDims(soleImgs[0], self.contentWidth - indent - own);
+                        if (fdims.w) {
+                            var falign = String((c.style && c.style.textAlign) || "").toLowerCase();
+                            self.blocks.push({ type: "text", role: "Figure", alt: soleImgs[0].getAttribute("alt") || "", lines: [{ parts: [{ img: soleImgs[0], w: fdims.w, h: fdims.h, style: style }], width: fdims.w, size: fdims.h, height: fdims.h, image: true }], indent: indent + own, align: falign === "center" || falign === "right" ? falign : "left", spaceBefore: 4, spaceAfter: 4 });
+                            continue;
+                        }
+                    }
                     if (hasBlockChildren(c)) { walk(c, styleOf(c, style), indent + own, childRole); continue; }
                     block(c, style, indent + own, null, null, false, childRole);
                     continue;
@@ -533,6 +591,10 @@ function RTE_Plugin_PdfExport() {
         var rows = [];
         var trs = node.getElementsByTagName("tr");
         var maxCells = 0;
+        // 2026-10-15 rowspan: covered[col] = rows a cell above still covers there. Cells in the rows below skip those
+        // columns (they were placed from column 0, shifting a row left under the wrong header), and each covered
+        // position becomes an empty placeholder cell so the grid stays aligned. tools/pdf/table-rowspan.mjs
+        var covered = {};
         for (var r = 0; r < trs.length; r++) {
             var cells = [];
             for (var c = 0; c < trs[r].childNodes.length; c++) {
@@ -540,38 +602,77 @@ function RTE_Plugin_PdfExport() {
                 if (cell.nodeType !== 1) continue;
                 var tag = cell.tagName.toLowerCase();
                 if (tag !== "td" && tag !== "th") continue;
-                cells.push({ node: cell, header: tag === "th" });
+                // 2026-10-15 colspan: a cell starts at its grid column and spans its columns. tools/pdf/table-colspan.mjs
+                var span = Math.max(1, Math.min(50, parseInt(cell.getAttribute("colspan"), 10) || 1));
+                var rspan = Math.max(1, Math.min(500, parseInt(cell.getAttribute("rowspan"), 10) || 1));
+                cells.push({ node: cell, header: tag === "th", span: span, rowspan: rspan });
             }
-            if (cells.length) { rows.push(cells); if (cells.length > maxCells) maxCells = cells.length; }
+            var placed = [], gridCols = 0;
+            for (var gc = 0; gc < cells.length; gc++) {
+                while (covered[gridCols] > 0) { placed.push({ placeholder: true, start: gridCols, span: 1, header: false }); gridCols++; }
+                cells[gc].start = gridCols;
+                placed.push(cells[gc]);
+                if (cells[gc].rowspan > 1) for (var rc = gridCols; rc < gridCols + cells[gc].span; rc++) covered[rc] = cells[gc].rowspan;
+                gridCols += cells[gc].span;
+            }
+            // covered columns after the row's last cell
+            for (var tail in covered) if (+tail >= gridCols && covered[tail] > 0) { placed.push({ placeholder: true, start: +tail, span: 1, header: false }); if (+tail + 1 > gridCols) gridCols = +tail + 1; }
+            // this row is done: each covering cell has one row fewer left (a cell covering from THIS row still needs
+            // its own count, so it was set to rowspan and drops to rowspan - 1 here)
+            for (var dc in covered) { covered[dc]--; if (covered[dc] <= 0) delete covered[dc]; }
+            placed.sort(function (p1, p2) { return p1.start - p2.start; });
+            cells = cells.length ? placed : cells;
+            if (cells.length) { rows.push(cells); if (gridCols > maxCells) maxCells = gridCols; }
         }
         if (!rows.length) return;
 
         var width = this.contentWidth - indent;
         var colWidth = width / maxCells;
+        // 2026-10-15 column widths follow the <colgroup> (% or px), scaled to the table's width on the page: every
+        // table was split into equal columns. A table without one keeps equal columns. tools/pdf/table-col-widths.mjs
+        var colWidths = [], cg = [], cw = 0;
+        for (var ck = 0; ck < node.children.length; ck++) if (node.children[ck].tagName && node.children[ck].tagName.toLowerCase() === "colgroup") {
+            for (var cj = 0; cj < node.children[ck].children.length; cj++) if (node.children[ck].children[cj].tagName.toLowerCase() === "col") cg.push(node.children[ck].children[cj]);
+        }
+        if (cg.length === maxCells) {
+            for (var cq = 0; cq < cg.length; cq++) {
+                var cv = (cg[cq].style && cg[cq].style.width) || cg[cq].getAttribute("width") || "", cm = /^\s*([\d.]+)(%|px)?\s*$/.exec(cv);
+                if (!cm || !(parseFloat(cm[1]) > 0)) { colWidths = []; break; }
+                colWidths.push(parseFloat(cm[1]));
+            }
+            for (var cs2 = 0; cs2 < colWidths.length; cs2++) cw += colWidths[cs2];
+            if (cw > 0) colWidths = colWidths.map(function (v) { return v / cw * width; });
+        }
+        if (colWidths.length !== maxCells) { colWidths = []; for (var ce = 0; ce < maxCells; ce++) colWidths.push(colWidth); }
+        function spanWidth(start, span) { var s = 0; for (var sw = start; sw < start + span && sw < colWidths.length; sw++) s += colWidths[sw]; return s; }
         var pad = 4;
         var laid = [];
         for (var i = 0; i < rows.length; i++) {
             var out = [], tallest = 0;
             for (var j = 0; j < rows[i].length; j++) {
+                if (rows[i][j].placeholder) { out.push({ lines: [], header: false, start: rows[i][j].start, span: 1, placeholder: true }); continue; }
                 var cs = styleOf(rows[i][j].node, style);
                 if (rows[i][j].header) cs.bold = true;
-                var lines = self.wrap(self.runsOf(rows[i][j].node, cs), colWidth - pad * 2, 1.35);
+                var lines = self.wrap(self.runsOf(rows[i][j].node, cs), spanWidth(rows[i][j].start, rows[i][j].span) - pad * 2, 1.35);
                 var h = 0;
                 for (var k = 0; k < lines.length; k++) h += lines[k].height;
                 if (h > tallest) tallest = h;
-                out.push({ lines: lines, header: rows[i][j].header });
+                out.push({ lines: lines, header: rows[i][j].header, start: rows[i][j].start, span: rows[i][j].span, rowspan: rows[i][j].rowspan || 1 });
             }
-            laid.push({ cells: out, height: tallest + pad * 2, header: rows[i][0] && rows[i][0].header });
+            laid.push({ cells: out, height: tallest + pad * 2, header: rows[i][0] && !rows[i][0].placeholder && rows[i][0].header });
         }
         this.blocks.push({
-            type: "table", rows: laid, colWidth: colWidth, cols: maxCells,
+            type: "table", rows: laid, colWidth: colWidth, colWidths: colWidths, cols: maxCells,
             indent: indent, pad: pad,
             spaceBefore: this.baseSize * 0.5, spaceAfter: this.baseSize * 0.5
         });
     };
 
     // ------------------------------------------------------------- rendering
+    // 2026-10-15 the document language, read by the tagger to mark blocks in other languages
+    var pdfDocLang = "en";
     function buildPdf(options) {
+        pdfDocLang = String((options && options.lang) || document.documentElement.lang || "en").toLowerCase();
         var familyKey = String(options.font || config.pdfExportFont || "helvetica").toLowerCase();
         if (!FONT_FAMILIES[familyKey]) familyKey = "helvetica";
         var baseSize = Number(options.fontSize || config.pdfExportBaseFontSize || 11);
@@ -583,6 +684,11 @@ function RTE_Plugin_PdfExport() {
         // overlays, watermarks and formatting marks into the PDF.
         var host = document.createElement("div");
         host.innerHTML = editor.getHTMLCode() || "";
+        var liveLists = editor.getEditable().querySelectorAll("ol,ul"), exportLists = host.querySelectorAll("ol,ul");
+        if (liveLists.length === exportLists.length) for (var li = 0; li < liveLists.length; li++) {
+            var listStyle = liveLists[li].ownerDocument.defaultView.getComputedStyle(liveLists[li]).listStyleType;
+            if (listStyle) exportLists[li].style.listStyleType = listStyle;
+        }
 
         var layout = new Layout(geom, baseSize, familyKey);
         var blocks = layout.run(host);
@@ -716,32 +822,66 @@ function RTE_Plugin_PdfExport() {
         }
         var pagesId = pdf.alloc();
 
-        var allMarks = [];
+        var allMarks = [], heads = [], linkAnnots = [];
         for (var pi = 0; pi < pages.length; pi++) {
             var tagger = new Tagger(pi);
             var draw = renderPage(pages[pi], geom, familyKey, baseSize, imageRef, pi + 1, pages.length, options, tagger);
+            for (var hd = 0; hd < (draw.headings || []).length; hd++) { draw.headings[hd].page = pi; heads.push(draw.headings[hd]); }
             pdf.set(contentIds[pi], { dict: "<< /Length 0 >>", stream: draw.content });
             allMarks.push(draw.marks);
             for (var a = 0; a < draw.links.length; a++) {
                 var lk = draw.links[a];
-                annotIds[pi].push(pdf.add("<< /Type /Annot /Subtype /Link /Rect [" +
+                // 2026-10-15 each link annotation is in the tag tree: /StructParent (keys after the pages'), /Contents
+                // naming it, and a Link element built in buildStructTree. They were click targets a screen reader
+                // could not find (PDF/UA 7.18, Matterhorn 28-011 / 28-004). tools/pdf/link-tags.mjs
+                var lsp = pages.length + linkAnnots.length;
+                var lid = pdf.add("<< /Type /Annot /Subtype /Link /Rect [" +
                     fixed(lk.x0) + " " + fixed(lk.y0) + " " + fixed(lk.x1) + " " + fixed(lk.y1) +
-                    "] /Border [0 0 0] /A << /S /URI /URI (" + escapeString(toWinAnsi(lk.href)) + ") >> >>"));
+                    "] /Border [0 0 0] /StructParent " + lsp + " /Contents (" + escapeString(toWinAnsi(String(lk.text || lk.href).replace(/\s+/g, " ").trim() || lk.href)) + ")" +
+                    " /A << /S /URI /URI (" + escapeString(toWinAnsi(lk.href)) + ") >> >>");
+                annotIds[pi].push(lid);
+                linkAnnots.push({ id: lid, page: pi, key: lsp, owner: lk.owner });
             }
         }
 
-        var struct = buildStructTree(pdf, allMarks, pageIds);
+        var struct = buildStructTree(pdf, allMarks, pageIds, linkAnnots);
 
         for (var pj = 0; pj < pages.length; pj++) {
             pdf.set(pageIds[pj], "<< /Type /Page /Parent " + pagesId + " 0 R /MediaBox [0 0 " +
                 fixed(geom.width) + " " + fixed(geom.height) + "] /Resources << /Font << " + fontRes.join(" ") + " >>" +
                 (imageRes.length ? " /XObject << " + imageRes.join(" ") + " >>" : "") +
                 " >> /Contents " + contentIds[pj] + " 0 R /StructParents " + pj +
-                (annotIds[pj].length ? " /Annots [" + annotIds[pj].map(function (id) { return id + " 0 R"; }).join(" ") + "]" : "") +
+                (annotIds[pj].length ? " /Annots [" + annotIds[pj].map(function (id) { return id + " 0 R"; }).join(" ") + "] /Tabs /S" : "") +
                 " >>");
         }
         pdf.set(pagesId, "<< /Type /Pages /Count " + pages.length + " /Kids [" +
             pageIds.map(function (id) { return id + " 0 R"; }).join(" ") + "] >>");
+
+        // 2026-10-15 bookmarks from the headings, nested by level, each opening its heading's page at the heading
+        // (Word and Chrome export them; a long report had nothing but scrolling - WCAG 2.4.5, PDF2).
+        // tools/pdf/outline-bookmarks.mjs
+        var outlineId = 0;
+        if (heads.length) {
+            outlineId = pdf.alloc();
+            var oroot = { id: outlineId, kids: [] }, ostack = [oroot], onodes = [];
+            for (var oh = 0; oh < heads.length; oh++) {
+                var on = { h: heads[oh], id: pdf.alloc(), kids: [], parent: null };
+                while (ostack.length > 1 && ostack[ostack.length - 1].h.level >= on.h.level) ostack.pop();
+                on.parent = ostack[ostack.length - 1];
+                on.parent.kids.push(on);
+                ostack.push(on);
+                onodes.push(on);
+            }
+            var ocount = function (n) { var c = n.kids.length; for (var k = 0; k < n.kids.length; k++) c += ocount(n.kids[k]); return c; };
+            for (var oi = 0; oi < onodes.length; oi++) {
+                var n = onodes[oi], sib = n.parent.kids, at = sib.indexOf(n);
+                pdf.set(n.id, "<< /Title (" + escapeString(toWinAnsi(n.h.title)) + ") /Parent " + n.parent.id + " 0 R" +
+                    (at > 0 ? " /Prev " + sib[at - 1].id + " 0 R" : "") + (at < sib.length - 1 ? " /Next " + sib[at + 1].id + " 0 R" : "") +
+                    (n.kids.length ? " /First " + n.kids[0].id + " 0 R /Last " + n.kids[n.kids.length - 1].id + " 0 R /Count " + ocount(n) : "") +
+                    " /Dest [" + pageIds[n.h.page] + " 0 R /XYZ null " + fixed(n.h.y) + " null] >>");
+            }
+            pdf.set(outlineId, "<< /Type /Outlines /First " + oroot.kids[0].id + " 0 R /Last " + oroot.kids[oroot.kids.length - 1].id + " 0 R /Count " + ocount(oroot) + " >>");
+        }
 
         var title = options.title || config.pdfExportTitle || document.title || "Document";
         var author = options.author || config.pdfExportAuthor || "";
@@ -752,6 +892,7 @@ function RTE_Plugin_PdfExport() {
         var catalogId = pdf.add("<< /Type /Catalog /Pages " + pagesId + " 0 R" +
             " /Lang (" + escapeString(String(options.lang || document.documentElement.lang || "en")) + ")" +
             " /MarkInfo << /Marked true >>" +
+            (outlineId ? " /Outlines " + outlineId + " 0 R" : "") +
             " /StructTreeRoot " + struct.rootId + " 0 R" +
             " /ViewerPreferences << /DisplayDocTitle true >> >>");
         var infoId = pdf.add("<< /Title (" + escapeString(toWinAnsi(String(title))) + ")" +
@@ -766,13 +907,13 @@ function RTE_Plugin_PdfExport() {
     // The tree is built from the marks rather than from the block list because a
     // single block can be split across pages: its structure element then holds
     // several marked-content references, each naming the page it lives on.
-    function buildStructTree(pdf, allMarks, pageIds) {
+    function buildStructTree(pdf, allMarks, pageIds, linkAnnots) {
         var rootId = pdf.alloc();
         var nodes = [];                 // { id, role, kids, extra, children, parent }
         var parentTree = [];            // per page: array of struct ids by MCID
 
         function node(role, extra) {
-            var n = { id: pdf.alloc(), role: role, kids: [], extra: extra || "", children: [], parent: null };
+            var n = { id: pdf.alloc(), role: role, kids: [], extra: extra || "", children: [], parent: null, seq: [] };
             nodes.push(n);
             return n;
         }
@@ -785,6 +926,7 @@ function RTE_Plugin_PdfExport() {
         var tableNodes = new Map();     // block  -> Table node
         var rowNodes = new Map();       // row    -> TR node
         var cellNodes = new Map();      // row    -> { col -> TD/TH node }
+        var linkNodes = new Map();      // link owner -> Link node (2026-10-17, tools/pdf/link-order.mjs)
 
         for (var p = 0; p < allMarks.length; p++) {
             var marks = allMarks[p];
@@ -793,6 +935,7 @@ function RTE_Plugin_PdfExport() {
                 var owner = marks[m].owner, mcid = marks[m].mcid;
                 var target = resolve(owner);
                 target.kids.push({ page: p, mcid: mcid });
+                target.seq.push({ mcr: { page: p, mcid: mcid } });
                 parentTree[p][mcid] = target.id;
             }
         }
@@ -803,9 +946,25 @@ function RTE_Plugin_PdfExport() {
             if (child.parent) return;
             child.parent = parent;
             parent.children.push(child);
+            parent.seq.push({ elem: child });
+        }
+        // a Link element per link annotation, under the paragraph / cell holding it
+        var linkKeys = [];
+        for (var la = 0; la < (linkAnnots || []).length; la++) {
+            var lnk;
+            if (linkAnnots[la].owner && linkAnnots[la].owner.kind === "link") lnk = resolve(linkAnnots[la].owner);
+            else { lnk = node("Link"); attach(resolve(linkAnnots[la].owner), lnk); }
+            lnk.objr = linkAnnots[la];
+            linkKeys.push(linkAnnots[la].key + " " + lnk.id + " 0 R");
         }
 
         function resolve(owner) {
+            // 2026-10-17 a link's words: their own Link element under the paragraph or cell, created where they occur
+            if (owner.kind === "link") {
+                var ln = linkNodes.get(owner);
+                if (!ln) { ln = node("Link"); linkNodes.set(owner, ln); attach(resolve(owner.parent), ln); }
+                return ln;
+            }
             if (owner.kind === "cell") {
                 var table = tableNodes.get(owner.block);
                 if (!table) { table = node("Table"); tableNodes.set(owner.block, table); attach(docNode, table); }
@@ -816,7 +975,10 @@ function RTE_Plugin_PdfExport() {
                 if (!perRow[owner.col]) {
                     // A header cell must be TH, not TD: it is what lets a screen
                     // reader announce "Revenue, 1,240" instead of just "1,240".
-                    perRow[owner.col] = node(owner.header ? "TH" : "TD", owner.header ? " /Scope /Column" : "");
+                    // 2026-10-15 table attributes belong in /A << /O /Table >> (where PDF/UA checkers read them; /Scope
+                    // sat on the element), with /ColSpan for a merged cell. tools/pdf/table-colspan.mjs
+                    var tattr = (owner.header ? " /Scope /Column" : "") + (owner.span > 1 ? " /ColSpan " + owner.span : "") + (owner.rowspan > 1 ? " /RowSpan " + owner.rowspan : "");
+                    perRow[owner.col] = node(owner.header ? "TH" : "TD", tattr ? " /A << /O /Table" + tattr + " >>" : "");
                     attach(row, perRow[owner.col]);
                 }
                 return perRow[owner.col];
@@ -849,6 +1011,11 @@ function RTE_Plugin_PdfExport() {
                     var extra = block.role === "Figure"
                         ? " /Alt (" + escapeString(toWinAnsi(block.alt || "Image")) + ")"
                         : "";
+                    // 2026-10-15 a block in another language says so, or it is read with the document's
+                    // pronunciation (WCAG 3.1.2, PDF/UA 7.2). tools/pdf/paragraph-lang.mjs
+                    var docLang = pdfDocLang;
+                    var bl = String(block.lang || "").replace(/[^A-Za-z0-9-]/g, "");
+                    if (bl && bl.toLowerCase() !== docLang) extra += " /Lang (" + bl + ")";
                     body = node(block.role || "P", extra);
                 }
                 bodyNodes.set(block, body);
@@ -857,14 +1024,17 @@ function RTE_Plugin_PdfExport() {
             return body;
         }
 
-        // Emit. /K holds child elements first, then marked-content references.
+        // Emit. /K lists child elements and marked-content references in reading order (2026-10-17: child elements
+        // used to come first, so a Link sat at the start of its paragraph). tools/pdf/link-order.mjs
         for (var n = 0; n < nodes.length; n++) {
             var nd = nodes[n];
             var kids = [];
-            for (var c = 0; c < nd.children.length; c++) kids.push(nd.children[c].id + " 0 R");
-            for (var k = 0; k < nd.kids.length; k++) {
-                kids.push("<< /Type /MCR /Pg " + pageIds[nd.kids[k].page] + " 0 R /MCID " + nd.kids[k].mcid + " >>");
+            for (var k = 0; k < nd.seq.length; k++) {
+                var sq = nd.seq[k];
+                if (sq.elem) kids.push(sq.elem.id + " 0 R");
+                else kids.push("<< /Type /MCR /Pg " + pageIds[sq.mcr.page] + " 0 R /MCID " + sq.mcr.mcid + " >>");
             }
+            if (nd.objr) kids.push("<< /Type /OBJR /Obj " + nd.objr.id + " 0 R /Pg " + pageIds[nd.objr.page] + " 0 R >>");
             var parentRef = nd.parent ? nd.parent.id : rootId;
             pdf.set(nd.id, "<< /Type /StructElem /S /" + nd.role + " /P " + parentRef + " 0 R" + nd.extra +
                 (kids.length ? " /K [" + kids.join(" ") + "]" : "") + " >>");
@@ -879,10 +1049,10 @@ function RTE_Plugin_PdfExport() {
             for (var q = 0; q < arr.length; q++) refs.push((arr[q] || docNode.id) + " 0 R");
             numsParts.push(pt + " [" + refs.join(" ") + "]");
         }
-        var parentTreeId = pdf.add("<< /Nums [" + numsParts.join(" ") + "] >>");
+        var parentTreeId = pdf.add("<< /Nums [" + numsParts.concat(linkKeys).join(" ") + "] >>");
 
         pdf.set(rootId, "<< /Type /StructTreeRoot /K [" + docNode.id + " 0 R]" +
-            " /ParentTree " + parentTreeId + " 0 R /ParentTreeNextKey " + parentTree.length + " >>");
+            " /ParentTree " + parentTreeId + " 0 R /ParentTreeNextKey " + (parentTree.length + linkKeys.length) + " >>");
 
         return { rootId: rootId };
     }
@@ -921,11 +1091,16 @@ function RTE_Plugin_PdfExport() {
     };
 
     function renderPage(ops, geom, familyKey, baseSize, imageRef, pageNumber, pageCount, options, tagger) {
-        var out = [], links = [];
+        var out = [], links = [], headings = [];
         var left = geom.margin.left;
 
         for (var i = 0; i < ops.length; i++) {
             var op = ops[i];
+            // 2026-10-15 where each heading starts, for the bookmarks. tools/pdf/outline-bookmarks.mjs
+            if (op.op === "line" && op.first && op.block && /^H[1-6]$/.test(op.block.role || "")) {
+                var htext = (op.block.lines || []).map(function (ln) { return (ln.parts || []).map(function (pt) { return pt.text || ""; }).join(""); }).join(" ").replace(/\s+/g, " ").trim();
+                if (htext) headings.push({ level: +op.block.role.charAt(1), title: htext, y: op.y });
+            }
             if (op.op === "rule") {
                 // A horizontal rule is decoration, not content.
                 tagger.artifact(out, function () {
@@ -949,7 +1124,7 @@ function RTE_Plugin_PdfExport() {
             });
         }
 
-        return { content: out.join("\n"), links: links, marks: tagger.marks };
+        return { content: out.join("\n"), links: links, marks: tagger.marks, headings: headings };
     }
 
     function headerFooter(options) {
@@ -1011,7 +1186,9 @@ function RTE_Plugin_PdfExport() {
         // (just indent/align), so the owner has to be the cell descriptor the
         // caller supplied. Passing the synthetic block instead makes every cell
         // a top-level paragraph and the table loses its structure entirely.
-        if (tagger) tagger.open(out, line.image ? "Figure" : "Span", op.cell || { kind: "body", block: block });
+        var lineOwner = op.cell || { kind: "body", block: block };
+        var lineOpen = false;
+        if (tagger) { tagger.open(out, line.image ? "Figure" : "Span", lineOwner); lineOpen = true; }
 
         // Wrapping split the text into words, but emitting one BT/Tj block per
         // WORD is wrong twice over: the content stream balloons, and text
@@ -1029,7 +1206,7 @@ function RTE_Plugin_PdfExport() {
             var last = segments.length ? segments[segments.length - 1] : null;
             var mergeable = last && !last.img && last.alias === alias && last.style.size === st.size &&
                 sameColor(last.style.color, st.color) && last.style.underline === st.underline &&
-                last.style.strike === st.strike && last.style.link === st.link;
+                last.style.strike === st.strike && last.style.link === st.link && (last.style.lang || "") === (st.lang || "");
             if (mergeable) { last.text += part.text; last.w += part.w; }
             else { segments.push({ text: part.text, style: st, alias: alias, x: cursor, w: part.w }); }
             cursor += part.w;
@@ -1050,8 +1227,25 @@ function RTE_Plugin_PdfExport() {
             // would only add an empty operation.
             if (!seg.text || /^\s+$/.test(seg.text)) continue;
             var sst = seg.style;
+            // 2026-10-17 a link's words are marked content of their own, owned by the Link element, so the Link holds
+            // its text at its place in the paragraph (PDF/UA 7.18.5). tools/pdf/link-order.mjs
+            var linkOwner = null;
+            if (tagger && !line.image && sst.link) {
+                if (lineOpen) { tagger.close(out); lineOpen = false; }
+                linkOwner = { kind: "link", parent: lineOwner };
+                tagger.open(out, "Span", linkOwner);
+            } else if (tagger && !lineOpen) {
+                tagger.open(out, "Span", lineOwner); lineOpen = true;
+            }
+            // 2026-10-17 a run in another language than its block (a French phrase in an English sentence) is drawn
+            // inside marked content with a /Lang property, so it is read with the right pronunciation (WCAG 3.1.2,
+            // PDF/UA 7.2). The paragraph's own /Lang is on its structure element. tools/pdf/inline-lang.mjs
+            var runLang = String(sst.lang || "").replace(/[^A-Za-z0-9-]/g, "");
+            var langMark = runLang && runLang.toLowerCase() !== String(block.lang || pdfDocLang || "").toLowerCase();
+            if (langMark) out.push("/Span << /Lang (" + runLang + ") >> BDC");
             out.push("BT /" + seg.alias + " " + fixed(sst.size) + " Tf " + colorOp(sst.color) + " " +
                 fixed(seg.x) + " " + fixed(baseline) + " Td (" + escapeString(toWinAnsi(seg.text)) + ") Tj ET");
+            if (langMark) out.push("EMC");
             if (sst.underline) {
                 out.push(colorStroke(sst.color) + " 0.5 w " + fixed(seg.x) + " " + fixed(baseline - sst.size * 0.12) +
                     " m " + fixed(seg.x + seg.w) + " " + fixed(baseline - sst.size * 0.12) + " l S");
@@ -1061,10 +1255,11 @@ function RTE_Plugin_PdfExport() {
                     " m " + fixed(seg.x + seg.w) + " " + fixed(baseline + sst.size * 0.28) + " l S");
             }
             if (sst.link) {
-                links.push({ href: sst.link, x0: seg.x, y0: baseline - 2, x1: seg.x + seg.w, y1: baseline + sst.size });
+                links.push({ href: sst.link, x0: seg.x, y0: baseline - 2, x1: seg.x + seg.w, y1: baseline + sst.size, text: seg.text || "", owner: linkOwner || lineOwner });
             }
+            if (linkOwner) tagger.close(out);
         }
-        if (tagger) tagger.close(out);
+        if (tagger && lineOpen) tagger.close(out);
     }
 
     function sameColor(a, b) {
@@ -1078,28 +1273,33 @@ function RTE_Plugin_PdfExport() {
         var top = op.y, bottom = op.y - row.height;
 
         for (var c = 0; c < row.cells.length; c++) {
-            var cellX = x + c * block.colWidth;
+            var cspan = row.cells[c].span || 1, cstart = row.cells[c].start != null ? row.cells[c].start : c;
+            var cellX = x, cellW = 0;
+            for (var wi = 0; wi < cstart + cspan; wi++) {
+                var colw = block.colWidths && block.colWidths[wi] != null ? block.colWidths[wi] : block.colWidth;
+                if (wi < cstart) cellX += colw; else cellW += colw;
+            }
             // Shading and borders are decoration; only the cell TEXT belongs to
             // the reading order.
             var paint = function () {
                 if (row.header) {
                     out.push("0.94 0.95 0.97 rg " + fixed(cellX) + " " + fixed(bottom) + " " +
-                        fixed(block.colWidth) + " " + fixed(row.height) + " re f");
+                        fixed(cellW) + " " + fixed(row.height) + " re f");
                 }
                 out.push("0.75 0.78 0.82 RG 0.5 w " + fixed(cellX) + " " + fixed(bottom) + " " +
-                    fixed(block.colWidth) + " " + fixed(row.height) + " re S");
+                    fixed(cellW) + " " + fixed(row.height) + " re S");
             };
             if (tagger) tagger.artifact(out, paint); else paint();
 
             // One structure element per CELL, identified by the row object and
             // column index so a table split across pages still resolves to the
             // right TD (and a repeated header row to the right TH).
-            var cellOwner = { kind: "cell", block: block, row: row, col: c, header: !!row.cells[c].header };
+            var cellOwner = { kind: "cell", block: block, row: row, col: cstart, span: cspan, rowspan: row.cells[c].rowspan || 1, header: !!row.cells[c].header };
             var cy = top - block.pad;
             var lines = row.cells[c].lines;
             for (var l = 0; l < lines.length; l++) {
                 renderLine({ line: lines[l], y: cy, block: { indent: 0, align: "left" }, first: l === 0, cell: cellOwner },
-                    { width: cellX + block.colWidth + geom.margin.right, margin: { right: geom.margin.right } },
+                    { width: cellX + cellW + geom.margin.right, margin: { right: geom.margin.right } },
                     out, cellX + block.pad, "helvetica", imageRef, links, tagger);
                 cy -= lines[l].height;
             }

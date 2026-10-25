@@ -33,6 +33,12 @@ function RTE_Plugin_InsertGallery() {
 
     obj.PluginName = "InsertGallery";
 
+    // 2026-10-18 the gallery's words read config.text_gl_* (language packs), English as the fallback; {0} fills a
+    // template. tools/i18n/gallery-language.mjs
+    function glText(key, fallback, arg) {
+        var s = (config && config["text_" + key]) || fallback;
+        return arg === undefined ? s : s.split("{0}").join(String(arg));
+    }
     obj.InitConfig = function (argconfig) {
         config = argconfig;
         if (!config.galleryImages) {
@@ -113,7 +119,7 @@ function RTE_Plugin_InsertGallery() {
             name = decodeURIComponent(name);
         } catch (ex) {
         }
-        return name || "Image";
+        return name || glText("gl_image", "Image");
     }
 
     function humanSize(size) {
@@ -249,14 +255,14 @@ function RTE_Plugin_InsertGallery() {
         var header = append(browser, "div", "", "rte-dialog-browser-header");
         var copy = append(header, "div", "", "rte-dialog-browser-copy");
         copy.innerText = serverMode
-            ? "Browse folders, upload new files, and insert the selected image into the editor."
-            : "Browse the available images, filter by name, and insert the selected image into the editor.";
+            ? glText("gl_copyserver", "Browse folders, upload new files, and insert the selected image into the editor.")
+            : glText("gl_copylocal", "Browse the available images, filter by name, and insert the selected image into the editor.");
 
         // State the accepted formats up front. Previously the only way to learn
         // them was to pick an unsupported file and read "Invalid file extension".
         var acceptHint = append(header, "div", "", "rte-dialog-browser-accept");
-        acceptHint.innerText = "Accepted formats: " +
-            GALLERY_ACCEPT.map(function (ext) { return ext.replace(".", "").toUpperCase(); }).join(", ");
+        acceptHint.innerText = glText("gl_accepted", "Accepted formats: {0}",
+            GALLERY_ACCEPT.map(function (ext) { return ext.replace(".", "").toUpperCase(); }).join(", "));
 
         var toolbar = append(browser, "div", "", "rte-gallery-browser-toolbar");
         var toolbarLeft = append(toolbar, "div", "", "rte-gallery-browser-toolbar-group");
@@ -264,31 +270,31 @@ function RTE_Plugin_InsertGallery() {
 
         var upButton = append(toolbarLeft, "button", "", "rte-gallery-browser-button");
         upButton.type = "button";
-        upButton.innerText = "Up";
-        upButton.setAttribute("aria-label", "Go to the parent folder");
+        upButton.innerText = glText("gl_up", "Up");
+        upButton.setAttribute("aria-label", glText("gl_uparia", "Go to the parent folder"));
 
         var path = append(toolbarLeft, "div", "", "rte-gallery-browser-path");
         path.innerText = "/";
 
         var type = append(toolbarLeft, "div", "", "rte-gallery-browser-type");
-        type.innerText = "Image files";
+        type.innerText = glText("gl_imagefiles", "Image files");
 
         var createFolderButton = append(toolbarLeft, "button", "", "rte-gallery-browser-button");
         createFolderButton.type = "button";
-        createFolderButton.innerText = "New folder";
+        createFolderButton.innerText = glText("gl_newfolder", "New folder");
 
         var uploadButton = append(toolbarLeft, "button", "", "rte-gallery-browser-button rte-gallery-browser-button-primary");
         uploadButton.type = "button";
-        uploadButton.innerText = "Upload";
+        uploadButton.innerText = glText("gl_upload", "Upload");
 
         var refreshButton = append(toolbarLeft, "button", "", "rte-gallery-browser-button");
         refreshButton.type = "button";
-        refreshButton.innerText = "Refresh";
+        refreshButton.innerText = glText("gl_refresh", "Refresh");
 
         var search = append(toolbarRight, "input", "", "rte-gallery-browser-search");
         search.type = "search";
-        search.placeholder = "Search images";
-        search.setAttribute("aria-label", "Search images");
+        search.placeholder = glText("gl_search", "Search images");
+        search.setAttribute("aria-label", glText("gl_search", "Search images"));
 
         var fileInput = append(toolbarRight, "input", "display:none;");
         fileInput.type = "file";
@@ -312,11 +318,11 @@ function RTE_Plugin_InsertGallery() {
         // listbox — a non-option child of a listbox is invalid ARIA.
         var folderGrid = append(surface, "div", "", "rte-gallery-browser-grid rte-gallery-browser-grid-folders");
         folderGrid.setAttribute("role", "group");
-        folderGrid.setAttribute("aria-label", "Folders");
+        folderGrid.setAttribute("aria-label", glText("gl_folders", "Folders"));
 
         var grid = append(surface, "div", "", "rte-gallery-browser-grid");
         grid.setAttribute("role", "listbox");
-        grid.setAttribute("aria-label", "Available images");
+        grid.setAttribute("aria-label", glText("gl_available", "Available images"));
 
         // Non-blocking failure notice. Sits above the grid instead of replacing
         // it, so a rejected upload never hides the images you can still pick.
@@ -331,11 +337,11 @@ function RTE_Plugin_InsertGallery() {
 
         var cancelButton = append(footer, "button", "", "rte-gallery-browser-button");
         cancelButton.type = "button";
-        cancelButton.innerText = "Cancel";
+        cancelButton.innerText = glText("cancel", "Cancel");
 
         var insertButton = append(footer, "button", "", "rte-gallery-browser-button rte-gallery-browser-button-primary");
         insertButton.type = "button";
-        insertButton.innerText = "Insert";
+        insertButton.innerText = glText("insert", "Insert");
 
         var state = {
             currentFolder: "",
@@ -394,20 +400,20 @@ function RTE_Plugin_InsertGallery() {
 
         function updateStatus(folderCount, imageCount) {
             var total = folderCount + imageCount;
-            var where = serverMode ? (" in " + state.currentFolderDisplay) : "";
-            var message = total + " item" + (total === 1 ? "" : "s") + where + ". ";
+            var where = serverMode ? glText("gl_in", " in {0}", state.currentFolderDisplay) : "";
+            var message = (total === 1 ? glText("gl_item", "1 item") : glText("gl_items", "{0} items", total)) + where + ". ";
 
             if (!state.selectedUrl) {
-                status.innerText = message + "No image selected.";
+                status.innerText = message + glText("gl_noselection", "No image selected.");
                 footerText.innerText = state.fallbackMode && serverMode
-                    ? "Showing packaged gallery items. Uploads still save into the current folder."
-                    : "Choose an image to enable insert.";
+                    ? glText("gl_presetnote", "Showing packaged gallery items. Uploads still save into the current folder.")
+                    : glText("gl_choose", "Choose an image to enable insert.");
                 setDisabled(insertButton, true);
                 return;
             }
 
             var selectedName = getFileName(state.selectedUrl);
-            status.innerText = message + "Selected: " + selectedName + ".";
+            status.innerText = message + glText("gl_selected", "Selected: {0}.", selectedName);
             setDisabled(insertButton, state.loading);
 
             for (var index = 0; index < state.images.length; index++) {
@@ -424,7 +430,7 @@ function RTE_Plugin_InsertGallery() {
         function createFolderCard(item) {
             var button = append(folderGrid, "button", "", "rte-gallery-browser-card rte-gallery-folder-card");
             button.type = "button";
-            button.title = "Open " + item.name;
+            button.title = glText("gl_open", "Open {0}", item.name);
 
             var selection = append(button, "div", "", "rte-gallery-browser-selection");
             selection.innerHTML = "&nbsp;";
@@ -436,7 +442,7 @@ function RTE_Plugin_InsertGallery() {
             label.innerText = item.name;
 
             var meta = append(button, "div", "", "rte-gallery-browser-meta");
-            meta.innerText = "Folder";
+            meta.innerText = glText("gl_folder", "Folder");
 
             button.onclick = function () {
                 loadFolder(item.folder);
@@ -463,7 +469,7 @@ function RTE_Plugin_InsertGallery() {
             label.innerText = item.name;
 
             var meta = append(button, "div", "", "rte-gallery-browser-meta");
-            meta.innerText = item.meta || (item.source === "preset" ? "Preset image" : humanSize(item.size)) || item.url;
+            meta.innerText = item.meta || (item.source === "preset" ? glText("gl_preset", "Preset image") : humanSize(item.size)) || item.url;
 
             button.onclick = function () {
                 setSelected(item.url);
@@ -517,7 +523,7 @@ function RTE_Plugin_InsertGallery() {
             show(grid, true);
 
             if (state.loading) {
-                empty.innerText = "Loading gallery...";
+                empty.innerText = glText("gl_loading", "Loading gallery...");
                 show(empty, true);
                 show(grid, false);
                 updateStatus(0, 0);
@@ -550,10 +556,10 @@ function RTE_Plugin_InsertGallery() {
 
             if (!visibleFolders.length && !visibleImages.length) {
                 empty.innerText = search.value
-                    ? "No folders or images match the current filter."
+                    ? glText("gl_nomatch", "No folders or images match the current filter.")
                     : (serverMode
-                        ? "This folder is empty. Create a folder or upload an image to get started."
-                        : "No images are available. Upload a file to get started.");
+                        ? glText("gl_emptyfolder", "This folder is empty. Create a folder or upload an image to get started.")
+                        : glText("gl_noimages", "No images are available. Upload a file to get started."));
                 show(empty, true);
             }
         }
@@ -613,7 +619,7 @@ function RTE_Plugin_InsertGallery() {
                 images: []
             }, true);
             state.images = presetImages.slice(0);
-            state.error = presetImages.length ? "" : ("The image gallery is unavailable right now (" + errorCode + ").");
+            state.error = presetImages.length ? "" : glText("gl_unavailable", "The image gallery is unavailable right now ({0}).", errorCode);
             state.loading = false;
             render();
         }
@@ -652,7 +658,7 @@ function RTE_Plugin_InsertGallery() {
         }
 
         function createFolder() {
-            var folderName = window.prompt("New folder name", "");
+            var folderName = window.prompt(glText("gl_foldername", "New folder name"), "");
             if (!folderName) {
                 return;
             }
@@ -669,7 +675,7 @@ function RTE_Plugin_InsertGallery() {
             requestJson("POST", endpoint, formData, function (payload, errorCode) {
                 if (errorCode) {
                     state.loading = false;
-                    state.error = "The folder could not be created right now.";
+                    state.error = glText("gl_foldererror", "The folder could not be created right now.");
                     render();
                     return;
                 }
@@ -774,7 +780,7 @@ function RTE_Plugin_InsertGallery() {
                     if (url) {
                         uploadedUrls.push(url);
                     } else {
-                        problems.push(typeof errorText === "string" && errorText ? errorText : ("Upload failed for " + file.name + "."));
+                        problems.push(typeof errorText === "string" && errorText ? errorText : glText("gl_uploadfailed", "Upload failed for {0}.", file.name));
                     }
                     uploadNext(nextIndex + 1);
                 }
@@ -782,7 +788,7 @@ function RTE_Plugin_InsertGallery() {
                 try {
                     if (uploadToFolder) {
                         window.richTextBoxUploadFile(file, function (url, errorCode) {
-                            done(errorCode ? "" : url, errorCode ? ("Upload failed for " + file.name + ".") : "");
+                            done(errorCode ? "" : url, errorCode ? glText("gl_uploadfailed", "Upload failed for {0}.", file.name) : "");
                         }, { folder: state.currentFolder }, nextIndex, files);
                         return;
                     }
@@ -792,7 +798,7 @@ function RTE_Plugin_InsertGallery() {
                     }, nextIndex, files);
                 } catch (ex) {
                     // a handler that throws must not leave the dialog stuck on "Loading"
-                    done("", "Upload failed for " + file.name + ".");
+                    done("", glText("gl_uploadfailed", "Upload failed for {0}.", file.name));
                 }
             }
 

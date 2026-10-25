@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "ചേർക്കുക";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "ശൈലികൾ";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "ടെക്സ്റ്റ് ശൈലികൾ";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "ml";	// this pack's locale (Intl names, e.g. the text-part language menu)

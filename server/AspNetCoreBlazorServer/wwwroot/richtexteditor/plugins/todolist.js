@@ -37,13 +37,18 @@ function RTE_Plugin_TodoList() {
             e.preventDefault();
             fireChange();
         });
-        // Keep new items (created by Enter) well-formed: a checkbox + an unchecked state.
+        // 2026-10-02 Enter in a task item is handled here. The browser's own Enter made a bare <li>
+        // and the keyup below then put the checkbox in FRONT of the caret: in Chromium and Firefox
+        // every item after the first saved as <li>two<span class="rte-task-checkbox"></span></li>,
+        // Firefox sometimes dropped the typed text altogether, and WebKit put the caret back at
+        // the end of the previous item. tools/keyboard/todolist-enter.mjs
+        editable.addEventListener("keydown", function (e) {
+            if (e.key !== "Enter" || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.isComposing || e.keyCode === 229) return;
+            try { if (splitTaskItem()) e.preventDefault(); } catch (er) { /* the browser's own Enter */ }
+        }, true);
+        // Keep items made any other way well-formed: a checkbox + a done state.
         editable.addEventListener("keyup", function (e) {
-            if (e.key === "Enter" && !e.shiftKey) {
-                obj.Normalize();
-                var li = currentTaskItem();
-                if (li) li.setAttribute("data-checked", "false"); // a freshly split/created item starts open
-            }
+            if (e.key === "Enter" && !e.shiftKey) obj.Normalize();
         });
         // Inject CSS once the iframe head exists.
         setTimeout(function () { injectStyles(editdoc); }, 0);
@@ -97,6 +102,85 @@ function RTE_Plugin_TodoList() {
         cb.className = "rte-task-checkbox";
         cb.setAttribute("contenteditable", "false");
         return cb;
+    }
+
+    function isEmptyItem(li) {
+        return !/[^\s\u200b]/.test(li.textContent || "") && !li.querySelector("img,iframe,video,audio,svg,object,embed,table");
+    }
+    // The caret's place in an item that holds only its checkbox: a zero-width text node after
+    // it (as InsertTaskList does) - next to a contenteditable="false" span alone, WebKit moves
+    // the caret back into the previous item.
+    function caretAfterCheckbox(li) {
+        var zw = editdoc.createTextNode("\u200b");
+        var cb = li.firstChild && li.firstChild.nodeType === 1 && li.firstChild.classList && li.firstChild.classList.contains("rte-task-checkbox") ? li.firstChild : null;
+        li.insertBefore(zw, cb ? cb.nextSibling : li.firstChild);
+        return zw;
+    }
+    function placeCaret(node, offset) {
+        var r = editdoc.createRange();
+        r.setStart(node, offset);
+        r.collapse(true);
+        var s = editor.getSelection();
+        s.removeAllRanges();
+        s.addRange(r);
+    }
+    function newItem() {
+        var li = editdoc.createElement("li");
+        li.className = "rte-task-item";
+        li.setAttribute("data-checked", "false"); // a new item starts open
+        li.appendChild(makeCheckbox());
+        return li;
+    }
+    // Enter in a task item: an empty item leaves the list (a paragraph takes its place, the list
+    // splits around it); at the start of an item a new open item goes above; otherwise the text
+    // after the caret moves into a new open item below, checkbox first, caret before that text.
+    function splitTaskItem() {
+        var s = editor.getSelection();
+        if (!s || s.rangeCount === 0) return false;
+        var r = s.getRangeAt(0);
+        var li = closestClass(r.startContainer, "rte-task-item", editable);
+        if (!li || li !== closestClass(r.endContainer, "rte-task-item", editable) || li.parentNode.nodeName !== "UL") return false;
+        if (typeof editor.commitBookmark === "function") { try { editor.commitBookmark(); } catch (er) { /* ignore */ } }
+        if (!r.collapsed) r.deleteContents();
+        var ul = li.parentNode;
+        if (isEmptyItem(li)) {
+            var tag = String((config && config.enterKeyTag) || "p").toLowerCase();
+            if (tag === "br") tag = "div";
+            var p = editdoc.createElement(tag);
+            p.appendChild(editdoc.createElement("br"));
+            if (li.nextSibling) {
+                var rest = ul.cloneNode(false);
+                while (li.nextSibling) rest.appendChild(li.nextSibling);
+                ul.parentNode.insertBefore(rest, ul.nextSibling);
+            }
+            ul.parentNode.insertBefore(p, ul.nextSibling);
+            ul.removeChild(li);
+            if (!ul.querySelector("li")) ul.parentNode.removeChild(ul);
+            placeCaret(p, 0);
+            fireChange();
+            return true;
+        }
+        var head = editdoc.createRange();
+        head.setStart(li, 0);
+        head.setEnd(r.startContainer, r.startOffset);
+        if (!/[^\s\u200b]/.test(head.toString()) && !head.cloneContents().querySelector("img,iframe,video,audio,svg,object,embed")) {
+            var above = newItem();
+            caretAfterCheckbox(above);
+            ul.insertBefore(above, li);
+            fireChange();
+            return true;
+        }
+        var tail = editdoc.createRange();
+        tail.setStart(r.startContainer, r.startOffset);
+        tail.setEnd(li, li.childNodes.length);
+        var moved = tail.extractContents();
+        var below = newItem();
+        below.appendChild(moved);
+        var zw = caretAfterCheckbox(below);
+        ul.insertBefore(below, li.nextSibling);
+        placeCaret(zw, 1);
+        fireChange();
+        return true;
     }
 
     // Ensure every <li> in a task list has a checkbox span + a data-checked value.

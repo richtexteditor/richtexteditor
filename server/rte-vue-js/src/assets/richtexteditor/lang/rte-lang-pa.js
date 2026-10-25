@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "ਸ਼ਾਮਲ ਕਰੋ";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "ਸ਼ੈਲੀਆਂ";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "ਟੈਕਸਟ ਸ਼ੈਲੀਆਂ";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "pa";	// this pack's locale (Intl names, e.g. the text-part language menu)

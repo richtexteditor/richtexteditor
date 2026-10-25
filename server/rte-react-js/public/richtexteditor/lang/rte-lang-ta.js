@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "செருகு";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "பாணிகள்";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "உரை பாணிகள்";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "ta";	// this pack's locale (Intl names, e.g. the text-part language menu)

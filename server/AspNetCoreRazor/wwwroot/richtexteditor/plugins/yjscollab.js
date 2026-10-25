@@ -739,6 +739,11 @@ function RTE_Plugin_YjsCollab() {
         var peers = getRemotePeers();
         var iframe = editor.iframe;
         var ir = iframe.getBoundingClientRect();
+        // 2026-10-03 The caret rect comes from INSIDE the iframe, in the iframe's own pixels; under a
+        // scaled container (transform: scale()) those are not screen pixels, and the caret was drawn
+        // scale-times away from the character it marks. tools/collab/remote-cursor-scaled.mjs
+        var sx = iframe.offsetWidth ? ir.width / iframe.offsetWidth : 1;
+        var sy = iframe.offsetHeight ? ir.height / iframe.offsetHeight : 1;
 
         for (var i = 0; i < peers.length; i++) {
             var peer = peers[i];
@@ -756,9 +761,9 @@ function RTE_Plugin_YjsCollab() {
             // pageX/YOffset: a page-absolute caret inside an absolute overlay on
             // <body> extends document height on scrolled/tall pages and, with the
             // scroll re-render below, runs away (host page ballooned to ~83000px).
-            caretEl.style.left = (ir.left + rect.left) + "px";
-            caretEl.style.top = (ir.top + rect.top) + "px";
-            caretEl.style.height = (rect.height || 18) + "px";
+            caretEl.style.left = (ir.left + rect.left * sx) + "px";
+            caretEl.style.top = (ir.top + rect.top * sy) + "px";
+            caretEl.style.height = ((rect.height || 18) * sy) + "px";
             caretEl.style.background = peer.user.color;
 
             var label = document.createElement("div");
@@ -793,7 +798,7 @@ function RTE_Plugin_YjsCollab() {
         );
         var title = document.createElement("span");
         title.className = "rte-collab-presence-title";
-        title.textContent = "Online (" + all.length + ")";
+        title.textContent = ((typeof config !== "undefined" && config && config.text_collab_online) || "Online ({0})").split("{0}").join(String(all.length));
         presencePanel.appendChild(title);
         for (var i = 0; i < all.length; i++) {
             var u = all[i].user;

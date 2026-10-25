@@ -191,3 +191,4 @@ RTE_DefaultConfig.text_INSERT = "แทรก";	//"Insert"
 
 RTE_DefaultConfig.text_styles = "สไตล์";	//"Styles"
 RTE_DefaultConfig.text_inlinestyles = "สไตล์ข้อความ";	//"Text styles"
+RTE_DefaultConfig.text_uilocale = "th";	// this pack's locale (Intl names, e.g. the text-part language menu)

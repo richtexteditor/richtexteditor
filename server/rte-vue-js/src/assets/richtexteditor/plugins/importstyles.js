@@ -292,7 +292,7 @@ function RTE_Plugin_ImportStyles() {
         for (var key2 in truncated) if (truncated.hasOwnProperty(key2)) dropped += truncated[key2];
         if (dropped) {
             try {
-                console.warn("[RichTextEditor] importStyles: " + dropped + " class(es) omitted — " +
+                console.warn("[RichTextEditor] importStyles: " + dropped + " class(es) omitted \u2014 " +
                     "importStylesLimit is " + limit + " per dropdown. Raise the limit or narrow " +
                     "importStylesSheets / importStylesFilter.");
             } catch (e) {}
