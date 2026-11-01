@@ -15,7 +15,7 @@ function RTE_Plugin_InsertCode() {
 	dp.sh.Utils.CopyStyles = function (destDoc, sourceDoc) {
 		var links = sourceDoc.getElementsByTagName('link'); for (var i = 0; i < links.length; i++)
 			if (links[i].rel.toLowerCase() == 'stylesheet')
-				destDoc.write('<link type="text/css" rel="stylesheet" href="' + links[i].href + '"></link>');
+				destDoc.write(__RTE_TT('<link type="text/css" rel="stylesheet" href="' + links[i].href + '"></link>'));
 	}
 	dp.sh.Utils.FixForBlogger = function (str) { return (dp.sh.isBloggerMode == true) ? str.replace(/<br\s*\/?>|&lt;br\s*\/?&gt;/gi, '\n') : str; }
 	dp.sh.RegexLib = { MultiLineCComments: new RegExp('/\\*[\\s\\S]*?\\*/', 'gm'), SingleLineCComments: new RegExp('//.*$', 'gm'), SingleLinePerlComments: new RegExp('#.*$', 'gm'), DoubleQuotedString: new RegExp('"(?:\\.|(\\\\\\")|[^\\""\\n])*"', 'g'), SingleQuotedString: new RegExp("'(?:\\.|(\\\\\\')|[^\\''\\n])*'", 'g') }; dp.sh.Match = function (value, index, css) { this.value = value; this.index = index; this.length = value.length; this.css = css; }
@@ -40,13 +40,13 @@ function RTE_Plugin_InsertCode() {
 			return; var span = this.CreateElement('SPAN'); str = str.replace(/ /g, '&nbsp;'); str = str.replace(/</g, '&lt;'); str = str.replace(/\n/gm, '&nbsp;<br>'); if (css != null) {
 				if ((/br/gi).test(str)) {
 					var lines = str.split('&nbsp;<br>'); for (var i = 0; i < lines.length; i++) {
-						span = this.CreateElement('SPAN'); span.className = css; span.innerHTML = lines[i]; this.div.appendChild(span); if (i + 1 < lines.length)
+						span = this.CreateElement('SPAN'); span.className = css; span.innerHTML = __RTE_TT(lines[i]); this.div.appendChild(span); if (i + 1 < lines.length)
 							this.div.appendChild(this.CreateElement('BR'));
 					}
 				}
-				else { span.className = css; span.innerHTML = str; this.div.appendChild(span); }
+				else { span.className = css; span.innerHTML = __RTE_TT(str); this.div.appendChild(span); }
 			}
-		else { span.innerHTML = str; this.div.appendChild(span); }
+		else { span.innerHTML = __RTE_TT(str); this.div.appendChild(span); }
 	}
 	dp.sh.Highlighter.prototype.IsInside = function (match) {
 		if (match == null || match.length == 0)
@@ -83,8 +83,8 @@ function RTE_Plugin_InsertCode() {
 				}
 				columns.className = 'columns'; columns.appendChild(div); this.bar.appendChild(columns);
 			}
-		for (var i = 0, lineIndex = this.firstLine; i < lines.length - 1; i++, lineIndex++) { var li = this.CreateElement('LI'); var span = this.CreateElement('SPAN'); li.className = (i % 2 == 0) ? 'alt' : ''; span.innerHTML = lines[i] + '&nbsp;'; li.appendChild(span); this.ol.appendChild(li); }
-		this.div.innerHTML = '';
+		for (var i = 0, lineIndex = this.firstLine; i < lines.length - 1; i++, lineIndex++) { var li = this.CreateElement('LI'); var span = this.CreateElement('SPAN'); li.className = (i % 2 == 0) ? 'alt' : ''; span.innerHTML = __RTE_TT(lines[i] + '&nbsp;'); li.appendChild(span); this.ol.appendChild(li); }
+		this.div.innerHTML = __RTE_TT('');
 	}
 	dp.sh.Highlighter.prototype.Highlight = function (code) {
 		function Trim(str) { return str.replace(/^\s*(.*?)[\s\n]*$/g, '$1'); }
@@ -301,7 +301,7 @@ function RTE_Plugin_InsertCode() {
 				n = n.parentNode;
 			}
 			var holder = edoc.createElement("div");
-			holder.innerHTML = html;
+			holder.innerHTML = __RTE_TT(html);
 			var node = holder.firstChild;
 			if (!node) return false;
 			// DIV/LI/TD/BLOCKQUOTE may legally contain the block: insert in place.
@@ -391,7 +391,7 @@ function RTE_Plugin_InsertCode() {
 					// placed at the caret, at block level
 				} else {
 					var p = editor.insertRootParagraph();
-					p.innerHTML = '<div class="dp-highlighter">' + tag.innerHTML + "</div>";
+					p.innerHTML = __RTE_TT('<div class="dp-highlighter">' + tag.innerHTML + "</div>");
 				}
 			}
 			else {

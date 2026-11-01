@@ -169,7 +169,7 @@ function RTE_Plugin_SmartChips() {
         }
 
         function renderBody() {
-            body.innerHTML = "";
+            body.innerHTML = __RTE_TT("");
             if (current === "date") {
                 var note = append(body, "div", "", "rte-chip-field-label");
                 note.textContent = chText("ch_insertdate", "Insert a date chip:");
@@ -194,12 +194,12 @@ function RTE_Plugin_SmartChips() {
                 if (config.chipResolver && typeof config.chipResolver === "function") {
                     input.oninput = function () {
                         var q = input.value.trim();
-                        results.innerHTML = "";
+                        results.innerHTML = __RTE_TT("");
                         if (!q) return;
                         try {
                             var p = config.chipResolver(q, current);
                             if (p && p.then) p.then(function (list) {
-                                results.innerHTML = "";
+                                results.innerHTML = __RTE_TT("");
                                 (list || []).slice(0, 6).forEach(function (it) {
                                     var r = append(results, "button", "", "rte-chip-suggestion");
                                     r.type = "button"; r.textContent = it.label || it.value;

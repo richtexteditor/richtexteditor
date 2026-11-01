@@ -165,7 +165,7 @@ function RTE_Plugin_MermaidDiagram() {
         var doc = target.ownerDocument;
         var win = doc.defaultView || window;
         function fallback(msg) {
-            target.innerHTML = "";
+            target.innerHTML = __RTE_TT("");
             var pre = doc.createElement("pre");
             pre.className = "rte-mermaid-src";
             pre.textContent = source;
@@ -174,9 +174,9 @@ function RTE_Plugin_MermaidDiagram() {
         }
         if (typeof config.diagramResolver === "function") {
             return Promise.resolve().then(function () { return config.diagramResolver(source); }).then(function (res) {
-                if (res && res.svg) { target.innerHTML = res.svg; }
+                if (res && res.svg) { target.innerHTML = __RTE_TT(res.svg); }
                 else if (res && res.imageUrl) {
-                    target.innerHTML = "";
+                    target.innerHTML = __RTE_TT("");
                     var img = doc.createElement("img"); img.src = res.imageUrl; img.alt = "diagram"; img.style.maxWidth = "100%";
                     target.appendChild(img);
                 } else { fallback(""); }
@@ -186,7 +186,7 @@ function RTE_Plugin_MermaidDiagram() {
         if (mermaid && typeof mermaid.render === "function") {
             var id = "rtemmd" + (++RTE_MermaidSeq);
             return mermaidRender(mermaid, id, source).then(function (svg) {
-                target.innerHTML = svg;
+                target.innerHTML = __RTE_TT(svg);
             }).catch(function (e) { fallback(e && e.message ? e.message : "render error"); });
         }
         fallback("");
@@ -262,7 +262,7 @@ function RTE_Plugin_MermaidDiagram() {
             previewTimer = setTimeout(function () {
                 var holder = preview.ownerDocument.createElement("div");
                 holder.className = "rte-mermaid-render";
-                preview.innerHTML = "";
+                preview.innerHTML = __RTE_TT("");
                 preview.appendChild(holder);
                 renderInto(holder, src);
             }, 250);

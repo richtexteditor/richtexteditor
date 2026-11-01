@@ -433,7 +433,7 @@ function RTE_Plugin_InsertGallery() {
             button.title = glText("gl_open", "Open {0}", item.name);
 
             var selection = append(button, "div", "", "rte-gallery-browser-selection");
-            selection.innerHTML = "&nbsp;";
+            selection.innerHTML = __RTE_TT("&nbsp;");
 
             var thumbnail = append(button, "div", "", "rte-gallery-browser-thumbnail rte-gallery-browser-thumbnail-folder");
             append(thumbnail, "div", "", "rte-gallery-browser-folder-icon");
@@ -458,7 +458,7 @@ function RTE_Plugin_InsertGallery() {
             button.setAttribute("aria-selected", isSelected ? "true" : "false");
 
             var selection = append(button, "div", "", "rte-gallery-browser-selection");
-            selection.innerHTML = isSelected ? "&#10003;" : "&nbsp;";
+            selection.innerHTML = __RTE_TT(isSelected ? "&#10003;" : "&nbsp;");
 
             var thumbnail = append(button, "div", "", "rte-gallery-browser-thumbnail");
             var image = append(thumbnail, "img", "", "rte-gallery-browser-thumbnail-image");
@@ -516,8 +516,8 @@ function RTE_Plugin_InsertGallery() {
             setDisabled(uploadButton, state.loading);
             setDisabled(refreshButton, state.loading);
 
-            folderGrid.innerHTML = "";
-            grid.innerHTML = "";
+            folderGrid.innerHTML = __RTE_TT("");
+            grid.innerHTML = __RTE_TT("");
             show(empty, false);
             show(folderGrid, false);
             show(grid, true);

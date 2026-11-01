@@ -98,11 +98,11 @@ function RTE_Plugin_RubyAnnotation() {
         if (hostDoc.getElementById("rte-ruby-style")) return;
         var style = hostDoc.createElement("style");
         style.id = "rte-ruby-style";
-        style.innerHTML = [
+        style.innerHTML = __RTE_TT([
             ".rte-ruby-annotated{ruby-position:over;}",
             ".rte-ruby-annotated>rt{font-size:.55em;line-height:1.15;opacity:.85;user-select:none;}",
             "@supports (display:ruby){.rte-ruby-annotated>rp{display:none;}}"
-        ].join("");
+        ].join(""));
         hostDoc.head.appendChild(style);
         // A <style> element's rules are dropped under a strict style-src; this
         // re-injects them through the CSSOM in that case only. Missed in 2.9.0,

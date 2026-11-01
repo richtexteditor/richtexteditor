@@ -774,7 +774,7 @@ function RTE_Plugin_Comments() {
     function renderSidebar() {
         if (!sidebar) return;
         var host = sidebar.ownerDocument;
-        sidebar.innerHTML = "";
+        sidebar.innerHTML = __RTE_TT("");
 
         var header = host.createElement("div");
         header.className = "rte-comment-sidebar-header";
@@ -786,7 +786,7 @@ function RTE_Plugin_Comments() {
         close.type = "button";
         close.className = "rte-comment-sidebar-close";
         close.setAttribute("aria-label", cmText("close", "Close"));
-        close.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>';
+        close.innerHTML = __RTE_TT('<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>');
         onActivate(close, closeSidebar);
         header.appendChild(close);
         sidebar.appendChild(header);

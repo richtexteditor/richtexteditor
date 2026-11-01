@@ -159,7 +159,7 @@ function RTE_Plugin_ImageEditor() {
 			var imgeditor = new win.tui.ImageEditor(win.document.querySelector('#tui-image-editor'), options);
 
 			var btns = win.document.querySelector('.tui-image-editor-header-buttons');
-			btns.innerHTML = '';
+			btns.innerHTML = __RTE_TT('');
 			var savebtn = __Append(btns, "button", "");
 			savebtn.innerText = pText("ie_save", "Save");
 			var status = __Append(btns, "div", "margin-left:10px;font-size:12px;color:#b42318;", "rte-imageeditor-upload-status");
@@ -181,7 +181,20 @@ function RTE_Plugin_ImageEditor() {
 
 				var file = dataURLToBlob(dataurl);
 
-				uploadHandler(file, function (url, error) {
+				// A handler that throws would leave Save disabled with "Saving..." forever.
+				// Turn the exception into the same visible error the callback path shows.
+				var restoreSave = function (message) {
+					savebtn.disabled = false;
+					savebtn.innerText = pText("ie_save", "Save");
+					status.innerText = message;
+				};
+				try {
+					uploadHandler(file, onUploaded);
+				} catch (ex) {
+					restoreSave(pText("ie_uploadfailed", "Upload failed: {0}", ex && ex.message ? ex.message : "error"));
+				}
+
+				function onUploaded(url, error) {
 					if (url) {
 						img.src = url;
 						editor.notifySelectionChange();
@@ -196,16 +209,16 @@ function RTE_Plugin_ImageEditor() {
 					status.innerText = error
 						? pText("ie_uploadfailed", "Upload failed: {0}", error)
 						: pText("ie_nourl", "The upload did not return a file URL. Please try again.");
-				});
+				}
 
 
 			}
 
 		}
 
-		iframe = __Append(dialoginner, "iframe", "align-self:center;flex:99;width:100%;height:100%px;border:0px;", "rte-editable");
+		var iframe = __Append(dialoginner, "iframe", "align-self:center;flex:99;width:100%;height:100%;border:0px;", "rte-editable");
 		iframe.contentDocument.open("text/html");
-		iframe.contentDocument.write("<html><head><base href='" + editor.htmlEncode(location.href) + "'/>"
+		iframe.contentDocument.write(__RTE_TT("<html><head><base href='" + editor.htmlEncode(location.href) + "'/>"
 			+ "<link id='url-css-preview' rel='stylesheet' href='" + editor.htmlEncode(scriptbase + "tui-color-picker.min.css") + "'/>"
 			+ "<link id='url-css-preview' rel='stylesheet' href='" + editor.htmlEncode(scriptbase + "tui-image-editor.min.css") + "'/>"
 			+ "<script src='" + editor.htmlEncode(scriptbase + "fabric.min.js") + "'></script>"
@@ -213,7 +226,7 @@ function RTE_Plugin_ImageEditor() {
 			+ "<script src='" + editor.htmlEncode(scriptbase + "tui-code-snippet.min.js") + "'></script>"
 			+ "<script src='" + editor.htmlEncode(scriptbase + "tui-image-editor.min.js") + "'></script>"
 			+ "</head><body style='padding:10px;margin:0px'><div id='tui-image-editor'></div></body>"
-			+ "<script>window.onload=function(){setTimeout(function(){parent.rte_image_editor_callback(window)},100)}</script></html>")
+			+ "<script>window.onload=function(){setTimeout(function(){parent.rte_image_editor_callback(window)},100)}</script></html>"))
 		iframe.contentDocument.close();
 	}
 }

@@ -63,7 +63,30 @@ function RTE_Plugin_PdfExport() {
         if (config.pdfExport === false) return;
 
         editor.getPdfBytes = function (options) { return buildPdf(options || {}); };
+        // 2026-10-26 The standard PDF fonts encode Western European Latin only (WinAnsi): every other character -
+        // Chinese, Japanese, Korean, Cyrillic, Greek, Arabic... - was written as "?", silently. Until fonts can be
+        // embedded: getPdfUnsupportedText() says which characters a vector export would lose, and exportToPdf() (the
+        // toolbar's Export PDF) hands such a document to the html2pdf raster export when that plugin is loaded, which
+        // draws every script. Set pdfExportRasterFallback = false to always write the vector PDF.
+        // tools/pdf/pdf-nonlatin-fallback.mjs
+        editor.getPdfUnsupportedText = function (options) { return unsupportedText(options || {}); };
+        // Fetches a TrueType font from a URL you choose and uses it for the text the standard fonts cannot draw.
+        // Resolves true when it is usable; nothing is fetched unless this is called. tools/pdf/pdf-unicode-font.mjs
+        editor.loadPdfFont = function (url) {
+            return fetch(url).then(function (r) { if (!r.ok) throw new Error("pdfexport: font " + url + " returned " + r.status); return r.arrayBuffer(); })
+                .then(function (buf) { var bytes = new Uint8Array(buf); parseTrueType(bytes); config.pdfExportUnicodeFont = bytes; return true; });
+        };
         editor.exportToPdf = function (filename, options) {
+            var lost = unsupportedText(options || {});
+            if (lost) {
+                var raster = config.pdfExportRasterFallback !== false && editor.toolbarFactoryMap && editor.toolbarFactoryMap["html2pdf"];
+                if (window.console && console.warn) {
+                    console.warn("pdfexport: the vector PDF cannot encode " + lost.length + " character(s) of this document (" +
+                        lost.slice(0, 20) + (lost.length > 20 ? "..." : "") + "); its standard fonts cover Western European Latin only. " +
+                        (raster ? "Exporting with the html2pdf raster export instead." : "They are written as \"?\". Load the html2pdf plugin for a raster export that keeps them."));
+                }
+                if (raster) { editor.execCommand("html2pdf"); return null; }
+            }
             var bytes = buildPdf(options || {});
             var base = sanitizeName(filename) || sanitizeName(config.pdfExportFileName) || defaultBase();
             return download(bytes, base + ".pdf");
@@ -179,6 +202,214 @@ function RTE_Plugin_PdfExport() {
         return total * size / 1000;
     }
 
+    // ------------------------------------------------------------ embedded Unicode font
+    //
+    // 2026-10-26 The base-14 fonts encode Western European Latin only. With a TrueType font supplied
+    // (config.pdfExportUnicodeFont / options.unicodeFont: the bytes of a .ttf, or editor.loadPdfFont(url)),
+    // text the base fonts cannot draw - Chinese, Japanese, Korean, Cyrillic, Greek... - is written in that font
+    // instead: a Type0 / CIDFontType2 font with Identity-H encoding and a ToUnicode map, so it stays vector,
+    // selectable and searchable. The font is subset: every glyph keeps its ID (so CIDToGIDMap stays Identity)
+    // but only the outlines the document uses are kept. tools/pdf/pdf-unicode-font.mjs
+    var activeUni = null;      // { font, used: { gid: codepoint } } while one export runs
+    var parsedFonts = [];      // [{ bytes, font }] - a parse is reused for the same bytes
+
+    function u16(b, o) { return (b[o] << 8) | b[o + 1]; }
+    function s16(b, o) { var v = u16(b, o); return v & 0x8000 ? v - 0x10000 : v; }
+    function u32(b, o) { return ((b[o] << 24) >>> 0) + (b[o + 1] << 16) + (b[o + 2] << 8) + b[o + 3]; }
+
+    function parseTrueType(input) {
+        var b = input instanceof Uint8Array ? input : new Uint8Array(input);
+        for (var pi = 0; pi < parsedFonts.length; pi++) if (parsedFonts[pi].bytes === b) return parsedFonts[pi].font;
+        var tag0 = u32(b, 0);
+        if (tag0 !== 0x00010000 && tag0 !== 0x74727565) {
+            throw new Error(tag0 === 0x4F54544F ? "pdfexport: the Unicode font has CFF (PostScript) outlines; supply a TrueType (.ttf) font"
+                : tag0 === 0x74746366 ? "pdfexport: the Unicode font is a collection (.ttc); supply a single .ttf font"
+                : "pdfexport: the Unicode font is not a TrueType font");
+        }
+        var tables = {}, n = u16(b, 4);
+        for (var i = 0; i < n; i++) {
+            var rec = 12 + i * 16;
+            var tag = String.fromCharCode(b[rec], b[rec + 1], b[rec + 2], b[rec + 3]);
+            tables[tag] = { offset: u32(b, rec + 8), length: u32(b, rec + 12) };
+        }
+        ["head", "hhea", "hmtx", "maxp", "cmap", "loca", "glyf"].forEach(function (t) {
+            if (!tables[t]) throw new Error("pdfexport: the Unicode font has no '" + t + "' table");
+        });
+        var head = tables.head.offset, hhea = tables.hhea.offset;
+        var font = {
+            bytes: b, tables: tables,
+            units: u16(b, head + 18),
+            bbox: [s16(b, head + 36), s16(b, head + 38), s16(b, head + 40), s16(b, head + 42)],
+            longLoca: s16(b, head + 50) === 1,
+            numGlyphs: u16(b, tables.maxp.offset + 4),
+            numHMetrics: u16(b, hhea + 34),
+            ascent: s16(b, hhea + 4), descent: s16(b, hhea + 6), capHeight: 0, italicAngle: 0
+        };
+        if (tables["OS/2"]) {
+            var os2 = tables["OS/2"].offset;
+            font.ascent = s16(b, os2 + 68); font.descent = s16(b, os2 + 70);
+            if (u16(b, os2) >= 2 && tables["OS/2"].length >= 90) font.capHeight = s16(b, os2 + 88);
+        }
+        if (!font.capHeight) font.capHeight = font.ascent;
+        if (tables.post) font.italicAngle = s16(b, tables.post.offset + 4);
+        // cmap: a Unicode subtable, format 12 (full range) preferred over format 4 (BMP)
+        var cmap = tables.cmap.offset, best = null, bestFmt = 0;
+        for (var c = 0, nc = u16(b, cmap + 2); c < nc; c++) {
+            var pid = u16(b, cmap + 4 + c * 8), eid = u16(b, cmap + 6 + c * 8), off = cmap + u32(b, cmap + 8 + c * 8);
+            var fmt = u16(b, off);
+            var unicode = pid === 0 || (pid === 3 && (eid === 1 || eid === 10));
+            if (!unicode || (fmt !== 4 && fmt !== 12)) continue;
+            if (fmt > bestFmt) { best = off; bestFmt = fmt; }
+        }
+        if (!best) throw new Error("pdfexport: the Unicode font has no Unicode character map");
+        var lookup = {};
+        font.gidFor = function (cp) {
+            if (lookup[cp] !== undefined) return lookup[cp];
+            var g = 0;
+            if (bestFmt === 12) {
+                var groups = u32(b, best + 12);
+                for (var k = 0; k < groups; k++) {
+                    var go = best + 16 + k * 12, start = u32(b, go), end = u32(b, go + 4);
+                    if (cp >= start && cp <= end) { g = u32(b, go + 8) + (cp - start); break; }
+                }
+            } else if (cp <= 0xFFFF) {
+                var segX2 = u16(b, best + 6), ends = best + 14, starts = ends + segX2 + 2, deltas = starts + segX2, ranges = deltas + segX2;
+                for (var s = 0; s < segX2 / 2; s++) {
+                    if (cp > u16(b, ends + s * 2)) continue;
+                    var st = u16(b, starts + s * 2);
+                    if (cp < st) break;
+                    var ro = u16(b, ranges + s * 2);
+                    if (!ro) g = (cp + s16(b, deltas + s * 2)) & 0xFFFF;
+                    else {
+                        var gi = u16(b, ranges + s * 2 + ro + (cp - st) * 2);
+                        g = gi ? (gi + s16(b, deltas + s * 2)) & 0xFFFF : 0;
+                    }
+                    break;
+                }
+            }
+            if (g >= font.numGlyphs) g = 0;
+            lookup[cp] = g;
+            return g;
+        };
+        font.advance = function (gid) {
+            var hm = font.tables.hmtx.offset;
+            var i2 = gid < font.numHMetrics ? gid : font.numHMetrics - 1;
+            return u16(b, hm + i2 * 4);
+        };
+        parsedFonts.push({ bytes: b, font: font });
+        if (parsedFonts.length > 4) parsedFonts.shift();
+        return font;
+    }
+
+    function glyphRange(font, gid) {
+        var b = font.bytes, loca = font.tables.loca.offset;
+        var a = font.longLoca ? u32(b, loca + gid * 4) : u16(b, loca + gid * 2) * 2;
+        var z = font.longLoca ? u32(b, loca + gid * 4 + 4) : u16(b, loca + gid * 2 + 2) * 2;
+        return [font.tables.glyf.offset + a, z - a];
+    }
+
+    // A font with every glyph ID kept but only the used outlines (plus the components of composite glyphs and
+    // .notdef); tables a CIDFontType2 needs: head, hhea, hmtx, maxp, loca, glyf, and the hinting tables if present.
+    function subsetTrueType(font, usedGids) {
+        var b = font.bytes, keep = { 0: true }, stack = [];
+        for (var k in usedGids) { keep[k] = true; stack.push(+k); }
+        while (stack.length) {
+            var gid = stack.pop(), r = glyphRange(font, gid);
+            if (r[1] < 10 || s16(b, r[0]) >= 0) continue;           // empty or simple glyph
+            var p = r[0] + 10, more = true;
+            while (more) {
+                var flags = u16(b, p), comp = u16(b, p + 2);
+                if (!keep[comp]) { keep[comp] = true; stack.push(comp); }
+                p += 4 + ((flags & 1) ? 4 : 2) + ((flags & 8) ? 2 : (flags & 0x40) ? 4 : (flags & 0x80) ? 8 : 0);
+                more = !!(flags & 0x20);
+            }
+        }
+        var glyfParts = [], locaOut = new Uint8Array((font.numGlyphs + 1) * 4), at = 0;
+        function put32(arr, o, v) { arr[o] = (v >>> 24) & 255; arr[o + 1] = (v >>> 16) & 255; arr[o + 2] = (v >>> 8) & 255; arr[o + 3] = v & 255; }
+        for (var g = 0; g < font.numGlyphs; g++) {
+            put32(locaOut, g * 4, at);
+            if (!keep[g]) continue;
+            var gr = glyphRange(font, g);
+            if (gr[1] <= 0) continue;
+            var len = (gr[1] + 3) & ~3;
+            var part = new Uint8Array(len); part.set(b.subarray(gr[0], gr[0] + gr[1]));
+            glyfParts.push(part); at += len;
+        }
+        put32(locaOut, font.numGlyphs * 4, at);
+        var glyfOut = new Uint8Array(at), q = 0;
+        for (var gp = 0; gp < glyfParts.length; gp++) { glyfOut.set(glyfParts[gp], q); q += glyfParts[gp].length; }
+        var out = {};
+        ["head", "hhea", "hmtx", "maxp", "cvt ", "fpgm", "prep"].forEach(function (t) {
+            if (font.tables[t]) out[t] = b.slice(font.tables[t].offset, font.tables[t].offset + font.tables[t].length);
+        });
+        out.head[50] = 0; out.head[51] = 1;                      // indexToLocFormat: long
+        out.head[8] = out.head[9] = out.head[10] = out.head[11] = 0;   // checkSumAdjustment, set below
+        out.loca = locaOut; out.glyf = glyfOut;
+        var tags = Object.keys(out).sort(), numT = tags.length, dirLen = 12 + numT * 16, total = dirLen;
+        tags.forEach(function (t) { total += (out[t].length + 3) & ~3; });
+        var f = new Uint8Array(total);
+        put32(f, 0, 0x00010000);
+        var es = Math.floor(Math.log(numT) / Math.LN2), sr = Math.pow(2, es) * 16;
+        f[4] = numT >> 8; f[5] = numT & 255; f[6] = sr >> 8; f[7] = sr & 255; f[8] = es >> 8; f[9] = es & 255;
+        var rs = numT * 16 - sr; f[10] = rs >> 8; f[11] = rs & 255;
+        function checksum(arr) { var sum = 0; for (var i = 0; i < arr.length; i += 4) sum = (sum + (((arr[i] << 24) >>> 0) + ((arr[i + 1] || 0) << 16) + ((arr[i + 2] || 0) << 8) + (arr[i + 3] || 0))) >>> 0; return sum; }
+        var pos = dirLen, headPos = 0;
+        tags.forEach(function (t, i) {
+            var rec = 12 + i * 16;
+            for (var c = 0; c < 4; c++) f[rec + c] = t.charCodeAt(c);
+            put32(f, rec + 4, checksum(out[t])); put32(f, rec + 8, pos); put32(f, rec + 12, out[t].length);
+            f.set(out[t], pos);
+            if (t === "head") headPos = pos;
+            pos += (out[t].length + 3) & ~3;
+        });
+        put32(f, headPos + 8, (0xB1B0AFBA - checksum(f)) >>> 0);
+        return f;
+    }
+
+    function hex4(n) { return ("000" + n.toString(16).toUpperCase()).slice(-4); }
+    // The glyph IDs of a string in the active Unicode font, as a PDF hex string; records each for the ToUnicode map.
+    function uniHex(str) {
+        var out = "";
+        for (var i = 0; i < str.length; i++) {
+            var cp = str.codePointAt(i);
+            if (cp > 0xFFFF) i++;
+            var gid = activeUni.font.gidFor(cp);
+            activeUni.used[gid] = cp;
+            out += hex4(gid);
+        }
+        return "<" + out + ">";
+    }
+    function uniWidth(str, size) {
+        var total = 0;
+        for (var i = 0; i < str.length; i++) {
+            var cp = str.codePointAt(i);
+            if (cp > 0xFFFF) i++;
+            total += activeUni.font.advance(activeUni.font.gidFor(cp));
+        }
+        return total * size / activeUni.font.units;
+    }
+    // Can the base fonts draw this character? (the same test toWinAnsi applies)
+    function winEncodable(ch) { return ch === "?" || toWinAnsi(ch).indexOf("?") < 0; }
+    // East Asian characters: a line may break between any two of them.
+    function breaksAnywhere(cp) {
+        return (cp >= 0x2E80 && cp <= 0x9FFF) || (cp >= 0xAC00 && cp <= 0xD7AF) || (cp >= 0xF900 && cp <= 0xFAFF) ||
+            (cp >= 0xFF00 && cp <= 0xFFEF) || (cp >= 0x3000 && cp <= 0x303F) || (cp >= 0x20000 && cp <= 0x2FA1F);
+    }
+    // Splits a token into pieces drawn by the base fonts ({ text }) and by the Unicode font ({ text, uni: true }),
+    // with every East Asian character its own piece so a line can break there.
+    function uniPieces(tok) {
+        var pieces = [], cur = null;
+        for (var i = 0; i < tok.length; i++) {
+            var cp = tok.codePointAt(i), ch = String.fromCodePoint(cp);
+            if (cp > 0xFFFF) i++;
+            var uni = !winEncodable(ch) && activeUni.font.gidFor(cp) !== 0;
+            if (uni && breaksAnywhere(cp)) { cur = null; pieces.push({ text: ch, uni: true }); continue; }
+            if (!cur || cur.uni !== uni) { cur = { text: "", uni: uni }; pieces.push(cur); }
+            cur.text += ch;
+        }
+        return pieces;
+    }
+
     // ------------------------------------------------------------ PDF string
     //
     // WinAnsiEncoding covers Latin-1 plus the printable range of CP1252. A
@@ -202,9 +433,51 @@ function RTE_Plugin_PdfExport() {
             if (cp === 0x00A0) { out += " "; continue; }
             if (cp >= 0x2000 && cp <= 0x200A) { out += " "; continue; }
             if (cp === 0x2212) { out += "-"; continue; }
+            // 2026-10-26 invisible format characters (zero-width space / joiners, word joiner, BOM) have no glyph to
+            // draw: drop them instead of printing "?" in the middle of Latin text.
+            if ((cp >= 0x200B && cp <= 0x200F) || cp === 0x2060 || cp === 0xFEFF) continue;
             out += "?";
         }
         return out;
+    }
+    // The characters (each once, in document order) that toWinAnsi would write as "?": what a vector export of the
+    // serialized document, its title and its running header / footer would lose.
+    function unsupportedText(options, ignoreFont) {
+        var text = "";
+        try {
+            var box = document.createElement("div");
+            box.innerHTML = __RTE_TT(editor.getHTMLCode() || "");
+            text = box.textContent || "";
+        } catch (e) { text = ""; }
+        text += " " + (options.title || config.pdfExportTitle || "") + " " + (options.headerText || config.pdfExportHeader || "") +
+            " " + (options.footerText || config.pdfExportFooter || "");
+        var seen = {}, out = "";
+        var uniFont = ignoreFont ? null : uniFontFrom(options);
+        for (var i = 0; i < text.length; i++) {
+            var ch = text.charAt(i), code = text.charCodeAt(i);
+            if (code >= 0xD800 && code <= 0xDBFF && i + 1 < text.length) { ch = text.substr(i, 2); i++; }
+            if (seen[ch] || ch === "?") continue;
+            if (toWinAnsi(ch).indexOf("?") >= 0 && !(uniFont && uniFont.gidFor(ch.codePointAt(0)))) { seen[ch] = 1; out += ch; }
+        }
+        return out;
+    }
+    // 2026-10-26 A PDF text string (title, author, bookmark, alt text, link or comment description) is not drawn with
+    // a font, so it can carry any script as UTF-16BE: <FEFF...>. These went through WinAnsi like the page text and a
+    // Chinese title, Russian bookmark or Japanese alt text - what a screen reader announces - became "???". Strings
+    // WinAnsi can carry keep the plain (...) form. tools/pdf/pdf-unicode-strings.mjs
+    function pdfText(str) {
+        var t = String(str == null ? "" : str);
+        var win = toWinAnsi(t);
+        if (win.indexOf("?") < 0 || win.split("?").length === t.split("?").length) return "(" + escapeString(win) + ")";
+        var hex = "<FEFF";
+        for (var i = 0; i < t.length; i++) hex += ("000" + t.charCodeAt(i).toString(16).toUpperCase()).slice(-4);
+        return hex + ">";
+    }
+    // A URI is ASCII: percent-encode anything else (it became "?").
+    function pdfUri(href) {
+        return String(href || "").replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]|[^\x00-\x7F]/g, function (c) {
+            try { return encodeURIComponent(c); } catch (e) { return ""; }
+        });
     }
     function escapeString(str) {
         return str.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
@@ -279,7 +552,7 @@ function RTE_Plugin_PdfExport() {
         var s = {
             bold: inherited.bold, italic: inherited.italic, underline: inherited.underline,
             strike: inherited.strike, size: inherited.size, color: inherited.color,
-            mono: inherited.mono, link: inherited.link, lang: inherited.lang
+            mono: inherited.mono, link: inherited.link, lang: inherited.lang, comment: inherited.comment || null
         };
         // 2026-10-17 a run's language: the nearest lang attribute. tools/pdf/inline-lang.mjs
         var nodeLang = node.getAttribute ? node.getAttribute("lang") : "";
@@ -291,6 +564,7 @@ function RTE_Plugin_PdfExport() {
         if (tag === "s" || tag === "strike" || tag === "del") s.strike = true;
         if (tag === "code" || tag === "kbd" || tag === "samp" || tag === "pre") s.mono = true;
         if (tag === "a" && node.getAttribute("href")) { s.link = node.getAttribute("href"); s.color = [0, 0.33, 0.8]; s.underline = true; }
+        if (node.getAttribute && node.getAttribute("data-comment")) s.comment = { text: node.getAttribute("data-comment"), author: node.getAttribute("data-comment-author") || "" };
         if (tag === "sup" || tag === "sub") s.size = s.size * 0.75;
 
         var css = node.style;
@@ -378,17 +652,22 @@ function RTE_Plugin_PdfExport() {
             // dropped while a space between two words on the same line is kept.
             var tokens = run.text.split(/(\s+)/);
             for (var t = 0; t < tokens.length; t++) {
-                var tok = tokens[t];
-                if (!tok) continue;
-                var w = textWidth(toWinAnsi(tok), family, styleIndex, run.style.size);
-                if (used + w > width && line.length && !/^\s+$/.test(tok)) {
-                    flush();
-                    // A wrapped line never starts with the space that caused it.
-                    if (/^\s+$/.test(tok)) continue;
+                var whole = tokens[t];
+                if (!whole) continue;
+                var pieces = activeUni && !/^\s+$/.test(whole) ? uniPieces(whole) : [{ text: whole, uni: false }];
+                for (var pc = 0; pc < pieces.length; pc++) {
+                    var tok = pieces[pc].text, isUni = pieces[pc].uni;
+                    var w = isUni ? uniWidth(tok, run.style.size) : textWidth(toWinAnsi(tok), family, styleIndex, run.style.size);
+                    // a piece that continues a word (no space before it) may still wrap: CJK breaks anywhere
+                    if (used + w > width && line.length && !/^\s+$/.test(tok) && (pc === 0 || isUni)) {
+                        flush();
+                        // A wrapped line never starts with the space that caused it.
+                        if (/^\s+$/.test(tok)) continue;
+                    }
+                    line.push({ text: tok, style: run.style, family: family, styleIndex: styleIndex, w: w, uni: isUni });
+                    used += w;
+                    if (run.style.size > maxSize) maxSize = run.style.size;
                 }
-                line.push({ text: tok, style: run.style, family: family, styleIndex: styleIndex, w: w });
-                used += w;
-                if (run.style.size > maxSize) maxSize = run.style.size;
             }
         }
         if (line.length) flush();
@@ -671,7 +950,42 @@ function RTE_Plugin_PdfExport() {
     // ------------------------------------------------------------- rendering
     // 2026-10-15 the document language, read by the tagger to mark blocks in other languages
     var pdfDocLang = "en";
+    // Marks each live comment's text in the copy as a data-comment span (see buildPdf).
+    function markCommentsForPdf(host) {
+        var live = editor.getEditable().querySelectorAll("[data-comment-id]");
+        if (!live.length || !editor.reviewLedger) return;
+        var ledger = {};
+        editor.reviewLedger.list().forEach(function (e) { if (e.changeType === "comment") ledger[e.id] = e; });
+        var done = {};
+        for (var i = 0; i < live.length; i++) {
+            var id = live[i].getAttribute("data-comment-id"), entry = ledger[id], phrase = live[i].textContent || "";
+            if (!entry || !phrase || done[id]) continue;
+            done[id] = true;
+            var w = document.createTreeWalker(host, NodeFilter.SHOW_TEXT, null, false), tn, at = -1;
+            while ((tn = w.nextNode())) { at = tn.data.indexOf(phrase); if (at !== -1) break; }
+            if (at === -1) continue;
+            var rng = document.createRange();
+            rng.setStart(tn, at); rng.setEnd(tn, at + phrase.length);
+            var name = (entry.author && entry.author.name) || "RichTextEditor user";
+            var mark = document.createElement("span");
+            mark.setAttribute("data-comment", entry.text || "");
+            mark.setAttribute("data-comment-author", name);
+            try { rng.surroundContents(mark); } catch (er) { /* no mark */ }
+        }
+    }
+    function uniFontFrom(options) {
+        var src = (options && options.unicodeFont) || config.pdfExportUnicodeFont;
+        if (!src) return null;
+        try { return parseTrueType(src); }
+        catch (e) { if (window.console && console.warn) console.warn(e.message); return null; }
+    }
     function buildPdf(options) {
+        activeUni = null;
+        var uniFont = uniFontFrom(options);
+        if (uniFont && unsupportedText(options, true)) activeUni = { font: uniFont, used: {} };
+        try { return buildPdfWith(options); } finally { activeUni = null; }
+    }
+    function buildPdfWith(options) {
         pdfDocLang = String((options && options.lang) || document.documentElement.lang || "en").toLowerCase();
         var familyKey = String(options.font || config.pdfExportFont || "helvetica").toLowerCase();
         if (!FONT_FAMILIES[familyKey]) familyKey = "helvetica";
@@ -683,13 +997,16 @@ function RTE_Plugin_PdfExport() {
         // their own chrome from it. Reading the live DOM instead would bake page
         // overlays, watermarks and formatting marks into the PDF.
         var host = document.createElement("div");
-        host.innerHTML = editor.getHTMLCode() || "";
+        host.innerHTML = __RTE_TT(editor.getHTMLCode() || "");
         var liveLists = editor.getEditable().querySelectorAll("ol,ul"), exportLists = host.querySelectorAll("ol,ul");
         if (liveLists.length === exportLists.length) for (var li = 0; li < liveLists.length; li++) {
             var listStyle = liveLists[li].ownerDocument.defaultView.getComputedStyle(liveLists[li]).listStyleType;
             if (listStyle) exportLists[li].style.listStyleType = listStyle;
         }
 
+        // 2026-10-21 comments reach the PDF as /Text notes: their anchors and text are marked in the copy first,
+        // as in the Word export. tools/pdf/comments.mjs
+        try { markCommentsForPdf(host); } catch (cmErr) { /* the PDF without notes */ }
         var layout = new Layout(geom, baseSize, familyKey);
         var blocks = layout.run(host);
 
@@ -776,6 +1093,40 @@ function RTE_Plugin_PdfExport() {
         return 0;
     }
 
+    // Type0 font over a CIDFontType2 subset: Identity-H codes are glyph IDs, /W carries the widths layout used,
+    // and ToUnicode maps each glyph back to its character for copy, search and screen readers.
+    function addUnicodeFont(pdf, uni) {
+        var font = uni.font, scale = 1000 / font.units;
+        var gids = Object.keys(uni.used).map(Number).sort(function (a, b) { return a - b; });
+        var sub = subsetTrueType(font, uni.used);
+        var fileId = pdf.add({ dict: "<< /Length1 " + sub.length + " /Length 0 >>", stream: sub });
+        var name = "/RTEUNI+EmbeddedUnicode";
+        var descId = pdf.add("<< /Type /FontDescriptor /FontName " + name + " /Flags 4 /FontBBox [" +
+            font.bbox.map(function (v) { return Math.round(v * scale); }).join(" ") + "] /ItalicAngle " + font.italicAngle +
+            " /Ascent " + Math.round(font.ascent * scale) + " /Descent " + Math.round(font.descent * scale) +
+            " /CapHeight " + Math.round(font.capHeight * scale) + " /StemV 80 /FontFile2 " + fileId + " 0 R >>");
+        var w = gids.map(function (g) { return g + " [" + Math.round(font.advance(g) * scale) + "]"; }).join(" ");
+        var cidId = pdf.add("<< /Type /Font /Subtype /CIDFontType2 /BaseFont " + name +
+            " /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor " + descId +
+            " 0 R /DW 1000 /W [" + w + "] /CIDToGIDMap /Identity >>");
+        var cmap = "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n" +
+            "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n" +
+            "1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n";
+        for (var i = 0; i < gids.length; i += 100) {
+            var chunk = gids.slice(i, i + 100);
+            cmap += chunk.length + " beginbfchar\n";
+            for (var j = 0; j < chunk.length; j++) {
+                var cp = uni.used[chunk[j]], u = cp > 0xFFFF ? hex4(0xD800 + ((cp - 0x10000) >> 10)) + hex4(0xDC00 + ((cp - 0x10000) & 0x3FF)) : hex4(cp);
+                cmap += "<" + hex4(chunk[j]) + "> <" + u + ">\n";
+            }
+            cmap += "endbfchar\n";
+        }
+        cmap += "endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend";
+        var tuId = pdf.add({ dict: "<< /Length 0 >>", stream: cmap });
+        return pdf.add("<< /Type /Font /Subtype /Type0 /BaseFont " + name + " /Encoding /Identity-H /DescendantFonts [" +
+            cidId + " 0 R] /ToUnicode " + tuId + " 0 R >>");
+    }
+
     function emit(pages, geom, familyKey, baseSize, options) {
         var pdf = new PdfWriter();
         var fam = FONT_FAMILIES[familyKey];
@@ -837,12 +1188,24 @@ function RTE_Plugin_PdfExport() {
                 var lsp = pages.length + linkAnnots.length;
                 var lid = pdf.add("<< /Type /Annot /Subtype /Link /Rect [" +
                     fixed(lk.x0) + " " + fixed(lk.y0) + " " + fixed(lk.x1) + " " + fixed(lk.y1) +
-                    "] /Border [0 0 0] /StructParent " + lsp + " /Contents (" + escapeString(toWinAnsi(String(lk.text || lk.href).replace(/\s+/g, " ").trim() || lk.href)) + ")" +
-                    " /A << /S /URI /URI (" + escapeString(toWinAnsi(lk.href)) + ") >> >>");
+                    "] /Border [0 0 0] /StructParent " + lsp + " /Contents " + pdfText(String(lk.text || lk.href).replace(/\s+/g, " ").trim() || lk.href) +
+                    " /A << /S /URI /URI (" + escapeString(pdfUri(lk.href)) + ") >> >>");
                 annotIds[pi].push(lid);
                 linkAnnots.push({ id: lid, page: pi, key: lsp, owner: lk.owner });
             }
+            for (var cm = 0; cm < (draw.comments || []).length; cm++) {
+                var cmt = draw.comments[cm];
+                // 2026-10-21 a note is tagged like a link (PDF/UA 7.18, the rule the link tags already follow): it has a
+                // /StructParent key, a Note element names it, and the parent tree maps the key to that element. tools/pdf/comments.mjs
+                var noteKey = pages.length + linkAnnots.length;
+                var noteId = pdf.add("<< /Type /Annot /Subtype /Text /Rect [" + fixed(cmt.x0) + " " + fixed(cmt.y0) + " " + fixed(cmt.x1) + " " + fixed(cmt.y1) + "]" +
+                    " /Contents " + pdfText(cmt.text) + " /T " + pdfText(cmt.author) + " /Name /Note /Open false /C [1 1 0] /StructParent " + noteKey + " >>");
+                annotIds[pi].push(noteId);
+                linkAnnots.push({ id: noteId, page: pi, key: noteKey, owner: null, note: true });
+            }
         }
+
+        if (activeUni && Object.keys(activeUni.used).length) fontRes.push("/U0 " + addUnicodeFont(pdf, activeUni) + " 0 R");
 
         var struct = buildStructTree(pdf, allMarks, pageIds, linkAnnots);
 
@@ -875,7 +1238,7 @@ function RTE_Plugin_PdfExport() {
             var ocount = function (n) { var c = n.kids.length; for (var k = 0; k < n.kids.length; k++) c += ocount(n.kids[k]); return c; };
             for (var oi = 0; oi < onodes.length; oi++) {
                 var n = onodes[oi], sib = n.parent.kids, at = sib.indexOf(n);
-                pdf.set(n.id, "<< /Title (" + escapeString(toWinAnsi(n.h.title)) + ") /Parent " + n.parent.id + " 0 R" +
+                pdf.set(n.id, "<< /Title " + pdfText(n.h.title) + " /Parent " + n.parent.id + " 0 R" +
                     (at > 0 ? " /Prev " + sib[at - 1].id + " 0 R" : "") + (at < sib.length - 1 ? " /Next " + sib[at + 1].id + " 0 R" : "") +
                     (n.kids.length ? " /First " + n.kids[0].id + " 0 R /Last " + n.kids[n.kids.length - 1].id + " 0 R /Count " + ocount(n) : "") +
                     " /Dest [" + pageIds[n.h.page] + " 0 R /XYZ null " + fixed(n.h.y) + " null] >>");
@@ -895,8 +1258,8 @@ function RTE_Plugin_PdfExport() {
             (outlineId ? " /Outlines " + outlineId + " 0 R" : "") +
             " /StructTreeRoot " + struct.rootId + " 0 R" +
             " /ViewerPreferences << /DisplayDocTitle true >> >>");
-        var infoId = pdf.add("<< /Title (" + escapeString(toWinAnsi(String(title))) + ")" +
-            (author ? " /Author (" + escapeString(toWinAnsi(String(author))) + ")" : "") +
+        var infoId = pdf.add("<< /Title " + pdfText(String(title)) +
+            (author ? " /Author " + pdfText(String(author)) : "") +
             " /Producer (RichTextEditor) /Creator (RichTextEditor) /CreationDate (" + pdfDate(new Date()) + ") >>");
 
         return pdf.build(catalogId, infoId);
@@ -951,6 +1314,14 @@ function RTE_Plugin_PdfExport() {
         // a Link element per link annotation, under the paragraph / cell holding it
         var linkKeys = [];
         for (var la = 0; la < (linkAnnots || []).length; la++) {
+            if (linkAnnots[la].note) {
+                // a comment note: a Note element under the document, its OBJR and its parent-tree key
+                var nte = node("Note");
+                attach(docNode, nte);
+                nte.objr = linkAnnots[la];
+                linkKeys.push(linkAnnots[la].key + " " + nte.id + " 0 R");
+                continue;
+            }
             var lnk;
             if (linkAnnots[la].owner && linkAnnots[la].owner.kind === "link") lnk = resolve(linkAnnots[la].owner);
             else { lnk = node("Link"); attach(resolve(linkAnnots[la].owner), lnk); }
@@ -1009,7 +1380,7 @@ function RTE_Plugin_PdfExport() {
                     // an EMPTY /Alt is a worse one: it tells assistive tech the
                     // image is decorative when nobody decided that.
                     var extra = block.role === "Figure"
-                        ? " /Alt (" + escapeString(toWinAnsi(block.alt || "Image")) + ")"
+                        ? " /Alt " + pdfText(block.alt || "Image")
                         : "";
                     // 2026-10-15 a block in another language says so, or it is read with the document's
                     // pronunciation (WCAG 3.1.2, PDF/UA 7.2). tools/pdf/paragraph-lang.mjs
@@ -1091,7 +1462,7 @@ function RTE_Plugin_PdfExport() {
     };
 
     function renderPage(ops, geom, familyKey, baseSize, imageRef, pageNumber, pageCount, options, tagger) {
-        var out = [], links = [], headings = [];
+        var out = [], links = [], headings = []; links.comments = []; links.seenComments = {};
         var left = geom.margin.left;
 
         for (var i = 0; i < ops.length; i++) {
@@ -1124,7 +1495,7 @@ function RTE_Plugin_PdfExport() {
             });
         }
 
-        return { content: out.join("\n"), links: links, marks: tagger.marks, headings: headings };
+        return { content: out.join("\n"), links: links, marks: tagger.marks, headings: headings, comments: links.comments };
     }
 
     function headerFooter(options) {
@@ -1139,7 +1510,7 @@ function RTE_Plugin_PdfExport() {
     function plainText(html) {
         if (!html || typeof html !== "string") return "";
         var d = document.createElement("div");
-        d.innerHTML = html;
+        d.innerHTML = __RTE_TT(html);
         return (d.textContent || "").replace(/\s+/g, " ").trim();
     }
 
@@ -1202,11 +1573,13 @@ function RTE_Plugin_PdfExport() {
             var part = line.parts[i];
             if (part.img) { segments.push({ img: part, x: cursor, w: part.w }); cursor += part.w; continue; }
             var st = part.style;
-            var alias = (st.mono ? "M" : "F") + part.styleIndex;
+            var alias = part.uni ? "U0" : (st.mono ? "M" : "F") + part.styleIndex;
             var last = segments.length ? segments[segments.length - 1] : null;
             var mergeable = last && !last.img && last.alias === alias && last.style.size === st.size &&
                 sameColor(last.style.color, st.color) && last.style.underline === st.underline &&
-                last.style.strike === st.strike && last.style.link === st.link && (last.style.lang || "") === (st.lang || "");
+                last.style.strike === st.strike && last.style.link === st.link && (last.style.lang || "") === (st.lang || "") &&
+                // 2026-10-21 a commented run is its own segment: merged into its neighbours it lost its note (tools/pdf/comments.mjs)
+                (last.style.comment ? last.style.comment.text + "|" + last.style.comment.author : "") === (st.comment ? st.comment.text + "|" + st.comment.author : "");
             if (mergeable) { last.text += part.text; last.w += part.w; }
             else { segments.push({ text: part.text, style: st, alias: alias, x: cursor, w: part.w }); }
             cursor += part.w;
@@ -1243,8 +1616,16 @@ function RTE_Plugin_PdfExport() {
             var runLang = String(sst.lang || "").replace(/[^A-Za-z0-9-]/g, "");
             var langMark = runLang && runLang.toLowerCase() !== String(block.lang || pdfDocLang || "").toLowerCase();
             if (langMark) out.push("/Span << /Lang (" + runLang + ") >> BDC");
-            out.push("BT /" + seg.alias + " " + fixed(sst.size) + " Tf " + colorOp(sst.color) + " " +
-                fixed(seg.x) + " " + fixed(baseline) + " Td (" + escapeString(toWinAnsi(seg.text)) + ") Tj ET");
+            if (seg.alias === "U0") {
+                out.push("BT /U0 " + fixed(sst.size) + " Tf " + colorOp(sst.color) +
+                    (sst.bold ? " " + colorStroke(sst.color) + " 2 Tr " + fixed(sst.size * 0.03) + " w" : "") + " " +
+                    (sst.italic ? "1 0 0.21 1 " + fixed(seg.x) + " " + fixed(baseline) + " Tm " : fixed(seg.x) + " " + fixed(baseline) + " Td ") +
+                    // the render mode outlives ET: reset it, or every later run is stroked too
+                    uniHex(seg.text) + " Tj" + (sst.bold ? " 0 Tr" : "") + " ET");
+            } else {
+                out.push("BT /" + seg.alias + " " + fixed(sst.size) + " Tf " + colorOp(sst.color) + " " +
+                    fixed(seg.x) + " " + fixed(baseline) + " Td (" + escapeString(toWinAnsi(seg.text)) + ") Tj ET");
+            }
             if (langMark) out.push("EMC");
             if (sst.underline) {
                 out.push(colorStroke(sst.color) + " 0.5 w " + fixed(seg.x) + " " + fixed(baseline - sst.size * 0.12) +
@@ -1253,6 +1634,10 @@ function RTE_Plugin_PdfExport() {
             if (sst.strike) {
                 out.push(colorStroke(sst.color) + " 0.5 w " + fixed(seg.x) + " " + fixed(baseline + sst.size * 0.28) +
                     " m " + fixed(seg.x + seg.w) + " " + fixed(baseline + sst.size * 0.28) + " l S");
+            }
+            if (sst.comment) {
+                var cmKey = sst.comment.text + "|" + sst.comment.author;
+                if (!links.seenComments[cmKey]) { links.seenComments[cmKey] = true; links.comments.push({ x0: seg.x, y0: baseline - 2, x1: seg.x + 12, y1: baseline + 10, text: sst.comment.text, author: sst.comment.author }); }
             }
             if (sst.link) {
                 links.push({ href: sst.link, x0: seg.x, y0: baseline - 2, x1: seg.x + seg.w, y1: baseline + sst.size, text: seg.text || "", owner: linkOwner || lineOwner });

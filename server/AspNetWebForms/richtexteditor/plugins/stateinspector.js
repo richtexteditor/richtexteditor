@@ -528,7 +528,7 @@ function RTE_Plugin_StateInspector() {
         if (hostDoc.getElementById("rte-state-inspector-style")) return;
         var style = hostDoc.createElement("style");
         style.id = "rte-state-inspector-style";
-        style.innerHTML = [
+        style.innerHTML = __RTE_TT([
             ".rte-state-inspector-shell{display:flex;align-items:stretch;gap:10px;}",
             ".rte-state-inspector-shell>.rte-state-inspector-host{flex:1 1 auto;min-width:0;}",
             ".rte-state-inspector-panel{display:none;flex:0 0 340px;min-width:290px;max-width:min(400px,36vw);border:1px solid rgba(148,163,184,.22);border-radius:8px;background:#fff;box-shadow:0 14px 32px rgba(29,78,216,.1),0 2px 8px rgba(15,23,42,.06);overflow:hidden;color:#172033;font-family:Aptos,'Segoe UI',sans-serif;}",
@@ -560,7 +560,7 @@ function RTE_Plugin_StateInspector() {
             ".rte-state-inspector-row-val{flex:1 1 auto;min-width:0;font-family:Consolas,'Cascadia Mono',monospace;word-break:break-all;}",
             ".rte-state-inspector-row.is-flagged .rte-state-inspector-row-val{color:#b91c1c;font-weight:750;}",
             "@media (max-width: 1100px){.rte-state-inspector-shell{display:block;}.rte-state-inspector-panel{margin-top:12px;max-width:none;width:100%;}.rte-state-inspector-body{max-height:340px;}}"
-        ].join("");
+        ].join(""));
         hostDoc.head.appendChild(style);
         // A <style> element's rules are dropped under a strict style-src; this
         // re-injects them through the CSSOM in that case only. Missed in 2.9.0,

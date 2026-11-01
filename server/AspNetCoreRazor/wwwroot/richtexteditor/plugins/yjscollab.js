@@ -735,7 +735,7 @@ function RTE_Plugin_YjsCollab() {
 
     function renderRemoteCursors() {
         if (!session || !overlay) return;
-        overlay.innerHTML = "";
+        overlay.innerHTML = __RTE_TT("");
         var peers = getRemotePeers();
         var iframe = editor.iframe;
         var ir = iframe.getBoundingClientRect();
@@ -792,7 +792,7 @@ function RTE_Plugin_YjsCollab() {
 
     function renderPresence() {
         if (!session || !presencePanel) return;
-        presencePanel.innerHTML = "";
+        presencePanel.innerHTML = __RTE_TT("");
         var all = [{ user: session.user, self: true }].concat(
             getRemotePeers().map(function (p) { return { user: p.user, self: false }; })
         );

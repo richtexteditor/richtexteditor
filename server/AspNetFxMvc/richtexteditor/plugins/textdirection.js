@@ -270,7 +270,7 @@ function RTE_Plugin_TextDirection() {
         if (!doc) return false;
         var span = doc.createElement("bdi");
         span.setAttribute("dir", (dir === "rtl" || dir === "ltr") ? dir : "auto");
-        span.innerHTML = String(html == null ? "" : html);
+        span.innerHTML = __RTE_TT(String(html == null ? "" : html));
         try {
             if (typeof editor.insertElement === "function") { editor.insertElement(span); fireChange(); return true; }
         } catch (e) {}

@@ -341,7 +341,7 @@ function RTE_Plugin_NodeTypes() {
             var html = fn ? safe(fn, el, null) : null;
             if (html === null || html === undefined) continue;
             var holder = doc.createElement(found[i].type.inline ? "span" : "div");
-            holder.innerHTML = String(html);
+            holder.innerHTML = __RTE_TT(String(html));
             el.parentNode.insertBefore(holder, el);
             el.parentNode.removeChild(el);
             swaps.push({ holder: holder, original: el });

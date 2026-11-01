@@ -419,14 +419,14 @@ function RTE_Plugin_Pagination() {
                 var h = doc.createElement("div");
                 h.className = "rte-page-hf rte-page-header";
                 h.style.top = (contentTop - Math.round(g.marginTop / 2)) + "px";
-                h.innerHTML = expand(g.headerHtml, pageNo, total);
+                h.innerHTML = __RTE_TT(expand(g.headerHtml, pageNo, total));
                 ov.appendChild(h);
             }
             if (g.footerHtml) {
                 var f = doc.createElement("div");
                 f.className = "rte-page-hf rte-page-footer";
                 f.style.top = (contentBottom + Math.round(g.marginBottom / 3)) + "px";
-                f.innerHTML = expand(g.footerHtml, pageNo, total);
+                f.innerHTML = __RTE_TT(expand(g.footerHtml, pageNo, total));
                 ov.appendChild(f);
             }
         }

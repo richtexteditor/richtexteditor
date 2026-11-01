@@ -1406,7 +1406,7 @@ function RTE_Plugin_TrackedChanges() {
         // marked in an inert document: nothing in the pasted HTML loads or runs while it is wrapped
         var inert = doc.implementation.createHTMLDocument("");
         var box = inert.createElement("div");
-        box.innerHTML = info.html;
+        box.innerHTML = __RTE_TT(info.html);
         var text = box.textContent;
         var hasBlock = markPasted(box, inert, stamp);
 

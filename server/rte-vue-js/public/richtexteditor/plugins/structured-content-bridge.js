@@ -1,3 +1,29 @@
+// Trusted Types: the same guarded helper rte.js defines, for when this file loads before (or without) rte.js.
+// tools/csp/trusted-types.mjs
+if (!window.RTE_TrustedTypes) window.RTE_TrustedTypes = (function () {
+	var policy;
+	function get() {
+		if (policy !== undefined) return policy;
+		policy = null;
+		try {
+			if (window.trustedTypes && window.trustedTypes.createPolicy)
+				policy = window.trustedTypes.createPolicy("richtexteditor", {
+					createHTML: function (s) { return s; },
+					createScriptURL: function (s) { return s; }
+				});
+		} catch (e) {
+			policy = null;
+			if (window.console && console.warn) console.warn("RichTextEditor: could not create the Trusted Types policy \"richtexteditor\" - add it to the page's trusted-types directive. " + e.message);
+		}
+		return policy;
+	}
+	return {
+		html: function (s) { var p = get(); return p ? p.createHTML(s == null ? "" : String(s)) : s; },
+		scriptURL: function (s) { var p = get(); return p ? p.createScriptURL(String(s)) : s; }
+	};
+})();
+function __RTE_TT(s) { return window.RTE_TrustedTypes.html(s); }
+
 var pendingLoadsByBasePath = Object.create(null);
 var failedLoadsByBasePath = Object.create(null);
 
@@ -1347,7 +1373,7 @@ function finalizeVirtualNode(node) {
 
     if (node.nodeType === 3) {
         node.textContent = node.nodeValue || "";
-        node.outerHTML = escapeHtml(node.nodeValue || "");
+        node.outerHTML = __RTE_TT(escapeHtml(node.nodeValue || ""));
         return node;
     }
 
@@ -1368,23 +1394,23 @@ function finalizeVirtualNode(node) {
 
     var tagName = getElementTagName(node);
     if (!tagName) {
-        node.outerHTML = childHtml;
+        node.outerHTML = __RTE_TT(childHtml);
         return node;
     }
 
     if (tagName === "body") {
-        node.outerHTML = childHtml;
+        node.outerHTML = __RTE_TT(childHtml);
         return node;
     }
 
     var attrs = node._attrs || {};
     var attrString = buildAttributeString(attrs);
     if (HTML_VOID_TAGS[tagName]) {
-        node.outerHTML = "<" + tagName + attrString + " />";
+        node.outerHTML = __RTE_TT("<" + tagName + attrString + " />");
         return node;
     }
 
-    node.outerHTML = "<" + tagName + attrString + ">" + childHtml + "</" + tagName + ">";
+    node.outerHTML = __RTE_TT("<" + tagName + attrString + ">" + childHtml + "</" + tagName + ">");
     return node;
 }
 
@@ -1453,12 +1479,12 @@ function createVirtualDocumentBody(html) {
 function getDocumentBody(html) {
     if (typeof document !== "undefined" && document.implementation && document.implementation.createHTMLDocument) {
         var doc = document.implementation.createHTMLDocument("");
-        doc.body.innerHTML = html || "";
+        doc.body.innerHTML = __RTE_TT(html || "");
         return doc.body;
     }
 
     if (typeof DOMParser !== "undefined") {
-        return new DOMParser().parseFromString("<!doctype html><html><body>" + (html || "") + "</body></html>", "text/html").body;
+        return new DOMParser().parseFromString(__RTE_TT("<!doctype html><html><body>" + (html || "") + "</body></html>"), "text/html").body;
     }
 
     return createVirtualDocumentBody(html);
@@ -5118,7 +5144,7 @@ function loadScript(src) {
         }
 
         var script = document.createElement("script");
-        script.src = src;
+        script.src = window.RTE_TrustedTypes.scriptURL(src);
         script.async = false;
         script.setAttribute("data-rte-script", src);
         script.onload = function () {

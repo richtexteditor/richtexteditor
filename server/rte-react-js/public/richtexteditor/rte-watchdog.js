@@ -279,7 +279,9 @@
 
         // The old instance leaves its chrome in the host element; a fresh editor
         // built on top of that would stack two toolbars.
-        try { if (this._host) this._host.innerHTML = ""; } catch (e) {}
+        // textContent, not innerHTML: under Trusted Types even innerHTML = "" is refused (a CSP violation the catch
+        // hid, so the host was never cleared here). tools/csp/trusted-types-companions.mjs
+        try { if (this._host) this._host.textContent = ""; } catch (e) {}
 
         try {
             this._start();

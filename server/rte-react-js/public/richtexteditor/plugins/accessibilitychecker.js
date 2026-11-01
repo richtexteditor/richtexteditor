@@ -105,7 +105,7 @@ function RTE_Plugin_AccessibilityChecker() {
         if (hostDoc.getElementById("rte-accessibility-checker-style")) return;
         var style = hostDoc.createElement("style");
         style.id = "rte-accessibility-checker-style";
-        style.innerHTML = [
+        style.innerHTML = __RTE_TT([
             ".rte-a11y-shell{display:flex;align-items:stretch;gap:10px;}",
             ".rte-a11y-shell>.rte-a11y-host{flex:1 1 auto;min-width:0;}",
             "/* 2026-07-12 accessibility panel precision */",
@@ -155,7 +155,7 @@ function RTE_Plugin_AccessibilityChecker() {
             ".rte-a11y-dark .rte-a11y-locked-note{background:#422006;color:#fde68a;border-color:#92400e;}",
             ".rte-a11y-empty{padding:14px;border-radius:8px;background:#fff;color:#52657e;font-size:13px;font-weight:700;line-height:1.55;border:1px dashed rgba(148,163,184,.34);}",
             "@media (max-width: 1420px){.rte-a11y-shell{display:block;}.rte-a11y-panel{margin-top:12px;max-width:none;width:100%;}.rte-a11y-body{max-height:360px;}}"
-        ].join("");
+        ].join(""));
         hostDoc.head.appendChild(style);
         // A <style> ELEMENT is governed by style-src: under a strict policy the browser
         // drops its rules, leaving this plugin's UI unstyled. The element above stays
@@ -190,14 +190,14 @@ function RTE_Plugin_AccessibilityChecker() {
 
         var header = hostDoc.createElement("div");
         header.className = "rte-a11y-header";
-        header.innerHTML = '<div class="rte-a11y-kicker"></div><div class="rte-a11y-title"></div><div class="rte-a11y-copy"></div>';
+        header.innerHTML = __RTE_TT('<div class="rte-a11y-kicker"></div><div class="rte-a11y-title"></div><div class="rte-a11y-copy"></div>');
         header.querySelector(".rte-a11y-kicker").innerText = aT("a11yc_title", "Accessibility");
         header.querySelector(".rte-a11y-title").innerText = config.accessibilityCheckerTitle;
         header.querySelector(".rte-a11y-copy").innerText = config.accessibilityCheckerHint;
 
         var toolbar = hostDoc.createElement("div");
         toolbar.className = "rte-a11y-toolbar";
-        toolbar.innerHTML = '<div class="rte-a11y-count" data-rte-a11y-count="1"></div><div class="rte-a11y-actions"><button type="button" class="rte-a11y-link" data-rte-a11y-refresh="1"></button><button type="button" class="rte-a11y-link" data-rte-a11y-close="1"></button></div>';
+        toolbar.innerHTML = __RTE_TT('<div class="rte-a11y-count" data-rte-a11y-count="1"></div><div class="rte-a11y-actions"><button type="button" class="rte-a11y-link" data-rte-a11y-refresh="1"></button><button type="button" class="rte-a11y-link" data-rte-a11y-close="1"></button></div>');
         toolbar.querySelector("[data-rte-a11y-refresh]").innerText = aT("a11yc_refresh", "Refresh");
         toolbar.querySelector("[data-rte-a11y-close]").innerText = aT("a11yc_hide", "Hide");
         toolbar.querySelector("[data-rte-a11y-close]").setAttribute("aria-label", aT("a11yc_hidearia", "Hide accessibility checker"));
@@ -1236,12 +1236,12 @@ function RTE_Plugin_AccessibilityChecker() {
                 button.type = "button";
                 button.className = "rte-a11y-item" + (issueIndex === selectedIssueIndex ? " is-active" : "");
                 button.setAttribute("aria-selected", issueIndex === selectedIssueIndex ? "true" : "false");
-                button.innerHTML =
+                button.innerHTML =__RTE_TT(
                     '<div class="rte-a11y-item-top">' +
                     '<span class="rte-a11y-badge rte-a11y-badge-' + issue.severity + '"></span>' +
                     '<span class="rte-a11y-code">' + issue.code + '</span>' +
                     "</div>" +
-                    '<div class="rte-a11y-message"></div>';
+                    '<div class="rte-a11y-message"></div>');
                 button.querySelector(".rte-a11y-message").innerText = issue.message;
                 button.querySelector(".rte-a11y-badge").innerText = aT("a11yc_sev_" + issue.severity, issue.severity);
                 button.onclick = function () {
@@ -1261,7 +1261,7 @@ function RTE_Plugin_AccessibilityChecker() {
 
         var issues = lastResult && lastResult.issues ? lastResult.issues : [];
         if (!issues.length || selectedIssueIndex < 0 || !issues[selectedIssueIndex]) {
-            detail.innerHTML = '<div class="rte-a11y-detail-title"></div><div class="rte-a11y-detail-copy"></div>';
+            detail.innerHTML = __RTE_TT('<div class="rte-a11y-detail-title"></div><div class="rte-a11y-detail-copy"></div>');
             detail.querySelector(".rte-a11y-detail-title").innerText = aT("a11yc_nofixes", "No fixes pending");
             detail.querySelector(".rte-a11y-detail-copy").innerText = aT("a11yc_nofixeshint", "Run the checker again after major content changes to keep headings, image descriptions, and tables in shape.");
             return;

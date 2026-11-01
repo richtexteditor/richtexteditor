@@ -41,7 +41,9 @@ function RTE_Plugin_A11yEnhance() {
 
     function label() {
         // 2026-10-18 the default name reads the language pack (text_editingarea). tools/i18n/plugin-default-keys.mjs
-        return config.contentAriaLabel || config.contentLabel || config.text_editingarea || "Rich text editor. Editing area.";
+        // 2026-10-26 a11yEditorLabel too: keyboarda11y (its only reader) keeps the name this sets, so it never applied
+        // when both plugins were loaded. tools/a11y/editor-label-options.mjs
+        return config.contentAriaLabel || config.contentLabel || config.a11yEditorLabel || config.text_editingarea || "Rich text editor. Editing area.";
     }
 
     function lang() {
@@ -197,7 +199,7 @@ function RTE_Plugin_AccessibilityChecker() {
         if (hostDoc.getElementById("rte-accessibility-checker-style")) return;
         var style = hostDoc.createElement("style");
         style.id = "rte-accessibility-checker-style";
-        style.innerHTML = [
+        style.innerHTML = __RTE_TT([
             ".rte-a11y-shell{display:flex;align-items:stretch;gap:10px;}",
             ".rte-a11y-shell>.rte-a11y-host{flex:1 1 auto;min-width:0;}",
             "/* 2026-07-12 accessibility panel precision */",
@@ -247,7 +249,7 @@ function RTE_Plugin_AccessibilityChecker() {
             ".rte-a11y-dark .rte-a11y-locked-note{background:#422006;color:#fde68a;border-color:#92400e;}",
             ".rte-a11y-empty{padding:14px;border-radius:8px;background:#fff;color:#52657e;font-size:13px;font-weight:700;line-height:1.55;border:1px dashed rgba(148,163,184,.34);}",
             "@media (max-width: 1420px){.rte-a11y-shell{display:block;}.rte-a11y-panel{margin-top:12px;max-width:none;width:100%;}.rte-a11y-body{max-height:360px;}}"
-        ].join("");
+        ].join(""));
         hostDoc.head.appendChild(style);
         // A <style> ELEMENT is governed by style-src: under a strict policy the browser
         // drops its rules, leaving this plugin's UI unstyled. The element above stays
@@ -282,14 +284,14 @@ function RTE_Plugin_AccessibilityChecker() {
 
         var header = hostDoc.createElement("div");
         header.className = "rte-a11y-header";
-        header.innerHTML = '<div class="rte-a11y-kicker"></div><div class="rte-a11y-title"></div><div class="rte-a11y-copy"></div>';
+        header.innerHTML = __RTE_TT('<div class="rte-a11y-kicker"></div><div class="rte-a11y-title"></div><div class="rte-a11y-copy"></div>');
         header.querySelector(".rte-a11y-kicker").innerText = aT("a11yc_title", "Accessibility");
         header.querySelector(".rte-a11y-title").innerText = config.accessibilityCheckerTitle;
         header.querySelector(".rte-a11y-copy").innerText = config.accessibilityCheckerHint;
 
         var toolbar = hostDoc.createElement("div");
         toolbar.className = "rte-a11y-toolbar";
-        toolbar.innerHTML = '<div class="rte-a11y-count" data-rte-a11y-count="1"></div><div class="rte-a11y-actions"><button type="button" class="rte-a11y-link" data-rte-a11y-refresh="1"></button><button type="button" class="rte-a11y-link" data-rte-a11y-close="1"></button></div>';
+        toolbar.innerHTML = __RTE_TT('<div class="rte-a11y-count" data-rte-a11y-count="1"></div><div class="rte-a11y-actions"><button type="button" class="rte-a11y-link" data-rte-a11y-refresh="1"></button><button type="button" class="rte-a11y-link" data-rte-a11y-close="1"></button></div>');
         toolbar.querySelector("[data-rte-a11y-refresh]").innerText = aT("a11yc_refresh", "Refresh");
         toolbar.querySelector("[data-rte-a11y-close]").innerText = aT("a11yc_hide", "Hide");
         toolbar.querySelector("[data-rte-a11y-close]").setAttribute("aria-label", aT("a11yc_hidearia", "Hide accessibility checker"));
@@ -1328,12 +1330,12 @@ function RTE_Plugin_AccessibilityChecker() {
                 button.type = "button";
                 button.className = "rte-a11y-item" + (issueIndex === selectedIssueIndex ? " is-active" : "");
                 button.setAttribute("aria-selected", issueIndex === selectedIssueIndex ? "true" : "false");
-                button.innerHTML =
+                button.innerHTML =__RTE_TT(
                     '<div class="rte-a11y-item-top">' +
                     '<span class="rte-a11y-badge rte-a11y-badge-' + issue.severity + '"></span>' +
                     '<span class="rte-a11y-code">' + issue.code + '</span>' +
                     "</div>" +
-                    '<div class="rte-a11y-message"></div>';
+                    '<div class="rte-a11y-message"></div>');
                 button.querySelector(".rte-a11y-message").innerText = issue.message;
                 button.querySelector(".rte-a11y-badge").innerText = aT("a11yc_sev_" + issue.severity, issue.severity);
                 button.onclick = function () {
@@ -1353,7 +1355,7 @@ function RTE_Plugin_AccessibilityChecker() {
 
         var issues = lastResult && lastResult.issues ? lastResult.issues : [];
         if (!issues.length || selectedIssueIndex < 0 || !issues[selectedIssueIndex]) {
-            detail.innerHTML = '<div class="rte-a11y-detail-title"></div><div class="rte-a11y-detail-copy"></div>';
+            detail.innerHTML = __RTE_TT('<div class="rte-a11y-detail-title"></div><div class="rte-a11y-detail-copy"></div>');
             detail.querySelector(".rte-a11y-detail-title").innerText = aT("a11yc_nofixes", "No fixes pending");
             detail.querySelector(".rte-a11y-detail-copy").innerText = aT("a11yc_nofixeshint", "Run the checker again after major content changes to keep headings, image descriptions, and tables in shape.");
             return;
@@ -1670,6 +1672,15 @@ function RTE_Plugin_AIToolkit() {
     var obj = this;
     var config;
     var editor;
+    // 2026-10-25 UI words outside InitConfig (inline review chips, review shortcuts, Ask AI result / plan, the legacy
+    // review layout) read config.text_ keys with English as the fallback; {0} and {1} take the values.
+    // tools/i18n/ai-review-chips-language.mjs
+    function uiT(key, fallback, a, b) {
+        var s = (config && config["text_" + key]) || fallback;
+        if (a !== undefined) s = s.split("{0}").join(String(a));
+        if (b !== undefined) s = s.split("{1}").join(String(b));
+        return s;
+    }
 
     obj.PluginName = "AIToolkit";
 
@@ -1764,7 +1775,6 @@ function RTE_Plugin_AIToolkit() {
         config.aiToolkitSuggestionLedgerUrl = config.aiToolkitSuggestionLedgerUrl || "";
         config.aiToolkitReviewLogUrl = config.aiToolkitReviewLogUrl || "";
         config.aiToolkitAutoToolbarButtons = config.aiToolkitAutoToolbarButtons !== false;
-        config.aiToolkitUiVersion = config.aiToolkitUiVersion || "v20260520k";
 
         appendToolbarCommand("toolbar_default", "#{aiassist}");
         appendToolbarCommand("toolbar_basic", "#{aiassist}");
@@ -4698,7 +4708,7 @@ function RTE_Plugin_AIToolkit() {
         if (!html) return "";
         html = String(html);
         if (typeof editor.sanitizeHtml === "function") html = editor.sanitizeHtml(html);
-        var doc = new DOMParser().parseFromString("<body>" + html + "</body>", "text/html");
+        var doc = new DOMParser().parseFromString(__RTE_TT("<body>" + html + "</body>"), "text/html");
         var styled = doc.body.querySelectorAll("[style]");
         for (var i = 0; i < styled.length; i++) {
             var st = styled[i].style;
@@ -5171,7 +5181,7 @@ function RTE_Plugin_AIToolkit() {
 
             if (suggestion.status === "pending") {
                 if (resolvedWrapper) {
-                    resolvedWrapper.outerHTML = createInlinePreviewHtml(suggestion);
+                    resolvedWrapper.outerHTML = __RTE_TT(createInlinePreviewHtml(suggestion));
                     updated = true;
                 }
                 continue;
@@ -5180,7 +5190,7 @@ function RTE_Plugin_AIToolkit() {
             if (suggestion.status === "accepted" || suggestion.status === "rejected" || suggestion.status === "stale") {
                 var resolvedHtml = getResolvedSuggestionHtml(suggestion, suggestion.status);
                 if (previewWrapper) {
-                    previewWrapper.outerHTML = resolvedHtml;
+                    previewWrapper.outerHTML = __RTE_TT(resolvedHtml);
                     updated = true;
                 }
                 else if (resolvedWrapper && (
@@ -5189,7 +5199,7 @@ function RTE_Plugin_AIToolkit() {
                         ? (suggestion.resultHtml || textToInlineHtml(suggestion.resultText || ""))
                         : (suggestion.originalHtml || textToInlineHtml(suggestion.originalText || "")))
                 )) {
-                    resolvedWrapper.outerHTML = resolvedHtml;
+                    resolvedWrapper.outerHTML = __RTE_TT(resolvedHtml);
                     updated = true;
                 }
             }
@@ -5975,7 +5985,7 @@ function RTE_Plugin_AIToolkit() {
         }
 
         remoteChip.textContent = sharedUpdateCount > 1 ? sharedUpdateCount + " shared updates" : "Shared update";
-        remoteChip.setAttribute("aria-label", "Shared AI review updates");
+        remoteChip.setAttribute("aria-label", uiT("aiu_sharedupdates", "Shared AI review updates"));
 
         var referenceNode = anchorNode && anchorNode.parentNode === wrapper ? anchorNode : (wrapper.querySelector ? wrapper.querySelector(".rte-ai-inline-preview-actions") : null);
         if (referenceNode && referenceNode.parentNode === wrapper) {
@@ -6171,7 +6181,7 @@ function RTE_Plugin_AIToolkit() {
                             wrappers[i].appendChild(openedChip);
                         }
                     }
-                    openedChip.textContent = "Queue opened";
+                    openedChip.textContent = uiT("aiu_queueopened", "Queue opened");
                     openedChip.setAttribute("aria-label", "AI review queue opened");
                 }
                 else if (openedChip && openedChip.parentNode) {
@@ -6202,7 +6212,7 @@ function RTE_Plugin_AIToolkit() {
                                 wrappers[i].appendChild(focusChip);
                             }
                         }
-                        focusChip.textContent = "Focus " + queueFocusLabel;
+                        focusChip.textContent = uiT("aiu_focus", "Focus {0}", aiqText(queueFocusLabel) || queueFocusLabel);
                         focusChip.setAttribute("aria-label", "Queue opens on " + queueFocusLabel);
                     }
                     else if (focusChip && focusChip.parentNode) {
@@ -6288,9 +6298,9 @@ function RTE_Plugin_AIToolkit() {
                             actionsNodeForSharedState.appendChild(sharedSeenButton);
                         }
                     }
-                    sharedSeenButton.textContent = "Got it";
-                    sharedSeenButton.setAttribute("aria-label", "Clear shared AI review update notice");
-                    sharedSeenButton.title = "Clear shared AI review update notice";
+                    sharedSeenButton.textContent = uiT("aiu_gotit", "Got it");
+                    sharedSeenButton.setAttribute("aria-label", uiT("aiu_clearshared", "Clear shared AI review update notice"));
+                    sharedSeenButton.title = uiT("aiu_clearshared", "Clear shared AI review update notice");
                     applyInlineReviewButtonShortcutState(sharedSeenButton, "Clear shared AI review update notice", inlineButtonShortcutOptions);
                 }
                 else if (sharedSeenButton && sharedSeenButton.parentNode) {
@@ -6346,8 +6356,8 @@ function RTE_Plugin_AIToolkit() {
                             }
                         }
                     }
-                    queueChip.textContent = "Item " + pendingPosition.index + " of " + pendingPosition.total;
-                    queueChip.setAttribute("aria-label", "Current AI review queue position");
+                    queueChip.textContent = uiT("aiu_itemof", "Item {0} of {1}", pendingPosition.index, pendingPosition.total);
+                    queueChip.setAttribute("aria-label", uiT("aiu_queuepos", "Current AI review queue position"));
                 }
                 else if (queueChip && queueChip.parentNode) {
                     queueChip.parentNode.removeChild(queueChip);
@@ -6423,7 +6433,7 @@ function RTE_Plugin_AIToolkit() {
                             wrappers[i].appendChild(undoNextChip);
                         }
                     }
-                    undoNextChip.textContent = "Then " + undoInlineNextItem.label;
+                    undoNextChip.textContent = uiT("aiu_then", "Then {0}", aiqText(undoInlineNextItem.label) || undoInlineNextItem.label);
                     undoNextChip.setAttribute("aria-label", "Undo after this: " + undoInlineNextItem.detail);
                 }
                 else if (undoNextChip && undoNextChip.parentNode) {
@@ -6459,7 +6469,7 @@ function RTE_Plugin_AIToolkit() {
                             wrappers[i].appendChild(redoNextChip);
                         }
                     }
-                    redoNextChip.textContent = "Then " + redoInlineNextItem.label;
+                    redoNextChip.textContent = uiT("aiu_then", "Then {0}", aiqText(redoInlineNextItem.label) || redoInlineNextItem.label);
                     redoNextChip.setAttribute("aria-label", "Redo after this: " + redoInlineNextItem.detail);
                 }
                 else if (redoNextChip && redoNextChip.parentNode) {
@@ -6478,7 +6488,7 @@ function RTE_Plugin_AIToolkit() {
                         }
                     }
                     shortcutsChip.textContent = getSuggestionQueueShortcutHint(suggestion);
-                    shortcutsChip.setAttribute("aria-label", "Inline queue preview shortcut");
+                    shortcutsChip.setAttribute("aria-label", uiT("aiu_previewshortcut", "Inline queue preview shortcut"));
                 }
                 else if (!shortcutsChip) {
                     shortcutsChip = document.createElement("span");
@@ -6658,7 +6668,7 @@ function RTE_Plugin_AIToolkit() {
                             wrappers[i].appendChild(focusChip);
                         }
                     }
-                    focusChip.textContent = "Focus " + reviewFocusLabel;
+                    focusChip.textContent = uiT("aiu_focus", "Focus {0}", aiqText(reviewFocusLabel) || reviewFocusLabel);
                     focusChip.setAttribute("aria-label", "Review opens on " + reviewFocusLabel);
                 }
                 else if (focusChip && focusChip.parentNode) {
@@ -7170,17 +7180,17 @@ function RTE_Plugin_AIToolkit() {
         shortcutsChip.classList.toggle("is-preview", state === "preview");
         if (state === "preview") {
             renderInlineReviewShortcutDisplayContent(shortcutsChip, "Queue shortcut", getSuggestionQueueShortcutHint(options.suggestion));
-            shortcutsChip.setAttribute("aria-label", "Inline queue preview shortcut");
+            shortcutsChip.setAttribute("aria-label", uiT("aiu_previewshortcut", "Inline queue preview shortcut"));
             return true;
         }
         if (state && state !== "wrapper") {
             shortcutsChip.classList.add("is-action");
             renderInlineReviewShortcutDisplayContent(shortcutsChip, "Keyboard guide", getInlineReviewActionShortcutHint(state, options));
-            shortcutsChip.setAttribute("aria-label", "Inline AI review action shortcuts");
+            shortcutsChip.setAttribute("aria-label", uiT("aiu_actionshortcuts", "Inline AI review action shortcuts"));
             return true;
         }
         renderInlineReviewShortcutDisplayContent(shortcutsChip, "Keyboard guide", getInlineReviewWrapperShortcutHint(options));
-        shortcutsChip.setAttribute("aria-label", "Inline AI review shortcuts");
+        shortcutsChip.setAttribute("aria-label", uiT("aiu_reviewshortcuts", "Inline AI review shortcuts"));
         return true;
     }
 
@@ -7886,7 +7896,7 @@ function RTE_Plugin_AIToolkit() {
             labelNode.className = "rte-ai-inline-preview-reason-label";
             reasonNode.appendChild(labelNode);
         }
-        labelNode.textContent = "Why";
+        labelNode.textContent = uiT("air_why", "Why");
         if (!copyNode) {
             copyNode = document.createElement("span");
             copyNode.className = "rte-ai-inline-preview-reason-copy";
@@ -8499,7 +8509,7 @@ function RTE_Plugin_AIToolkit() {
         info.className = "rte-ai-menu-info is-minimal is-detached";
         var titleRow = append(info, "div", "", "rte-ai-menu-title-row");
         var titleIcon = append(titleRow, "span", "", "rte-ai-menu-title-icon");
-        titleIcon.innerHTML = config.svgCode_aiassist || "";
+        titleIcon.innerHTML = __RTE_TT(config.svgCode_aiassist || "");
         append(titleRow, "div", "", "rte-ai-menu-title", config.text_aiassist || "Ask AI");
 
         // 2026-05-27 (v20260527a): type-to-filter search bar pinned to the
@@ -8531,7 +8541,7 @@ function RTE_Plugin_AIToolkit() {
         // still click anywhere in the input to focus the textbox.
         var searchIcon = append(searchRow, "span", "", "rte-ai-menu-search-icon");
         searchIcon.setAttribute("aria-hidden", "true");
-        searchIcon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6"/><path d="M19 19l-3.4-3.4"/></svg>';
+        searchIcon.innerHTML = __RTE_TT('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6"/><path d="M19 19l-3.4-3.4"/></svg>');
         var searchInput = panel.ownerDocument.createElement("input");
         searchInput.type = "text";
         searchInput.className = "rte-ai-menu-search-input";
@@ -8599,7 +8609,7 @@ function RTE_Plugin_AIToolkit() {
                     button.setAttribute("aria-label", (action.title || action.id) + " \u2014 " + action.description);
                 }
                 var icon = append(button, "span", "", "rte-ai-menu-item-icon");
-                icon.innerHTML = getActionIconSvg(action);
+                icon.innerHTML = __RTE_TT(getActionIconSvg(action));
                 var body = append(button, "span", "", "rte-ai-menu-item-body");
                 append(body, "span", "", "rte-ai-menu-item-title", action.title || action.id);
                 append(body, "span", "", "rte-ai-menu-item-copy", action.description || "");
@@ -8965,7 +8975,7 @@ function RTE_Plugin_AIToolkit() {
             return false;
         }
 
-        wrapper.outerHTML = getResolvedSuggestionHtml(previewState, "accepted");
+        wrapper.outerHTML = __RTE_TT(getResolvedSuggestionHtml(previewState, "accepted"));
         previewState.status = "accepted";
         previewState.decidedAt = new Date().getTime();
         setLastReviewDecision(previewState, "accepted");
@@ -9003,7 +9013,7 @@ function RTE_Plugin_AIToolkit() {
             return false;
         }
 
-        wrapper.outerHTML = getResolvedSuggestionHtml(previewState, "rejected");
+        wrapper.outerHTML = __RTE_TT(getResolvedSuggestionHtml(previewState, "rejected"));
         previewState.status = "rejected";
         previewState.decidedAt = new Date().getTime();
         setLastReviewDecision(previewState, "rejected");
@@ -9039,7 +9049,7 @@ function RTE_Plugin_AIToolkit() {
 
         suggestion.status = "pending";
         suggestion.decidedAt = 0;
-        wrapper.outerHTML = createInlinePreviewHtml(suggestion);
+        wrapper.outerHTML = __RTE_TT(createInlinePreviewHtml(suggestion));
         getReviewState().showResolved = false;
         pushRedoReviewDecision(suggestion, undoable.status);
         popLastReviewDecision();
@@ -9078,7 +9088,7 @@ function RTE_Plugin_AIToolkit() {
             return false;
         }
 
-        wrapper.outerHTML = getResolvedSuggestionHtml(suggestion, redoable.status);
+        wrapper.outerHTML = __RTE_TT(getResolvedSuggestionHtml(suggestion, redoable.status));
         suggestion.status = redoable.status;
         suggestion.decidedAt = new Date().getTime();
         getReviewState().showResolved = false;
@@ -9927,7 +9937,7 @@ function RTE_Plugin_AIToolkit() {
             || "Locate";
         actionNode.innerText = focusLabel;
         if (detailNode) {
-            detailNode.innerText = "Press Enter to reopen this suggestion and land on " + focusLabel + ".";
+            detailNode.innerText = uiT("aiu_reopenhint", "Press Enter to reopen this suggestion and land on {0}.", aiqText(focusLabel) || focusLabel);
         }
         if (item && item.setAttribute) {
             item.setAttribute("data-rte-ai-review-open-action-label", focusLabel);
@@ -9953,7 +9963,7 @@ function RTE_Plugin_AIToolkit() {
         if (!titleNode) {
             titleNode = append(moduleNode, "span", "", "rte-ai-review-item-condensed-shortcuts-title");
         }
-        titleNode.textContent = "More keys";
+        titleNode.textContent = uiT("aiu_morekeys", "More keys");
         var bodyNode = moduleNode.querySelector ? moduleNode.querySelector(".rte-ai-review-item-condensed-shortcuts-body") : null;
         if (!bodyNode) {
             bodyNode = append(moduleNode, "div", "", "rte-ai-review-shortcuts rte-ai-review-item-condensed-shortcuts-body");
@@ -10233,7 +10243,7 @@ function RTE_Plugin_AIToolkit() {
                         wrapper.appendChild(focusChip);
                     }
                 }
-                focusChip.textContent = "Focus " + reviewFocusLabel;
+                focusChip.textContent = uiT("aiu_focus", "Focus {0}", aiqText(reviewFocusLabel) || reviewFocusLabel);
                 focusChip.setAttribute("aria-label", "Review opens on " + reviewFocusLabel);
             }
             else if (focusChip && focusChip.parentNode) {
@@ -13847,17 +13857,17 @@ function RTE_Plugin_AIToolkit() {
         }
         var headerStatusNode = panel.querySelector(".rte-ai-chat-header-status.is-status");
         if (headerStatusNode) {
-            headerStatusNode.innerHTML = "";
+            headerStatusNode.innerHTML = __RTE_TT("");
             headerStatusNode.innerText = headerData.statusLabel;
         }
         var headerScopeNode = panel.querySelector(".rte-ai-chat-header-status.is-scope");
         if (headerScopeNode) {
-            headerScopeNode.innerHTML = "";
+            headerScopeNode.innerHTML = __RTE_TT("");
             headerScopeNode.innerText = headerData.scopeFocusLabel;
         }
         var headerSubtitleNode = panel.querySelector(".rte-ai-chat-subtitle");
         if (headerSubtitleNode) {
-            headerSubtitleNode.innerHTML = "";
+            headerSubtitleNode.innerHTML = __RTE_TT("");
             headerSubtitleNode.innerText = headerData.subtitle;
         }
         syncChatPillGroup(panel.querySelector(".rte-ai-chat-header-meta"), headerData.metaPills, "rte-ai-chat-header-meta-pill");
@@ -13898,7 +13908,7 @@ function RTE_Plugin_AIToolkit() {
         syncChatPillGroup(panel.querySelector(".rte-ai-chat-context-summary-meta"), contextData.summaryPills, "rte-ai-chat-context-summary-pill");
         var contextSummaryTextNode = panel.querySelector(".rte-ai-chat-context-summary-text");
         if (contextSummaryTextNode) {
-            contextSummaryTextNode.innerHTML = "";
+            contextSummaryTextNode.innerHTML = __RTE_TT("");
             contextSummaryTextNode.innerText = contextData.detail;
         }
         var contextPreviewNode = panel.querySelector(".rte-ai-chat-context-preview");
@@ -13908,13 +13918,13 @@ function RTE_Plugin_AIToolkit() {
         }
         var contextPreviewTitleNode = panel.querySelector(".rte-ai-chat-context-preview-title");
         if (contextPreviewTitleNode) {
-            contextPreviewTitleNode.innerHTML = "";
+            contextPreviewTitleNode.innerHTML = __RTE_TT("");
             contextPreviewTitleNode.innerText = contextData.previewTitle;
         }
         syncChatPillGroup(panel.querySelector(".rte-ai-chat-context-preview-meta"), contextData.previewMetaPills, "rte-ai-chat-context-preview-pill");
         var contextPreviewCopyNode = panel.querySelector(".rte-ai-chat-context-preview-copy");
         if (contextPreviewCopyNode) {
-            contextPreviewCopyNode.innerHTML = "";
+            contextPreviewCopyNode.innerHTML = __RTE_TT("");
             contextPreviewCopyNode.innerText = contextData.previewSummary;
         }
 
@@ -13941,7 +13951,7 @@ function RTE_Plugin_AIToolkit() {
         syncChatPillGroup(panel.querySelector(".rte-ai-chat-quick-summary-meta"), quickStartData.metaPills, "rte-ai-chat-quick-summary-pill");
         var quickSummaryTextNode = panel.querySelector(".rte-ai-chat-quick-summary-text");
         if (quickSummaryTextNode) {
-            quickSummaryTextNode.innerHTML = "";
+            quickSummaryTextNode.innerHTML = __RTE_TT("");
             quickSummaryTextNode.innerText = quickStartData.detail;
         }
 
@@ -13970,12 +13980,12 @@ function RTE_Plugin_AIToolkit() {
         var composerStatusPillNode = panel.querySelector(".rte-ai-chat-status-pill");
         if (composerStatusPillNode) {
             composerStatusPillNode.className = "rte-ai-chat-status-pill is-" + composerData.statusTone;
-            composerStatusPillNode.innerHTML = "";
+            composerStatusPillNode.innerHTML = __RTE_TT("");
             composerStatusPillNode.innerText = composerData.statusLabel;
         }
         var composerStatusTextNode = panel.querySelector(".rte-ai-chat-status-text");
         if (composerStatusTextNode) {
-            composerStatusTextNode.innerHTML = "";
+            composerStatusTextNode.innerHTML = __RTE_TT("");
             composerStatusTextNode.innerText = composerData.statusText;
         }
         var composerActionsNode = panel.querySelector(".rte-ai-chat-composer-actions");
@@ -14005,12 +14015,12 @@ function RTE_Plugin_AIToolkit() {
             }
             var feedIntroTitleNode = panel.querySelector(".rte-ai-chat-feed-intro-title");
             if (feedIntroTitleNode) {
-                feedIntroTitleNode.innerHTML = "";
+                feedIntroTitleNode.innerHTML = __RTE_TT("");
                 feedIntroTitleNode.innerText = feedIntroData.title;
             }
             var feedIntroDetailNode = panel.querySelector(".rte-ai-chat-feed-intro-detail");
             if (feedIntroDetailNode) {
-                feedIntroDetailNode.innerHTML = "";
+                feedIntroDetailNode.innerHTML = __RTE_TT("");
                 feedIntroDetailNode.innerText = feedIntroData.detail;
             }
             syncChatPillGroup(panel.querySelector(".rte-ai-chat-feed-intro-meta"), feedIntroData.metaPills, "rte-ai-chat-feed-intro-pill");
@@ -14021,12 +14031,12 @@ function RTE_Plugin_AIToolkit() {
             }
             var emptyTitleNode = panel.querySelector(".rte-ai-chat-empty-title");
             if (emptyTitleNode && emptyStateData) {
-                emptyTitleNode.innerHTML = "";
+                emptyTitleNode.innerHTML = __RTE_TT("");
                 emptyTitleNode.innerText = emptyStateData.title;
             }
             var emptyDetailNode = panel.querySelector(".rte-ai-chat-empty-detail");
             if (emptyDetailNode && emptyStateData) {
-                emptyDetailNode.innerHTML = "";
+                emptyDetailNode.innerHTML = __RTE_TT("");
                 emptyDetailNode.innerText = emptyStateData.detail;
             }
             syncChatPillGroup(panel.querySelector(".rte-ai-chat-empty-meta"), emptyStateData ? emptyStateData.metaPills : [], "rte-ai-chat-empty-pill");
@@ -14188,7 +14198,7 @@ function RTE_Plugin_AIToolkit() {
         var headerCopy = append(header, "div", "", "rte-ai-chat-header-copy");
         var titleRow = append(headerCopy, "div", "", "rte-ai-chat-title-row");
         var titleIcon = append(titleRow, "span", "", "rte-ai-chat-title-icon");
-        titleIcon.innerHTML = config.svgCode_aiassist_chat || config.svgCode_aiassist || "";
+        titleIcon.innerHTML = __RTE_TT(config.svgCode_aiassist_chat || config.svgCode_aiassist || "");
         append(titleRow, "div", "", "rte-ai-chat-title", headerTitleText);
         var headerActions = append(header, "div", "", "rte-ai-chat-header-actions");
         // 2026-05-15 (v20260515c): New chat button → icon-only. Sat next
@@ -14216,7 +14226,7 @@ function RTE_Plugin_AIToolkit() {
         closeButton.setAttribute("data-rte-ai-chat-header-action", "close");
         closeButton.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aic_closechat", "Close AI chat") : "Close AI chat"));
         closeButton.title = (obj.__aiT ? obj.__aiT("aic_close", "Close") : "Close");
-        closeButton.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>';
+        closeButton.innerHTML = __RTE_TT('<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>');
         closeButton.onclick = function () {
             closeChatPanel({ restoreFocus: true });
         };
@@ -14533,11 +14543,11 @@ function RTE_Plugin_AIToolkit() {
                 var avatarKind = message.isError ? "error" : message.role;
                 var avatar = append(messageHeader, "span", "", "rte-ai-chat-message-avatar is-" + avatarKind);
                 avatar.setAttribute("aria-hidden", "true");
-                avatar.innerHTML = avatarKind === "user"
+                avatar.innerHTML = __RTE_TT(avatarKind === "user"
                     ? '<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><circle cx="8" cy="5.5" r="2.8"/><path d="M8 9.4c-2.8 0-5.2 1.5-5.2 3.4 0 .4.3.7.7.7h9c.4 0 .7-.3.7-.7 0-1.9-2.4-3.4-5.2-3.4z"/></svg>'
                     : (avatarKind === "error"
                         ? '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 11.2v.1"/></svg>'
-                        : '<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><rect x="3" y="5" width="10" height="8" rx="2"/><circle cx="8" cy="3" r="0.9"/><line x1="8" y1="3.9" x2="8" y2="5" stroke="currentColor" stroke-width="1"/><circle cx="6" cy="9" r="1.1" fill="#ffffff"/><circle cx="10" cy="9" r="1.1" fill="#ffffff"/></svg>');
+                        : '<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><rect x="3" y="5" width="10" height="8" rx="2"/><circle cx="8" cy="3" r="0.9"/><line x1="8" y1="3.9" x2="8" y2="5" stroke="currentColor" stroke-width="1"/><circle cx="6" cy="9" r="1.1" fill="#ffffff"/><circle cx="10" cy="9" r="1.1" fill="#ffffff"/></svg>'));
                 append(messageHeader, "span", "", "rte-ai-chat-message-role is-" + (message.isError ? "error" : message.role), getChatMessageRoleLabel(message));
                 append(item, "div", "", "rte-ai-chat-message-text", message.text || "");
                 // 2026-05-08: per-message Copy + Regenerate row for assistant
@@ -16396,7 +16406,7 @@ function RTE_Plugin_AIToolkit() {
         if (prefixMatch) {
             var label = ownerDocument.createElement("span");
             label.className = "rte-ai-review-shortcuts-label";
-            label.innerText = "Shortcuts:";
+            label.innerText = uiT("aiu_shortcuts", "Shortcuts:");
             node.appendChild(label);
             node.appendChild(ownerDocument.createTextNode(" "));
         }
@@ -16488,7 +16498,7 @@ function RTE_Plugin_AIToolkit() {
             titleNode.className = "rte-ai-review-item-shortcuts-title";
             moduleNode.appendChild(titleNode);
         }
-        titleNode.textContent = "Keyboard guide";
+        titleNode.textContent = uiT("aiq_kbguide", "Keyboard guide");
         var bodyNode = moduleNode.querySelector ? moduleNode.querySelector(".rte-ai-review-item-shortcuts-body") : null;
         if (!bodyNode) {
             bodyNode = document.createElement("div");
@@ -16950,7 +16960,7 @@ function RTE_Plugin_AIToolkit() {
             var iconSpan = btn.ownerDocument.createElement("span");
             iconSpan.className = "rte-ai-review-v2-action-icon";
             iconSpan.setAttribute("aria-hidden", "true");
-            iconSpan.innerHTML = REVIEW_V2_ICONS[iconKey];
+            iconSpan.innerHTML = __RTE_TT(REVIEW_V2_ICONS[iconKey]);
             btn.appendChild(iconSpan);
         }
         if (label) {
@@ -17020,7 +17030,7 @@ function RTE_Plugin_AIToolkit() {
         // Header
         var header = append(panel, "div", "", "rte-ai-review-v2-header");
         var iconWrap = append(header, "span", "", "rte-ai-review-v2-icon");
-        iconWrap.innerHTML = config.svgCode_aiassist_review || config.svgCode_aiassist || "";
+        iconWrap.innerHTML = __RTE_TT(config.svgCode_aiassist_review || config.svgCode_aiassist || "");
         append(header, "div", "", "rte-ai-review-v2-title", config.text_aireview || "AI Review");
         // Pending count moved into the "To review" tab badge below; the
         // header pill would have duplicated that signal.
@@ -17028,7 +17038,7 @@ function RTE_Plugin_AIToolkit() {
         closeBtn.type = "button";
         closeBtn.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("air_closearia", "Close AI review") : "Close AI review"));
         closeBtn.title = (obj.__aiT ? obj.__aiT("air_close", "Close") : "Close");
-        closeBtn.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>';
+        closeBtn.innerHTML = __RTE_TT('<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>');
         closeBtn.onclick = function () {
             closeReviewPanel();
             editor.focus();
@@ -17052,7 +17062,7 @@ function RTE_Plugin_AIToolkit() {
                 var iconSpan = tab.ownerDocument.createElement("span");
                 iconSpan.className = "rte-ai-review-v2-tab-icon";
                 iconSpan.setAttribute("aria-hidden", "true");
-                iconSpan.innerHTML = REVIEW_V2_ICONS[iconKey];
+                iconSpan.innerHTML = __RTE_TT(REVIEW_V2_ICONS[iconKey]);
                 tab.appendChild(iconSpan);
             }
             var labelSpan = tab.ownerDocument.createElement("span");
@@ -17237,7 +17247,7 @@ function RTE_Plugin_AIToolkit() {
                             // grid pointing from Current -> Suggested.
                             var compareArrow = append(compare, "span", "", "rte-ai-review-v2-compare-arrow");
                             compareArrow.setAttribute("aria-hidden", "true");
-                            compareArrow.innerHTML = REVIEW_V2_ICONS.arrowRight;
+                            compareArrow.innerHTML = __RTE_TT(REVIEW_V2_ICONS.arrowRight);
                             var after = append(compare, "div", "", "rte-ai-review-v2-after");
                             append(after, "span", "", "rte-ai-review-v2-compare-label", (obj.__aiT ? obj.__aiT("air_suggested", "Suggested") : "Suggested"));
                             append(after, "div", "", "rte-ai-review-v2-compare-text", normalizeText(sug.resultText));
@@ -17248,7 +17258,7 @@ function RTE_Plugin_AIToolkit() {
                             var bulbWrap = reason.ownerDocument.createElement("span");
                             bulbWrap.className = "rte-ai-review-v2-reason-icon";
                             bulbWrap.setAttribute("aria-hidden", "true");
-                            bulbWrap.innerHTML = REVIEW_V2_ICONS.bulb;
+                            bulbWrap.innerHTML = __RTE_TT(REVIEW_V2_ICONS.bulb);
                             reasonLabel.appendChild(bulbWrap);
                             var reasonLabelText = reason.ownerDocument.createElement("span");
                             reasonLabelText.textContent = (obj.__aiT ? obj.__aiT("air_why", "Why") : "Why");
@@ -17522,7 +17532,7 @@ function RTE_Plugin_AIToolkit() {
         }
         var titleRow = append(headerCopy, "div", "", "rte-ai-review-title-row");
         var titleIcon = append(titleRow, "span", "", "rte-ai-review-title-icon");
-        titleIcon.innerHTML = config.svgCode_aiassist_review || config.svgCode_aiassist || "";
+        titleIcon.innerHTML = __RTE_TT(config.svgCode_aiassist_review || config.svgCode_aiassist || "");
         append(titleRow, "div", "", "rte-ai-review-title", config.text_aireview || "AI Review");
         if (hasRemoteReviewSync()) {
             editor.__aiReviewSyncBadgeNode = append(titleRow, "span", "", "rte-ai-review-sync-badge", "");
@@ -17565,7 +17575,7 @@ function RTE_Plugin_AIToolkit() {
             var newestSharedButton = append(headerGroupContext, "button", "", "secondary rte-ai-review-header-button is-shared", "Newest shared");
             newestSharedButton.type = "button";
             newestSharedButton.setAttribute("data-rte-ai-review-focus-key", "newest-shared");
-            newestSharedButton.setAttribute("aria-label", "Jump to the newest shared AI review update");
+            newestSharedButton.setAttribute("aria-label", uiT("aiu_jumpnewest", "Jump to the newest shared AI review update"));
             newestSharedButton.onclick = function () {
                 locateSuggestion(latestRemoteSuggestionId);
             };
@@ -17575,7 +17585,7 @@ function RTE_Plugin_AIToolkit() {
             var currentPendingButton = append(headerGroupContext, "button", "", "secondary rte-ai-review-header-button is-locate-current", "Locate current");
             currentPendingButton.type = "button";
             currentPendingButton.setAttribute("data-rte-ai-review-focus-key", "locate-current");
-            currentPendingButton.setAttribute("aria-label", "Locate the current active AI review item in the editor");
+            currentPendingButton.setAttribute("aria-label", uiT("aiu_locatecurrent", "Locate the current active AI review item in the editor"));
             currentPendingButton.onclick = function () {
                 locateSuggestion(activeFilteredSuggestionId);
             };
@@ -17586,7 +17596,7 @@ function RTE_Plugin_AIToolkit() {
             var previousPendingButton = append(headerGroupMove, "button", "", "secondary rte-ai-review-header-button is-nav", "Previous");
             previousPendingButton.type = "button";
             previousPendingButton.setAttribute("data-rte-ai-review-focus-key", "previous-pending");
-            previousPendingButton.setAttribute("aria-label", "Jump to the previous pending AI review item in the current filter");
+            previousPendingButton.setAttribute("aria-label", uiT("aiu_jumpprev", "Jump to the previous pending AI review item in the current filter"));
             previousPendingButton.onclick = function () {
                 activateReviewSuggestionWithDefaultActionFocus(previousPendingSuggestionId, { focusPanel: true });
             };
@@ -17596,7 +17606,7 @@ function RTE_Plugin_AIToolkit() {
             var nextPendingButton = append(headerGroupMove, "button", "", "secondary rte-ai-review-header-button is-nav", "Next pending");
             nextPendingButton.type = "button";
             nextPendingButton.setAttribute("data-rte-ai-review-focus-key", "next-pending");
-            nextPendingButton.setAttribute("aria-label", "Jump to the next pending AI review item in the current filter");
+            nextPendingButton.setAttribute("aria-label", uiT("aiu_jumpnext", "Jump to the next pending AI review item in the current filter"));
             nextPendingButton.onclick = function () {
                 activateReviewSuggestionWithDefaultActionFocus(nextPendingSuggestionId, { focusPanel: true });
             };
@@ -17628,9 +17638,9 @@ function RTE_Plugin_AIToolkit() {
         var closeButton = append(headerUtility, "button", "", "rte-ai-panel-close-button is-review-close");
         closeButton.type = "button";
         closeButton.setAttribute("data-rte-ai-review-focus-key", "close-review");
-        closeButton.setAttribute("aria-label", "Close AI review");
-        closeButton.title = "Close";
-        closeButton.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>';
+        closeButton.setAttribute("aria-label", uiT("air_closearia", "Close AI review"));
+        closeButton.title = uiT("air_close", "Close");
+        closeButton.innerHTML = __RTE_TT('<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>');
         closeButton.onclick = function () {
             closeReviewPanel();
         };
@@ -17746,7 +17756,7 @@ function RTE_Plugin_AIToolkit() {
             var dismissActivityButton = append(activityCard, "button", "", "secondary rte-ai-review-activity-button", "Got it");
             dismissActivityButton.type = "button";
             dismissActivityButton.setAttribute("data-rte-ai-review-focus-key", "dismiss-activity");
-            dismissActivityButton.setAttribute("aria-label", "Dismiss shared AI review update notice");
+            dismissActivityButton.setAttribute("aria-label", uiT("aiu_dismissshared", "Dismiss shared AI review update notice"));
             dismissActivityButton.onclick = function () {
                 markReviewActivitySeen();
                 renderReviewPanel(true);
@@ -17785,7 +17795,7 @@ function RTE_Plugin_AIToolkit() {
         acceptAllButton.setAttribute("data-rte-ai-review-focus-key", "accept-all");
         acceptAllButton.disabled = typeFilter === "all" ? !counts.pending : !filteredPendingCount;
         if (typeFilter !== "all") {
-            acceptAllButton.innerText = "Accept filtered";
+            acceptAllButton.innerText = uiT("aiu_acceptfiltered", "Accept filtered");
         }
         acceptAllButton.onclick = function () {
             if (acceptPendingSuggestionsByType(typeFilter)) {
@@ -17797,7 +17807,7 @@ function RTE_Plugin_AIToolkit() {
         rejectAllButton.setAttribute("data-rte-ai-review-focus-key", "reject-all");
         rejectAllButton.disabled = typeFilter === "all" ? !counts.pending : !filteredPendingCount;
         if (typeFilter !== "all") {
-            rejectAllButton.innerText = "Reject filtered";
+            rejectAllButton.innerText = uiT("aiu_rejectfiltered", "Reject filtered");
         }
         rejectAllButton.onclick = function () {
             if (rejectPendingSuggestionsByType(typeFilter)) {
@@ -18090,7 +18100,7 @@ function RTE_Plugin_AIToolkit() {
                 appendPanelSectionLabel(previewSection, "rte-ai-review-section-label is-feed", emptyState.previewItems.length > 1 ? "Next queues" : "Next queue");
                 var emptyPreviewList = append(previewSection, "div", "", "rte-ai-review-empty-previews");
                 emptyPreviewList.setAttribute("role", "toolbar");
-                emptyPreviewList.setAttribute("aria-label", "Next review queues");
+                emptyPreviewList.setAttribute("aria-label", uiT("aiu_nextqueues", "Next review queues"));
                 for (var previewIndex = 0; previewIndex < emptyState.previewItems.length; previewIndex++) {
                     var previewItem = emptyState.previewItems[previewIndex];
                     var previewTag = previewItem.typeValue ? "button" : "div";
@@ -18866,8 +18876,8 @@ function RTE_Plugin_AIToolkit() {
         // 540px dialog width.
         var copyButton = append(runRow, "button", "", "secondary is-icon-only");
         copyButton.type = "button";
-        copyButton.title = "Copy result into source";
-        copyButton.setAttribute("aria-label", "Copy result into source");
+        copyButton.title = uiT("aiu_copytosource", "Copy result into source");
+        copyButton.setAttribute("aria-label", uiT("aiu_copytosource", "Copy result into source"));
         copyButton.setAttribute("data-rte-ai-dialog-action", "copy-to-source");
         setReviewV2ButtonContent(copyButton, "checkAll", "");
 
@@ -19045,7 +19055,7 @@ function RTE_Plugin_AIToolkit() {
         // without throwing.
         var resultLabel = document.createElement("span");
         resultLabel.className = "demo-ai-text-label-inline is-detached";
-        resultLabel.innerText = "Result";
+        resultLabel.innerText = uiT("aiu_result", "Result");
         var resultHelp = append(resultField, "span", "", "demo-ai-field-help is-detached", "Review the generated AI suggestion before applying it.");
         resultHelp.id = resultHelpId;
         // 2026-06-03 (v20260603a): real "Copy to clipboard" affordance
@@ -19184,7 +19194,7 @@ function RTE_Plugin_AIToolkit() {
         var refineRow = document.createElement("div");
         refineRow.className = "demo-ai-refine-row is-detached";
         refineRow.setAttribute("role", "group");
-        refineRow.setAttribute("aria-label", "Refine AI suggestion");
+        refineRow.setAttribute("aria-label", uiT("aiu_refine", "Refine AI suggestion"));
         // Keep the (now empty) refineRow attached to the dialog grid so any
         // external integration that walks `.demo-ai-refine-row` from the
         // dialog root keeps resolving. The `is-detached` class collapses it
@@ -19262,7 +19272,7 @@ function RTE_Plugin_AIToolkit() {
         var refineWhyChip = document.createElement("button");
         refineWhyChip.type = "button";
         refineWhyChip.className = "secondary demo-ai-refine-chip demo-ai-refine-why-chip is-detached";
-        refineWhyChip.innerText = "Why";
+        refineWhyChip.innerText = uiT("air_why", "Why");
         refineWhyChip.title = (obj.__aiT ? obj.__aiT("ai2_whyaria", "Show why this AI suggestion was generated") : "Show why this AI suggestion was generated");
         refineWhyChip.setAttribute("data-rte-ai-dialog-action", "refine-why");
         refineWhyChip.setAttribute("aria-expanded", "false");
@@ -19476,7 +19486,7 @@ function RTE_Plugin_AIToolkit() {
         detailsToggle.type = "button";
         detailsToggle.setAttribute("aria-expanded", "false");
         detailsToggle.setAttribute("aria-controls", "rte-ai-details-" + dialogIdSuffix);
-        detailsToggle.title = "Show why and the operation plan";
+        detailsToggle.title = uiT("aiu_showwhy", "Show why and the operation plan");
 
         var insightGrid = append(grid, "div", "", "demo-ai-insight-grid is-collapsed");
         insightGrid.id = detailsToggle.getAttribute("aria-controls");
@@ -19548,7 +19558,7 @@ function RTE_Plugin_AIToolkit() {
 
         function populateDialogModes() {
             var modes = getDialogModes();
-            modeSelect.innerHTML = "";
+            modeSelect.innerHTML = __RTE_TT("");
             // 2026-05-20 (v20260520g) — Pass 59: group the 7-mode picker
             // into 2 <optgroup> sections so the dropdown reads as one
             // semantic cluster per intent ("Edit text" vs "Transform")
@@ -19637,7 +19647,7 @@ function RTE_Plugin_AIToolkit() {
 
         function populateTranslateLanguages() {
             var languages = getTranslateLanguages();
-            languageSelect.innerHTML = "";
+            languageSelect.innerHTML = __RTE_TT("");
             for (var index = 0; index < languages.length; index++) {
                 var option = append(languageSelect, "option", "", "", getTranslateLanguageDisplay(languages[index]));
                 option.value = languages[index].value || languages[index].label;
@@ -20694,7 +20704,7 @@ function RTE_Plugin_AIToolkit() {
                 applyGuidance.style.display = "none";
                 applyGuidanceBadge.innerText = "";
                 applyGuidanceDetail.innerText = "";
-                applyGuidance.setAttribute("aria-label", "No recommended Ask AI follow-up action yet.");
+                applyGuidance.setAttribute("aria-label", uiT("aiu_norecommended", "No recommended Ask AI follow-up action yet."));
                 return;
             }
             applyGuidance.style.display = "";
@@ -20729,7 +20739,7 @@ function RTE_Plugin_AIToolkit() {
         function renderOperationPlan(resolved) {
             var operations = resolved && resolved.operations ? resolved.operations : [];
             var actionState = getDialogActionState();
-            planList.innerHTML = "";
+            planList.innerHTML = __RTE_TT("");
             planStatusMessage.innerText = dialoginner.__aiPlanStale
                 ? (dialoginner.__aiPlanStaleReason || "Editor changed. Re-run to refresh.")
                 : "";
@@ -20749,7 +20759,7 @@ function RTE_Plugin_AIToolkit() {
                 planSummary.innerText = "";
                 planStatusAction.style.display = "none";
                 applyPlanButton.disabled = true;
-                applyPlanButton.innerText = "Apply";
+                applyPlanButton.innerText = uiT("aiu_apply", "Apply");
                 return;
             }
 
@@ -20832,10 +20842,10 @@ function RTE_Plugin_AIToolkit() {
                 + " \u2022 " + skippedCount + " skipped";
             applyPlanButton.disabled = !pendingIndexes.length || !!dialoginner.__aiPlanStale || !actionState.canApplyPlan;
             if (dialoginner.__aiPlanStale) {
-                applyPlanButton.innerText = "Re-run to refresh plan";
+                applyPlanButton.innerText = uiT("aiu_rerunplan", "Re-run to refresh plan");
             }
             else if (!pendingIndexes.length) {
-                applyPlanButton.innerText = "No pending steps";
+                applyPlanButton.innerText = uiT("aiu_nopending", "No pending steps");
             }
             else if (actionState.pendingSelectionDependent && !actionState.hasSelection) {
                 applyPlanButton.innerText = getSelectionRequiredPlanButtonLabel(pendingOperations);
@@ -20844,7 +20854,7 @@ function RTE_Plugin_AIToolkit() {
                 applyPlanButton.innerText = getOperationPlanButtonLabel(resolved);
             }
             else {
-                applyPlanButton.innerText = "Apply " + pendingIndexes.length + " pending steps";
+                applyPlanButton.innerText = uiT("aiu_applypending", "Apply {0} pending steps", pendingIndexes.length);
             }
         }
 
@@ -21225,7 +21235,7 @@ function RTE_Plugin_AIToolkit() {
             }
             syncDialogScopeUi();
             if (!normalizeText(sourceArea.value)) {
-                status.innerText = "Load or type source text before running Ask AI.";
+                status.innerText = uiT("aiu_loadsource", "Load or type source text before running Ask AI.");
                 updatePreview();
                 return;
             }
@@ -21977,7 +21987,7 @@ function RTE_Plugin_AutoEmbed() {
                 var doc = editor.getDocument();
                 injectStyles(doc);
                 var holder = doc.createElement("div");
-                holder.innerHTML = buildEmbedHtml(embedUrl) + '<p><br></p>';
+                holder.innerHTML = __RTE_TT(buildEmbedHtml(embedUrl) + '<p><br></p>');
                 var parent = b.parentNode; if (!parent) return;
                 var firstInserted = holder.firstChild, lastP = holder.lastChild;
                 while (holder.firstChild) parent.insertBefore(holder.firstChild, b);
@@ -22816,7 +22826,7 @@ function RTE_Plugin_CharLimit() {
             editor.insertHTML = function (html) {
                 if (!maxChars()) return origInsertHTML.apply(this, arguments);
                 var probe = document.createElement("div");
-                probe.innerHTML = String(html == null ? "" : html);
+                probe.innerHTML = __RTE_TT(String(html == null ? "" : html));
                 var add = (probe.textContent || "").length;
                 var remaining = maxChars() - countChars() + selectionLength();
                 if (add <= remaining) return origInsertHTML.apply(this, arguments);
@@ -22935,7 +22945,7 @@ function RTE_Plugin_CharLimit() {
             var text = dt.getData("text/plain");
             if (!text) {
                 var probe = document.createElement("div");
-                probe.innerHTML = dt.getData("text/html") || "";
+                probe.innerHTML = __RTE_TT(dt.getData("text/html") || "");
                 text = probe.textContent || "";
             }
             add = text.length;
@@ -23808,7 +23818,7 @@ function RTE_Plugin_Comments() {
     function renderSidebar() {
         if (!sidebar) return;
         var host = sidebar.ownerDocument;
-        sidebar.innerHTML = "";
+        sidebar.innerHTML = __RTE_TT("");
 
         var header = host.createElement("div");
         header.className = "rte-comment-sidebar-header";
@@ -23820,7 +23830,7 @@ function RTE_Plugin_Comments() {
         close.type = "button";
         close.className = "rte-comment-sidebar-close";
         close.setAttribute("aria-label", cmText("close", "Close"));
-        close.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>';
+        close.innerHTML = __RTE_TT('<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>');
         onActivate(close, closeSidebar);
         header.appendChild(close);
         sidebar.appendChild(header);
@@ -24214,7 +24224,7 @@ function RTE_Plugin_ContentMinimap() {
         if (hostDoc.getElementById("rte-content-minimap-style")) return;
         var style = hostDoc.createElement("style");
         style.id = "rte-content-minimap-style";
-        style.innerHTML = [
+        style.innerHTML = __RTE_TT([
             ".rte-content-minimap-shell{display:flex;align-items:stretch;gap:10px;}",
             ".rte-content-minimap-shell>.rte-content-minimap-host{flex:1 1 auto;min-width:0;}",
             "/* 2026-07-12 navigation panel precision */",
@@ -24238,7 +24248,7 @@ function RTE_Plugin_ContentMinimap() {
             ".rte-content-minimap-viewport.is-dragging{cursor:grabbing;}",
             ".rte-content-minimap-empty{position:absolute;inset:auto 8px 8px 8px;padding:10px;border-radius:7px;background:rgba(255,255,255,.94);color:#52657e;font-size:12px;font-weight:700;line-height:1.45;border:1px dashed rgba(148,163,184,.32);}",
             "@media (max-width: 1100px){.rte-content-minimap-shell{display:block;}.rte-content-minimap-panel{margin-top:12px;max-width:none;width:100%;}.rte-content-minimap-body{max-height:280px;}}"
-        ].join("");
+        ].join(""));
         hostDoc.head.appendChild(style);
         // A <style> ELEMENT is governed by style-src: under a strict policy the browser
         // drops its rules, leaving this plugin's UI unstyled. The element above stays
@@ -24416,7 +24426,7 @@ function RTE_Plugin_ContentMinimap() {
         if (!editable || !preview) return;
 
         var html = editable.innerHTML || "";
-        preview.innerHTML = html;
+        preview.innerHTML = __RTE_TT(html);
 
         var scale = getScale();
         var sourceWidth = Math.max(editable.scrollWidth || editable.clientWidth || 600, 320);
@@ -25862,7 +25872,7 @@ function RTE_Plugin_DocumentImport() {
     function parseRels(xml) {
         var map = {};
         try {
-            var d = new DOMParser().parseFromString(xml, "application/xml");
+            var d = new DOMParser().parseFromString(__RTE_TT(xml), "application/xml");
             var rs = d.getElementsByTagName("*");
             for (var i = 0; i < rs.length; i++) {
                 if (rs[i].localName !== "Relationship") continue;
@@ -25885,7 +25895,7 @@ function RTE_Plugin_DocumentImport() {
         var out = {};
         try {
             var W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
-            var d = new DOMParser().parseFromString(xml, "application/xml");
+            var d = new DOMParser().parseFromString(__RTE_TT(xml), "application/xml");
             var notes = d.getElementsByTagNameNS(W, tagName || "footnote");
             for (var i = 0; i < notes.length; i++) {
                 var n = notes[i];
@@ -25907,7 +25917,7 @@ function RTE_Plugin_DocumentImport() {
         var out = {};
         try {
             var W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
-            var d = new DOMParser().parseFromString(xml, "application/xml");
+            var d = new DOMParser().parseFromString(__RTE_TT(xml), "application/xml");
             var cs = d.getElementsByTagNameNS(W, "comment");
             for (var i = 0; i < cs.length; i++) {
                 var c = cs[i];
@@ -25937,7 +25947,7 @@ function RTE_Plugin_DocumentImport() {
         var out = [];
         try {
             var DGM = "http://schemas.openxmlformats.org/drawingml/2006/diagram";
-            var d = new DOMParser().parseFromString(xml, "application/xml");
+            var d = new DOMParser().parseFromString(__RTE_TT(xml), "application/xml");
             var pts = d.getElementsByTagNameNS(DGM, "pt");
             for (var i = 0; i < pts.length; i++) {
                 var type = pts[i].getAttribute("type") || "";
@@ -25959,7 +25969,7 @@ function RTE_Plugin_DocumentImport() {
         var out = {};
         try {
             var W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
-            var d = new DOMParser().parseFromString(xml, "application/xml");
+            var d = new DOMParser().parseFromString(__RTE_TT(xml), "application/xml");
             function val(el) { return el ? (el.getAttributeNS(W, "val") || el.getAttribute("w:val") || "") : ""; }
 
             // abstractNumId -> { ilvl -> numFmt }
@@ -26277,7 +26287,7 @@ function RTE_Plugin_DocumentImport() {
     function docxXmlToHtml(xml, ctx) {
         ctx = ctx || { rels: {}, numbering: {}, media: {} };
         if (!ctx.diagrams) ctx.diagrams = {};
-        var doc = new DOMParser().parseFromString(xml, "application/xml");
+        var doc = new DOMParser().parseFromString(__RTE_TT(xml), "application/xml");
         var W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
         var R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 
@@ -26888,10 +26898,32 @@ function RTE_Plugin_DocumentImport() {
                     var span = parseInt(wv(tcPr && firstChildEl(tcPr, "gridSpan")), 10) || 1;
                     var vm = tcPr && firstChildEl(tcPr, "vMerge");
                     if (vm && wv(vm) !== "restart" && openMerge[gcol]) { openMerge[gcol].rowspan++; gcol += span; continue; }
-                    var cellHtml = "";
+                    // 2026-10-21 a list inside a cell stays a list: its paragraphs were flattened to <p>, so a
+                    // bulleted or numbered list in a Word table cell came in as plain lines. tools/review/word-cell-list.mjs
+                    var cellHtml = "", cellStack = [];
+                    var cellPop = function () { var t = cellStack.pop(); if (t.open) cellHtml += "</li>"; cellHtml += "</" + t.tag + ">"; };
                     for (var k = 0; k < tc.childNodes.length; k++) {
-                        if (tc.childNodes[k].localName === "p") cellHtml += "<p>" + (paraInner(tc.childNodes[k]) || "<br>") + "</p>";
+                        if (tc.childNodes[k].localName !== "p") continue;
+                        var cpP = tc.childNodes[k], cpSt = paraStyle(cpP), cpIn = paraInner(cpP) || "<br>";
+                        if (!cpSt.list) {
+                            while (cellStack.length) cellPop();
+                            cellHtml += "<p>" + cpIn + "</p>";
+                            continue;
+                        }
+                        var cpWant = (cpSt.level || 0) + 1, cpTag = cpSt.ordered ? "ol" : "ul";
+                        while (cellStack.length > cpWant) cellPop();
+                        if (cellStack.length === cpWant && cellStack[cpWant - 1].tag !== cpTag) cellPop();
+                        if (cellStack.length === cpWant) {
+                            var cpCur = cellStack[cpWant - 1];
+                            if (cpCur.open) cellHtml += "</li>";
+                            cpCur.open = true;
+                        } else {
+                            while (cellStack.length < cpWant) { cellStack.push({ tag: cpTag, open: false }); cellHtml += "<" + cpTag + ">"; }
+                            cellStack[cpWant - 1].open = true;
+                        }
+                        cellHtml += "<li>" + cpIn;
                     }
+                    while (cellStack.length) cellPop();
                     var cellObj = { tag: cellTag, html: cellHtml, colspan: span, rowspan: 1 };
                     cells.push(cellObj);
                     for (var sc = gcol; sc < gcol + span; sc++) delete openMerge[sc];
@@ -28353,6 +28385,31 @@ function RTE_Plugin_DocxExport() {
     // 2026-10-04 The copy's <img> elements are NEW and have not loaded: exported straight after setHTMLCode()
     // an image without width/height had naturalWidth 0 and was silently dropped. The copy is made first and
     // its images are waited for (load or error, 5 s at most). tools/docx/unsized-image.mjs
+    // Marks each live comment's text in the export copy (see buildDocxPrepared). One mark per comment,
+    // on the first match of its first span; a comment that crosses blocks exports on its first block.
+    function markCommentsInExport(host) {
+        var live = editor.getEditable().querySelectorAll("[data-comment-id]");
+        if (!live.length || !editor.reviewLedger) return;
+        var ledger = {};
+        editor.reviewLedger.list().forEach(function (e) { if (e.changeType === "comment") ledger[e.id] = e; });
+        var done = {};
+        for (var i = 0; i < live.length; i++) {
+            var id = live[i].getAttribute("data-comment-id"), entry = ledger[id], phrase = live[i].textContent || "";
+            if (!entry || !phrase || done[id]) continue;
+            done[id] = true;
+            var w = document.createTreeWalker(host, NodeFilter.SHOW_TEXT, null, false), tn, at = -1;
+            while ((tn = w.nextNode())) { at = tn.data.indexOf(phrase); if (at !== -1) break; }
+            if (at === -1) continue;
+            var rng = document.createRange();
+            rng.setStart(tn, at); rng.setEnd(tn, at + phrase.length);
+            var name = (entry.author && entry.author.name) || "RichTextEditor user";
+            var mark = document.createElement("span");
+            mark.setAttribute("data-comment", entry.text || "");
+            mark.setAttribute("data-comment-author", name);
+            mark.setAttribute("data-comment-initials", (name.split(/\s+/).map(function (x) { return x.charAt(0); }).join("").slice(0, 3).toUpperCase()) || "RTE");
+            try { rng.surroundContents(mark); } catch (er) { /* a range across elements: no mark */ }
+        }
+    }
     function buildDocx(options) {
         // 2026-10-05 a failure here (getHTMLCode, the copy) rejects the promise instead of throwing (review)
         try { return buildDocxPrepared(options); } catch (e) { return Promise.reject(e); }
@@ -28362,7 +28419,11 @@ function RTE_Plugin_DocxExport() {
         // getHTMLCode() is the serialized document: presentational
         // plugins strip their own chrome from it, so page overlays,
         // watermarks and formatting marks never reach the file.
-        host.innerHTML = editor.getHTMLCode() || "";
+        host.innerHTML = __RTE_TT(editor.getHTMLCode() || "");
+        // 2026-10-21 comments: their anchors and text live in the editing document and reviewLedger, and
+        // getHTMLCode() strips both, so the export never wrote them. Mark the same text in the copy with
+        // data-comment, which the comment path in inlineXml already writes. tools/docx/comments-roundtrip.mjs
+        try { markCommentsInExport(host); } catch (cmErr) { /* the export without comments */ }
         // Resolve class-based list styling in the editing document, before the
         // export copy leaves the stylesheet's scope. Do not change saved HTML.
         var liveLists = editor.getEditable().querySelectorAll("ol,ul"), exportLists = host.querySelectorAll("ol,ul");
@@ -29503,7 +29564,7 @@ function RTE_Plugin_EmojiAutocomplete() {
             popDark = !!hk && (hk.contains("rte-dark") || (hk.contains("rte-auto-dark") && !hk.contains("rte-light") && !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches)));
         } catch (x) { popDark = false; }
         pop.className = "rte-emoji-pop" + (popDark ? " rte-emoji-pop-dark" : "");
-        pop.innerHTML = "";
+        pop.innerHTML = __RTE_TT("");
         items.forEach(function (it, i) {
             var row = hostDoc.createElement("div");
             row.className = "rte-emoji-pop-row" + (i === sel ? " is-active" : "");
@@ -31790,18 +31851,18 @@ function RTE_Plugin_Html2PDF() {
 
 		var div2 = __Append(dialoginner, "div", "position:relative;text-align:center;");
 
-		div2.innerHTML = "Loading...";
+		div2.innerHTML = __RTE_TT("Loading...");
 
 		var imgrect = __Append(dialoginner, "div", "position:relative;text-align:center;")
 
 		window.html2pdf_callback = function (win) {
 
 			if (!win.html2pdf) {
-				div2.innerHTML = "Failed to load script.";
+				div2.innerHTML = __RTE_TT("Failed to load script.");
 				return;
 			}
 
-			div2.innerHTML = "Exporting...";
+			div2.innerHTML = __RTE_TT("Exporting...");
 
 			// Honor the document's own page setup (paper size, orientation and
 			// margins) so the exported PDF matches the paginated page view and the
@@ -31823,7 +31884,7 @@ function RTE_Plugin_Html2PDF() {
 
 				var dataurl = img.getAttribute('src');
 				if (dataurl.indexOf("base64") == -1) {
-					div2.innerHTML = "Error, no data.";
+					div2.innerHTML = __RTE_TT("Error, no data.");
 					return;
 				}
 
@@ -31838,7 +31899,7 @@ function RTE_Plugin_Html2PDF() {
 						bin[i] = str.charCodeAt(i);
 					var blob = new Blob([new Uint8Array(bin)], { type: "application/pdf" })
 					var url = URL.createObjectURL(blob);
-					div2.innerHTML = Math.ceil(str.length / 1024) + "KB Exported<br/><a href='" + url + "' target=_blank>Download PDF</a>";
+					div2.innerHTML = __RTE_TT(Math.ceil(str.length / 1024) + "KB Exported<br/><a href='" + url + "' target=_blank>Download PDF</a>");
 
 					var pdflink = div2.querySelector("a");
 
@@ -31878,10 +31939,10 @@ function RTE_Plugin_Html2PDF() {
 
 		iframe = __Append(div1, "iframe", "align-self:center;flex:99;width:100%;height:0px;border:0px;", "rte-editable");
 		iframe.contentDocument.open("text/html");
-		iframe.contentDocument.write("<html><head><link id='url-css-preview' rel='stylesheet' href='" + editor.htmlEncode(config.previewCssUrl) + "'/>"
+		iframe.contentDocument.write(__RTE_TT("<html><head><link id='url-css-preview' rel='stylesheet' href='" + editor.htmlEncode(config.previewCssUrl) + "'/>"
 			+ "<script src='" + editor.htmlEncode(resolveScriptUrl()) + "'></script></head><body style='padding:10px;margin:0px'>"
 			+ editor.getHTMLCode() + "</body>"
-			+ "<script>window.onload=function(){setTimeout(function(){parent.html2pdf_callback(window)},100)}</script></html>")
+			+ "<script>window.onload=function(){setTimeout(function(){parent.html2pdf_callback(window)},100)}</script></html>"))
 		iframe.contentDocument.close();
 
 	}
@@ -32052,7 +32113,7 @@ function RTE_Plugin_ImageEditor() {
 			var imgeditor = new win.tui.ImageEditor(win.document.querySelector('#tui-image-editor'), options);
 
 			var btns = win.document.querySelector('.tui-image-editor-header-buttons');
-			btns.innerHTML = '';
+			btns.innerHTML = __RTE_TT('');
 			var savebtn = __Append(btns, "button", "");
 			savebtn.innerText = pText("ie_save", "Save");
 			var status = __Append(btns, "div", "margin-left:10px;font-size:12px;color:#b42318;", "rte-imageeditor-upload-status");
@@ -32074,7 +32135,20 @@ function RTE_Plugin_ImageEditor() {
 
 				var file = dataURLToBlob(dataurl);
 
-				uploadHandler(file, function (url, error) {
+				// A handler that throws would leave Save disabled with "Saving..." forever.
+				// Turn the exception into the same visible error the callback path shows.
+				var restoreSave = function (message) {
+					savebtn.disabled = false;
+					savebtn.innerText = pText("ie_save", "Save");
+					status.innerText = message;
+				};
+				try {
+					uploadHandler(file, onUploaded);
+				} catch (ex) {
+					restoreSave(pText("ie_uploadfailed", "Upload failed: {0}", ex && ex.message ? ex.message : "error"));
+				}
+
+				function onUploaded(url, error) {
 					if (url) {
 						img.src = url;
 						editor.notifySelectionChange();
@@ -32089,16 +32163,16 @@ function RTE_Plugin_ImageEditor() {
 					status.innerText = error
 						? pText("ie_uploadfailed", "Upload failed: {0}", error)
 						: pText("ie_nourl", "The upload did not return a file URL. Please try again.");
-				});
+				}
 
 
 			}
 
 		}
 
-		iframe = __Append(dialoginner, "iframe", "align-self:center;flex:99;width:100%;height:100%px;border:0px;", "rte-editable");
+		var iframe = __Append(dialoginner, "iframe", "align-self:center;flex:99;width:100%;height:100%;border:0px;", "rte-editable");
 		iframe.contentDocument.open("text/html");
-		iframe.contentDocument.write("<html><head><base href='" + editor.htmlEncode(location.href) + "'/>"
+		iframe.contentDocument.write(__RTE_TT("<html><head><base href='" + editor.htmlEncode(location.href) + "'/>"
 			+ "<link id='url-css-preview' rel='stylesheet' href='" + editor.htmlEncode(scriptbase + "tui-color-picker.min.css") + "'/>"
 			+ "<link id='url-css-preview' rel='stylesheet' href='" + editor.htmlEncode(scriptbase + "tui-image-editor.min.css") + "'/>"
 			+ "<script src='" + editor.htmlEncode(scriptbase + "fabric.min.js") + "'></script>"
@@ -32106,7 +32180,7 @@ function RTE_Plugin_ImageEditor() {
 			+ "<script src='" + editor.htmlEncode(scriptbase + "tui-code-snippet.min.js") + "'></script>"
 			+ "<script src='" + editor.htmlEncode(scriptbase + "tui-image-editor.min.js") + "'></script>"
 			+ "</head><body style='padding:10px;margin:0px'><div id='tui-image-editor'></div></body>"
-			+ "<script>window.onload=function(){setTimeout(function(){parent.rte_image_editor_callback(window)},100)}</script></html>")
+			+ "<script>window.onload=function(){setTimeout(function(){parent.rte_image_editor_callback(window)},100)}</script></html>"))
 		iframe.contentDocument.close();
 	}
 }
@@ -32741,7 +32815,7 @@ function RTE_Plugin_InsertCode() {
 	dp.sh.Utils.CopyStyles = function (destDoc, sourceDoc) {
 		var links = sourceDoc.getElementsByTagName('link'); for (var i = 0; i < links.length; i++)
 			if (links[i].rel.toLowerCase() == 'stylesheet')
-				destDoc.write('<link type="text/css" rel="stylesheet" href="' + links[i].href + '"></link>');
+				destDoc.write(__RTE_TT('<link type="text/css" rel="stylesheet" href="' + links[i].href + '"></link>'));
 	}
 	dp.sh.Utils.FixForBlogger = function (str) { return (dp.sh.isBloggerMode == true) ? str.replace(/<br\s*\/?>|&lt;br\s*\/?&gt;/gi, '\n') : str; }
 	dp.sh.RegexLib = { MultiLineCComments: new RegExp('/\\*[\\s\\S]*?\\*/', 'gm'), SingleLineCComments: new RegExp('//.*$', 'gm'), SingleLinePerlComments: new RegExp('#.*$', 'gm'), DoubleQuotedString: new RegExp('"(?:\\.|(\\\\\\")|[^\\""\\n])*"', 'g'), SingleQuotedString: new RegExp("'(?:\\.|(\\\\\\')|[^\\''\\n])*'", 'g') }; dp.sh.Match = function (value, index, css) { this.value = value; this.index = index; this.length = value.length; this.css = css; }
@@ -32766,13 +32840,13 @@ function RTE_Plugin_InsertCode() {
 			return; var span = this.CreateElement('SPAN'); str = str.replace(/ /g, '&nbsp;'); str = str.replace(/</g, '&lt;'); str = str.replace(/\n/gm, '&nbsp;<br>'); if (css != null) {
 				if ((/br/gi).test(str)) {
 					var lines = str.split('&nbsp;<br>'); for (var i = 0; i < lines.length; i++) {
-						span = this.CreateElement('SPAN'); span.className = css; span.innerHTML = lines[i]; this.div.appendChild(span); if (i + 1 < lines.length)
+						span = this.CreateElement('SPAN'); span.className = css; span.innerHTML = __RTE_TT(lines[i]); this.div.appendChild(span); if (i + 1 < lines.length)
 							this.div.appendChild(this.CreateElement('BR'));
 					}
 				}
-				else { span.className = css; span.innerHTML = str; this.div.appendChild(span); }
+				else { span.className = css; span.innerHTML = __RTE_TT(str); this.div.appendChild(span); }
 			}
-		else { span.innerHTML = str; this.div.appendChild(span); }
+		else { span.innerHTML = __RTE_TT(str); this.div.appendChild(span); }
 	}
 	dp.sh.Highlighter.prototype.IsInside = function (match) {
 		if (match == null || match.length == 0)
@@ -32809,8 +32883,8 @@ function RTE_Plugin_InsertCode() {
 				}
 				columns.className = 'columns'; columns.appendChild(div); this.bar.appendChild(columns);
 			}
-		for (var i = 0, lineIndex = this.firstLine; i < lines.length - 1; i++, lineIndex++) { var li = this.CreateElement('LI'); var span = this.CreateElement('SPAN'); li.className = (i % 2 == 0) ? 'alt' : ''; span.innerHTML = lines[i] + '&nbsp;'; li.appendChild(span); this.ol.appendChild(li); }
-		this.div.innerHTML = '';
+		for (var i = 0, lineIndex = this.firstLine; i < lines.length - 1; i++, lineIndex++) { var li = this.CreateElement('LI'); var span = this.CreateElement('SPAN'); li.className = (i % 2 == 0) ? 'alt' : ''; span.innerHTML = __RTE_TT(lines[i] + '&nbsp;'); li.appendChild(span); this.ol.appendChild(li); }
+		this.div.innerHTML = __RTE_TT('');
 	}
 	dp.sh.Highlighter.prototype.Highlight = function (code) {
 		function Trim(str) { return str.replace(/^\s*(.*?)[\s\n]*$/g, '$1'); }
@@ -33027,7 +33101,7 @@ function RTE_Plugin_InsertCode() {
 				n = n.parentNode;
 			}
 			var holder = edoc.createElement("div");
-			holder.innerHTML = html;
+			holder.innerHTML = __RTE_TT(html);
 			var node = holder.firstChild;
 			if (!node) return false;
 			// DIV/LI/TD/BLOCKQUOTE may legally contain the block: insert in place.
@@ -33117,7 +33191,7 @@ function RTE_Plugin_InsertCode() {
 					// placed at the caret, at block level
 				} else {
 					var p = editor.insertRootParagraph();
-					p.innerHTML = '<div class="dp-highlighter">' + tag.innerHTML + "</div>";
+					p.innerHTML = __RTE_TT('<div class="dp-highlighter">' + tag.innerHTML + "</div>");
 				}
 			}
 			else {
@@ -33192,7 +33266,7 @@ function RTE_Plugin_InsertEmoji() {
 		emojiNameWaiters = [done];
 		var base = String((config && config.url_base) || "/richtexteditor").replace(/\/+$/, "");
 		var s = document.createElement("script");
-		s.src = base + "/lang/emoji/rte-emoji-" + l + ".js";
+		s.src = window.RTE_TrustedTypes.scriptURL(base + "/lang/emoji/rte-emoji-" + l + ".js");
 		s.charset = "utf-8";
 		var finish = function () { var w = emojiNameWaiters || []; emojiNameWaiters = null; for (var i = 0; i < w.length; i++) { try { w[i](); } catch (e) { /* ignore */ } } };
 		s.onload = finish;
@@ -33465,7 +33539,7 @@ function RTE_Plugin_InsertEmoji() {
 							hitsHtml.push('<gitem class="rte-flex-column-center" style="width:32px;height:32px;margin:2px"><gspan role="menuitem" tabindex="0" aria-label="' + (emojiName(item) || item.emoji).replace(/"/g, '') + '" htmlcode="' + htmlcode + '" title="' + item.emoji + ' ' + emojiName(item).replace(/"/g, '') + '">' + htmlcode + '</gspan></gitem>');
 						}
 					}
-					resultpanel.innerHTML = '<div style="width:100%;padding:3px;margin-top:5px;color:' + headColor + ';text-align:center;">' + emojiItemsText(itemindex) + '</div>' + hitsHtml.join('');
+					resultpanel.innerHTML = __RTE_TT('<div style="width:100%;padding:3px;margin-top:5px;color:' + headColor + ';text-align:center;">' + emojiItemsText(itemindex) + '</div>' + hitsHtml.join(''));
 				}
 
 				panel.setAttribute("id", "emoji-picker");
@@ -33488,7 +33562,7 @@ function RTE_Plugin_InsertEmoji() {
 				// gi -1 is Recently used, the first tab when there is one
 				function renderCategory(gi) {
 					activeGroupIndex = gi;
-					grouppanel.innerHTML = buildCategoryHTML(gi === -1 ? recentGroup : emojidata[gi]);
+					grouppanel.innerHTML = __RTE_TT(buildCategoryHTML(gi === -1 ? recentGroup : emojidata[gi]));
 					grouppanel.scrollTop = 0;
 					for (var bi = 0; bi < tabuibtns.length; bi++) {
 						tabuibtns[bi].className = tabuibtns[bi].__rteGroup === gi ? "rte-ui-active" : "";
@@ -33504,7 +33578,7 @@ function RTE_Plugin_InsertEmoji() {
 					(function (group) {
 						var btn = __Append(tabuitoolbar, "rte-tabui-toolbar-button", "width:32px;text-align:center;margin:4px");
 						btn.setAttribute("title", emojiGroupLabel(group.name));
-						btn.innerHTML = group.items[0].emoji;
+						btn.innerHTML = __RTE_TT(group.items[0].emoji);
 						btn.__rteGroup = group.index;
 						btn.onclick = function () { renderCategory(group.index); };
 						tabuibtns.push(btn);
@@ -33974,7 +34048,7 @@ function RTE_Plugin_InsertGallery() {
             button.title = glText("gl_open", "Open {0}", item.name);
 
             var selection = append(button, "div", "", "rte-gallery-browser-selection");
-            selection.innerHTML = "&nbsp;";
+            selection.innerHTML = __RTE_TT("&nbsp;");
 
             var thumbnail = append(button, "div", "", "rte-gallery-browser-thumbnail rte-gallery-browser-thumbnail-folder");
             append(thumbnail, "div", "", "rte-gallery-browser-folder-icon");
@@ -33999,7 +34073,7 @@ function RTE_Plugin_InsertGallery() {
             button.setAttribute("aria-selected", isSelected ? "true" : "false");
 
             var selection = append(button, "div", "", "rte-gallery-browser-selection");
-            selection.innerHTML = isSelected ? "&#10003;" : "&nbsp;";
+            selection.innerHTML = __RTE_TT(isSelected ? "&#10003;" : "&nbsp;");
 
             var thumbnail = append(button, "div", "", "rte-gallery-browser-thumbnail");
             var image = append(thumbnail, "img", "", "rte-gallery-browser-thumbnail-image");
@@ -34057,8 +34131,8 @@ function RTE_Plugin_InsertGallery() {
             setDisabled(uploadButton, state.loading);
             setDisabled(refreshButton, state.loading);
 
-            folderGrid.innerHTML = "";
-            grid.innerHTML = "";
+            folderGrid.innerHTML = __RTE_TT("");
+            grid.innerHTML = __RTE_TT("");
             show(empty, false);
             show(folderGrid, false);
             show(grid, true);
@@ -34436,7 +34510,7 @@ function RTE_Plugin_InsertTemplate() {
 
     function stripHtml(html) {
         var div = document.createElement("div");
-        div.innerHTML = html || "";
+        div.innerHTML = __RTE_TT(html || "");
         return div.innerText || div.textContent || "";
     }
 
@@ -34595,6 +34669,14 @@ function RTE_Plugin_InsertTemplate() {
             var i;
 
             empty.style.display = items.length ? "none" : "block";
+            // 2026-10-26 with no templates configured at all, "No templates match the current filter." was wrong: say
+            // there are none (the default list is empty since it shipped two "My Doc 1" demos).
+            // tools/templates/template-defaults.mjs
+            if (!items.length) {
+                empty.innerText = getTemplates().length
+                    ? pText("tp_nomatch", "No templates match the current filter.")
+                    : pText("tp_none", "No templates are available.");
+            }
 
             for (i = 0; i < items.length; i++) {
                 (function (item) {
@@ -34609,7 +34691,7 @@ function RTE_Plugin_InsertTemplate() {
                     var preview = append(card, "div", "", "rte-template-card-preview");
                     var previewBody = append(preview, "div", "", "rte-template-card-preview-body");
                     var canvas = append(previewBody, "div", "", "rte-template-card-preview-canvas");
-                    canvas.innerHTML = item.html;
+                    canvas.innerHTML = __RTE_TT(item.html);
                     scalePreview(previewBody, canvas);
 
                     var footer = append(card, "div", "", "rte-template-card-footer");
@@ -36819,7 +36901,7 @@ function RTE_Plugin_MarkdownExport() {
             if (!state) return;
             var html = "";
             try { html = editor.fromMarkdown(state.area.value, { apply: false }); } catch (e) { html = ""; }
-            state.preview.innerHTML = html;
+            state.preview.innerHTML = __RTE_TT(html);
             syncPreviewScroll();
         }
 
@@ -37421,7 +37503,7 @@ function RTE_Plugin_Mention() {
 
     function showLoading() {
         if (!popupEl) return;
-        popupEl.innerHTML = "";
+        popupEl.innerHTML = __RTE_TT("");
         var loader = popupHost.createElement("div");
         loader.className = "rte-mention-loading";
         loader.textContent = pText("mn_searching", "Searching\u2026");
@@ -37431,7 +37513,7 @@ function RTE_Plugin_Mention() {
 
     function renderItems() {
         if (!popupEl) return;
-        popupEl.innerHTML = "";
+        popupEl.innerHTML = __RTE_TT("");
         statusEl = null;
 
         if (!items.length) {
@@ -38204,7 +38286,7 @@ function RTE_Plugin_MermaidDiagram() {
         var doc = target.ownerDocument;
         var win = doc.defaultView || window;
         function fallback(msg) {
-            target.innerHTML = "";
+            target.innerHTML = __RTE_TT("");
             var pre = doc.createElement("pre");
             pre.className = "rte-mermaid-src";
             pre.textContent = source;
@@ -38213,9 +38295,9 @@ function RTE_Plugin_MermaidDiagram() {
         }
         if (typeof config.diagramResolver === "function") {
             return Promise.resolve().then(function () { return config.diagramResolver(source); }).then(function (res) {
-                if (res && res.svg) { target.innerHTML = res.svg; }
+                if (res && res.svg) { target.innerHTML = __RTE_TT(res.svg); }
                 else if (res && res.imageUrl) {
-                    target.innerHTML = "";
+                    target.innerHTML = __RTE_TT("");
                     var img = doc.createElement("img"); img.src = res.imageUrl; img.alt = "diagram"; img.style.maxWidth = "100%";
                     target.appendChild(img);
                 } else { fallback(""); }
@@ -38225,7 +38307,7 @@ function RTE_Plugin_MermaidDiagram() {
         if (mermaid && typeof mermaid.render === "function") {
             var id = "rtemmd" + (++RTE_MermaidSeq);
             return mermaidRender(mermaid, id, source).then(function (svg) {
-                target.innerHTML = svg;
+                target.innerHTML = __RTE_TT(svg);
             }).catch(function (e) { fallback(e && e.message ? e.message : "render error"); });
         }
         fallback("");
@@ -38301,7 +38383,7 @@ function RTE_Plugin_MermaidDiagram() {
             previewTimer = setTimeout(function () {
                 var holder = preview.ownerDocument.createElement("div");
                 holder.className = "rte-mermaid-render";
-                preview.innerHTML = "";
+                preview.innerHTML = __RTE_TT("");
                 preview.appendChild(holder);
                 renderInto(holder, src);
             }, 250);
@@ -39107,7 +39189,7 @@ function RTE_Plugin_NodeTypes() {
             var html = fn ? safe(fn, el, null) : null;
             if (html === null || html === undefined) continue;
             var holder = doc.createElement(found[i].type.inline ? "span" : "div");
-            holder.innerHTML = String(html);
+            holder.innerHTML = __RTE_TT(String(html));
             el.parentNode.insertBefore(holder, el);
             el.parentNode.removeChild(el);
             swaps.push({ holder: holder, original: el });
@@ -39625,14 +39707,14 @@ function RTE_Plugin_Pagination() {
                 var h = doc.createElement("div");
                 h.className = "rte-page-hf rte-page-header";
                 h.style.top = (contentTop - Math.round(g.marginTop / 2)) + "px";
-                h.innerHTML = expand(g.headerHtml, pageNo, total);
+                h.innerHTML = __RTE_TT(expand(g.headerHtml, pageNo, total));
                 ov.appendChild(h);
             }
             if (g.footerHtml) {
                 var f = doc.createElement("div");
                 f.className = "rte-page-hf rte-page-footer";
                 f.style.top = (contentBottom + Math.round(g.marginBottom / 3)) + "px";
-                f.innerHTML = expand(g.footerHtml, pageNo, total);
+                f.innerHTML = __RTE_TT(expand(g.footerHtml, pageNo, total));
                 ov.appendChild(f);
             }
         }
@@ -39782,7 +39864,30 @@ function RTE_Plugin_PdfExport() {
         if (config.pdfExport === false) return;
 
         editor.getPdfBytes = function (options) { return buildPdf(options || {}); };
+        // 2026-10-26 The standard PDF fonts encode Western European Latin only (WinAnsi): every other character -
+        // Chinese, Japanese, Korean, Cyrillic, Greek, Arabic... - was written as "?", silently. Until fonts can be
+        // embedded: getPdfUnsupportedText() says which characters a vector export would lose, and exportToPdf() (the
+        // toolbar's Export PDF) hands such a document to the html2pdf raster export when that plugin is loaded, which
+        // draws every script. Set pdfExportRasterFallback = false to always write the vector PDF.
+        // tools/pdf/pdf-nonlatin-fallback.mjs
+        editor.getPdfUnsupportedText = function (options) { return unsupportedText(options || {}); };
+        // Fetches a TrueType font from a URL you choose and uses it for the text the standard fonts cannot draw.
+        // Resolves true when it is usable; nothing is fetched unless this is called. tools/pdf/pdf-unicode-font.mjs
+        editor.loadPdfFont = function (url) {
+            return fetch(url).then(function (r) { if (!r.ok) throw new Error("pdfexport: font " + url + " returned " + r.status); return r.arrayBuffer(); })
+                .then(function (buf) { var bytes = new Uint8Array(buf); parseTrueType(bytes); config.pdfExportUnicodeFont = bytes; return true; });
+        };
         editor.exportToPdf = function (filename, options) {
+            var lost = unsupportedText(options || {});
+            if (lost) {
+                var raster = config.pdfExportRasterFallback !== false && editor.toolbarFactoryMap && editor.toolbarFactoryMap["html2pdf"];
+                if (window.console && console.warn) {
+                    console.warn("pdfexport: the vector PDF cannot encode " + lost.length + " character(s) of this document (" +
+                        lost.slice(0, 20) + (lost.length > 20 ? "..." : "") + "); its standard fonts cover Western European Latin only. " +
+                        (raster ? "Exporting with the html2pdf raster export instead." : "They are written as \"?\". Load the html2pdf plugin for a raster export that keeps them."));
+                }
+                if (raster) { editor.execCommand("html2pdf"); return null; }
+            }
             var bytes = buildPdf(options || {});
             var base = sanitizeName(filename) || sanitizeName(config.pdfExportFileName) || defaultBase();
             return download(bytes, base + ".pdf");
@@ -39898,6 +40003,214 @@ function RTE_Plugin_PdfExport() {
         return total * size / 1000;
     }
 
+    // ------------------------------------------------------------ embedded Unicode font
+    //
+    // 2026-10-26 The base-14 fonts encode Western European Latin only. With a TrueType font supplied
+    // (config.pdfExportUnicodeFont / options.unicodeFont: the bytes of a .ttf, or editor.loadPdfFont(url)),
+    // text the base fonts cannot draw - Chinese, Japanese, Korean, Cyrillic, Greek... - is written in that font
+    // instead: a Type0 / CIDFontType2 font with Identity-H encoding and a ToUnicode map, so it stays vector,
+    // selectable and searchable. The font is subset: every glyph keeps its ID (so CIDToGIDMap stays Identity)
+    // but only the outlines the document uses are kept. tools/pdf/pdf-unicode-font.mjs
+    var activeUni = null;      // { font, used: { gid: codepoint } } while one export runs
+    var parsedFonts = [];      // [{ bytes, font }] - a parse is reused for the same bytes
+
+    function u16(b, o) { return (b[o] << 8) | b[o + 1]; }
+    function s16(b, o) { var v = u16(b, o); return v & 0x8000 ? v - 0x10000 : v; }
+    function u32(b, o) { return ((b[o] << 24) >>> 0) + (b[o + 1] << 16) + (b[o + 2] << 8) + b[o + 3]; }
+
+    function parseTrueType(input) {
+        var b = input instanceof Uint8Array ? input : new Uint8Array(input);
+        for (var pi = 0; pi < parsedFonts.length; pi++) if (parsedFonts[pi].bytes === b) return parsedFonts[pi].font;
+        var tag0 = u32(b, 0);
+        if (tag0 !== 0x00010000 && tag0 !== 0x74727565) {
+            throw new Error(tag0 === 0x4F54544F ? "pdfexport: the Unicode font has CFF (PostScript) outlines; supply a TrueType (.ttf) font"
+                : tag0 === 0x74746366 ? "pdfexport: the Unicode font is a collection (.ttc); supply a single .ttf font"
+                : "pdfexport: the Unicode font is not a TrueType font");
+        }
+        var tables = {}, n = u16(b, 4);
+        for (var i = 0; i < n; i++) {
+            var rec = 12 + i * 16;
+            var tag = String.fromCharCode(b[rec], b[rec + 1], b[rec + 2], b[rec + 3]);
+            tables[tag] = { offset: u32(b, rec + 8), length: u32(b, rec + 12) };
+        }
+        ["head", "hhea", "hmtx", "maxp", "cmap", "loca", "glyf"].forEach(function (t) {
+            if (!tables[t]) throw new Error("pdfexport: the Unicode font has no '" + t + "' table");
+        });
+        var head = tables.head.offset, hhea = tables.hhea.offset;
+        var font = {
+            bytes: b, tables: tables,
+            units: u16(b, head + 18),
+            bbox: [s16(b, head + 36), s16(b, head + 38), s16(b, head + 40), s16(b, head + 42)],
+            longLoca: s16(b, head + 50) === 1,
+            numGlyphs: u16(b, tables.maxp.offset + 4),
+            numHMetrics: u16(b, hhea + 34),
+            ascent: s16(b, hhea + 4), descent: s16(b, hhea + 6), capHeight: 0, italicAngle: 0
+        };
+        if (tables["OS/2"]) {
+            var os2 = tables["OS/2"].offset;
+            font.ascent = s16(b, os2 + 68); font.descent = s16(b, os2 + 70);
+            if (u16(b, os2) >= 2 && tables["OS/2"].length >= 90) font.capHeight = s16(b, os2 + 88);
+        }
+        if (!font.capHeight) font.capHeight = font.ascent;
+        if (tables.post) font.italicAngle = s16(b, tables.post.offset + 4);
+        // cmap: a Unicode subtable, format 12 (full range) preferred over format 4 (BMP)
+        var cmap = tables.cmap.offset, best = null, bestFmt = 0;
+        for (var c = 0, nc = u16(b, cmap + 2); c < nc; c++) {
+            var pid = u16(b, cmap + 4 + c * 8), eid = u16(b, cmap + 6 + c * 8), off = cmap + u32(b, cmap + 8 + c * 8);
+            var fmt = u16(b, off);
+            var unicode = pid === 0 || (pid === 3 && (eid === 1 || eid === 10));
+            if (!unicode || (fmt !== 4 && fmt !== 12)) continue;
+            if (fmt > bestFmt) { best = off; bestFmt = fmt; }
+        }
+        if (!best) throw new Error("pdfexport: the Unicode font has no Unicode character map");
+        var lookup = {};
+        font.gidFor = function (cp) {
+            if (lookup[cp] !== undefined) return lookup[cp];
+            var g = 0;
+            if (bestFmt === 12) {
+                var groups = u32(b, best + 12);
+                for (var k = 0; k < groups; k++) {
+                    var go = best + 16 + k * 12, start = u32(b, go), end = u32(b, go + 4);
+                    if (cp >= start && cp <= end) { g = u32(b, go + 8) + (cp - start); break; }
+                }
+            } else if (cp <= 0xFFFF) {
+                var segX2 = u16(b, best + 6), ends = best + 14, starts = ends + segX2 + 2, deltas = starts + segX2, ranges = deltas + segX2;
+                for (var s = 0; s < segX2 / 2; s++) {
+                    if (cp > u16(b, ends + s * 2)) continue;
+                    var st = u16(b, starts + s * 2);
+                    if (cp < st) break;
+                    var ro = u16(b, ranges + s * 2);
+                    if (!ro) g = (cp + s16(b, deltas + s * 2)) & 0xFFFF;
+                    else {
+                        var gi = u16(b, ranges + s * 2 + ro + (cp - st) * 2);
+                        g = gi ? (gi + s16(b, deltas + s * 2)) & 0xFFFF : 0;
+                    }
+                    break;
+                }
+            }
+            if (g >= font.numGlyphs) g = 0;
+            lookup[cp] = g;
+            return g;
+        };
+        font.advance = function (gid) {
+            var hm = font.tables.hmtx.offset;
+            var i2 = gid < font.numHMetrics ? gid : font.numHMetrics - 1;
+            return u16(b, hm + i2 * 4);
+        };
+        parsedFonts.push({ bytes: b, font: font });
+        if (parsedFonts.length > 4) parsedFonts.shift();
+        return font;
+    }
+
+    function glyphRange(font, gid) {
+        var b = font.bytes, loca = font.tables.loca.offset;
+        var a = font.longLoca ? u32(b, loca + gid * 4) : u16(b, loca + gid * 2) * 2;
+        var z = font.longLoca ? u32(b, loca + gid * 4 + 4) : u16(b, loca + gid * 2 + 2) * 2;
+        return [font.tables.glyf.offset + a, z - a];
+    }
+
+    // A font with every glyph ID kept but only the used outlines (plus the components of composite glyphs and
+    // .notdef); tables a CIDFontType2 needs: head, hhea, hmtx, maxp, loca, glyf, and the hinting tables if present.
+    function subsetTrueType(font, usedGids) {
+        var b = font.bytes, keep = { 0: true }, stack = [];
+        for (var k in usedGids) { keep[k] = true; stack.push(+k); }
+        while (stack.length) {
+            var gid = stack.pop(), r = glyphRange(font, gid);
+            if (r[1] < 10 || s16(b, r[0]) >= 0) continue;           // empty or simple glyph
+            var p = r[0] + 10, more = true;
+            while (more) {
+                var flags = u16(b, p), comp = u16(b, p + 2);
+                if (!keep[comp]) { keep[comp] = true; stack.push(comp); }
+                p += 4 + ((flags & 1) ? 4 : 2) + ((flags & 8) ? 2 : (flags & 0x40) ? 4 : (flags & 0x80) ? 8 : 0);
+                more = !!(flags & 0x20);
+            }
+        }
+        var glyfParts = [], locaOut = new Uint8Array((font.numGlyphs + 1) * 4), at = 0;
+        function put32(arr, o, v) { arr[o] = (v >>> 24) & 255; arr[o + 1] = (v >>> 16) & 255; arr[o + 2] = (v >>> 8) & 255; arr[o + 3] = v & 255; }
+        for (var g = 0; g < font.numGlyphs; g++) {
+            put32(locaOut, g * 4, at);
+            if (!keep[g]) continue;
+            var gr = glyphRange(font, g);
+            if (gr[1] <= 0) continue;
+            var len = (gr[1] + 3) & ~3;
+            var part = new Uint8Array(len); part.set(b.subarray(gr[0], gr[0] + gr[1]));
+            glyfParts.push(part); at += len;
+        }
+        put32(locaOut, font.numGlyphs * 4, at);
+        var glyfOut = new Uint8Array(at), q = 0;
+        for (var gp = 0; gp < glyfParts.length; gp++) { glyfOut.set(glyfParts[gp], q); q += glyfParts[gp].length; }
+        var out = {};
+        ["head", "hhea", "hmtx", "maxp", "cvt ", "fpgm", "prep"].forEach(function (t) {
+            if (font.tables[t]) out[t] = b.slice(font.tables[t].offset, font.tables[t].offset + font.tables[t].length);
+        });
+        out.head[50] = 0; out.head[51] = 1;                      // indexToLocFormat: long
+        out.head[8] = out.head[9] = out.head[10] = out.head[11] = 0;   // checkSumAdjustment, set below
+        out.loca = locaOut; out.glyf = glyfOut;
+        var tags = Object.keys(out).sort(), numT = tags.length, dirLen = 12 + numT * 16, total = dirLen;
+        tags.forEach(function (t) { total += (out[t].length + 3) & ~3; });
+        var f = new Uint8Array(total);
+        put32(f, 0, 0x00010000);
+        var es = Math.floor(Math.log(numT) / Math.LN2), sr = Math.pow(2, es) * 16;
+        f[4] = numT >> 8; f[5] = numT & 255; f[6] = sr >> 8; f[7] = sr & 255; f[8] = es >> 8; f[9] = es & 255;
+        var rs = numT * 16 - sr; f[10] = rs >> 8; f[11] = rs & 255;
+        function checksum(arr) { var sum = 0; for (var i = 0; i < arr.length; i += 4) sum = (sum + (((arr[i] << 24) >>> 0) + ((arr[i + 1] || 0) << 16) + ((arr[i + 2] || 0) << 8) + (arr[i + 3] || 0))) >>> 0; return sum; }
+        var pos = dirLen, headPos = 0;
+        tags.forEach(function (t, i) {
+            var rec = 12 + i * 16;
+            for (var c = 0; c < 4; c++) f[rec + c] = t.charCodeAt(c);
+            put32(f, rec + 4, checksum(out[t])); put32(f, rec + 8, pos); put32(f, rec + 12, out[t].length);
+            f.set(out[t], pos);
+            if (t === "head") headPos = pos;
+            pos += (out[t].length + 3) & ~3;
+        });
+        put32(f, headPos + 8, (0xB1B0AFBA - checksum(f)) >>> 0);
+        return f;
+    }
+
+    function hex4(n) { return ("000" + n.toString(16).toUpperCase()).slice(-4); }
+    // The glyph IDs of a string in the active Unicode font, as a PDF hex string; records each for the ToUnicode map.
+    function uniHex(str) {
+        var out = "";
+        for (var i = 0; i < str.length; i++) {
+            var cp = str.codePointAt(i);
+            if (cp > 0xFFFF) i++;
+            var gid = activeUni.font.gidFor(cp);
+            activeUni.used[gid] = cp;
+            out += hex4(gid);
+        }
+        return "<" + out + ">";
+    }
+    function uniWidth(str, size) {
+        var total = 0;
+        for (var i = 0; i < str.length; i++) {
+            var cp = str.codePointAt(i);
+            if (cp > 0xFFFF) i++;
+            total += activeUni.font.advance(activeUni.font.gidFor(cp));
+        }
+        return total * size / activeUni.font.units;
+    }
+    // Can the base fonts draw this character? (the same test toWinAnsi applies)
+    function winEncodable(ch) { return ch === "?" || toWinAnsi(ch).indexOf("?") < 0; }
+    // East Asian characters: a line may break between any two of them.
+    function breaksAnywhere(cp) {
+        return (cp >= 0x2E80 && cp <= 0x9FFF) || (cp >= 0xAC00 && cp <= 0xD7AF) || (cp >= 0xF900 && cp <= 0xFAFF) ||
+            (cp >= 0xFF00 && cp <= 0xFFEF) || (cp >= 0x3000 && cp <= 0x303F) || (cp >= 0x20000 && cp <= 0x2FA1F);
+    }
+    // Splits a token into pieces drawn by the base fonts ({ text }) and by the Unicode font ({ text, uni: true }),
+    // with every East Asian character its own piece so a line can break there.
+    function uniPieces(tok) {
+        var pieces = [], cur = null;
+        for (var i = 0; i < tok.length; i++) {
+            var cp = tok.codePointAt(i), ch = String.fromCodePoint(cp);
+            if (cp > 0xFFFF) i++;
+            var uni = !winEncodable(ch) && activeUni.font.gidFor(cp) !== 0;
+            if (uni && breaksAnywhere(cp)) { cur = null; pieces.push({ text: ch, uni: true }); continue; }
+            if (!cur || cur.uni !== uni) { cur = { text: "", uni: uni }; pieces.push(cur); }
+            cur.text += ch;
+        }
+        return pieces;
+    }
+
     // ------------------------------------------------------------ PDF string
     //
     // WinAnsiEncoding covers Latin-1 plus the printable range of CP1252. A
@@ -39921,9 +40234,51 @@ function RTE_Plugin_PdfExport() {
             if (cp === 0x00A0) { out += " "; continue; }
             if (cp >= 0x2000 && cp <= 0x200A) { out += " "; continue; }
             if (cp === 0x2212) { out += "-"; continue; }
+            // 2026-10-26 invisible format characters (zero-width space / joiners, word joiner, BOM) have no glyph to
+            // draw: drop them instead of printing "?" in the middle of Latin text.
+            if ((cp >= 0x200B && cp <= 0x200F) || cp === 0x2060 || cp === 0xFEFF) continue;
             out += "?";
         }
         return out;
+    }
+    // The characters (each once, in document order) that toWinAnsi would write as "?": what a vector export of the
+    // serialized document, its title and its running header / footer would lose.
+    function unsupportedText(options, ignoreFont) {
+        var text = "";
+        try {
+            var box = document.createElement("div");
+            box.innerHTML = __RTE_TT(editor.getHTMLCode() || "");
+            text = box.textContent || "";
+        } catch (e) { text = ""; }
+        text += " " + (options.title || config.pdfExportTitle || "") + " " + (options.headerText || config.pdfExportHeader || "") +
+            " " + (options.footerText || config.pdfExportFooter || "");
+        var seen = {}, out = "";
+        var uniFont = ignoreFont ? null : uniFontFrom(options);
+        for (var i = 0; i < text.length; i++) {
+            var ch = text.charAt(i), code = text.charCodeAt(i);
+            if (code >= 0xD800 && code <= 0xDBFF && i + 1 < text.length) { ch = text.substr(i, 2); i++; }
+            if (seen[ch] || ch === "?") continue;
+            if (toWinAnsi(ch).indexOf("?") >= 0 && !(uniFont && uniFont.gidFor(ch.codePointAt(0)))) { seen[ch] = 1; out += ch; }
+        }
+        return out;
+    }
+    // 2026-10-26 A PDF text string (title, author, bookmark, alt text, link or comment description) is not drawn with
+    // a font, so it can carry any script as UTF-16BE: <FEFF...>. These went through WinAnsi like the page text and a
+    // Chinese title, Russian bookmark or Japanese alt text - what a screen reader announces - became "???". Strings
+    // WinAnsi can carry keep the plain (...) form. tools/pdf/pdf-unicode-strings.mjs
+    function pdfText(str) {
+        var t = String(str == null ? "" : str);
+        var win = toWinAnsi(t);
+        if (win.indexOf("?") < 0 || win.split("?").length === t.split("?").length) return "(" + escapeString(win) + ")";
+        var hex = "<FEFF";
+        for (var i = 0; i < t.length; i++) hex += ("000" + t.charCodeAt(i).toString(16).toUpperCase()).slice(-4);
+        return hex + ">";
+    }
+    // A URI is ASCII: percent-encode anything else (it became "?").
+    function pdfUri(href) {
+        return String(href || "").replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]|[^\x00-\x7F]/g, function (c) {
+            try { return encodeURIComponent(c); } catch (e) { return ""; }
+        });
     }
     function escapeString(str) {
         return str.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
@@ -39998,7 +40353,7 @@ function RTE_Plugin_PdfExport() {
         var s = {
             bold: inherited.bold, italic: inherited.italic, underline: inherited.underline,
             strike: inherited.strike, size: inherited.size, color: inherited.color,
-            mono: inherited.mono, link: inherited.link, lang: inherited.lang
+            mono: inherited.mono, link: inherited.link, lang: inherited.lang, comment: inherited.comment || null
         };
         // 2026-10-17 a run's language: the nearest lang attribute. tools/pdf/inline-lang.mjs
         var nodeLang = node.getAttribute ? node.getAttribute("lang") : "";
@@ -40010,6 +40365,7 @@ function RTE_Plugin_PdfExport() {
         if (tag === "s" || tag === "strike" || tag === "del") s.strike = true;
         if (tag === "code" || tag === "kbd" || tag === "samp" || tag === "pre") s.mono = true;
         if (tag === "a" && node.getAttribute("href")) { s.link = node.getAttribute("href"); s.color = [0, 0.33, 0.8]; s.underline = true; }
+        if (node.getAttribute && node.getAttribute("data-comment")) s.comment = { text: node.getAttribute("data-comment"), author: node.getAttribute("data-comment-author") || "" };
         if (tag === "sup" || tag === "sub") s.size = s.size * 0.75;
 
         var css = node.style;
@@ -40097,17 +40453,22 @@ function RTE_Plugin_PdfExport() {
             // dropped while a space between two words on the same line is kept.
             var tokens = run.text.split(/(\s+)/);
             for (var t = 0; t < tokens.length; t++) {
-                var tok = tokens[t];
-                if (!tok) continue;
-                var w = textWidth(toWinAnsi(tok), family, styleIndex, run.style.size);
-                if (used + w > width && line.length && !/^\s+$/.test(tok)) {
-                    flush();
-                    // A wrapped line never starts with the space that caused it.
-                    if (/^\s+$/.test(tok)) continue;
+                var whole = tokens[t];
+                if (!whole) continue;
+                var pieces = activeUni && !/^\s+$/.test(whole) ? uniPieces(whole) : [{ text: whole, uni: false }];
+                for (var pc = 0; pc < pieces.length; pc++) {
+                    var tok = pieces[pc].text, isUni = pieces[pc].uni;
+                    var w = isUni ? uniWidth(tok, run.style.size) : textWidth(toWinAnsi(tok), family, styleIndex, run.style.size);
+                    // a piece that continues a word (no space before it) may still wrap: CJK breaks anywhere
+                    if (used + w > width && line.length && !/^\s+$/.test(tok) && (pc === 0 || isUni)) {
+                        flush();
+                        // A wrapped line never starts with the space that caused it.
+                        if (/^\s+$/.test(tok)) continue;
+                    }
+                    line.push({ text: tok, style: run.style, family: family, styleIndex: styleIndex, w: w, uni: isUni });
+                    used += w;
+                    if (run.style.size > maxSize) maxSize = run.style.size;
                 }
-                line.push({ text: tok, style: run.style, family: family, styleIndex: styleIndex, w: w });
-                used += w;
-                if (run.style.size > maxSize) maxSize = run.style.size;
             }
         }
         if (line.length) flush();
@@ -40390,7 +40751,42 @@ function RTE_Plugin_PdfExport() {
     // ------------------------------------------------------------- rendering
     // 2026-10-15 the document language, read by the tagger to mark blocks in other languages
     var pdfDocLang = "en";
+    // Marks each live comment's text in the copy as a data-comment span (see buildPdf).
+    function markCommentsForPdf(host) {
+        var live = editor.getEditable().querySelectorAll("[data-comment-id]");
+        if (!live.length || !editor.reviewLedger) return;
+        var ledger = {};
+        editor.reviewLedger.list().forEach(function (e) { if (e.changeType === "comment") ledger[e.id] = e; });
+        var done = {};
+        for (var i = 0; i < live.length; i++) {
+            var id = live[i].getAttribute("data-comment-id"), entry = ledger[id], phrase = live[i].textContent || "";
+            if (!entry || !phrase || done[id]) continue;
+            done[id] = true;
+            var w = document.createTreeWalker(host, NodeFilter.SHOW_TEXT, null, false), tn, at = -1;
+            while ((tn = w.nextNode())) { at = tn.data.indexOf(phrase); if (at !== -1) break; }
+            if (at === -1) continue;
+            var rng = document.createRange();
+            rng.setStart(tn, at); rng.setEnd(tn, at + phrase.length);
+            var name = (entry.author && entry.author.name) || "RichTextEditor user";
+            var mark = document.createElement("span");
+            mark.setAttribute("data-comment", entry.text || "");
+            mark.setAttribute("data-comment-author", name);
+            try { rng.surroundContents(mark); } catch (er) { /* no mark */ }
+        }
+    }
+    function uniFontFrom(options) {
+        var src = (options && options.unicodeFont) || config.pdfExportUnicodeFont;
+        if (!src) return null;
+        try { return parseTrueType(src); }
+        catch (e) { if (window.console && console.warn) console.warn(e.message); return null; }
+    }
     function buildPdf(options) {
+        activeUni = null;
+        var uniFont = uniFontFrom(options);
+        if (uniFont && unsupportedText(options, true)) activeUni = { font: uniFont, used: {} };
+        try { return buildPdfWith(options); } finally { activeUni = null; }
+    }
+    function buildPdfWith(options) {
         pdfDocLang = String((options && options.lang) || document.documentElement.lang || "en").toLowerCase();
         var familyKey = String(options.font || config.pdfExportFont || "helvetica").toLowerCase();
         if (!FONT_FAMILIES[familyKey]) familyKey = "helvetica";
@@ -40402,13 +40798,16 @@ function RTE_Plugin_PdfExport() {
         // their own chrome from it. Reading the live DOM instead would bake page
         // overlays, watermarks and formatting marks into the PDF.
         var host = document.createElement("div");
-        host.innerHTML = editor.getHTMLCode() || "";
+        host.innerHTML = __RTE_TT(editor.getHTMLCode() || "");
         var liveLists = editor.getEditable().querySelectorAll("ol,ul"), exportLists = host.querySelectorAll("ol,ul");
         if (liveLists.length === exportLists.length) for (var li = 0; li < liveLists.length; li++) {
             var listStyle = liveLists[li].ownerDocument.defaultView.getComputedStyle(liveLists[li]).listStyleType;
             if (listStyle) exportLists[li].style.listStyleType = listStyle;
         }
 
+        // 2026-10-21 comments reach the PDF as /Text notes: their anchors and text are marked in the copy first,
+        // as in the Word export. tools/pdf/comments.mjs
+        try { markCommentsForPdf(host); } catch (cmErr) { /* the PDF without notes */ }
         var layout = new Layout(geom, baseSize, familyKey);
         var blocks = layout.run(host);
 
@@ -40495,6 +40894,40 @@ function RTE_Plugin_PdfExport() {
         return 0;
     }
 
+    // Type0 font over a CIDFontType2 subset: Identity-H codes are glyph IDs, /W carries the widths layout used,
+    // and ToUnicode maps each glyph back to its character for copy, search and screen readers.
+    function addUnicodeFont(pdf, uni) {
+        var font = uni.font, scale = 1000 / font.units;
+        var gids = Object.keys(uni.used).map(Number).sort(function (a, b) { return a - b; });
+        var sub = subsetTrueType(font, uni.used);
+        var fileId = pdf.add({ dict: "<< /Length1 " + sub.length + " /Length 0 >>", stream: sub });
+        var name = "/RTEUNI+EmbeddedUnicode";
+        var descId = pdf.add("<< /Type /FontDescriptor /FontName " + name + " /Flags 4 /FontBBox [" +
+            font.bbox.map(function (v) { return Math.round(v * scale); }).join(" ") + "] /ItalicAngle " + font.italicAngle +
+            " /Ascent " + Math.round(font.ascent * scale) + " /Descent " + Math.round(font.descent * scale) +
+            " /CapHeight " + Math.round(font.capHeight * scale) + " /StemV 80 /FontFile2 " + fileId + " 0 R >>");
+        var w = gids.map(function (g) { return g + " [" + Math.round(font.advance(g) * scale) + "]"; }).join(" ");
+        var cidId = pdf.add("<< /Type /Font /Subtype /CIDFontType2 /BaseFont " + name +
+            " /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor " + descId +
+            " 0 R /DW 1000 /W [" + w + "] /CIDToGIDMap /Identity >>");
+        var cmap = "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n" +
+            "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n" +
+            "1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n";
+        for (var i = 0; i < gids.length; i += 100) {
+            var chunk = gids.slice(i, i + 100);
+            cmap += chunk.length + " beginbfchar\n";
+            for (var j = 0; j < chunk.length; j++) {
+                var cp = uni.used[chunk[j]], u = cp > 0xFFFF ? hex4(0xD800 + ((cp - 0x10000) >> 10)) + hex4(0xDC00 + ((cp - 0x10000) & 0x3FF)) : hex4(cp);
+                cmap += "<" + hex4(chunk[j]) + "> <" + u + ">\n";
+            }
+            cmap += "endbfchar\n";
+        }
+        cmap += "endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend";
+        var tuId = pdf.add({ dict: "<< /Length 0 >>", stream: cmap });
+        return pdf.add("<< /Type /Font /Subtype /Type0 /BaseFont " + name + " /Encoding /Identity-H /DescendantFonts [" +
+            cidId + " 0 R] /ToUnicode " + tuId + " 0 R >>");
+    }
+
     function emit(pages, geom, familyKey, baseSize, options) {
         var pdf = new PdfWriter();
         var fam = FONT_FAMILIES[familyKey];
@@ -40556,12 +40989,24 @@ function RTE_Plugin_PdfExport() {
                 var lsp = pages.length + linkAnnots.length;
                 var lid = pdf.add("<< /Type /Annot /Subtype /Link /Rect [" +
                     fixed(lk.x0) + " " + fixed(lk.y0) + " " + fixed(lk.x1) + " " + fixed(lk.y1) +
-                    "] /Border [0 0 0] /StructParent " + lsp + " /Contents (" + escapeString(toWinAnsi(String(lk.text || lk.href).replace(/\s+/g, " ").trim() || lk.href)) + ")" +
-                    " /A << /S /URI /URI (" + escapeString(toWinAnsi(lk.href)) + ") >> >>");
+                    "] /Border [0 0 0] /StructParent " + lsp + " /Contents " + pdfText(String(lk.text || lk.href).replace(/\s+/g, " ").trim() || lk.href) +
+                    " /A << /S /URI /URI (" + escapeString(pdfUri(lk.href)) + ") >> >>");
                 annotIds[pi].push(lid);
                 linkAnnots.push({ id: lid, page: pi, key: lsp, owner: lk.owner });
             }
+            for (var cm = 0; cm < (draw.comments || []).length; cm++) {
+                var cmt = draw.comments[cm];
+                // 2026-10-21 a note is tagged like a link (PDF/UA 7.18, the rule the link tags already follow): it has a
+                // /StructParent key, a Note element names it, and the parent tree maps the key to that element. tools/pdf/comments.mjs
+                var noteKey = pages.length + linkAnnots.length;
+                var noteId = pdf.add("<< /Type /Annot /Subtype /Text /Rect [" + fixed(cmt.x0) + " " + fixed(cmt.y0) + " " + fixed(cmt.x1) + " " + fixed(cmt.y1) + "]" +
+                    " /Contents " + pdfText(cmt.text) + " /T " + pdfText(cmt.author) + " /Name /Note /Open false /C [1 1 0] /StructParent " + noteKey + " >>");
+                annotIds[pi].push(noteId);
+                linkAnnots.push({ id: noteId, page: pi, key: noteKey, owner: null, note: true });
+            }
         }
+
+        if (activeUni && Object.keys(activeUni.used).length) fontRes.push("/U0 " + addUnicodeFont(pdf, activeUni) + " 0 R");
 
         var struct = buildStructTree(pdf, allMarks, pageIds, linkAnnots);
 
@@ -40594,7 +41039,7 @@ function RTE_Plugin_PdfExport() {
             var ocount = function (n) { var c = n.kids.length; for (var k = 0; k < n.kids.length; k++) c += ocount(n.kids[k]); return c; };
             for (var oi = 0; oi < onodes.length; oi++) {
                 var n = onodes[oi], sib = n.parent.kids, at = sib.indexOf(n);
-                pdf.set(n.id, "<< /Title (" + escapeString(toWinAnsi(n.h.title)) + ") /Parent " + n.parent.id + " 0 R" +
+                pdf.set(n.id, "<< /Title " + pdfText(n.h.title) + " /Parent " + n.parent.id + " 0 R" +
                     (at > 0 ? " /Prev " + sib[at - 1].id + " 0 R" : "") + (at < sib.length - 1 ? " /Next " + sib[at + 1].id + " 0 R" : "") +
                     (n.kids.length ? " /First " + n.kids[0].id + " 0 R /Last " + n.kids[n.kids.length - 1].id + " 0 R /Count " + ocount(n) : "") +
                     " /Dest [" + pageIds[n.h.page] + " 0 R /XYZ null " + fixed(n.h.y) + " null] >>");
@@ -40614,8 +41059,8 @@ function RTE_Plugin_PdfExport() {
             (outlineId ? " /Outlines " + outlineId + " 0 R" : "") +
             " /StructTreeRoot " + struct.rootId + " 0 R" +
             " /ViewerPreferences << /DisplayDocTitle true >> >>");
-        var infoId = pdf.add("<< /Title (" + escapeString(toWinAnsi(String(title))) + ")" +
-            (author ? " /Author (" + escapeString(toWinAnsi(String(author))) + ")" : "") +
+        var infoId = pdf.add("<< /Title " + pdfText(String(title)) +
+            (author ? " /Author " + pdfText(String(author)) : "") +
             " /Producer (RichTextEditor) /Creator (RichTextEditor) /CreationDate (" + pdfDate(new Date()) + ") >>");
 
         return pdf.build(catalogId, infoId);
@@ -40670,6 +41115,14 @@ function RTE_Plugin_PdfExport() {
         // a Link element per link annotation, under the paragraph / cell holding it
         var linkKeys = [];
         for (var la = 0; la < (linkAnnots || []).length; la++) {
+            if (linkAnnots[la].note) {
+                // a comment note: a Note element under the document, its OBJR and its parent-tree key
+                var nte = node("Note");
+                attach(docNode, nte);
+                nte.objr = linkAnnots[la];
+                linkKeys.push(linkAnnots[la].key + " " + nte.id + " 0 R");
+                continue;
+            }
             var lnk;
             if (linkAnnots[la].owner && linkAnnots[la].owner.kind === "link") lnk = resolve(linkAnnots[la].owner);
             else { lnk = node("Link"); attach(resolve(linkAnnots[la].owner), lnk); }
@@ -40728,7 +41181,7 @@ function RTE_Plugin_PdfExport() {
                     // an EMPTY /Alt is a worse one: it tells assistive tech the
                     // image is decorative when nobody decided that.
                     var extra = block.role === "Figure"
-                        ? " /Alt (" + escapeString(toWinAnsi(block.alt || "Image")) + ")"
+                        ? " /Alt " + pdfText(block.alt || "Image")
                         : "";
                     // 2026-10-15 a block in another language says so, or it is read with the document's
                     // pronunciation (WCAG 3.1.2, PDF/UA 7.2). tools/pdf/paragraph-lang.mjs
@@ -40810,7 +41263,7 @@ function RTE_Plugin_PdfExport() {
     };
 
     function renderPage(ops, geom, familyKey, baseSize, imageRef, pageNumber, pageCount, options, tagger) {
-        var out = [], links = [], headings = [];
+        var out = [], links = [], headings = []; links.comments = []; links.seenComments = {};
         var left = geom.margin.left;
 
         for (var i = 0; i < ops.length; i++) {
@@ -40843,7 +41296,7 @@ function RTE_Plugin_PdfExport() {
             });
         }
 
-        return { content: out.join("\n"), links: links, marks: tagger.marks, headings: headings };
+        return { content: out.join("\n"), links: links, marks: tagger.marks, headings: headings, comments: links.comments };
     }
 
     function headerFooter(options) {
@@ -40858,7 +41311,7 @@ function RTE_Plugin_PdfExport() {
     function plainText(html) {
         if (!html || typeof html !== "string") return "";
         var d = document.createElement("div");
-        d.innerHTML = html;
+        d.innerHTML = __RTE_TT(html);
         return (d.textContent || "").replace(/\s+/g, " ").trim();
     }
 
@@ -40921,11 +41374,13 @@ function RTE_Plugin_PdfExport() {
             var part = line.parts[i];
             if (part.img) { segments.push({ img: part, x: cursor, w: part.w }); cursor += part.w; continue; }
             var st = part.style;
-            var alias = (st.mono ? "M" : "F") + part.styleIndex;
+            var alias = part.uni ? "U0" : (st.mono ? "M" : "F") + part.styleIndex;
             var last = segments.length ? segments[segments.length - 1] : null;
             var mergeable = last && !last.img && last.alias === alias && last.style.size === st.size &&
                 sameColor(last.style.color, st.color) && last.style.underline === st.underline &&
-                last.style.strike === st.strike && last.style.link === st.link && (last.style.lang || "") === (st.lang || "");
+                last.style.strike === st.strike && last.style.link === st.link && (last.style.lang || "") === (st.lang || "") &&
+                // 2026-10-21 a commented run is its own segment: merged into its neighbours it lost its note (tools/pdf/comments.mjs)
+                (last.style.comment ? last.style.comment.text + "|" + last.style.comment.author : "") === (st.comment ? st.comment.text + "|" + st.comment.author : "");
             if (mergeable) { last.text += part.text; last.w += part.w; }
             else { segments.push({ text: part.text, style: st, alias: alias, x: cursor, w: part.w }); }
             cursor += part.w;
@@ -40962,8 +41417,16 @@ function RTE_Plugin_PdfExport() {
             var runLang = String(sst.lang || "").replace(/[^A-Za-z0-9-]/g, "");
             var langMark = runLang && runLang.toLowerCase() !== String(block.lang || pdfDocLang || "").toLowerCase();
             if (langMark) out.push("/Span << /Lang (" + runLang + ") >> BDC");
-            out.push("BT /" + seg.alias + " " + fixed(sst.size) + " Tf " + colorOp(sst.color) + " " +
-                fixed(seg.x) + " " + fixed(baseline) + " Td (" + escapeString(toWinAnsi(seg.text)) + ") Tj ET");
+            if (seg.alias === "U0") {
+                out.push("BT /U0 " + fixed(sst.size) + " Tf " + colorOp(sst.color) +
+                    (sst.bold ? " " + colorStroke(sst.color) + " 2 Tr " + fixed(sst.size * 0.03) + " w" : "") + " " +
+                    (sst.italic ? "1 0 0.21 1 " + fixed(seg.x) + " " + fixed(baseline) + " Tm " : fixed(seg.x) + " " + fixed(baseline) + " Td ") +
+                    // the render mode outlives ET: reset it, or every later run is stroked too
+                    uniHex(seg.text) + " Tj" + (sst.bold ? " 0 Tr" : "") + " ET");
+            } else {
+                out.push("BT /" + seg.alias + " " + fixed(sst.size) + " Tf " + colorOp(sst.color) + " " +
+                    fixed(seg.x) + " " + fixed(baseline) + " Td (" + escapeString(toWinAnsi(seg.text)) + ") Tj ET");
+            }
             if (langMark) out.push("EMC");
             if (sst.underline) {
                 out.push(colorStroke(sst.color) + " 0.5 w " + fixed(seg.x) + " " + fixed(baseline - sst.size * 0.12) +
@@ -40972,6 +41435,10 @@ function RTE_Plugin_PdfExport() {
             if (sst.strike) {
                 out.push(colorStroke(sst.color) + " 0.5 w " + fixed(seg.x) + " " + fixed(baseline + sst.size * 0.28) +
                     " m " + fixed(seg.x + seg.w) + " " + fixed(baseline + sst.size * 0.28) + " l S");
+            }
+            if (sst.comment) {
+                var cmKey = sst.comment.text + "|" + sst.comment.author;
+                if (!links.seenComments[cmKey]) { links.seenComments[cmKey] = true; links.comments.push({ x0: seg.x, y0: baseline - 2, x1: seg.x + 12, y1: baseline + 10, text: sst.comment.text, author: sst.comment.author }); }
             }
             if (sst.link) {
                 links.push({ href: sst.link, x0: seg.x, y0: baseline - 2, x1: seg.x + seg.w, y1: baseline + sst.size, text: seg.text || "", owner: linkOwner || lineOwner });
@@ -41643,7 +42110,7 @@ function RTE_Plugin_ReadAloud() {
         var voices = s.getVoices() || [];
         if (!voices.length) return;
         var cur = voiceSel.value;
-        voiceSel.innerHTML = "";
+        voiceSel.innerHTML = __RTE_TT("");
         voices.forEach(function (v, i) {
             var o = voiceSel.ownerDocument.createElement("option");
             o.value = v.name; o.textContent = v.name + " (" + v.lang + ")";
@@ -42532,7 +42999,7 @@ function RTE_Plugin_RevisionHistory() {
 
     function stripHtml(html) {
         var tmp = document.createElement("div");
-        tmp.innerHTML = html || "";
+        tmp.innerHTML = __RTE_TT(html || "");
         return tmp.innerText || tmp.textContent || "";
     }
 
@@ -42649,7 +43116,7 @@ function RTE_Plugin_RevisionHistory() {
         // (or a previous render partially failed) `.rte-rev-panel` may be
         // missing. Bail out instead of dereferencing null on innerHTML.
         if (!panel) { closeDialog(); return; }
-        panel.innerHTML = "";
+        panel.innerHTML = __RTE_TT("");
 
         var header = host.createElement("div");
         header.className = "rte-rev-header";
@@ -42774,10 +43241,10 @@ function RTE_Plugin_RevisionHistory() {
                 setTimeout(function () {
                     try {
                         iframe.contentDocument.open();
-                        iframe.contentDocument.write(
+                        iframe.contentDocument.write(__RTE_TT(
                             '<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:16px;color:#0f172a;line-height:1.6}img{max-width:100%}</style></head><body>' +
                             (selected.html || "") +
-                            "</body></html>"
+                            "</body></html>")
                         );
                         iframe.contentDocument.close();
                     } catch (err) { }
@@ -43181,11 +43648,11 @@ function RTE_Plugin_RubyAnnotation() {
         if (hostDoc.getElementById("rte-ruby-style")) return;
         var style = hostDoc.createElement("style");
         style.id = "rte-ruby-style";
-        style.innerHTML = [
+        style.innerHTML = __RTE_TT([
             ".rte-ruby-annotated{ruby-position:over;}",
             ".rte-ruby-annotated>rt{font-size:.55em;line-height:1.15;opacity:.85;user-select:none;}",
             "@supports (display:ruby){.rte-ruby-annotated>rp{display:none;}}"
-        ].join("");
+        ].join(""));
         hostDoc.head.appendChild(style);
         // A <style> element's rules are dropped under a strict style-src; this
         // re-injects them through the CSSOM in that case only. Missed in 2.9.0,
@@ -43455,7 +43922,9 @@ function RTE_Plugin_Sanitizer() {
         // Inline SVG (icons, diagrams). Its dangerous children are dropped below.
         "svg,g,path,circle,ellipse,rect,line,polyline,polygon,text,tspan,defs,marker," +
         "linearGradient,radialGradient,stop,clipPath,mask,pattern,use,symbol,title,desc"
-    ).split(",").forEach(function (t) { ALLOWED_TAGS[t] = true; });
+    // Lower-cased like the name it is looked up with: the camelCase SVG names (linearGradient, clipPath) were
+    // never found, so gradients and clip paths were unwrapped. tools/security/sanitizer-svg-camelcase.mjs
+    ).split(",").forEach(function (t) { ALLOWED_TAGS[t.toLowerCase()] = true; });
 
     // Removed WITH their contents: their text is markup, not prose.
     var DROP_WHOLE = {
@@ -43694,6 +44163,21 @@ function RTE_Plugin_Sanitizer() {
             }
         })(root);
 
+        // Before anything else: the content is clobbering the document this very loop works in
+        // (a later <font> calls ownerDocument.createElement, which <img name="createElement">
+        // replaces), so its clobbering names go first. See clobbers().
+        for (var c = 0; c < all.length; c++) {
+            if (all[c].nodeType !== 1) continue;
+            var cTag = (all[c].localName || all[c].nodeName || "").toLowerCase();
+            for (var ca = 0; ca < CLOBBER_ATTRS.length; ca++) {
+                var cv = all[c].getAttribute(CLOBBER_ATTRS[ca]);
+                if (cv && clobbers(cTag, CLOBBER_ATTRS[ca], cv, allowExtra)) {
+                    note(report.removedAttributes, cTag + "[" + CLOBBER_ATTRS[ca] + "]");
+                    all[c].removeAttribute(CLOBBER_ATTRS[ca]);
+                }
+            }
+        }
+
         for (var i = 0; i < all.length; i++) {
             var el = all[i];
             if (!el.parentNode) continue;                 // already removed with an ancestor
@@ -43845,6 +44329,41 @@ function RTE_Plugin_Sanitizer() {
         return root;
     }
 
+    // 2026-10-29 DOM clobbering. Named access on document overrides its built-ins, so a saved
+    // <img name="cookie"> rendered on a page IS document.cookie there, and <img name="currentScript">
+    // is document.currentScript (a public write-up pastes exactly that into our demo). A name, or an
+    // id on an image or form control, that matches a document or form property is such a clobber;
+    // DOMPurify removes the same set by default (SANITIZE_DOM). A form control's name is also a field
+    // the host's own form would submit, so it goes unless the host allows forms in content. Ids on
+    // headings and links stay: they are anchors and cannot replace a document or form built-in.
+    // The question is asked of a PRISTINE document: in Firefox and WebKit the content's own
+    // <img name="logo"> makes "logo" in its document true, so asking the working document
+    // dropped every image name there.
+    // tools/security/sanitizer-dom-clobbering.mjs
+    var CLOBBER_ATTRS = ["name", "id"];
+    var NAMED_ACCESS_TAGS = { img: 1, form: 1, embed: 1, iframe: 1, object: 1, input: 1, button: 1, select: 1, textarea: 1, fieldset: 1, output: 1 };
+    var FORM_FIELDS = { input: 1, button: 1, select: 1, textarea: 1 };
+    var probeDoc = null, probeForm = null;
+    function clobbers(tag, attr, value, allowExtra) {
+        if (!value) return false;
+        if (attr === "id" && !NAMED_ACCESS_TAGS[tag]) return false;
+        if (attr === "name" && FORM_FIELDS[tag] && !allowExtra("form")) return true;
+        if (!probeDoc) {
+            probeDoc = document.implementation.createHTMLDocument("");
+            probeForm = probeDoc.createElement("form");
+        }
+        return value in probeDoc || value in probeForm;
+    }
+    // doc.body itself can be clobbered (<img id="body" name="x">) before the clean-up has run,
+    // which emptied the content in Firefox and WebKit; the prototype's getter cannot be.
+    function bodyOf(doc) {
+        for (var p = Object.getPrototypeOf(doc); p; p = Object.getPrototypeOf(p)) {
+            var d = Object.getOwnPropertyDescriptor(p, "body");
+            if (d && d.get) return d.get.call(doc);
+        }
+        return doc.body;
+    }
+
     function unwrap(el) {
         var parent = el.parentNode;
         while (el.firstChild) parent.insertBefore(el.firstChild, el);
@@ -43867,9 +44386,10 @@ function RTE_Plugin_Sanitizer() {
         // we inspect it -- innerHTML on a live div would fire <img onerror>
         // before the first line of this ran.
         for (var pass = 0; pass < 3; pass++) {
-            var doc = new DOMParser().parseFromString("<body>" + out + "</body>", "text/html");
-            sanitizeNode(doc.body, report);
-            var next = doc.body.innerHTML;
+            var doc = new DOMParser().parseFromString(__RTE_TT("<body>" + out + "</body>"), "text/html");
+            var body = bodyOf(doc);
+            sanitizeNode(body, report);
+            var next = body.innerHTML;
             report.lastPasses = pass + 1;
             // Re-parsing can RESURRECT markup: the classic mutation-XSS trick is
             // content that is inert in one parse and dangerous once the
@@ -45018,7 +45538,7 @@ function RTE_Plugin_SlashCommand() {
 
     function renderItems() {
         if (!popupEl) return;
-        popupEl.innerHTML = "";
+        popupEl.innerHTML = __RTE_TT("");
 
         if (!filtered.length) {
             var empty = popupHost.createElement("div");
@@ -45047,7 +45567,7 @@ function RTE_Plugin_SlashCommand() {
 
                 var icon = popupHost.createElement("span");
                 icon.className = "rte-slash-item-icon";
-                icon.innerHTML = cmd.iconSvg || iconDot();
+                icon.innerHTML = __RTE_TT(cmd.iconSvg || iconDot());
                 item.appendChild(icon);
 
                 var body = popupHost.createElement("span");
@@ -45459,7 +45979,7 @@ function RTE_Plugin_SmartChips() {
         }
 
         function renderBody() {
-            body.innerHTML = "";
+            body.innerHTML = __RTE_TT("");
             if (current === "date") {
                 var note = append(body, "div", "", "rte-chip-field-label");
                 note.textContent = chText("ch_insertdate", "Insert a date chip:");
@@ -45484,12 +46004,12 @@ function RTE_Plugin_SmartChips() {
                 if (config.chipResolver && typeof config.chipResolver === "function") {
                     input.oninput = function () {
                         var q = input.value.trim();
-                        results.innerHTML = "";
+                        results.innerHTML = __RTE_TT("");
                         if (!q) return;
                         try {
                             var p = config.chipResolver(q, current);
                             if (p && p.then) p.then(function (list) {
-                                results.innerHTML = "";
+                                results.innerHTML = __RTE_TT("");
                                 (list || []).slice(0, 6).forEach(function (it) {
                                     var r = append(results, "button", "", "rte-chip-suggestion");
                                     r.type = "button"; r.textContent = it.label || it.value;
@@ -45690,7 +46210,7 @@ function RTE_Plugin_SpellCheck() {
         var list = append(wrap, "div", "");
 
         function renderIssues(issues) {
-            list.innerHTML = "";
+            list.innerHTML = __RTE_TT("");
             if (!issues || !issues.length) {
                 status.innerText = (editor.getLangText && editor.getLangText("spellcheckclean")) || "No spelling issues found.";
                 return;
@@ -45713,8 +46233,8 @@ function RTE_Plugin_SpellCheck() {
                     chip.onclick = function () {
                         if (replaceFirst(iss.word, s)) {
                             row.style.opacity = "0.45";
-                            head.innerHTML = esc(iss.word) + ' &rarr; <span style="color:#16a34a">' + esc(s) + "</span>";
-                            sug.innerHTML = "";
+                            head.innerHTML = __RTE_TT(esc(iss.word) + ' &rarr; <span style="color:#16a34a">' + esc(s) + "</span>");
+                            sug.innerHTML = __RTE_TT("");
                         }
                     };
                 });
@@ -46291,7 +46811,7 @@ function RTE_Plugin_StateInspector() {
         if (hostDoc.getElementById("rte-state-inspector-style")) return;
         var style = hostDoc.createElement("style");
         style.id = "rte-state-inspector-style";
-        style.innerHTML = [
+        style.innerHTML = __RTE_TT([
             ".rte-state-inspector-shell{display:flex;align-items:stretch;gap:10px;}",
             ".rte-state-inspector-shell>.rte-state-inspector-host{flex:1 1 auto;min-width:0;}",
             ".rte-state-inspector-panel{display:none;flex:0 0 340px;min-width:290px;max-width:min(400px,36vw);border:1px solid rgba(148,163,184,.22);border-radius:8px;background:#fff;box-shadow:0 14px 32px rgba(29,78,216,.1),0 2px 8px rgba(15,23,42,.06);overflow:hidden;color:#172033;font-family:Aptos,'Segoe UI',sans-serif;}",
@@ -46323,7 +46843,7 @@ function RTE_Plugin_StateInspector() {
             ".rte-state-inspector-row-val{flex:1 1 auto;min-width:0;font-family:Consolas,'Cascadia Mono',monospace;word-break:break-all;}",
             ".rte-state-inspector-row.is-flagged .rte-state-inspector-row-val{color:#b91c1c;font-weight:750;}",
             "@media (max-width: 1100px){.rte-state-inspector-shell{display:block;}.rte-state-inspector-panel{margin-top:12px;max-width:none;width:100%;}.rte-state-inspector-body{max-height:340px;}}"
-        ].join("");
+        ].join(""));
         hostDoc.head.appendChild(style);
         // A <style> element's rules are dropped under a strict style-src; this
         // re-injects them through the CSSOM in that case only. Missed in 2.9.0,
@@ -48008,7 +48528,7 @@ function RTE_Plugin_TextDirection() {
         if (!doc) return false;
         var span = doc.createElement("bdi");
         span.setAttribute("dir", (dir === "rtl" || dir === "ltr") ? dir : "auto");
-        span.innerHTML = String(html == null ? "" : html);
+        span.innerHTML = __RTE_TT(String(html == null ? "" : html));
         try {
             if (typeof editor.insertElement === "function") { editor.insertElement(span); fireChange(); return true; }
         } catch (e) {}
@@ -50348,7 +50868,7 @@ function RTE_Plugin_TrackedChanges() {
         // marked in an inert document: nothing in the pasted HTML loads or runs while it is wrapped
         var inert = doc.implementation.createHTMLDocument("");
         var box = inert.createElement("div");
-        box.innerHTML = info.html;
+        box.innerHTML = __RTE_TT(info.html);
         var text = box.textContent;
         var hasBlock = markPasted(box, inert, stamp);
 
@@ -52843,7 +53363,7 @@ function RTE_Plugin_YjsCollab() {
 
     function renderRemoteCursors() {
         if (!session || !overlay) return;
-        overlay.innerHTML = "";
+        overlay.innerHTML = __RTE_TT("");
         var peers = getRemotePeers();
         var iframe = editor.iframe;
         var ir = iframe.getBoundingClientRect();
@@ -52900,7 +53420,7 @@ function RTE_Plugin_YjsCollab() {
 
     function renderPresence() {
         if (!session || !presencePanel) return;
-        presencePanel.innerHTML = "";
+        presencePanel.innerHTML = __RTE_TT("");
         var all = [{ user: session.user, self: true }].concat(
             getRemotePeers().map(function (p) { return { user: p.user, self: false }; })
         );

@@ -498,9 +498,11 @@
 			for (var i = 0; i < arguments.length; i += 2)
 				arguments[i].title = arguments[i + 1];
 		}
+		// The labels are plain text: textContent, not innerHTML, which a Trusted Types policy (CSP
+		// require-trusted-types-for) refuses - the throw left every label unlocalised. tools/csp/trusted-types.mjs
 		function SetHTML() {
 			for (var i = 0; i < arguments.length; i += 2)
-				arguments[i].innerHTML = arguments[i + 1];
+				arguments[i].textContent = arguments[i + 1];
 		}
 		function SetBg() {
 			for (var i = 0; i < arguments.length; i += 2) {

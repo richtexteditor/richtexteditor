@@ -969,6 +969,31 @@ function RTE_Plugin_DocxExport() {
     // 2026-10-04 The copy's <img> elements are NEW and have not loaded: exported straight after setHTMLCode()
     // an image without width/height had naturalWidth 0 and was silently dropped. The copy is made first and
     // its images are waited for (load or error, 5 s at most). tools/docx/unsized-image.mjs
+    // Marks each live comment's text in the export copy (see buildDocxPrepared). One mark per comment,
+    // on the first match of its first span; a comment that crosses blocks exports on its first block.
+    function markCommentsInExport(host) {
+        var live = editor.getEditable().querySelectorAll("[data-comment-id]");
+        if (!live.length || !editor.reviewLedger) return;
+        var ledger = {};
+        editor.reviewLedger.list().forEach(function (e) { if (e.changeType === "comment") ledger[e.id] = e; });
+        var done = {};
+        for (var i = 0; i < live.length; i++) {
+            var id = live[i].getAttribute("data-comment-id"), entry = ledger[id], phrase = live[i].textContent || "";
+            if (!entry || !phrase || done[id]) continue;
+            done[id] = true;
+            var w = document.createTreeWalker(host, NodeFilter.SHOW_TEXT, null, false), tn, at = -1;
+            while ((tn = w.nextNode())) { at = tn.data.indexOf(phrase); if (at !== -1) break; }
+            if (at === -1) continue;
+            var rng = document.createRange();
+            rng.setStart(tn, at); rng.setEnd(tn, at + phrase.length);
+            var name = (entry.author && entry.author.name) || "RichTextEditor user";
+            var mark = document.createElement("span");
+            mark.setAttribute("data-comment", entry.text || "");
+            mark.setAttribute("data-comment-author", name);
+            mark.setAttribute("data-comment-initials", (name.split(/\s+/).map(function (x) { return x.charAt(0); }).join("").slice(0, 3).toUpperCase()) || "RTE");
+            try { rng.surroundContents(mark); } catch (er) { /* a range across elements: no mark */ }
+        }
+    }
     function buildDocx(options) {
         // 2026-10-05 a failure here (getHTMLCode, the copy) rejects the promise instead of throwing (review)
         try { return buildDocxPrepared(options); } catch (e) { return Promise.reject(e); }
@@ -978,7 +1003,11 @@ function RTE_Plugin_DocxExport() {
         // getHTMLCode() is the serialized document: presentational
         // plugins strip their own chrome from it, so page overlays,
         // watermarks and formatting marks never reach the file.
-        host.innerHTML = editor.getHTMLCode() || "";
+        host.innerHTML = __RTE_TT(editor.getHTMLCode() || "");
+        // 2026-10-21 comments: their anchors and text live in the editing document and reviewLedger, and
+        // getHTMLCode() strips both, so the export never wrote them. Mark the same text in the copy with
+        // data-comment, which the comment path in inlineXml already writes. tools/docx/comments-roundtrip.mjs
+        try { markCommentsInExport(host); } catch (cmErr) { /* the export without comments */ }
         // Resolve class-based list styling in the editing document, before the
         // export copy leaves the stylesheet's scope. Do not change saved HTML.
         var liveLists = editor.getEditable().querySelectorAll("ol,ul"), exportLists = host.querySelectorAll("ol,ul");

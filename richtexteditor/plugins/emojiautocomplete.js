@@ -171,7 +171,7 @@ function RTE_Plugin_EmojiAutocomplete() {
             popDark = !!hk && (hk.contains("rte-dark") || (hk.contains("rte-auto-dark") && !hk.contains("rte-light") && !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches)));
         } catch (x) { popDark = false; }
         pop.className = "rte-emoji-pop" + (popDark ? " rte-emoji-pop-dark" : "");
-        pop.innerHTML = "";
+        pop.innerHTML = __RTE_TT("");
         items.forEach(function (it, i) {
             var row = hostDoc.createElement("div");
             row.className = "rte-emoji-pop-row" + (i === sel ? " is-active" : "");

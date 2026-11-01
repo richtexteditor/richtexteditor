@@ -435,7 +435,7 @@ function RTE_Plugin_RevisionHistory() {
 
     function stripHtml(html) {
         var tmp = document.createElement("div");
-        tmp.innerHTML = html || "";
+        tmp.innerHTML = __RTE_TT(html || "");
         return tmp.innerText || tmp.textContent || "";
     }
 
@@ -552,7 +552,7 @@ function RTE_Plugin_RevisionHistory() {
         // (or a previous render partially failed) `.rte-rev-panel` may be
         // missing. Bail out instead of dereferencing null on innerHTML.
         if (!panel) { closeDialog(); return; }
-        panel.innerHTML = "";
+        panel.innerHTML = __RTE_TT("");
 
         var header = host.createElement("div");
         header.className = "rte-rev-header";
@@ -677,10 +677,10 @@ function RTE_Plugin_RevisionHistory() {
                 setTimeout(function () {
                     try {
                         iframe.contentDocument.open();
-                        iframe.contentDocument.write(
+                        iframe.contentDocument.write(__RTE_TT(
                             '<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:16px;color:#0f172a;line-height:1.6}img{max-width:100%}</style></head><body>' +
                             (selected.html || "") +
-                            "</body></html>"
+                            "</body></html>")
                         );
                         iframe.contentDocument.close();
                     } catch (err) { }

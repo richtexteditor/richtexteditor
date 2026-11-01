@@ -258,42 +258,20 @@ RTE_DefaultConfig.backColorItems = ["#000000", "#993300", "#333300", "#003300", 
 	"#ff00ff", "#ffcc00", "#ffff00", "#00ff00", "#00ffff", "#00ccff", "#993366", "#c0c0c0",
 	"#ff99cc", "#ffcc99", "#ffff99", "#ccffcc", "#ccffff", "#99ccff", "#cc99ff", "#ffffff"];
 
-RTE_DefaultConfig.linkItems = [
-	"https://www.intel.com"
-	,
-	"https://www.ibm.com"
-	,
-	"https://www.microsoft.com"
-	,
-	"https://www.google.com"
-	,
-	"https://www.apple.com"
-] // A predefined set of links.
+// 2026-10-26 these three shipped DEMO data: every customer's link dialog suggested five big-company sites, and
+// opening the gallery fetched six images from the vendor's server, on a product that makes no outbound calls.
+// They are empty now; set your own, e.g. linkItems = ["/about", "/contact"], galleryImages = ["/img/a.jpg"].
+// An empty list hides the URL field's suggestion arrow. tools/security/no-default-outbound.mjs
+RTE_DefaultConfig.linkItems = [] // Addresses the Insert Link dialog suggests.
 
-RTE_DefaultConfig.imageItems = [
-	"https://richtexteditor.com/uploads/1.jpg",
-	"https://richtexteditor.com/uploads/2.jpg",
-	"https://richtexteditor.com/uploads/3.jpg",
-	"https://richtexteditor.com/uploads/4.jpg",
-	"https://richtexteditor.com/uploads/5.jpg",
-	"https://richtexteditor.com/uploads/6.jpg"
-]	// For insert image by URL
+RTE_DefaultConfig.imageItems = []	// Addresses the Insert Image (by URL) dialog suggests.
 
+RTE_DefaultConfig.galleryImages = []; // Preset images for the gallery dialog: "url", [url, text] or { url, name, alt }.
 
-RTE_DefaultConfig.galleryImages = [
-	"https://richtexteditor.com/uploads/1.jpg",
-	"https://richtexteditor.com/uploads/2.jpg",
-	"https://richtexteditor.com/uploads/3.jpg",
-	"https://richtexteditor.com/uploads/4.jpg",
-	"https://richtexteditor.com/uploads/5.jpg",
-	"https://richtexteditor.com/uploads/6.jpg"
-]; // Default images for gallery Images dialog. 
-
-RTE_DefaultConfig.htmlTemplates = [
-	["My Doc 1", "<h2>MyTitleMyTitleMyTitleMyTitleMyTitleMyTitleMyTitle</h2><p>Paragraph 1 </p><p>Paragraph 2 </p><p>Paragraph 3 </p><p>Paragraph 4 </p><p>Paragraph 5 </p>"]
-	,
-	["My Doc 1", "<h2>MyTitleMyTitleMyTitle</h2><p>Paragraph 1 </p><p>Paragraph 2 </p><p>Paragraph 3 </p><p>Paragraph 4 </p><p>Paragraph 5 </p>"]
-];// Default html Templates for html Templates dialog.
+// 2026-10-26 shipped two demo templates, both named "My Doc 1" ("MyTitleMyTitle..."), in every Insert Template
+// dialog. Empty now; set your own: htmlTemplates = [["Letter", "<p>Dear ...</p>"]] or { title, html, description }.
+// tools/templates/template-defaults.mjs
+RTE_DefaultConfig.htmlTemplates = [];// Templates the Insert Template dialog offers.
 
 // Slash command menu — type "/" at the start of a line or after whitespace to open an inline command picker.
 // Set slashCommandEnabled to false to disable. Set slashCommandIncludeAi to false to hide AI actions from the menu.

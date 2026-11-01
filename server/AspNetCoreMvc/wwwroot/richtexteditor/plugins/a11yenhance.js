@@ -41,7 +41,9 @@ function RTE_Plugin_A11yEnhance() {
 
     function label() {
         // 2026-10-18 the default name reads the language pack (text_editingarea). tools/i18n/plugin-default-keys.mjs
-        return config.contentAriaLabel || config.contentLabel || config.text_editingarea || "Rich text editor. Editing area.";
+        // 2026-10-26 a11yEditorLabel too: keyboarda11y (its only reader) keeps the name this sets, so it never applied
+        // when both plugins were loaded. tools/a11y/editor-label-options.mjs
+        return config.contentAriaLabel || config.contentLabel || config.a11yEditorLabel || config.text_editingarea || "Rich text editor. Editing area.";
     }
 
     function lang() {

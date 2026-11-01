@@ -128,7 +128,7 @@ function RTE_Plugin_SpellCheck() {
         var list = append(wrap, "div", "");
 
         function renderIssues(issues) {
-            list.innerHTML = "";
+            list.innerHTML = __RTE_TT("");
             if (!issues || !issues.length) {
                 status.innerText = (editor.getLangText && editor.getLangText("spellcheckclean")) || "No spelling issues found.";
                 return;
@@ -151,8 +151,8 @@ function RTE_Plugin_SpellCheck() {
                     chip.onclick = function () {
                         if (replaceFirst(iss.word, s)) {
                             row.style.opacity = "0.45";
-                            head.innerHTML = esc(iss.word) + ' &rarr; <span style="color:#16a34a">' + esc(s) + "</span>";
-                            sug.innerHTML = "";
+                            head.innerHTML = __RTE_TT(esc(iss.word) + ' &rarr; <span style="color:#16a34a">' + esc(s) + "</span>");
+                            sug.innerHTML = __RTE_TT("");
                         }
                     };
                 });

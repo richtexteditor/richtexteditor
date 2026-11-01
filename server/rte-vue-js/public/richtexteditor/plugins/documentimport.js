@@ -415,7 +415,7 @@ function RTE_Plugin_DocumentImport() {
     function parseRels(xml) {
         var map = {};
         try {
-            var d = new DOMParser().parseFromString(xml, "application/xml");
+            var d = new DOMParser().parseFromString(__RTE_TT(xml), "application/xml");
             var rs = d.getElementsByTagName("*");
             for (var i = 0; i < rs.length; i++) {
                 if (rs[i].localName !== "Relationship") continue;
@@ -438,7 +438,7 @@ function RTE_Plugin_DocumentImport() {
         var out = {};
         try {
             var W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
-            var d = new DOMParser().parseFromString(xml, "application/xml");
+            var d = new DOMParser().parseFromString(__RTE_TT(xml), "application/xml");
             var notes = d.getElementsByTagNameNS(W, tagName || "footnote");
             for (var i = 0; i < notes.length; i++) {
                 var n = notes[i];
@@ -460,7 +460,7 @@ function RTE_Plugin_DocumentImport() {
         var out = {};
         try {
             var W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
-            var d = new DOMParser().parseFromString(xml, "application/xml");
+            var d = new DOMParser().parseFromString(__RTE_TT(xml), "application/xml");
             var cs = d.getElementsByTagNameNS(W, "comment");
             for (var i = 0; i < cs.length; i++) {
                 var c = cs[i];
@@ -490,7 +490,7 @@ function RTE_Plugin_DocumentImport() {
         var out = [];
         try {
             var DGM = "http://schemas.openxmlformats.org/drawingml/2006/diagram";
-            var d = new DOMParser().parseFromString(xml, "application/xml");
+            var d = new DOMParser().parseFromString(__RTE_TT(xml), "application/xml");
             var pts = d.getElementsByTagNameNS(DGM, "pt");
             for (var i = 0; i < pts.length; i++) {
                 var type = pts[i].getAttribute("type") || "";
@@ -512,7 +512,7 @@ function RTE_Plugin_DocumentImport() {
         var out = {};
         try {
             var W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
-            var d = new DOMParser().parseFromString(xml, "application/xml");
+            var d = new DOMParser().parseFromString(__RTE_TT(xml), "application/xml");
             function val(el) { return el ? (el.getAttributeNS(W, "val") || el.getAttribute("w:val") || "") : ""; }
 
             // abstractNumId -> { ilvl -> numFmt }
@@ -830,7 +830,7 @@ function RTE_Plugin_DocumentImport() {
     function docxXmlToHtml(xml, ctx) {
         ctx = ctx || { rels: {}, numbering: {}, media: {} };
         if (!ctx.diagrams) ctx.diagrams = {};
-        var doc = new DOMParser().parseFromString(xml, "application/xml");
+        var doc = new DOMParser().parseFromString(__RTE_TT(xml), "application/xml");
         var W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
         var R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 
@@ -1441,10 +1441,32 @@ function RTE_Plugin_DocumentImport() {
                     var span = parseInt(wv(tcPr && firstChildEl(tcPr, "gridSpan")), 10) || 1;
                     var vm = tcPr && firstChildEl(tcPr, "vMerge");
                     if (vm && wv(vm) !== "restart" && openMerge[gcol]) { openMerge[gcol].rowspan++; gcol += span; continue; }
-                    var cellHtml = "";
+                    // 2026-10-21 a list inside a cell stays a list: its paragraphs were flattened to <p>, so a
+                    // bulleted or numbered list in a Word table cell came in as plain lines. tools/review/word-cell-list.mjs
+                    var cellHtml = "", cellStack = [];
+                    var cellPop = function () { var t = cellStack.pop(); if (t.open) cellHtml += "</li>"; cellHtml += "</" + t.tag + ">"; };
                     for (var k = 0; k < tc.childNodes.length; k++) {
-                        if (tc.childNodes[k].localName === "p") cellHtml += "<p>" + (paraInner(tc.childNodes[k]) || "<br>") + "</p>";
+                        if (tc.childNodes[k].localName !== "p") continue;
+                        var cpP = tc.childNodes[k], cpSt = paraStyle(cpP), cpIn = paraInner(cpP) || "<br>";
+                        if (!cpSt.list) {
+                            while (cellStack.length) cellPop();
+                            cellHtml += "<p>" + cpIn + "</p>";
+                            continue;
+                        }
+                        var cpWant = (cpSt.level || 0) + 1, cpTag = cpSt.ordered ? "ol" : "ul";
+                        while (cellStack.length > cpWant) cellPop();
+                        if (cellStack.length === cpWant && cellStack[cpWant - 1].tag !== cpTag) cellPop();
+                        if (cellStack.length === cpWant) {
+                            var cpCur = cellStack[cpWant - 1];
+                            if (cpCur.open) cellHtml += "</li>";
+                            cpCur.open = true;
+                        } else {
+                            while (cellStack.length < cpWant) { cellStack.push({ tag: cpTag, open: false }); cellHtml += "<" + cpTag + ">"; }
+                            cellStack[cpWant - 1].open = true;
+                        }
+                        cellHtml += "<li>" + cpIn;
                     }
+                    while (cellStack.length) cellPop();
                     var cellObj = { tag: cellTag, html: cellHtml, colspan: span, rowspan: 1 };
                     cells.push(cellObj);
                     for (var sc = gcol; sc < gcol + span; sc++) delete openMerge[sc];

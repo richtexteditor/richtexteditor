@@ -1,6 +1,32 @@
 /* RichTextEditor CRDT engine — bundled for rte.js consumption. See https://richtexteditor.com/docs/crdt-internals.aspx */
 "use strict";
 (() => {
+// Trusted Types: the same guarded helper rte.js defines, for when this file loads before (or without) rte.js.
+// tools/csp/trusted-types.mjs
+if (!window.RTE_TrustedTypes) window.RTE_TrustedTypes = (function () {
+	var policy;
+	function get() {
+		if (policy !== undefined) return policy;
+		policy = null;
+		try {
+			if (window.trustedTypes && window.trustedTypes.createPolicy)
+				policy = window.trustedTypes.createPolicy("richtexteditor", {
+					createHTML: function (s) { return s; },
+					createScriptURL: function (s) { return s; }
+				});
+		} catch (e) {
+			policy = null;
+			if (window.console && console.warn) console.warn("RichTextEditor: could not create the Trusted Types policy \"richtexteditor\" - add it to the page's trusted-types directive. " + e.message);
+		}
+		return policy;
+	}
+	return {
+		html: function (s) { var p = get(); return p ? p.createHTML(s == null ? "" : String(s)) : s; },
+		scriptURL: function (s) { var p = get(); return p ? p.createScriptURL(String(s)) : s; }
+	};
+})();
+function __RTE_TT(s) { return window.RTE_TrustedTypes.html(s); }
+
   var __defProp = Object.defineProperty;
   var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
   var __export = (target, all2) => {
@@ -10984,7 +11010,7 @@ ${err.toString()}`);
     const fragmentName = (_a = opts.fragmentName) != null ? _a : "default";
     const fragment = opts.ydoc.getXmlFragment(fragmentName);
     const sandbox = opts.parserDocument.createElement("div");
-    sandbox.innerHTML = opts.html;
+    sandbox.innerHTML = __RTE_TT(opts.html);
     let host = sandbox;
     const bodyChild = sandbox.querySelector("body");
     if (bodyChild) host = bodyChild;

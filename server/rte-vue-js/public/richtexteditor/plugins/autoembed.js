@@ -141,7 +141,7 @@ function RTE_Plugin_AutoEmbed() {
                 var doc = editor.getDocument();
                 injectStyles(doc);
                 var holder = doc.createElement("div");
-                holder.innerHTML = buildEmbedHtml(embedUrl) + '<p><br></p>';
+                holder.innerHTML = __RTE_TT(buildEmbedHtml(embedUrl) + '<p><br></p>');
                 var parent = b.parentNode; if (!parent) return;
                 var firstInserted = holder.firstChild, lastP = holder.lastChild;
                 while (holder.firstChild) parent.insertBefore(holder.firstChild, b);

@@ -159,7 +159,7 @@ function RTE_Plugin_MarkdownExport() {
             if (!state) return;
             var html = "";
             try { html = editor.fromMarkdown(state.area.value, { apply: false }); } catch (e) { html = ""; }
-            state.preview.innerHTML = html;
+            state.preview.innerHTML = __RTE_TT(html);
             syncPreviewScroll();
         }
 

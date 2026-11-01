@@ -51,7 +51,7 @@ function RTE_Plugin_InsertEmoji() {
 		emojiNameWaiters = [done];
 		var base = String((config && config.url_base) || "/richtexteditor").replace(/\/+$/, "");
 		var s = document.createElement("script");
-		s.src = base + "/lang/emoji/rte-emoji-" + l + ".js";
+		s.src = window.RTE_TrustedTypes.scriptURL(base + "/lang/emoji/rte-emoji-" + l + ".js");
 		s.charset = "utf-8";
 		var finish = function () { var w = emojiNameWaiters || []; emojiNameWaiters = null; for (var i = 0; i < w.length; i++) { try { w[i](); } catch (e) { /* ignore */ } } };
 		s.onload = finish;
@@ -324,7 +324,7 @@ function RTE_Plugin_InsertEmoji() {
 							hitsHtml.push('<gitem class="rte-flex-column-center" style="width:32px;height:32px;margin:2px"><gspan role="menuitem" tabindex="0" aria-label="' + (emojiName(item) || item.emoji).replace(/"/g, '') + '" htmlcode="' + htmlcode + '" title="' + item.emoji + ' ' + emojiName(item).replace(/"/g, '') + '">' + htmlcode + '</gspan></gitem>');
 						}
 					}
-					resultpanel.innerHTML = '<div style="width:100%;padding:3px;margin-top:5px;color:' + headColor + ';text-align:center;">' + emojiItemsText(itemindex) + '</div>' + hitsHtml.join('');
+					resultpanel.innerHTML = __RTE_TT('<div style="width:100%;padding:3px;margin-top:5px;color:' + headColor + ';text-align:center;">' + emojiItemsText(itemindex) + '</div>' + hitsHtml.join(''));
 				}
 
 				panel.setAttribute("id", "emoji-picker");
@@ -347,7 +347,7 @@ function RTE_Plugin_InsertEmoji() {
 				// gi -1 is Recently used, the first tab when there is one
 				function renderCategory(gi) {
 					activeGroupIndex = gi;
-					grouppanel.innerHTML = buildCategoryHTML(gi === -1 ? recentGroup : emojidata[gi]);
+					grouppanel.innerHTML = __RTE_TT(buildCategoryHTML(gi === -1 ? recentGroup : emojidata[gi]));
 					grouppanel.scrollTop = 0;
 					for (var bi = 0; bi < tabuibtns.length; bi++) {
 						tabuibtns[bi].className = tabuibtns[bi].__rteGroup === gi ? "rte-ui-active" : "";
@@ -363,7 +363,7 @@ function RTE_Plugin_InsertEmoji() {
 					(function (group) {
 						var btn = __Append(tabuitoolbar, "rte-tabui-toolbar-button", "width:32px;text-align:center;margin:4px");
 						btn.setAttribute("title", emojiGroupLabel(group.name));
-						btn.innerHTML = group.items[0].emoji;
+						btn.innerHTML = __RTE_TT(group.items[0].emoji);
 						btn.__rteGroup = group.index;
 						btn.onclick = function () { renderCategory(group.index); };
 						tabuibtns.push(btn);

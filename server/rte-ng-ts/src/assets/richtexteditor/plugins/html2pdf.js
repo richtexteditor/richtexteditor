@@ -160,18 +160,18 @@ function RTE_Plugin_Html2PDF() {
 
 		var div2 = __Append(dialoginner, "div", "position:relative;text-align:center;");
 
-		div2.innerHTML = "Loading...";
+		div2.innerHTML = __RTE_TT("Loading...");
 
 		var imgrect = __Append(dialoginner, "div", "position:relative;text-align:center;")
 
 		window.html2pdf_callback = function (win) {
 
 			if (!win.html2pdf) {
-				div2.innerHTML = "Failed to load script.";
+				div2.innerHTML = __RTE_TT("Failed to load script.");
 				return;
 			}
 
-			div2.innerHTML = "Exporting...";
+			div2.innerHTML = __RTE_TT("Exporting...");
 
 			// Honor the document's own page setup (paper size, orientation and
 			// margins) so the exported PDF matches the paginated page view and the
@@ -193,7 +193,7 @@ function RTE_Plugin_Html2PDF() {
 
 				var dataurl = img.getAttribute('src');
 				if (dataurl.indexOf("base64") == -1) {
-					div2.innerHTML = "Error, no data.";
+					div2.innerHTML = __RTE_TT("Error, no data.");
 					return;
 				}
 
@@ -208,7 +208,7 @@ function RTE_Plugin_Html2PDF() {
 						bin[i] = str.charCodeAt(i);
 					var blob = new Blob([new Uint8Array(bin)], { type: "application/pdf" })
 					var url = URL.createObjectURL(blob);
-					div2.innerHTML = Math.ceil(str.length / 1024) + "KB Exported<br/><a href='" + url + "' target=_blank>Download PDF</a>";
+					div2.innerHTML = __RTE_TT(Math.ceil(str.length / 1024) + "KB Exported<br/><a href='" + url + "' target=_blank>Download PDF</a>");
 
 					var pdflink = div2.querySelector("a");
 
@@ -248,10 +248,10 @@ function RTE_Plugin_Html2PDF() {
 
 		iframe = __Append(div1, "iframe", "align-self:center;flex:99;width:100%;height:0px;border:0px;", "rte-editable");
 		iframe.contentDocument.open("text/html");
-		iframe.contentDocument.write("<html><head><link id='url-css-preview' rel='stylesheet' href='" + editor.htmlEncode(config.previewCssUrl) + "'/>"
+		iframe.contentDocument.write(__RTE_TT("<html><head><link id='url-css-preview' rel='stylesheet' href='" + editor.htmlEncode(config.previewCssUrl) + "'/>"
 			+ "<script src='" + editor.htmlEncode(resolveScriptUrl()) + "'></script></head><body style='padding:10px;margin:0px'>"
 			+ editor.getHTMLCode() + "</body>"
-			+ "<script>window.onload=function(){setTimeout(function(){parent.html2pdf_callback(window)},100)}</script></html>")
+			+ "<script>window.onload=function(){setTimeout(function(){parent.html2pdf_callback(window)},100)}</script></html>"))
 		iframe.contentDocument.close();
 
 	}

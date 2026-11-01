@@ -659,7 +659,7 @@ function RTE_Plugin_SlashCommand() {
 
     function renderItems() {
         if (!popupEl) return;
-        popupEl.innerHTML = "";
+        popupEl.innerHTML = __RTE_TT("");
 
         if (!filtered.length) {
             var empty = popupHost.createElement("div");
@@ -688,7 +688,7 @@ function RTE_Plugin_SlashCommand() {
 
                 var icon = popupHost.createElement("span");
                 icon.className = "rte-slash-item-icon";
-                icon.innerHTML = cmd.iconSvg || iconDot();
+                icon.innerHTML = __RTE_TT(cmd.iconSvg || iconDot());
                 item.appendChild(icon);
 
                 var body = popupHost.createElement("span");

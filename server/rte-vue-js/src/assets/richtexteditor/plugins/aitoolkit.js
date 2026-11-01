@@ -99,6 +99,15 @@ function RTE_Plugin_AIToolkit() {
     var obj = this;
     var config;
     var editor;
+    // 2026-10-25 UI words outside InitConfig (inline review chips, review shortcuts, Ask AI result / plan, the legacy
+    // review layout) read config.text_ keys with English as the fallback; {0} and {1} take the values.
+    // tools/i18n/ai-review-chips-language.mjs
+    function uiT(key, fallback, a, b) {
+        var s = (config && config["text_" + key]) || fallback;
+        if (a !== undefined) s = s.split("{0}").join(String(a));
+        if (b !== undefined) s = s.split("{1}").join(String(b));
+        return s;
+    }
 
     obj.PluginName = "AIToolkit";
 
@@ -193,7 +202,6 @@ function RTE_Plugin_AIToolkit() {
         config.aiToolkitSuggestionLedgerUrl = config.aiToolkitSuggestionLedgerUrl || "";
         config.aiToolkitReviewLogUrl = config.aiToolkitReviewLogUrl || "";
         config.aiToolkitAutoToolbarButtons = config.aiToolkitAutoToolbarButtons !== false;
-        config.aiToolkitUiVersion = config.aiToolkitUiVersion || "v20260520k";
 
         appendToolbarCommand("toolbar_default", "#{aiassist}");
         appendToolbarCommand("toolbar_basic", "#{aiassist}");
@@ -3127,7 +3135,7 @@ function RTE_Plugin_AIToolkit() {
         if (!html) return "";
         html = String(html);
         if (typeof editor.sanitizeHtml === "function") html = editor.sanitizeHtml(html);
-        var doc = new DOMParser().parseFromString("<body>" + html + "</body>", "text/html");
+        var doc = new DOMParser().parseFromString(__RTE_TT("<body>" + html + "</body>"), "text/html");
         var styled = doc.body.querySelectorAll("[style]");
         for (var i = 0; i < styled.length; i++) {
             var st = styled[i].style;
@@ -3600,7 +3608,7 @@ function RTE_Plugin_AIToolkit() {
 
             if (suggestion.status === "pending") {
                 if (resolvedWrapper) {
-                    resolvedWrapper.outerHTML = createInlinePreviewHtml(suggestion);
+                    resolvedWrapper.outerHTML = __RTE_TT(createInlinePreviewHtml(suggestion));
                     updated = true;
                 }
                 continue;
@@ -3609,7 +3617,7 @@ function RTE_Plugin_AIToolkit() {
             if (suggestion.status === "accepted" || suggestion.status === "rejected" || suggestion.status === "stale") {
                 var resolvedHtml = getResolvedSuggestionHtml(suggestion, suggestion.status);
                 if (previewWrapper) {
-                    previewWrapper.outerHTML = resolvedHtml;
+                    previewWrapper.outerHTML = __RTE_TT(resolvedHtml);
                     updated = true;
                 }
                 else if (resolvedWrapper && (
@@ -3618,7 +3626,7 @@ function RTE_Plugin_AIToolkit() {
                         ? (suggestion.resultHtml || textToInlineHtml(suggestion.resultText || ""))
                         : (suggestion.originalHtml || textToInlineHtml(suggestion.originalText || "")))
                 )) {
-                    resolvedWrapper.outerHTML = resolvedHtml;
+                    resolvedWrapper.outerHTML = __RTE_TT(resolvedHtml);
                     updated = true;
                 }
             }
@@ -4404,7 +4412,7 @@ function RTE_Plugin_AIToolkit() {
         }
 
         remoteChip.textContent = sharedUpdateCount > 1 ? sharedUpdateCount + " shared updates" : "Shared update";
-        remoteChip.setAttribute("aria-label", "Shared AI review updates");
+        remoteChip.setAttribute("aria-label", uiT("aiu_sharedupdates", "Shared AI review updates"));
 
         var referenceNode = anchorNode && anchorNode.parentNode === wrapper ? anchorNode : (wrapper.querySelector ? wrapper.querySelector(".rte-ai-inline-preview-actions") : null);
         if (referenceNode && referenceNode.parentNode === wrapper) {
@@ -4600,7 +4608,7 @@ function RTE_Plugin_AIToolkit() {
                             wrappers[i].appendChild(openedChip);
                         }
                     }
-                    openedChip.textContent = "Queue opened";
+                    openedChip.textContent = uiT("aiu_queueopened", "Queue opened");
                     openedChip.setAttribute("aria-label", "AI review queue opened");
                 }
                 else if (openedChip && openedChip.parentNode) {
@@ -4631,7 +4639,7 @@ function RTE_Plugin_AIToolkit() {
                                 wrappers[i].appendChild(focusChip);
                             }
                         }
-                        focusChip.textContent = "Focus " + queueFocusLabel;
+                        focusChip.textContent = uiT("aiu_focus", "Focus {0}", aiqText(queueFocusLabel) || queueFocusLabel);
                         focusChip.setAttribute("aria-label", "Queue opens on " + queueFocusLabel);
                     }
                     else if (focusChip && focusChip.parentNode) {
@@ -4717,9 +4725,9 @@ function RTE_Plugin_AIToolkit() {
                             actionsNodeForSharedState.appendChild(sharedSeenButton);
                         }
                     }
-                    sharedSeenButton.textContent = "Got it";
-                    sharedSeenButton.setAttribute("aria-label", "Clear shared AI review update notice");
-                    sharedSeenButton.title = "Clear shared AI review update notice";
+                    sharedSeenButton.textContent = uiT("aiu_gotit", "Got it");
+                    sharedSeenButton.setAttribute("aria-label", uiT("aiu_clearshared", "Clear shared AI review update notice"));
+                    sharedSeenButton.title = uiT("aiu_clearshared", "Clear shared AI review update notice");
                     applyInlineReviewButtonShortcutState(sharedSeenButton, "Clear shared AI review update notice", inlineButtonShortcutOptions);
                 }
                 else if (sharedSeenButton && sharedSeenButton.parentNode) {
@@ -4775,8 +4783,8 @@ function RTE_Plugin_AIToolkit() {
                             }
                         }
                     }
-                    queueChip.textContent = "Item " + pendingPosition.index + " of " + pendingPosition.total;
-                    queueChip.setAttribute("aria-label", "Current AI review queue position");
+                    queueChip.textContent = uiT("aiu_itemof", "Item {0} of {1}", pendingPosition.index, pendingPosition.total);
+                    queueChip.setAttribute("aria-label", uiT("aiu_queuepos", "Current AI review queue position"));
                 }
                 else if (queueChip && queueChip.parentNode) {
                     queueChip.parentNode.removeChild(queueChip);
@@ -4852,7 +4860,7 @@ function RTE_Plugin_AIToolkit() {
                             wrappers[i].appendChild(undoNextChip);
                         }
                     }
-                    undoNextChip.textContent = "Then " + undoInlineNextItem.label;
+                    undoNextChip.textContent = uiT("aiu_then", "Then {0}", aiqText(undoInlineNextItem.label) || undoInlineNextItem.label);
                     undoNextChip.setAttribute("aria-label", "Undo after this: " + undoInlineNextItem.detail);
                 }
                 else if (undoNextChip && undoNextChip.parentNode) {
@@ -4888,7 +4896,7 @@ function RTE_Plugin_AIToolkit() {
                             wrappers[i].appendChild(redoNextChip);
                         }
                     }
-                    redoNextChip.textContent = "Then " + redoInlineNextItem.label;
+                    redoNextChip.textContent = uiT("aiu_then", "Then {0}", aiqText(redoInlineNextItem.label) || redoInlineNextItem.label);
                     redoNextChip.setAttribute("aria-label", "Redo after this: " + redoInlineNextItem.detail);
                 }
                 else if (redoNextChip && redoNextChip.parentNode) {
@@ -4907,7 +4915,7 @@ function RTE_Plugin_AIToolkit() {
                         }
                     }
                     shortcutsChip.textContent = getSuggestionQueueShortcutHint(suggestion);
-                    shortcutsChip.setAttribute("aria-label", "Inline queue preview shortcut");
+                    shortcutsChip.setAttribute("aria-label", uiT("aiu_previewshortcut", "Inline queue preview shortcut"));
                 }
                 else if (!shortcutsChip) {
                     shortcutsChip = document.createElement("span");
@@ -5087,7 +5095,7 @@ function RTE_Plugin_AIToolkit() {
                             wrappers[i].appendChild(focusChip);
                         }
                     }
-                    focusChip.textContent = "Focus " + reviewFocusLabel;
+                    focusChip.textContent = uiT("aiu_focus", "Focus {0}", aiqText(reviewFocusLabel) || reviewFocusLabel);
                     focusChip.setAttribute("aria-label", "Review opens on " + reviewFocusLabel);
                 }
                 else if (focusChip && focusChip.parentNode) {
@@ -5599,17 +5607,17 @@ function RTE_Plugin_AIToolkit() {
         shortcutsChip.classList.toggle("is-preview", state === "preview");
         if (state === "preview") {
             renderInlineReviewShortcutDisplayContent(shortcutsChip, "Queue shortcut", getSuggestionQueueShortcutHint(options.suggestion));
-            shortcutsChip.setAttribute("aria-label", "Inline queue preview shortcut");
+            shortcutsChip.setAttribute("aria-label", uiT("aiu_previewshortcut", "Inline queue preview shortcut"));
             return true;
         }
         if (state && state !== "wrapper") {
             shortcutsChip.classList.add("is-action");
             renderInlineReviewShortcutDisplayContent(shortcutsChip, "Keyboard guide", getInlineReviewActionShortcutHint(state, options));
-            shortcutsChip.setAttribute("aria-label", "Inline AI review action shortcuts");
+            shortcutsChip.setAttribute("aria-label", uiT("aiu_actionshortcuts", "Inline AI review action shortcuts"));
             return true;
         }
         renderInlineReviewShortcutDisplayContent(shortcutsChip, "Keyboard guide", getInlineReviewWrapperShortcutHint(options));
-        shortcutsChip.setAttribute("aria-label", "Inline AI review shortcuts");
+        shortcutsChip.setAttribute("aria-label", uiT("aiu_reviewshortcuts", "Inline AI review shortcuts"));
         return true;
     }
 
@@ -6315,7 +6323,7 @@ function RTE_Plugin_AIToolkit() {
             labelNode.className = "rte-ai-inline-preview-reason-label";
             reasonNode.appendChild(labelNode);
         }
-        labelNode.textContent = "Why";
+        labelNode.textContent = uiT("air_why", "Why");
         if (!copyNode) {
             copyNode = document.createElement("span");
             copyNode.className = "rte-ai-inline-preview-reason-copy";
@@ -6928,7 +6936,7 @@ function RTE_Plugin_AIToolkit() {
         info.className = "rte-ai-menu-info is-minimal is-detached";
         var titleRow = append(info, "div", "", "rte-ai-menu-title-row");
         var titleIcon = append(titleRow, "span", "", "rte-ai-menu-title-icon");
-        titleIcon.innerHTML = config.svgCode_aiassist || "";
+        titleIcon.innerHTML = __RTE_TT(config.svgCode_aiassist || "");
         append(titleRow, "div", "", "rte-ai-menu-title", config.text_aiassist || "Ask AI");
 
         // 2026-05-27 (v20260527a): type-to-filter search bar pinned to the
@@ -6960,7 +6968,7 @@ function RTE_Plugin_AIToolkit() {
         // still click anywhere in the input to focus the textbox.
         var searchIcon = append(searchRow, "span", "", "rte-ai-menu-search-icon");
         searchIcon.setAttribute("aria-hidden", "true");
-        searchIcon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6"/><path d="M19 19l-3.4-3.4"/></svg>';
+        searchIcon.innerHTML = __RTE_TT('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6"/><path d="M19 19l-3.4-3.4"/></svg>');
         var searchInput = panel.ownerDocument.createElement("input");
         searchInput.type = "text";
         searchInput.className = "rte-ai-menu-search-input";
@@ -7028,7 +7036,7 @@ function RTE_Plugin_AIToolkit() {
                     button.setAttribute("aria-label", (action.title || action.id) + " \u2014 " + action.description);
                 }
                 var icon = append(button, "span", "", "rte-ai-menu-item-icon");
-                icon.innerHTML = getActionIconSvg(action);
+                icon.innerHTML = __RTE_TT(getActionIconSvg(action));
                 var body = append(button, "span", "", "rte-ai-menu-item-body");
                 append(body, "span", "", "rte-ai-menu-item-title", action.title || action.id);
                 append(body, "span", "", "rte-ai-menu-item-copy", action.description || "");
@@ -7394,7 +7402,7 @@ function RTE_Plugin_AIToolkit() {
             return false;
         }
 
-        wrapper.outerHTML = getResolvedSuggestionHtml(previewState, "accepted");
+        wrapper.outerHTML = __RTE_TT(getResolvedSuggestionHtml(previewState, "accepted"));
         previewState.status = "accepted";
         previewState.decidedAt = new Date().getTime();
         setLastReviewDecision(previewState, "accepted");
@@ -7432,7 +7440,7 @@ function RTE_Plugin_AIToolkit() {
             return false;
         }
 
-        wrapper.outerHTML = getResolvedSuggestionHtml(previewState, "rejected");
+        wrapper.outerHTML = __RTE_TT(getResolvedSuggestionHtml(previewState, "rejected"));
         previewState.status = "rejected";
         previewState.decidedAt = new Date().getTime();
         setLastReviewDecision(previewState, "rejected");
@@ -7468,7 +7476,7 @@ function RTE_Plugin_AIToolkit() {
 
         suggestion.status = "pending";
         suggestion.decidedAt = 0;
-        wrapper.outerHTML = createInlinePreviewHtml(suggestion);
+        wrapper.outerHTML = __RTE_TT(createInlinePreviewHtml(suggestion));
         getReviewState().showResolved = false;
         pushRedoReviewDecision(suggestion, undoable.status);
         popLastReviewDecision();
@@ -7507,7 +7515,7 @@ function RTE_Plugin_AIToolkit() {
             return false;
         }
 
-        wrapper.outerHTML = getResolvedSuggestionHtml(suggestion, redoable.status);
+        wrapper.outerHTML = __RTE_TT(getResolvedSuggestionHtml(suggestion, redoable.status));
         suggestion.status = redoable.status;
         suggestion.decidedAt = new Date().getTime();
         getReviewState().showResolved = false;
@@ -8356,7 +8364,7 @@ function RTE_Plugin_AIToolkit() {
             || "Locate";
         actionNode.innerText = focusLabel;
         if (detailNode) {
-            detailNode.innerText = "Press Enter to reopen this suggestion and land on " + focusLabel + ".";
+            detailNode.innerText = uiT("aiu_reopenhint", "Press Enter to reopen this suggestion and land on {0}.", aiqText(focusLabel) || focusLabel);
         }
         if (item && item.setAttribute) {
             item.setAttribute("data-rte-ai-review-open-action-label", focusLabel);
@@ -8382,7 +8390,7 @@ function RTE_Plugin_AIToolkit() {
         if (!titleNode) {
             titleNode = append(moduleNode, "span", "", "rte-ai-review-item-condensed-shortcuts-title");
         }
-        titleNode.textContent = "More keys";
+        titleNode.textContent = uiT("aiu_morekeys", "More keys");
         var bodyNode = moduleNode.querySelector ? moduleNode.querySelector(".rte-ai-review-item-condensed-shortcuts-body") : null;
         if (!bodyNode) {
             bodyNode = append(moduleNode, "div", "", "rte-ai-review-shortcuts rte-ai-review-item-condensed-shortcuts-body");
@@ -8662,7 +8670,7 @@ function RTE_Plugin_AIToolkit() {
                         wrapper.appendChild(focusChip);
                     }
                 }
-                focusChip.textContent = "Focus " + reviewFocusLabel;
+                focusChip.textContent = uiT("aiu_focus", "Focus {0}", aiqText(reviewFocusLabel) || reviewFocusLabel);
                 focusChip.setAttribute("aria-label", "Review opens on " + reviewFocusLabel);
             }
             else if (focusChip && focusChip.parentNode) {
@@ -12276,17 +12284,17 @@ function RTE_Plugin_AIToolkit() {
         }
         var headerStatusNode = panel.querySelector(".rte-ai-chat-header-status.is-status");
         if (headerStatusNode) {
-            headerStatusNode.innerHTML = "";
+            headerStatusNode.innerHTML = __RTE_TT("");
             headerStatusNode.innerText = headerData.statusLabel;
         }
         var headerScopeNode = panel.querySelector(".rte-ai-chat-header-status.is-scope");
         if (headerScopeNode) {
-            headerScopeNode.innerHTML = "";
+            headerScopeNode.innerHTML = __RTE_TT("");
             headerScopeNode.innerText = headerData.scopeFocusLabel;
         }
         var headerSubtitleNode = panel.querySelector(".rte-ai-chat-subtitle");
         if (headerSubtitleNode) {
-            headerSubtitleNode.innerHTML = "";
+            headerSubtitleNode.innerHTML = __RTE_TT("");
             headerSubtitleNode.innerText = headerData.subtitle;
         }
         syncChatPillGroup(panel.querySelector(".rte-ai-chat-header-meta"), headerData.metaPills, "rte-ai-chat-header-meta-pill");
@@ -12327,7 +12335,7 @@ function RTE_Plugin_AIToolkit() {
         syncChatPillGroup(panel.querySelector(".rte-ai-chat-context-summary-meta"), contextData.summaryPills, "rte-ai-chat-context-summary-pill");
         var contextSummaryTextNode = panel.querySelector(".rte-ai-chat-context-summary-text");
         if (contextSummaryTextNode) {
-            contextSummaryTextNode.innerHTML = "";
+            contextSummaryTextNode.innerHTML = __RTE_TT("");
             contextSummaryTextNode.innerText = contextData.detail;
         }
         var contextPreviewNode = panel.querySelector(".rte-ai-chat-context-preview");
@@ -12337,13 +12345,13 @@ function RTE_Plugin_AIToolkit() {
         }
         var contextPreviewTitleNode = panel.querySelector(".rte-ai-chat-context-preview-title");
         if (contextPreviewTitleNode) {
-            contextPreviewTitleNode.innerHTML = "";
+            contextPreviewTitleNode.innerHTML = __RTE_TT("");
             contextPreviewTitleNode.innerText = contextData.previewTitle;
         }
         syncChatPillGroup(panel.querySelector(".rte-ai-chat-context-preview-meta"), contextData.previewMetaPills, "rte-ai-chat-context-preview-pill");
         var contextPreviewCopyNode = panel.querySelector(".rte-ai-chat-context-preview-copy");
         if (contextPreviewCopyNode) {
-            contextPreviewCopyNode.innerHTML = "";
+            contextPreviewCopyNode.innerHTML = __RTE_TT("");
             contextPreviewCopyNode.innerText = contextData.previewSummary;
         }
 
@@ -12370,7 +12378,7 @@ function RTE_Plugin_AIToolkit() {
         syncChatPillGroup(panel.querySelector(".rte-ai-chat-quick-summary-meta"), quickStartData.metaPills, "rte-ai-chat-quick-summary-pill");
         var quickSummaryTextNode = panel.querySelector(".rte-ai-chat-quick-summary-text");
         if (quickSummaryTextNode) {
-            quickSummaryTextNode.innerHTML = "";
+            quickSummaryTextNode.innerHTML = __RTE_TT("");
             quickSummaryTextNode.innerText = quickStartData.detail;
         }
 
@@ -12399,12 +12407,12 @@ function RTE_Plugin_AIToolkit() {
         var composerStatusPillNode = panel.querySelector(".rte-ai-chat-status-pill");
         if (composerStatusPillNode) {
             composerStatusPillNode.className = "rte-ai-chat-status-pill is-" + composerData.statusTone;
-            composerStatusPillNode.innerHTML = "";
+            composerStatusPillNode.innerHTML = __RTE_TT("");
             composerStatusPillNode.innerText = composerData.statusLabel;
         }
         var composerStatusTextNode = panel.querySelector(".rte-ai-chat-status-text");
         if (composerStatusTextNode) {
-            composerStatusTextNode.innerHTML = "";
+            composerStatusTextNode.innerHTML = __RTE_TT("");
             composerStatusTextNode.innerText = composerData.statusText;
         }
         var composerActionsNode = panel.querySelector(".rte-ai-chat-composer-actions");
@@ -12434,12 +12442,12 @@ function RTE_Plugin_AIToolkit() {
             }
             var feedIntroTitleNode = panel.querySelector(".rte-ai-chat-feed-intro-title");
             if (feedIntroTitleNode) {
-                feedIntroTitleNode.innerHTML = "";
+                feedIntroTitleNode.innerHTML = __RTE_TT("");
                 feedIntroTitleNode.innerText = feedIntroData.title;
             }
             var feedIntroDetailNode = panel.querySelector(".rte-ai-chat-feed-intro-detail");
             if (feedIntroDetailNode) {
-                feedIntroDetailNode.innerHTML = "";
+                feedIntroDetailNode.innerHTML = __RTE_TT("");
                 feedIntroDetailNode.innerText = feedIntroData.detail;
             }
             syncChatPillGroup(panel.querySelector(".rte-ai-chat-feed-intro-meta"), feedIntroData.metaPills, "rte-ai-chat-feed-intro-pill");
@@ -12450,12 +12458,12 @@ function RTE_Plugin_AIToolkit() {
             }
             var emptyTitleNode = panel.querySelector(".rte-ai-chat-empty-title");
             if (emptyTitleNode && emptyStateData) {
-                emptyTitleNode.innerHTML = "";
+                emptyTitleNode.innerHTML = __RTE_TT("");
                 emptyTitleNode.innerText = emptyStateData.title;
             }
             var emptyDetailNode = panel.querySelector(".rte-ai-chat-empty-detail");
             if (emptyDetailNode && emptyStateData) {
-                emptyDetailNode.innerHTML = "";
+                emptyDetailNode.innerHTML = __RTE_TT("");
                 emptyDetailNode.innerText = emptyStateData.detail;
             }
             syncChatPillGroup(panel.querySelector(".rte-ai-chat-empty-meta"), emptyStateData ? emptyStateData.metaPills : [], "rte-ai-chat-empty-pill");
@@ -12617,7 +12625,7 @@ function RTE_Plugin_AIToolkit() {
         var headerCopy = append(header, "div", "", "rte-ai-chat-header-copy");
         var titleRow = append(headerCopy, "div", "", "rte-ai-chat-title-row");
         var titleIcon = append(titleRow, "span", "", "rte-ai-chat-title-icon");
-        titleIcon.innerHTML = config.svgCode_aiassist_chat || config.svgCode_aiassist || "";
+        titleIcon.innerHTML = __RTE_TT(config.svgCode_aiassist_chat || config.svgCode_aiassist || "");
         append(titleRow, "div", "", "rte-ai-chat-title", headerTitleText);
         var headerActions = append(header, "div", "", "rte-ai-chat-header-actions");
         // 2026-05-15 (v20260515c): New chat button → icon-only. Sat next
@@ -12645,7 +12653,7 @@ function RTE_Plugin_AIToolkit() {
         closeButton.setAttribute("data-rte-ai-chat-header-action", "close");
         closeButton.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("aic_closechat", "Close AI chat") : "Close AI chat"));
         closeButton.title = (obj.__aiT ? obj.__aiT("aic_close", "Close") : "Close");
-        closeButton.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>';
+        closeButton.innerHTML = __RTE_TT('<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>');
         closeButton.onclick = function () {
             closeChatPanel({ restoreFocus: true });
         };
@@ -12962,11 +12970,11 @@ function RTE_Plugin_AIToolkit() {
                 var avatarKind = message.isError ? "error" : message.role;
                 var avatar = append(messageHeader, "span", "", "rte-ai-chat-message-avatar is-" + avatarKind);
                 avatar.setAttribute("aria-hidden", "true");
-                avatar.innerHTML = avatarKind === "user"
+                avatar.innerHTML = __RTE_TT(avatarKind === "user"
                     ? '<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><circle cx="8" cy="5.5" r="2.8"/><path d="M8 9.4c-2.8 0-5.2 1.5-5.2 3.4 0 .4.3.7.7.7h9c.4 0 .7-.3.7-.7 0-1.9-2.4-3.4-5.2-3.4z"/></svg>'
                     : (avatarKind === "error"
                         ? '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 11.2v.1"/></svg>'
-                        : '<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><rect x="3" y="5" width="10" height="8" rx="2"/><circle cx="8" cy="3" r="0.9"/><line x1="8" y1="3.9" x2="8" y2="5" stroke="currentColor" stroke-width="1"/><circle cx="6" cy="9" r="1.1" fill="#ffffff"/><circle cx="10" cy="9" r="1.1" fill="#ffffff"/></svg>');
+                        : '<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><rect x="3" y="5" width="10" height="8" rx="2"/><circle cx="8" cy="3" r="0.9"/><line x1="8" y1="3.9" x2="8" y2="5" stroke="currentColor" stroke-width="1"/><circle cx="6" cy="9" r="1.1" fill="#ffffff"/><circle cx="10" cy="9" r="1.1" fill="#ffffff"/></svg>'));
                 append(messageHeader, "span", "", "rte-ai-chat-message-role is-" + (message.isError ? "error" : message.role), getChatMessageRoleLabel(message));
                 append(item, "div", "", "rte-ai-chat-message-text", message.text || "");
                 // 2026-05-08: per-message Copy + Regenerate row for assistant
@@ -14825,7 +14833,7 @@ function RTE_Plugin_AIToolkit() {
         if (prefixMatch) {
             var label = ownerDocument.createElement("span");
             label.className = "rte-ai-review-shortcuts-label";
-            label.innerText = "Shortcuts:";
+            label.innerText = uiT("aiu_shortcuts", "Shortcuts:");
             node.appendChild(label);
             node.appendChild(ownerDocument.createTextNode(" "));
         }
@@ -14917,7 +14925,7 @@ function RTE_Plugin_AIToolkit() {
             titleNode.className = "rte-ai-review-item-shortcuts-title";
             moduleNode.appendChild(titleNode);
         }
-        titleNode.textContent = "Keyboard guide";
+        titleNode.textContent = uiT("aiq_kbguide", "Keyboard guide");
         var bodyNode = moduleNode.querySelector ? moduleNode.querySelector(".rte-ai-review-item-shortcuts-body") : null;
         if (!bodyNode) {
             bodyNode = document.createElement("div");
@@ -15379,7 +15387,7 @@ function RTE_Plugin_AIToolkit() {
             var iconSpan = btn.ownerDocument.createElement("span");
             iconSpan.className = "rte-ai-review-v2-action-icon";
             iconSpan.setAttribute("aria-hidden", "true");
-            iconSpan.innerHTML = REVIEW_V2_ICONS[iconKey];
+            iconSpan.innerHTML = __RTE_TT(REVIEW_V2_ICONS[iconKey]);
             btn.appendChild(iconSpan);
         }
         if (label) {
@@ -15449,7 +15457,7 @@ function RTE_Plugin_AIToolkit() {
         // Header
         var header = append(panel, "div", "", "rte-ai-review-v2-header");
         var iconWrap = append(header, "span", "", "rte-ai-review-v2-icon");
-        iconWrap.innerHTML = config.svgCode_aiassist_review || config.svgCode_aiassist || "";
+        iconWrap.innerHTML = __RTE_TT(config.svgCode_aiassist_review || config.svgCode_aiassist || "");
         append(header, "div", "", "rte-ai-review-v2-title", config.text_aireview || "AI Review");
         // Pending count moved into the "To review" tab badge below; the
         // header pill would have duplicated that signal.
@@ -15457,7 +15465,7 @@ function RTE_Plugin_AIToolkit() {
         closeBtn.type = "button";
         closeBtn.setAttribute("aria-label", (obj.__aiT ? obj.__aiT("air_closearia", "Close AI review") : "Close AI review"));
         closeBtn.title = (obj.__aiT ? obj.__aiT("air_close", "Close") : "Close");
-        closeBtn.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>';
+        closeBtn.innerHTML = __RTE_TT('<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>');
         closeBtn.onclick = function () {
             closeReviewPanel();
             editor.focus();
@@ -15481,7 +15489,7 @@ function RTE_Plugin_AIToolkit() {
                 var iconSpan = tab.ownerDocument.createElement("span");
                 iconSpan.className = "rte-ai-review-v2-tab-icon";
                 iconSpan.setAttribute("aria-hidden", "true");
-                iconSpan.innerHTML = REVIEW_V2_ICONS[iconKey];
+                iconSpan.innerHTML = __RTE_TT(REVIEW_V2_ICONS[iconKey]);
                 tab.appendChild(iconSpan);
             }
             var labelSpan = tab.ownerDocument.createElement("span");
@@ -15666,7 +15674,7 @@ function RTE_Plugin_AIToolkit() {
                             // grid pointing from Current -> Suggested.
                             var compareArrow = append(compare, "span", "", "rte-ai-review-v2-compare-arrow");
                             compareArrow.setAttribute("aria-hidden", "true");
-                            compareArrow.innerHTML = REVIEW_V2_ICONS.arrowRight;
+                            compareArrow.innerHTML = __RTE_TT(REVIEW_V2_ICONS.arrowRight);
                             var after = append(compare, "div", "", "rte-ai-review-v2-after");
                             append(after, "span", "", "rte-ai-review-v2-compare-label", (obj.__aiT ? obj.__aiT("air_suggested", "Suggested") : "Suggested"));
                             append(after, "div", "", "rte-ai-review-v2-compare-text", normalizeText(sug.resultText));
@@ -15677,7 +15685,7 @@ function RTE_Plugin_AIToolkit() {
                             var bulbWrap = reason.ownerDocument.createElement("span");
                             bulbWrap.className = "rte-ai-review-v2-reason-icon";
                             bulbWrap.setAttribute("aria-hidden", "true");
-                            bulbWrap.innerHTML = REVIEW_V2_ICONS.bulb;
+                            bulbWrap.innerHTML = __RTE_TT(REVIEW_V2_ICONS.bulb);
                             reasonLabel.appendChild(bulbWrap);
                             var reasonLabelText = reason.ownerDocument.createElement("span");
                             reasonLabelText.textContent = (obj.__aiT ? obj.__aiT("air_why", "Why") : "Why");
@@ -15951,7 +15959,7 @@ function RTE_Plugin_AIToolkit() {
         }
         var titleRow = append(headerCopy, "div", "", "rte-ai-review-title-row");
         var titleIcon = append(titleRow, "span", "", "rte-ai-review-title-icon");
-        titleIcon.innerHTML = config.svgCode_aiassist_review || config.svgCode_aiassist || "";
+        titleIcon.innerHTML = __RTE_TT(config.svgCode_aiassist_review || config.svgCode_aiassist || "");
         append(titleRow, "div", "", "rte-ai-review-title", config.text_aireview || "AI Review");
         if (hasRemoteReviewSync()) {
             editor.__aiReviewSyncBadgeNode = append(titleRow, "span", "", "rte-ai-review-sync-badge", "");
@@ -15994,7 +16002,7 @@ function RTE_Plugin_AIToolkit() {
             var newestSharedButton = append(headerGroupContext, "button", "", "secondary rte-ai-review-header-button is-shared", "Newest shared");
             newestSharedButton.type = "button";
             newestSharedButton.setAttribute("data-rte-ai-review-focus-key", "newest-shared");
-            newestSharedButton.setAttribute("aria-label", "Jump to the newest shared AI review update");
+            newestSharedButton.setAttribute("aria-label", uiT("aiu_jumpnewest", "Jump to the newest shared AI review update"));
             newestSharedButton.onclick = function () {
                 locateSuggestion(latestRemoteSuggestionId);
             };
@@ -16004,7 +16012,7 @@ function RTE_Plugin_AIToolkit() {
             var currentPendingButton = append(headerGroupContext, "button", "", "secondary rte-ai-review-header-button is-locate-current", "Locate current");
             currentPendingButton.type = "button";
             currentPendingButton.setAttribute("data-rte-ai-review-focus-key", "locate-current");
-            currentPendingButton.setAttribute("aria-label", "Locate the current active AI review item in the editor");
+            currentPendingButton.setAttribute("aria-label", uiT("aiu_locatecurrent", "Locate the current active AI review item in the editor"));
             currentPendingButton.onclick = function () {
                 locateSuggestion(activeFilteredSuggestionId);
             };
@@ -16015,7 +16023,7 @@ function RTE_Plugin_AIToolkit() {
             var previousPendingButton = append(headerGroupMove, "button", "", "secondary rte-ai-review-header-button is-nav", "Previous");
             previousPendingButton.type = "button";
             previousPendingButton.setAttribute("data-rte-ai-review-focus-key", "previous-pending");
-            previousPendingButton.setAttribute("aria-label", "Jump to the previous pending AI review item in the current filter");
+            previousPendingButton.setAttribute("aria-label", uiT("aiu_jumpprev", "Jump to the previous pending AI review item in the current filter"));
             previousPendingButton.onclick = function () {
                 activateReviewSuggestionWithDefaultActionFocus(previousPendingSuggestionId, { focusPanel: true });
             };
@@ -16025,7 +16033,7 @@ function RTE_Plugin_AIToolkit() {
             var nextPendingButton = append(headerGroupMove, "button", "", "secondary rte-ai-review-header-button is-nav", "Next pending");
             nextPendingButton.type = "button";
             nextPendingButton.setAttribute("data-rte-ai-review-focus-key", "next-pending");
-            nextPendingButton.setAttribute("aria-label", "Jump to the next pending AI review item in the current filter");
+            nextPendingButton.setAttribute("aria-label", uiT("aiu_jumpnext", "Jump to the next pending AI review item in the current filter"));
             nextPendingButton.onclick = function () {
                 activateReviewSuggestionWithDefaultActionFocus(nextPendingSuggestionId, { focusPanel: true });
             };
@@ -16057,9 +16065,9 @@ function RTE_Plugin_AIToolkit() {
         var closeButton = append(headerUtility, "button", "", "rte-ai-panel-close-button is-review-close");
         closeButton.type = "button";
         closeButton.setAttribute("data-rte-ai-review-focus-key", "close-review");
-        closeButton.setAttribute("aria-label", "Close AI review");
-        closeButton.title = "Close";
-        closeButton.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>';
+        closeButton.setAttribute("aria-label", uiT("air_closearia", "Close AI review"));
+        closeButton.title = uiT("air_close", "Close");
+        closeButton.innerHTML = __RTE_TT('<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>');
         closeButton.onclick = function () {
             closeReviewPanel();
         };
@@ -16175,7 +16183,7 @@ function RTE_Plugin_AIToolkit() {
             var dismissActivityButton = append(activityCard, "button", "", "secondary rte-ai-review-activity-button", "Got it");
             dismissActivityButton.type = "button";
             dismissActivityButton.setAttribute("data-rte-ai-review-focus-key", "dismiss-activity");
-            dismissActivityButton.setAttribute("aria-label", "Dismiss shared AI review update notice");
+            dismissActivityButton.setAttribute("aria-label", uiT("aiu_dismissshared", "Dismiss shared AI review update notice"));
             dismissActivityButton.onclick = function () {
                 markReviewActivitySeen();
                 renderReviewPanel(true);
@@ -16214,7 +16222,7 @@ function RTE_Plugin_AIToolkit() {
         acceptAllButton.setAttribute("data-rte-ai-review-focus-key", "accept-all");
         acceptAllButton.disabled = typeFilter === "all" ? !counts.pending : !filteredPendingCount;
         if (typeFilter !== "all") {
-            acceptAllButton.innerText = "Accept filtered";
+            acceptAllButton.innerText = uiT("aiu_acceptfiltered", "Accept filtered");
         }
         acceptAllButton.onclick = function () {
             if (acceptPendingSuggestionsByType(typeFilter)) {
@@ -16226,7 +16234,7 @@ function RTE_Plugin_AIToolkit() {
         rejectAllButton.setAttribute("data-rte-ai-review-focus-key", "reject-all");
         rejectAllButton.disabled = typeFilter === "all" ? !counts.pending : !filteredPendingCount;
         if (typeFilter !== "all") {
-            rejectAllButton.innerText = "Reject filtered";
+            rejectAllButton.innerText = uiT("aiu_rejectfiltered", "Reject filtered");
         }
         rejectAllButton.onclick = function () {
             if (rejectPendingSuggestionsByType(typeFilter)) {
@@ -16519,7 +16527,7 @@ function RTE_Plugin_AIToolkit() {
                 appendPanelSectionLabel(previewSection, "rte-ai-review-section-label is-feed", emptyState.previewItems.length > 1 ? "Next queues" : "Next queue");
                 var emptyPreviewList = append(previewSection, "div", "", "rte-ai-review-empty-previews");
                 emptyPreviewList.setAttribute("role", "toolbar");
-                emptyPreviewList.setAttribute("aria-label", "Next review queues");
+                emptyPreviewList.setAttribute("aria-label", uiT("aiu_nextqueues", "Next review queues"));
                 for (var previewIndex = 0; previewIndex < emptyState.previewItems.length; previewIndex++) {
                     var previewItem = emptyState.previewItems[previewIndex];
                     var previewTag = previewItem.typeValue ? "button" : "div";
@@ -17295,8 +17303,8 @@ function RTE_Plugin_AIToolkit() {
         // 540px dialog width.
         var copyButton = append(runRow, "button", "", "secondary is-icon-only");
         copyButton.type = "button";
-        copyButton.title = "Copy result into source";
-        copyButton.setAttribute("aria-label", "Copy result into source");
+        copyButton.title = uiT("aiu_copytosource", "Copy result into source");
+        copyButton.setAttribute("aria-label", uiT("aiu_copytosource", "Copy result into source"));
         copyButton.setAttribute("data-rte-ai-dialog-action", "copy-to-source");
         setReviewV2ButtonContent(copyButton, "checkAll", "");
 
@@ -17474,7 +17482,7 @@ function RTE_Plugin_AIToolkit() {
         // without throwing.
         var resultLabel = document.createElement("span");
         resultLabel.className = "demo-ai-text-label-inline is-detached";
-        resultLabel.innerText = "Result";
+        resultLabel.innerText = uiT("aiu_result", "Result");
         var resultHelp = append(resultField, "span", "", "demo-ai-field-help is-detached", "Review the generated AI suggestion before applying it.");
         resultHelp.id = resultHelpId;
         // 2026-06-03 (v20260603a): real "Copy to clipboard" affordance
@@ -17613,7 +17621,7 @@ function RTE_Plugin_AIToolkit() {
         var refineRow = document.createElement("div");
         refineRow.className = "demo-ai-refine-row is-detached";
         refineRow.setAttribute("role", "group");
-        refineRow.setAttribute("aria-label", "Refine AI suggestion");
+        refineRow.setAttribute("aria-label", uiT("aiu_refine", "Refine AI suggestion"));
         // Keep the (now empty) refineRow attached to the dialog grid so any
         // external integration that walks `.demo-ai-refine-row` from the
         // dialog root keeps resolving. The `is-detached` class collapses it
@@ -17691,7 +17699,7 @@ function RTE_Plugin_AIToolkit() {
         var refineWhyChip = document.createElement("button");
         refineWhyChip.type = "button";
         refineWhyChip.className = "secondary demo-ai-refine-chip demo-ai-refine-why-chip is-detached";
-        refineWhyChip.innerText = "Why";
+        refineWhyChip.innerText = uiT("air_why", "Why");
         refineWhyChip.title = (obj.__aiT ? obj.__aiT("ai2_whyaria", "Show why this AI suggestion was generated") : "Show why this AI suggestion was generated");
         refineWhyChip.setAttribute("data-rte-ai-dialog-action", "refine-why");
         refineWhyChip.setAttribute("aria-expanded", "false");
@@ -17905,7 +17913,7 @@ function RTE_Plugin_AIToolkit() {
         detailsToggle.type = "button";
         detailsToggle.setAttribute("aria-expanded", "false");
         detailsToggle.setAttribute("aria-controls", "rte-ai-details-" + dialogIdSuffix);
-        detailsToggle.title = "Show why and the operation plan";
+        detailsToggle.title = uiT("aiu_showwhy", "Show why and the operation plan");
 
         var insightGrid = append(grid, "div", "", "demo-ai-insight-grid is-collapsed");
         insightGrid.id = detailsToggle.getAttribute("aria-controls");
@@ -17977,7 +17985,7 @@ function RTE_Plugin_AIToolkit() {
 
         function populateDialogModes() {
             var modes = getDialogModes();
-            modeSelect.innerHTML = "";
+            modeSelect.innerHTML = __RTE_TT("");
             // 2026-05-20 (v20260520g) — Pass 59: group the 7-mode picker
             // into 2 <optgroup> sections so the dropdown reads as one
             // semantic cluster per intent ("Edit text" vs "Transform")
@@ -18066,7 +18074,7 @@ function RTE_Plugin_AIToolkit() {
 
         function populateTranslateLanguages() {
             var languages = getTranslateLanguages();
-            languageSelect.innerHTML = "";
+            languageSelect.innerHTML = __RTE_TT("");
             for (var index = 0; index < languages.length; index++) {
                 var option = append(languageSelect, "option", "", "", getTranslateLanguageDisplay(languages[index]));
                 option.value = languages[index].value || languages[index].label;
@@ -19123,7 +19131,7 @@ function RTE_Plugin_AIToolkit() {
                 applyGuidance.style.display = "none";
                 applyGuidanceBadge.innerText = "";
                 applyGuidanceDetail.innerText = "";
-                applyGuidance.setAttribute("aria-label", "No recommended Ask AI follow-up action yet.");
+                applyGuidance.setAttribute("aria-label", uiT("aiu_norecommended", "No recommended Ask AI follow-up action yet."));
                 return;
             }
             applyGuidance.style.display = "";
@@ -19158,7 +19166,7 @@ function RTE_Plugin_AIToolkit() {
         function renderOperationPlan(resolved) {
             var operations = resolved && resolved.operations ? resolved.operations : [];
             var actionState = getDialogActionState();
-            planList.innerHTML = "";
+            planList.innerHTML = __RTE_TT("");
             planStatusMessage.innerText = dialoginner.__aiPlanStale
                 ? (dialoginner.__aiPlanStaleReason || "Editor changed. Re-run to refresh.")
                 : "";
@@ -19178,7 +19186,7 @@ function RTE_Plugin_AIToolkit() {
                 planSummary.innerText = "";
                 planStatusAction.style.display = "none";
                 applyPlanButton.disabled = true;
-                applyPlanButton.innerText = "Apply";
+                applyPlanButton.innerText = uiT("aiu_apply", "Apply");
                 return;
             }
 
@@ -19261,10 +19269,10 @@ function RTE_Plugin_AIToolkit() {
                 + " \u2022 " + skippedCount + " skipped";
             applyPlanButton.disabled = !pendingIndexes.length || !!dialoginner.__aiPlanStale || !actionState.canApplyPlan;
             if (dialoginner.__aiPlanStale) {
-                applyPlanButton.innerText = "Re-run to refresh plan";
+                applyPlanButton.innerText = uiT("aiu_rerunplan", "Re-run to refresh plan");
             }
             else if (!pendingIndexes.length) {
-                applyPlanButton.innerText = "No pending steps";
+                applyPlanButton.innerText = uiT("aiu_nopending", "No pending steps");
             }
             else if (actionState.pendingSelectionDependent && !actionState.hasSelection) {
                 applyPlanButton.innerText = getSelectionRequiredPlanButtonLabel(pendingOperations);
@@ -19273,7 +19281,7 @@ function RTE_Plugin_AIToolkit() {
                 applyPlanButton.innerText = getOperationPlanButtonLabel(resolved);
             }
             else {
-                applyPlanButton.innerText = "Apply " + pendingIndexes.length + " pending steps";
+                applyPlanButton.innerText = uiT("aiu_applypending", "Apply {0} pending steps", pendingIndexes.length);
             }
         }
 
@@ -19654,7 +19662,7 @@ function RTE_Plugin_AIToolkit() {
             }
             syncDialogScopeUi();
             if (!normalizeText(sourceArea.value)) {
-                status.innerText = "Load or type source text before running Ask AI.";
+                status.innerText = uiT("aiu_loadsource", "Load or type source text before running Ask AI.");
                 updatePreview();
                 return;
             }

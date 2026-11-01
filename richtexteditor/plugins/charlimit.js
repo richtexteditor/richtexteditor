@@ -45,7 +45,7 @@ function RTE_Plugin_CharLimit() {
             editor.insertHTML = function (html) {
                 if (!maxChars()) return origInsertHTML.apply(this, arguments);
                 var probe = document.createElement("div");
-                probe.innerHTML = String(html == null ? "" : html);
+                probe.innerHTML = __RTE_TT(String(html == null ? "" : html));
                 var add = (probe.textContent || "").length;
                 var remaining = maxChars() - countChars() + selectionLength();
                 if (add <= remaining) return origInsertHTML.apply(this, arguments);
@@ -164,7 +164,7 @@ function RTE_Plugin_CharLimit() {
             var text = dt.getData("text/plain");
             if (!text) {
                 var probe = document.createElement("div");
-                probe.innerHTML = dt.getData("text/html") || "";
+                probe.innerHTML = __RTE_TT(dt.getData("text/html") || "");
                 text = probe.textContent || "";
             }
             add = text.length;

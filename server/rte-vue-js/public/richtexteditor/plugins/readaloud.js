@@ -186,7 +186,7 @@ function RTE_Plugin_ReadAloud() {
         var voices = s.getVoices() || [];
         if (!voices.length) return;
         var cur = voiceSel.value;
-        voiceSel.innerHTML = "";
+        voiceSel.innerHTML = __RTE_TT("");
         voices.forEach(function (v, i) {
             var o = voiceSel.ownerDocument.createElement("option");
             o.value = v.name; o.textContent = v.name + " (" + v.lang + ")";

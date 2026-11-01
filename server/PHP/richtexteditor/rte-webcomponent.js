@@ -423,7 +423,9 @@
         // Inert parsing decodes numeric and named entities without attaching
         // user markup to the live page or fetching its media.
         var template = document.createElement("template");
-        template.innerHTML = String(value || "");
+        // through the editor policy: on a Trusted Types page a raw string here threw on every value change
+        var tt = window.RTE_TrustedTypes;
+        template.innerHTML = tt ? tt.html(String(value || "")) : String(value || "");
         text.textContent = template.content.textContent;
         var empty = !text.textContent.replace(/\s/g, "")
             && !/<(img|table|iframe|video|audio|hr)\b/i.test(value || "");

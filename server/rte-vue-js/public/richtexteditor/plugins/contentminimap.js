@@ -97,7 +97,7 @@ function RTE_Plugin_ContentMinimap() {
         if (hostDoc.getElementById("rte-content-minimap-style")) return;
         var style = hostDoc.createElement("style");
         style.id = "rte-content-minimap-style";
-        style.innerHTML = [
+        style.innerHTML = __RTE_TT([
             ".rte-content-minimap-shell{display:flex;align-items:stretch;gap:10px;}",
             ".rte-content-minimap-shell>.rte-content-minimap-host{flex:1 1 auto;min-width:0;}",
             "/* 2026-07-12 navigation panel precision */",
@@ -121,7 +121,7 @@ function RTE_Plugin_ContentMinimap() {
             ".rte-content-minimap-viewport.is-dragging{cursor:grabbing;}",
             ".rte-content-minimap-empty{position:absolute;inset:auto 8px 8px 8px;padding:10px;border-radius:7px;background:rgba(255,255,255,.94);color:#52657e;font-size:12px;font-weight:700;line-height:1.45;border:1px dashed rgba(148,163,184,.32);}",
             "@media (max-width: 1100px){.rte-content-minimap-shell{display:block;}.rte-content-minimap-panel{margin-top:12px;max-width:none;width:100%;}.rte-content-minimap-body{max-height:280px;}}"
-        ].join("");
+        ].join(""));
         hostDoc.head.appendChild(style);
         // A <style> ELEMENT is governed by style-src: under a strict policy the browser
         // drops its rules, leaving this plugin's UI unstyled. The element above stays
@@ -299,7 +299,7 @@ function RTE_Plugin_ContentMinimap() {
         if (!editable || !preview) return;
 
         var html = editable.innerHTML || "";
-        preview.innerHTML = html;
+        preview.innerHTML = __RTE_TT(html);
 
         var scale = getScale();
         var sourceWidth = Math.max(editable.scrollWidth || editable.clientWidth || 600, 320);

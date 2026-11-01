@@ -49,7 +49,7 @@ function RTE_Plugin_InsertTemplate() {
 
     function stripHtml(html) {
         var div = document.createElement("div");
-        div.innerHTML = html || "";
+        div.innerHTML = __RTE_TT(html || "");
         return div.innerText || div.textContent || "";
     }
 
@@ -208,6 +208,14 @@ function RTE_Plugin_InsertTemplate() {
             var i;
 
             empty.style.display = items.length ? "none" : "block";
+            // 2026-10-26 with no templates configured at all, "No templates match the current filter." was wrong: say
+            // there are none (the default list is empty since it shipped two "My Doc 1" demos).
+            // tools/templates/template-defaults.mjs
+            if (!items.length) {
+                empty.innerText = getTemplates().length
+                    ? pText("tp_nomatch", "No templates match the current filter.")
+                    : pText("tp_none", "No templates are available.");
+            }
 
             for (i = 0; i < items.length; i++) {
                 (function (item) {
@@ -222,7 +230,7 @@ function RTE_Plugin_InsertTemplate() {
                     var preview = append(card, "div", "", "rte-template-card-preview");
                     var previewBody = append(preview, "div", "", "rte-template-card-preview-body");
                     var canvas = append(previewBody, "div", "", "rte-template-card-preview-canvas");
-                    canvas.innerHTML = item.html;
+                    canvas.innerHTML = __RTE_TT(item.html);
                     scalePreview(previewBody, canvas);
 
                     var footer = append(card, "div", "", "rte-template-card-footer");

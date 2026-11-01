@@ -100,7 +100,9 @@ function RTE_Plugin_Sanitizer() {
         // Inline SVG (icons, diagrams). Its dangerous children are dropped below.
         "svg,g,path,circle,ellipse,rect,line,polyline,polygon,text,tspan,defs,marker," +
         "linearGradient,radialGradient,stop,clipPath,mask,pattern,use,symbol,title,desc"
-    ).split(",").forEach(function (t) { ALLOWED_TAGS[t] = true; });
+    // Lower-cased like the name it is looked up with: the camelCase SVG names (linearGradient, clipPath) were
+    // never found, so gradients and clip paths were unwrapped. tools/security/sanitizer-svg-camelcase.mjs
+    ).split(",").forEach(function (t) { ALLOWED_TAGS[t.toLowerCase()] = true; });
 
     // Removed WITH their contents: their text is markup, not prose.
     var DROP_WHOLE = {
@@ -339,6 +341,21 @@ function RTE_Plugin_Sanitizer() {
             }
         })(root);
 
+        // Before anything else: the content is clobbering the document this very loop works in
+        // (a later <font> calls ownerDocument.createElement, which <img name="createElement">
+        // replaces), so its clobbering names go first. See clobbers().
+        for (var c = 0; c < all.length; c++) {
+            if (all[c].nodeType !== 1) continue;
+            var cTag = (all[c].localName || all[c].nodeName || "").toLowerCase();
+            for (var ca = 0; ca < CLOBBER_ATTRS.length; ca++) {
+                var cv = all[c].getAttribute(CLOBBER_ATTRS[ca]);
+                if (cv && clobbers(cTag, CLOBBER_ATTRS[ca], cv, allowExtra)) {
+                    note(report.removedAttributes, cTag + "[" + CLOBBER_ATTRS[ca] + "]");
+                    all[c].removeAttribute(CLOBBER_ATTRS[ca]);
+                }
+            }
+        }
+
         for (var i = 0; i < all.length; i++) {
             var el = all[i];
             if (!el.parentNode) continue;                 // already removed with an ancestor
@@ -490,6 +507,41 @@ function RTE_Plugin_Sanitizer() {
         return root;
     }
 
+    // 2026-10-29 DOM clobbering. Named access on document overrides its built-ins, so a saved
+    // <img name="cookie"> rendered on a page IS document.cookie there, and <img name="currentScript">
+    // is document.currentScript (a public write-up pastes exactly that into our demo). A name, or an
+    // id on an image or form control, that matches a document or form property is such a clobber;
+    // DOMPurify removes the same set by default (SANITIZE_DOM). A form control's name is also a field
+    // the host's own form would submit, so it goes unless the host allows forms in content. Ids on
+    // headings and links stay: they are anchors and cannot replace a document or form built-in.
+    // The question is asked of a PRISTINE document: in Firefox and WebKit the content's own
+    // <img name="logo"> makes "logo" in its document true, so asking the working document
+    // dropped every image name there.
+    // tools/security/sanitizer-dom-clobbering.mjs
+    var CLOBBER_ATTRS = ["name", "id"];
+    var NAMED_ACCESS_TAGS = { img: 1, form: 1, embed: 1, iframe: 1, object: 1, input: 1, button: 1, select: 1, textarea: 1, fieldset: 1, output: 1 };
+    var FORM_FIELDS = { input: 1, button: 1, select: 1, textarea: 1 };
+    var probeDoc = null, probeForm = null;
+    function clobbers(tag, attr, value, allowExtra) {
+        if (!value) return false;
+        if (attr === "id" && !NAMED_ACCESS_TAGS[tag]) return false;
+        if (attr === "name" && FORM_FIELDS[tag] && !allowExtra("form")) return true;
+        if (!probeDoc) {
+            probeDoc = document.implementation.createHTMLDocument("");
+            probeForm = probeDoc.createElement("form");
+        }
+        return value in probeDoc || value in probeForm;
+    }
+    // doc.body itself can be clobbered (<img id="body" name="x">) before the clean-up has run,
+    // which emptied the content in Firefox and WebKit; the prototype's getter cannot be.
+    function bodyOf(doc) {
+        for (var p = Object.getPrototypeOf(doc); p; p = Object.getPrototypeOf(p)) {
+            var d = Object.getOwnPropertyDescriptor(p, "body");
+            if (d && d.get) return d.get.call(doc);
+        }
+        return doc.body;
+    }
+
     function unwrap(el) {
         var parent = el.parentNode;
         while (el.firstChild) parent.insertBefore(el.firstChild, el);
@@ -512,9 +564,10 @@ function RTE_Plugin_Sanitizer() {
         // we inspect it -- innerHTML on a live div would fire <img onerror>
         // before the first line of this ran.
         for (var pass = 0; pass < 3; pass++) {
-            var doc = new DOMParser().parseFromString("<body>" + out + "</body>", "text/html");
-            sanitizeNode(doc.body, report);
-            var next = doc.body.innerHTML;
+            var doc = new DOMParser().parseFromString(__RTE_TT("<body>" + out + "</body>"), "text/html");
+            var body = bodyOf(doc);
+            sanitizeNode(body, report);
+            var next = body.innerHTML;
             report.lastPasses = pass + 1;
             // Re-parsing can RESURRECT markup: the classic mutation-XSS trick is
             // content that is inert in one parse and dangerous once the

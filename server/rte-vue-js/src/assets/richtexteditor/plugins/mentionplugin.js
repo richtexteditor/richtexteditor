@@ -331,7 +331,7 @@ function RTE_Plugin_Mention() {
 
     function showLoading() {
         if (!popupEl) return;
-        popupEl.innerHTML = "";
+        popupEl.innerHTML = __RTE_TT("");
         var loader = popupHost.createElement("div");
         loader.className = "rte-mention-loading";
         loader.textContent = pText("mn_searching", "Searching\u2026");
@@ -341,7 +341,7 @@ function RTE_Plugin_Mention() {
 
     function renderItems() {
         if (!popupEl) return;
-        popupEl.innerHTML = "";
+        popupEl.innerHTML = __RTE_TT("");
         statusEl = null;
 
         if (!items.length) {
