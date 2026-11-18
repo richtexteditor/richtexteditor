@@ -120,14 +120,11 @@ function RTE_Plugin_AIToolkit() {
         config.text_aiassist = config.text_aiassist || "Ask AI";
         config.text_aireview = config.text_aireview || "AI Review";
         config.text_aichat = config.text_aichat || "AI Chat";
-        config.aiToolkitTranslateLanguages = config.aiToolkitTranslateLanguages || [
-            { value: "spanish", label: "Spanish" },
-            { value: "french", label: "French" },
-            { value: "german", label: "German" },
-            { value: "italian", label: "Italian" },
-            { value: "portuguese", label: "Portuguese" },
-            { value: "japanese", label: "Japanese" }
-        ];
+        // 2026-11-16 the default Translate-to list is the 27 built-in languages (TRANSLATE_BUILTIN_LIST), Spanish and
+        // French first; it was 6. tools/i18n/ai-translate-languages.mjs
+        config.aiToolkitTranslateLanguages = config.aiToolkitTranslateLanguages || TRANSLATE_BUILTIN_LIST.map(function (b) {
+            return { value: b[0], label: b[2] };
+        });
         // 2026-05-13 (v20260513d): trimmed AI-redundant words from titles.
         // The menu is opened FROM the AI toolbar button and renders inside
         // a panel scoped to AI, so "Chat with AI" / "Draft with AI" / "Add
@@ -1695,7 +1692,47 @@ function RTE_Plugin_AIToolkit() {
     // 2026-10-18 the Translate-to list names the built-in languages in the page's language (Intl.DisplayNames in the
     // pack's locale, text_uilocale) at the display site only; values and the language a request names are unchanged,
     // and an application's own label is kept. tools/i18n/ai-translate-languages.mjs
-    var TRANSLATE_BUILTIN = { spanish: ["es", "Spanish"], french: ["fr", "French"], german: ["de", "German"], italian: ["it", "Italian"], portuguese: ["pt", "Portuguese"], japanese: ["ja", "Japanese"] };
+    // 2026-11-16 27 built-in languages, in menu order: [value, BCP 47 code, English label, other names a chat prompt may
+    // use]. The code is what Intl.DisplayNames names the language with and what a request carries as languageCode.
+    var TRANSLATE_BUILTIN_LIST = [
+        ["spanish", "es", "Spanish"], ["french", "fr", "French"], ["english", "en", "English"], ["german", "de", "German"], ["italian", "it", "Italian"],
+        ["portuguese", "pt", "Portuguese"], ["japanese", "ja", "Japanese"],
+        ["chinese-simplified", "zh-Hans", "Chinese (Simplified)", ["simplified chinese", "chinese", "mandarin"]],
+        ["chinese-traditional", "zh-Hant", "Chinese (Traditional)", ["traditional chinese"]],
+        ["korean", "ko", "Korean"], ["arabic", "ar", "Arabic"], ["hindi", "hi", "Hindi"], ["russian", "ru", "Russian"],
+        ["dutch", "nl", "Dutch"], ["polish", "pl", "Polish"], ["turkish", "tr", "Turkish"], ["vietnamese", "vi", "Vietnamese"],
+        ["thai", "th", "Thai"], ["indonesian", "id", "Indonesian"], ["swedish", "sv", "Swedish"], ["danish", "da", "Danish"],
+        ["norwegian", "no", "Norwegian"], ["finnish", "fi", "Finnish"], ["czech", "cs", "Czech"], ["greek", "el", "Greek"],
+        ["hebrew", "he", "Hebrew"], ["ukrainian", "uk", "Ukrainian"]
+    ];
+    var TRANSLATE_BUILTIN = {};
+    for (var tbi = 0; tbi < TRANSLATE_BUILTIN_LIST.length; tbi++) {
+        TRANSLATE_BUILTIN[TRANSLATE_BUILTIN_LIST[tbi][0].replace(/[^a-z0-9]+/g, "")] = [TRANSLATE_BUILTIN_LIST[tbi][1], TRANSLATE_BUILTIN_LIST[tbi][2], TRANSLATE_BUILTIN_LIST[tbi][3] || []];
+    }
+    // the built-in entry for a list value or label, or null
+    function getTranslateBuiltIn(language) {
+        var key = normalizeLanguageValue(language);
+        if (TRANSLATE_BUILTIN[key]) return TRANSLATE_BUILTIN[key];
+        for (var k in TRANSLATE_BUILTIN) {
+            if (TRANSLATE_BUILTIN.hasOwnProperty(k) && normalizeLanguageValue(TRANSLATE_BUILTIN[k][1]) === key) return TRANSLATE_BUILTIN[k];
+        }
+        return null;
+    }
+    // the BCP 47 code of a list language: the entry's own code, else the built-in one, else ""
+    function getTranslateLanguageCode(language) {
+        var normalized = normalizeLanguageValue(language);
+        if (!normalized) return "";
+        var languages = getTranslateLanguages();
+        for (var i = 0; i < languages.length; i++) {
+            if (normalizeLanguageValue(languages[i].value) === normalized || normalizeLanguageValue(languages[i].label) === normalized) {
+                if (languages[i].code) return String(languages[i].code);
+                var own = getTranslateBuiltIn(languages[i].value);
+                return own ? own[0] : "";
+            }
+        }
+        var builtIn = getTranslateBuiltIn(language);
+        return builtIn ? builtIn[0] : "";
+    }
     function getTranslateLanguageDisplay(entry) {
         var label = entry.label || entry.value;
         var builtIn = TRANSLATE_BUILTIN[normalizeLanguageValue(entry.value)];
@@ -2026,7 +2063,10 @@ function RTE_Plugin_AIToolkit() {
             return "You could tighten the structure by using shorter headings that mirror the main claims in " + focus + ". Ask me to draft heading options and I can turn them into reviewable suggestions.";
         }
         if (/\b(translate|translation)\b/.test(prompt)) {
-            return "I can translate the current selection or whole document into Spanish, French, German, Italian, Portuguese, or Japanese and keep it reviewable in the editor before you accept it.";
+            // 2026-11-16 names the configured Translate-to list; it named a fixed six
+            var names = getTranslateLanguages().map(function (l) { return l.label || l.value; }).filter(Boolean);
+            var namesText = names.length > 2 ? names.slice(0, -1).join(", ") + ", or " + names[names.length - 1] : names.join(" or ");
+            return "I can translate the current selection or whole document into " + (namesText || "another language") + " and keep it reviewable in the editor before you accept it.";
         }
         if (/\bwhy\b|\bhow\b|\bwhat\b|\?/.test(prompt)) {
             return "Based on " + focus + ", I would focus on clarity, stronger section framing, and cleaner transitions. If you want, ask me to rewrite or summarize a specific passage and I can prepare an in-editor suggestion.";
@@ -2039,15 +2079,34 @@ function RTE_Plugin_AIToolkit() {
         if (!normalizedPrompt) {
             return "";
         }
+        // 2026-11-16 a built-in language also answers to its other names ("traditional chinese"). The target is the name
+        // after "into" / "to", then after "in", then any name; "from English" is the source, and among equals the longest
+        // name wins, so "traditional chinese" is not read as the "chinese" of Chinese (Simplified). A bare "polish" is the
+        // verb. A language outside the list is still the target when the prompt ends with it ("into Romanian").
         var languages = getTranslateLanguages();
+        var best = "", bestRank = 0, bestLength = 0;
         for (var i = 0; i < languages.length; i++) {
-            var label = (languages[i].label || "").toLowerCase();
-            var value = (languages[i].value || "").toLowerCase();
-            if ((label && normalizedPrompt.indexOf(label) >= 0) || (value && normalizedPrompt.indexOf(value) >= 0)) {
-                return languages[i].value || languages[i].label;
+            var builtIn = getTranslateBuiltIn(languages[i].value);
+            var names = [languages[i].label || "", languages[i].value || "", String(languages[i].value || "").replace(/[-_]+/g, " ")].concat(builtIn ? builtIn[2] : []);
+            for (var n = 0; n < names.length; n++) {
+                var name = String(names[n]).toLowerCase();
+                if (!name) continue;
+                for (var at = normalizedPrompt.indexOf(name); at >= 0; at = normalizedPrompt.indexOf(name, at + 1)) {
+                    var before = normalizedPrompt.substring(0, at);
+                    if (/[a-z0-9]$/.test(before) || /^[a-z0-9]/.test(normalizedPrompt.substring(at + name.length)) || /\bfrom\s+(?:the\s+)?$/.test(before)) continue;
+                    var rank = /\b(?:into|to)\s+(?:the\s+)?$/.test(before) ? 3 : (/\bin\s+(?:the\s+)?$/.test(before) ? 2 : 1);
+                    if (rank === 1 && name === "polish") continue;
+                    if (rank > bestRank || (rank === bestRank && name.length > bestLength)) {
+                        best = languages[i].value || languages[i].label;
+                        bestRank = rank;
+                        bestLength = name.length;
+                    }
+                }
             }
         }
-        return "";
+        if (best) return best;
+        var unlisted = normalizedPrompt.match(/\b(?:into|to)\s+([a-z][a-z-]{2,})[\s.!?]*$/);
+        return unlisted && !/^(?:this|that|these|those|them|you|text|here|there|another|other|review|read|use)$/.test(unlisted[1]) ? unlisted[1] : "";
     }
 
     function buildChatResolvedAction(request) {
@@ -2069,11 +2128,14 @@ function RTE_Plugin_AIToolkit() {
         }
 
         if (/\b(translate|translation|localize|localise)\b/.test(promptLower)) {
-            var languageLabel = getTranslateLanguageLabel(requestedLanguage || "spanish");
+            // 2026-11-16 no language named: the first in the configured list, which may not hold Spanish
+            var firstLanguage = getTranslateLanguages()[0];
+            requestedLanguage = requestedLanguage || (firstLanguage && (firstLanguage.value || firstLanguage.label)) || "spanish";
+            var languageLabel = getTranslateLanguageLabel(requestedLanguage);
             resultText = buildDemoResult("translate", source, { language: requestedLanguage });
             editReason = "This prepares a translated " + languageLabel + " draft while keeping the original text nearby until you review and accept the change.";
             return {
-                message: "I prepared a " + languageLabel + " translation you can review before applying.",
+                message: "I prepared " + (/^(?!uk|uni|eu)[aeiou]/i.test(languageLabel) ? "an " : "a ") + languageLabel + " translation you can review before applying.",
                 result: resultText,
                 reason: editReason,
                 operations: [
@@ -2742,6 +2804,10 @@ function RTE_Plugin_AIToolkit() {
             source: options.source || (snapshot.text || snapshot.wholeText),
             prompt: options.prompt || "",
             language: options.language || "",
+            // 2026-11-16 the target named for a model: the English label ("Chinese (Simplified)") and the BCP 47
+            // code ("zh-Hans"); language stays the list value. Empty without a language.
+            languageLabel: options.language ? getTranslateLanguageLabel(options.language) : "",
+            languageCode: options.language ? getTranslateLanguageCode(options.language) : "",
             scope: options.scope || (snapshot.hasSelection ? "selection" : "document"),
             selectionText: snapshot.text || "",
             documentText: snapshot.wholeText || "",
@@ -2862,6 +2928,79 @@ function RTE_Plugin_AIToolkit() {
             html.push("<p>" + editor.htmlEncode(blocks[i]).replace(/\n/g, "<br/>") + "</p>");
         }
         return html.join("");
+    }
+
+    // 2026-11-16 applied translations say what language they are in (WCAG 3.1.2) and which way they run: Arabic and
+    // Hebrew came in left to right. A language without a known code is left unmarked. tools/i18n/ai-translate-languages.mjs
+    // contextRtl: the text lands inside right-to-left content, so a left-to-right language has to say so
+    function getTranslationAttributes(language, contextRtl) {
+        var code = language ? getTranslateLanguageCode(language) : "";
+        if (!code) return "";
+        var rtl = /^(?:ar|arc|ckb|dv|fa|he|iw|ks|ps|sd|ug|ur|yi)(?:-|$)/i.test(code);
+        return " lang=\"" + escapeAttribute(code) + "\"" + (rtl ? " dir=\"rtl\"" : (contextRtl ? " dir=\"ltr\"" : ""));
+    }
+
+    function textToTranslatedHtml(text, language, contextRtl) {
+        var attributes = getTranslationAttributes(language, contextRtl);
+        return textToHtml(text).split("<p>").join("<p" + attributes + ">");
+    }
+
+    function textToTranslatedInlineHtml(text, language, contextRtl) {
+        var attributes = getTranslationAttributes(language, contextRtl);
+        var html = textToInlineHtml(text);
+        return attributes && html ? "<span" + attributes + ">" + html + "</span>" : html;
+    }
+
+    function isNodeRtl(node) {
+        try {
+            var element = node && node.nodeType === 3 ? node.parentNode : node;
+            return element.ownerDocument.defaultView.getComputedStyle(element).direction === "rtl";
+        } catch (e) { return false; }
+    }
+
+    function isSelectionRtl() {
+        var editable = editor.getEditable();
+        var selection = editable.ownerDocument.getSelection();
+        var anchor = selection && selection.anchorNode;
+        return isNodeRtl(anchor && editable.contains(anchor) ? anchor : editable);
+    }
+
+    // The browser turns an ordinary space after inserted markup into a non-breaking one. Read what follows the
+    // selection before inserting, so a non-breaking space the author typed stays.
+    function hasOrdinarySpaceAfterSelection() {
+        var selection = editor.getEditable().ownerDocument.getSelection();
+        if (!selection || !selection.rangeCount) return false;
+        var range = selection.getRangeAt(0);
+        var node = range.endContainer;
+        if (node.nodeType === 3 && range.endOffset < node.data.length) return node.data.charAt(range.endOffset) === " ";
+        var next = node.nodeType === 3 ? node.nextSibling : node.childNodes[range.endOffset];
+        return !!next && next.nodeType === 3 && next.data.charAt(0) === " ";
+    }
+
+    function restoreSpaceAfter(node) {
+        var next = node && node.nextSibling;
+        if (next && next.nodeType === 3 && next.data.length > 1 && next.data.charAt(0) === "\xa0") next.data = " " + next.data.substring(1);
+    }
+
+    function insertTranslatedInline(text, language) {
+        var keepSpace = hasOrdinarySpaceAfterSelection();
+        var html = textToTranslatedInlineHtml(text, language, isSelectionRtl());
+        editor.insertHTML(html.replace("<span ", "<span data-rte-ai-translated=\"1\" "));
+        var span = editor.getEditable().querySelector("span[data-rte-ai-translated]");
+        if (!span) return;
+        span.removeAttribute("data-rte-ai-translated");
+        if (keepSpace) restoreSpaceAfter(span);
+    }
+
+    // the language an operation translates into, or "" when it is not a translation: every dialog run carries the
+    // selected language, whatever its mode
+    function getOperationTranslateLanguage(operation, resolved) {
+        var meta = operation.meta || {};
+        var request = (resolved && resolved.request) || {};
+        var mode = String(meta.mode || request.mode || "").toLowerCase();
+        if (mode === "translate") return meta.language || request.language || "";
+        if (mode === "chat" && /\b(?:translate|translation|localize|localise)\b/i.test(request.prompt || "")) return request.language || extractRequestedLanguage(request.prompt);
+        return "";
     }
 
     function textToInlineHtml(text) {
@@ -6860,7 +6999,7 @@ function RTE_Plugin_AIToolkit() {
             originalHtml: snapshot.html,
             originalText: snapshot.text,
             resultText: clean,
-            resultHtml: isBlock ? textToHtml(clean) : textToInlineHtml(clean),
+            resultHtml: isBlock ? textToTranslatedHtml(clean, options.targetLanguage) : textToTranslatedInlineHtml(clean, options.targetLanguage),
             reason: options.reason || "",
             suggestionType: getSuggestionTypeValue(options.suggestionType || ""),
             language: options.language || "",
@@ -6880,10 +7019,17 @@ function RTE_Plugin_AIToolkit() {
             return false;
         }
 
+        var keepSpaceAfterPreview = !isBlock && hasOrdinarySpaceAfterSelection();
+        if (options.targetLanguage) {
+            var previewContextRtl = isSelectionRtl();
+            previewState.resultHtml = isBlock ? textToTranslatedHtml(clean, options.targetLanguage, previewContextRtl) : textToTranslatedInlineHtml(clean, options.targetLanguage, previewContextRtl);
+        }
+
         if (editor.__aiBindInlinePreviewEventHandlers) {
             editor.__aiBindInlinePreviewEventHandlers();
         }
         editor.insertHTML(createInlinePreviewHtml(previewState));
+        if (keepSpaceAfterPreview) restoreSpaceAfter(getSuggestionWrapper(previewState.id));
         aiqWatchCards();
         persistSuggestionStore();
         emitReviewLogEvent("suggestion-created", previewState);
@@ -7340,6 +7486,7 @@ function RTE_Plugin_AIToolkit() {
         }
 
         if (documentLocked() && !/^open-|comment/i.test(String(operation.type))) return refuseLocked();
+        var targetLanguage = getOperationTranslateLanguage(operation, resolved);
         switch (operation.type) {
             case "open-chat-panel":
                 openChatPanel({ focusComposer: true });
@@ -7361,7 +7508,8 @@ function RTE_Plugin_AIToolkit() {
                         reason: operation.reason || (resolved && resolved.reason) || "",
                         sourceLabel: operation.meta && operation.meta.sourceLabel ? operation.meta.sourceLabel : "",
                         suggestionType: operation.meta && operation.meta.mode ? operation.meta.mode : (resolved && resolved.request ? resolved.request.mode : ""),
-                        language: operation.meta && operation.meta.language ? operation.meta.language : (resolved && resolved.request ? resolved.request.language : "")
+                        language: operation.meta && operation.meta.language ? operation.meta.language : (resolved && resolved.request ? resolved.request.language : ""),
+                        targetLanguage: targetLanguage
                     });
                 }
                 openDialog({
@@ -7373,11 +7521,11 @@ function RTE_Plugin_AIToolkit() {
             case "add-comment":
                 return insertAiComment(operation.text, { snapshot: snapshot });
             case "insert-below":
-                return applyResult(operation.text, { mode: "insert", snapshot: snapshot });
+                return applyResult(operation.text, { mode: "insert", snapshot: snapshot, targetLanguage: targetLanguage });
             case "replace-selection":
-                return applyResult(operation.text, { mode: "selection", snapshot: snapshot });
+                return applyResult(operation.text, { mode: "selection", snapshot: snapshot, targetLanguage: targetLanguage });
             case "replace-document":
-                return applyResult(operation.text, { mode: "document", snapshot: snapshot });
+                return applyResult(operation.text, { mode: "document", snapshot: snapshot, targetLanguage: targetLanguage });
             default:
                 return false;
         }
@@ -7566,7 +7714,7 @@ function RTE_Plugin_AIToolkit() {
         if (mode === "document") {
             // 2026-10-03 undoable: an AI rewrite of the whole document is one Ctrl+Z back to exactly
             // what was there, edits made just before included (tools/import/replace-undo-plugins.mjs)
-            editor.setHTMLCode(textToHtml(clean), { undoable: true });
+            editor.setHTMLCode(textToTranslatedHtml(clean, options.targetLanguage, isNodeRtl(editor.getEditable())), { undoable: true });
             syncSuggestionStates();
             persistSuggestionStore();
             if (editor.__aiReviewPanel && editor.__aiReviewPanel.isConnected) {
@@ -7580,7 +7728,8 @@ function RTE_Plugin_AIToolkit() {
             if (!restoreSelection(snapshot, false)) {
                 editor.focus();
             }
-            editor.insertText(clean);
+            if (getTranslationAttributes(options.targetLanguage)) insertTranslatedInline(clean, options.targetLanguage);
+            else editor.insertText(clean);
             syncSuggestionStates();
             persistSuggestionStore();
             if (editor.__aiReviewPanel && editor.__aiReviewPanel.isConnected) {
@@ -7593,7 +7742,7 @@ function RTE_Plugin_AIToolkit() {
         if (!restoreSelection(snapshot, true)) {
             editor.focus();
         }
-        editor.insertHTML("<p><br/></p>" + textToHtml(clean));
+        editor.insertHTML("<p><br/></p>" + textToTranslatedHtml(clean, options.targetLanguage, isSelectionRtl()));
         syncSuggestionStates();
         persistSuggestionStore();
         if (editor.__aiReviewPanel && editor.__aiReviewPanel.isConnected) {
@@ -10810,7 +10959,8 @@ function RTE_Plugin_AIToolkit() {
         var promptLabel = prompt && prompt.label ? String(prompt.label).toLowerCase() : "";
         var promptText = prompt && prompt.prompt ? String(prompt.prompt).toLowerCase() : "";
         var combined = promptId + " " + promptLabel + " " + promptText;
-        if (/translate|spanish|french|german|italian|portuguese|japanese/.test(combined)) {
+        // "polish" is left out: "Polish the intro" is a review
+        if (/translate|spanish|french|german|italian|portuguese|japanese|chinese|korean|arabic|hindi|russian|dutch|turkish|vietnamese|\bthai\b|indonesian|swedish|danish|norwegian|finnish|czech|greek|hebrew|ukrainian/.test(combined)) {
             return "Language";
         }
         if (/proofread|review|cleaner|grammar/.test(combined)) {

@@ -1693,14 +1693,11 @@ function RTE_Plugin_AIToolkit() {
         config.text_aiassist = config.text_aiassist || "Ask AI";
         config.text_aireview = config.text_aireview || "AI Review";
         config.text_aichat = config.text_aichat || "AI Chat";
-        config.aiToolkitTranslateLanguages = config.aiToolkitTranslateLanguages || [
-            { value: "spanish", label: "Spanish" },
-            { value: "french", label: "French" },
-            { value: "german", label: "German" },
-            { value: "italian", label: "Italian" },
-            { value: "portuguese", label: "Portuguese" },
-            { value: "japanese", label: "Japanese" }
-        ];
+        // 2026-11-16 the default Translate-to list is the 27 built-in languages (TRANSLATE_BUILTIN_LIST), Spanish and
+        // French first; it was 6. tools/i18n/ai-translate-languages.mjs
+        config.aiToolkitTranslateLanguages = config.aiToolkitTranslateLanguages || TRANSLATE_BUILTIN_LIST.map(function (b) {
+            return { value: b[0], label: b[2] };
+        });
         // 2026-05-13 (v20260513d): trimmed AI-redundant words from titles.
         // The menu is opened FROM the AI toolbar button and renders inside
         // a panel scoped to AI, so "Chat with AI" / "Draft with AI" / "Add
@@ -3268,7 +3265,47 @@ function RTE_Plugin_AIToolkit() {
     // 2026-10-18 the Translate-to list names the built-in languages in the page's language (Intl.DisplayNames in the
     // pack's locale, text_uilocale) at the display site only; values and the language a request names are unchanged,
     // and an application's own label is kept. tools/i18n/ai-translate-languages.mjs
-    var TRANSLATE_BUILTIN = { spanish: ["es", "Spanish"], french: ["fr", "French"], german: ["de", "German"], italian: ["it", "Italian"], portuguese: ["pt", "Portuguese"], japanese: ["ja", "Japanese"] };
+    // 2026-11-16 27 built-in languages, in menu order: [value, BCP 47 code, English label, other names a chat prompt may
+    // use]. The code is what Intl.DisplayNames names the language with and what a request carries as languageCode.
+    var TRANSLATE_BUILTIN_LIST = [
+        ["spanish", "es", "Spanish"], ["french", "fr", "French"], ["english", "en", "English"], ["german", "de", "German"], ["italian", "it", "Italian"],
+        ["portuguese", "pt", "Portuguese"], ["japanese", "ja", "Japanese"],
+        ["chinese-simplified", "zh-Hans", "Chinese (Simplified)", ["simplified chinese", "chinese", "mandarin"]],
+        ["chinese-traditional", "zh-Hant", "Chinese (Traditional)", ["traditional chinese"]],
+        ["korean", "ko", "Korean"], ["arabic", "ar", "Arabic"], ["hindi", "hi", "Hindi"], ["russian", "ru", "Russian"],
+        ["dutch", "nl", "Dutch"], ["polish", "pl", "Polish"], ["turkish", "tr", "Turkish"], ["vietnamese", "vi", "Vietnamese"],
+        ["thai", "th", "Thai"], ["indonesian", "id", "Indonesian"], ["swedish", "sv", "Swedish"], ["danish", "da", "Danish"],
+        ["norwegian", "no", "Norwegian"], ["finnish", "fi", "Finnish"], ["czech", "cs", "Czech"], ["greek", "el", "Greek"],
+        ["hebrew", "he", "Hebrew"], ["ukrainian", "uk", "Ukrainian"]
+    ];
+    var TRANSLATE_BUILTIN = {};
+    for (var tbi = 0; tbi < TRANSLATE_BUILTIN_LIST.length; tbi++) {
+        TRANSLATE_BUILTIN[TRANSLATE_BUILTIN_LIST[tbi][0].replace(/[^a-z0-9]+/g, "")] = [TRANSLATE_BUILTIN_LIST[tbi][1], TRANSLATE_BUILTIN_LIST[tbi][2], TRANSLATE_BUILTIN_LIST[tbi][3] || []];
+    }
+    // the built-in entry for a list value or label, or null
+    function getTranslateBuiltIn(language) {
+        var key = normalizeLanguageValue(language);
+        if (TRANSLATE_BUILTIN[key]) return TRANSLATE_BUILTIN[key];
+        for (var k in TRANSLATE_BUILTIN) {
+            if (TRANSLATE_BUILTIN.hasOwnProperty(k) && normalizeLanguageValue(TRANSLATE_BUILTIN[k][1]) === key) return TRANSLATE_BUILTIN[k];
+        }
+        return null;
+    }
+    // the BCP 47 code of a list language: the entry's own code, else the built-in one, else ""
+    function getTranslateLanguageCode(language) {
+        var normalized = normalizeLanguageValue(language);
+        if (!normalized) return "";
+        var languages = getTranslateLanguages();
+        for (var i = 0; i < languages.length; i++) {
+            if (normalizeLanguageValue(languages[i].value) === normalized || normalizeLanguageValue(languages[i].label) === normalized) {
+                if (languages[i].code) return String(languages[i].code);
+                var own = getTranslateBuiltIn(languages[i].value);
+                return own ? own[0] : "";
+            }
+        }
+        var builtIn = getTranslateBuiltIn(language);
+        return builtIn ? builtIn[0] : "";
+    }
     function getTranslateLanguageDisplay(entry) {
         var label = entry.label || entry.value;
         var builtIn = TRANSLATE_BUILTIN[normalizeLanguageValue(entry.value)];
@@ -3599,7 +3636,10 @@ function RTE_Plugin_AIToolkit() {
             return "You could tighten the structure by using shorter headings that mirror the main claims in " + focus + ". Ask me to draft heading options and I can turn them into reviewable suggestions.";
         }
         if (/\b(translate|translation)\b/.test(prompt)) {
-            return "I can translate the current selection or whole document into Spanish, French, German, Italian, Portuguese, or Japanese and keep it reviewable in the editor before you accept it.";
+            // 2026-11-16 names the configured Translate-to list; it named a fixed six
+            var names = getTranslateLanguages().map(function (l) { return l.label || l.value; }).filter(Boolean);
+            var namesText = names.length > 2 ? names.slice(0, -1).join(", ") + ", or " + names[names.length - 1] : names.join(" or ");
+            return "I can translate the current selection or whole document into " + (namesText || "another language") + " and keep it reviewable in the editor before you accept it.";
         }
         if (/\bwhy\b|\bhow\b|\bwhat\b|\?/.test(prompt)) {
             return "Based on " + focus + ", I would focus on clarity, stronger section framing, and cleaner transitions. If you want, ask me to rewrite or summarize a specific passage and I can prepare an in-editor suggestion.";
@@ -3612,15 +3652,34 @@ function RTE_Plugin_AIToolkit() {
         if (!normalizedPrompt) {
             return "";
         }
+        // 2026-11-16 a built-in language also answers to its other names ("traditional chinese"). The target is the name
+        // after "into" / "to", then after "in", then any name; "from English" is the source, and among equals the longest
+        // name wins, so "traditional chinese" is not read as the "chinese" of Chinese (Simplified). A bare "polish" is the
+        // verb. A language outside the list is still the target when the prompt ends with it ("into Romanian").
         var languages = getTranslateLanguages();
+        var best = "", bestRank = 0, bestLength = 0;
         for (var i = 0; i < languages.length; i++) {
-            var label = (languages[i].label || "").toLowerCase();
-            var value = (languages[i].value || "").toLowerCase();
-            if ((label && normalizedPrompt.indexOf(label) >= 0) || (value && normalizedPrompt.indexOf(value) >= 0)) {
-                return languages[i].value || languages[i].label;
+            var builtIn = getTranslateBuiltIn(languages[i].value);
+            var names = [languages[i].label || "", languages[i].value || "", String(languages[i].value || "").replace(/[-_]+/g, " ")].concat(builtIn ? builtIn[2] : []);
+            for (var n = 0; n < names.length; n++) {
+                var name = String(names[n]).toLowerCase();
+                if (!name) continue;
+                for (var at = normalizedPrompt.indexOf(name); at >= 0; at = normalizedPrompt.indexOf(name, at + 1)) {
+                    var before = normalizedPrompt.substring(0, at);
+                    if (/[a-z0-9]$/.test(before) || /^[a-z0-9]/.test(normalizedPrompt.substring(at + name.length)) || /\bfrom\s+(?:the\s+)?$/.test(before)) continue;
+                    var rank = /\b(?:into|to)\s+(?:the\s+)?$/.test(before) ? 3 : (/\bin\s+(?:the\s+)?$/.test(before) ? 2 : 1);
+                    if (rank === 1 && name === "polish") continue;
+                    if (rank > bestRank || (rank === bestRank && name.length > bestLength)) {
+                        best = languages[i].value || languages[i].label;
+                        bestRank = rank;
+                        bestLength = name.length;
+                    }
+                }
             }
         }
-        return "";
+        if (best) return best;
+        var unlisted = normalizedPrompt.match(/\b(?:into|to)\s+([a-z][a-z-]{2,})[\s.!?]*$/);
+        return unlisted && !/^(?:this|that|these|those|them|you|text|here|there|another|other|review|read|use)$/.test(unlisted[1]) ? unlisted[1] : "";
     }
 
     function buildChatResolvedAction(request) {
@@ -3642,11 +3701,14 @@ function RTE_Plugin_AIToolkit() {
         }
 
         if (/\b(translate|translation|localize|localise)\b/.test(promptLower)) {
-            var languageLabel = getTranslateLanguageLabel(requestedLanguage || "spanish");
+            // 2026-11-16 no language named: the first in the configured list, which may not hold Spanish
+            var firstLanguage = getTranslateLanguages()[0];
+            requestedLanguage = requestedLanguage || (firstLanguage && (firstLanguage.value || firstLanguage.label)) || "spanish";
+            var languageLabel = getTranslateLanguageLabel(requestedLanguage);
             resultText = buildDemoResult("translate", source, { language: requestedLanguage });
             editReason = "This prepares a translated " + languageLabel + " draft while keeping the original text nearby until you review and accept the change.";
             return {
-                message: "I prepared a " + languageLabel + " translation you can review before applying.",
+                message: "I prepared " + (/^(?!uk|uni|eu)[aeiou]/i.test(languageLabel) ? "an " : "a ") + languageLabel + " translation you can review before applying.",
                 result: resultText,
                 reason: editReason,
                 operations: [
@@ -4315,6 +4377,10 @@ function RTE_Plugin_AIToolkit() {
             source: options.source || (snapshot.text || snapshot.wholeText),
             prompt: options.prompt || "",
             language: options.language || "",
+            // 2026-11-16 the target named for a model: the English label ("Chinese (Simplified)") and the BCP 47
+            // code ("zh-Hans"); language stays the list value. Empty without a language.
+            languageLabel: options.language ? getTranslateLanguageLabel(options.language) : "",
+            languageCode: options.language ? getTranslateLanguageCode(options.language) : "",
             scope: options.scope || (snapshot.hasSelection ? "selection" : "document"),
             selectionText: snapshot.text || "",
             documentText: snapshot.wholeText || "",
@@ -4435,6 +4501,79 @@ function RTE_Plugin_AIToolkit() {
             html.push("<p>" + editor.htmlEncode(blocks[i]).replace(/\n/g, "<br/>") + "</p>");
         }
         return html.join("");
+    }
+
+    // 2026-11-16 applied translations say what language they are in (WCAG 3.1.2) and which way they run: Arabic and
+    // Hebrew came in left to right. A language without a known code is left unmarked. tools/i18n/ai-translate-languages.mjs
+    // contextRtl: the text lands inside right-to-left content, so a left-to-right language has to say so
+    function getTranslationAttributes(language, contextRtl) {
+        var code = language ? getTranslateLanguageCode(language) : "";
+        if (!code) return "";
+        var rtl = /^(?:ar|arc|ckb|dv|fa|he|iw|ks|ps|sd|ug|ur|yi)(?:-|$)/i.test(code);
+        return " lang=\"" + escapeAttribute(code) + "\"" + (rtl ? " dir=\"rtl\"" : (contextRtl ? " dir=\"ltr\"" : ""));
+    }
+
+    function textToTranslatedHtml(text, language, contextRtl) {
+        var attributes = getTranslationAttributes(language, contextRtl);
+        return textToHtml(text).split("<p>").join("<p" + attributes + ">");
+    }
+
+    function textToTranslatedInlineHtml(text, language, contextRtl) {
+        var attributes = getTranslationAttributes(language, contextRtl);
+        var html = textToInlineHtml(text);
+        return attributes && html ? "<span" + attributes + ">" + html + "</span>" : html;
+    }
+
+    function isNodeRtl(node) {
+        try {
+            var element = node && node.nodeType === 3 ? node.parentNode : node;
+            return element.ownerDocument.defaultView.getComputedStyle(element).direction === "rtl";
+        } catch (e) { return false; }
+    }
+
+    function isSelectionRtl() {
+        var editable = editor.getEditable();
+        var selection = editable.ownerDocument.getSelection();
+        var anchor = selection && selection.anchorNode;
+        return isNodeRtl(anchor && editable.contains(anchor) ? anchor : editable);
+    }
+
+    // The browser turns an ordinary space after inserted markup into a non-breaking one. Read what follows the
+    // selection before inserting, so a non-breaking space the author typed stays.
+    function hasOrdinarySpaceAfterSelection() {
+        var selection = editor.getEditable().ownerDocument.getSelection();
+        if (!selection || !selection.rangeCount) return false;
+        var range = selection.getRangeAt(0);
+        var node = range.endContainer;
+        if (node.nodeType === 3 && range.endOffset < node.data.length) return node.data.charAt(range.endOffset) === " ";
+        var next = node.nodeType === 3 ? node.nextSibling : node.childNodes[range.endOffset];
+        return !!next && next.nodeType === 3 && next.data.charAt(0) === " ";
+    }
+
+    function restoreSpaceAfter(node) {
+        var next = node && node.nextSibling;
+        if (next && next.nodeType === 3 && next.data.length > 1 && next.data.charAt(0) === "\xa0") next.data = " " + next.data.substring(1);
+    }
+
+    function insertTranslatedInline(text, language) {
+        var keepSpace = hasOrdinarySpaceAfterSelection();
+        var html = textToTranslatedInlineHtml(text, language, isSelectionRtl());
+        editor.insertHTML(html.replace("<span ", "<span data-rte-ai-translated=\"1\" "));
+        var span = editor.getEditable().querySelector("span[data-rte-ai-translated]");
+        if (!span) return;
+        span.removeAttribute("data-rte-ai-translated");
+        if (keepSpace) restoreSpaceAfter(span);
+    }
+
+    // the language an operation translates into, or "" when it is not a translation: every dialog run carries the
+    // selected language, whatever its mode
+    function getOperationTranslateLanguage(operation, resolved) {
+        var meta = operation.meta || {};
+        var request = (resolved && resolved.request) || {};
+        var mode = String(meta.mode || request.mode || "").toLowerCase();
+        if (mode === "translate") return meta.language || request.language || "";
+        if (mode === "chat" && /\b(?:translate|translation|localize|localise)\b/i.test(request.prompt || "")) return request.language || extractRequestedLanguage(request.prompt);
+        return "";
     }
 
     function textToInlineHtml(text) {
@@ -8433,7 +8572,7 @@ function RTE_Plugin_AIToolkit() {
             originalHtml: snapshot.html,
             originalText: snapshot.text,
             resultText: clean,
-            resultHtml: isBlock ? textToHtml(clean) : textToInlineHtml(clean),
+            resultHtml: isBlock ? textToTranslatedHtml(clean, options.targetLanguage) : textToTranslatedInlineHtml(clean, options.targetLanguage),
             reason: options.reason || "",
             suggestionType: getSuggestionTypeValue(options.suggestionType || ""),
             language: options.language || "",
@@ -8453,10 +8592,17 @@ function RTE_Plugin_AIToolkit() {
             return false;
         }
 
+        var keepSpaceAfterPreview = !isBlock && hasOrdinarySpaceAfterSelection();
+        if (options.targetLanguage) {
+            var previewContextRtl = isSelectionRtl();
+            previewState.resultHtml = isBlock ? textToTranslatedHtml(clean, options.targetLanguage, previewContextRtl) : textToTranslatedInlineHtml(clean, options.targetLanguage, previewContextRtl);
+        }
+
         if (editor.__aiBindInlinePreviewEventHandlers) {
             editor.__aiBindInlinePreviewEventHandlers();
         }
         editor.insertHTML(createInlinePreviewHtml(previewState));
+        if (keepSpaceAfterPreview) restoreSpaceAfter(getSuggestionWrapper(previewState.id));
         aiqWatchCards();
         persistSuggestionStore();
         emitReviewLogEvent("suggestion-created", previewState);
@@ -8913,6 +9059,7 @@ function RTE_Plugin_AIToolkit() {
         }
 
         if (documentLocked() && !/^open-|comment/i.test(String(operation.type))) return refuseLocked();
+        var targetLanguage = getOperationTranslateLanguage(operation, resolved);
         switch (operation.type) {
             case "open-chat-panel":
                 openChatPanel({ focusComposer: true });
@@ -8934,7 +9081,8 @@ function RTE_Plugin_AIToolkit() {
                         reason: operation.reason || (resolved && resolved.reason) || "",
                         sourceLabel: operation.meta && operation.meta.sourceLabel ? operation.meta.sourceLabel : "",
                         suggestionType: operation.meta && operation.meta.mode ? operation.meta.mode : (resolved && resolved.request ? resolved.request.mode : ""),
-                        language: operation.meta && operation.meta.language ? operation.meta.language : (resolved && resolved.request ? resolved.request.language : "")
+                        language: operation.meta && operation.meta.language ? operation.meta.language : (resolved && resolved.request ? resolved.request.language : ""),
+                        targetLanguage: targetLanguage
                     });
                 }
                 openDialog({
@@ -8946,11 +9094,11 @@ function RTE_Plugin_AIToolkit() {
             case "add-comment":
                 return insertAiComment(operation.text, { snapshot: snapshot });
             case "insert-below":
-                return applyResult(operation.text, { mode: "insert", snapshot: snapshot });
+                return applyResult(operation.text, { mode: "insert", snapshot: snapshot, targetLanguage: targetLanguage });
             case "replace-selection":
-                return applyResult(operation.text, { mode: "selection", snapshot: snapshot });
+                return applyResult(operation.text, { mode: "selection", snapshot: snapshot, targetLanguage: targetLanguage });
             case "replace-document":
-                return applyResult(operation.text, { mode: "document", snapshot: snapshot });
+                return applyResult(operation.text, { mode: "document", snapshot: snapshot, targetLanguage: targetLanguage });
             default:
                 return false;
         }
@@ -9139,7 +9287,7 @@ function RTE_Plugin_AIToolkit() {
         if (mode === "document") {
             // 2026-10-03 undoable: an AI rewrite of the whole document is one Ctrl+Z back to exactly
             // what was there, edits made just before included (tools/import/replace-undo-plugins.mjs)
-            editor.setHTMLCode(textToHtml(clean), { undoable: true });
+            editor.setHTMLCode(textToTranslatedHtml(clean, options.targetLanguage, isNodeRtl(editor.getEditable())), { undoable: true });
             syncSuggestionStates();
             persistSuggestionStore();
             if (editor.__aiReviewPanel && editor.__aiReviewPanel.isConnected) {
@@ -9153,7 +9301,8 @@ function RTE_Plugin_AIToolkit() {
             if (!restoreSelection(snapshot, false)) {
                 editor.focus();
             }
-            editor.insertText(clean);
+            if (getTranslationAttributes(options.targetLanguage)) insertTranslatedInline(clean, options.targetLanguage);
+            else editor.insertText(clean);
             syncSuggestionStates();
             persistSuggestionStore();
             if (editor.__aiReviewPanel && editor.__aiReviewPanel.isConnected) {
@@ -9166,7 +9315,7 @@ function RTE_Plugin_AIToolkit() {
         if (!restoreSelection(snapshot, true)) {
             editor.focus();
         }
-        editor.insertHTML("<p><br/></p>" + textToHtml(clean));
+        editor.insertHTML("<p><br/></p>" + textToTranslatedHtml(clean, options.targetLanguage, isSelectionRtl()));
         syncSuggestionStates();
         persistSuggestionStore();
         if (editor.__aiReviewPanel && editor.__aiReviewPanel.isConnected) {
@@ -12383,7 +12532,8 @@ function RTE_Plugin_AIToolkit() {
         var promptLabel = prompt && prompt.label ? String(prompt.label).toLowerCase() : "";
         var promptText = prompt && prompt.prompt ? String(prompt.prompt).toLowerCase() : "";
         var combined = promptId + " " + promptLabel + " " + promptText;
-        if (/translate|spanish|french|german|italian|portuguese|japanese/.test(combined)) {
+        // "polish" is left out: "Polish the intro" is a review
+        if (/translate|spanish|french|german|italian|portuguese|japanese|chinese|korean|arabic|hindi|russian|dutch|turkish|vietnamese|\bthai\b|indonesian|swedish|danish|norwegian|finnish|czech|greek|hebrew|ukrainian/.test(combined)) {
             return "Language";
         }
         if (/proofread|review|cleaner|grammar/.test(combined)) {
@@ -22787,7 +22937,8 @@ if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
 // live "remaining" counter that turns red near/over the limit. Library-free.
 //
 // API:
-//   editor.getCharCount()      -> number (characters, no markup)
+//   editor.getCharCount()      -> number (characters as the reader sees them: spaces count, line breaks do not, an
+//                                 emoji counts once; the same number as getStatistics().characters)
 //   editor.getWordCount()      -> number
 //   editor.getRemainingChars() -> number | null   (null when no maxLength set)
 //   editor.isOverLimit()       -> boolean
@@ -22827,12 +22978,12 @@ function RTE_Plugin_CharLimit() {
                 if (!maxChars()) return origInsertHTML.apply(this, arguments);
                 var probe = document.createElement("div");
                 probe.innerHTML = __RTE_TT(String(html == null ? "" : html));
-                var add = (probe.textContent || "").length;
+                var add = visibleLength(probe.textContent);
                 var remaining = maxChars() - countChars() + selectionLength();
                 if (add <= remaining) return origInsertHTML.apply(this, arguments);
                 flash();
                 if (remaining <= 0) return false;
-                return origInsertHTML.call(this, escapeHtml((probe.textContent || "").slice(0, remaining)));
+                return origInsertHTML.call(this, escapeHtml(fitVisible(probe.textContent, remaining)));
             };
         }
 
@@ -22877,7 +23028,26 @@ function RTE_Plugin_CharLimit() {
             return ed ? (ed.innerText || ed.textContent || "") : "";
         } catch (e) { return ""; }
     }
-    function countChars() { return plainText().replace(/\r\n/g, "\n").length; }
+    // 2026-11-02 The same rule as the core's getStatistics. This counted innerText, whose newlines differ per engine: on
+    // <p>a</p><p><br></p><p>b</p> the status bar said 2 and this said 7 (6 in WebKit), so empty lines used up the limit.
+    // tools/charlimit/char-count-line-breaks.mjs
+    function visibleLength(text) {
+        var visible = String(text == null ? "" : text).replace(/[\r\n]+/g, "");
+        var astral = visible.match(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g);
+        return visible.length - (astral ? astral.length : 0);
+    }
+    // The start of text holding at most n visible characters: line breaks come along free, an emoji is never split.
+    function fitVisible(text, n) {
+        var out = "", used = 0, parts = String(text == null ? "" : text).match(/[\uD800-\uDBFF][\uDC00-\uDFFF]|[\s\S]/g) || [];
+        for (var i = 0; i < parts.length; i++) {
+            var free = parts[i] === "\n" || parts[i] === "\r";
+            if (!free && used >= n) break;
+            out += parts[i];
+            if (!free) used++;
+        }
+        return out;
+    }
+    function countChars() { return visibleLength(plainText()); }
     // Same rules as the core status bar: each CJK character is a word (those scripts have no
     // spaces, so "你好世界" was 1), and a token of punctuation alone ("—", "!") is not a word.
     function countWords() {
@@ -22897,10 +23067,11 @@ function RTE_Plugin_CharLimit() {
         var isInsert = t === "insertText" || t === "insertReplacementText" ||
             t === "insertCompositionText" || t === "insertParagraph" || t === "insertLineBreak";
         if (!isInsert) return; // deletes / formatting always allowed
-        var addLen = t === "insertParagraph" || t === "insertLineBreak" ? 1 : ((e.data || "").length || 0);
+        // A line break costs nothing, so Enter still works at the limit.
+        var addLen = visibleLength(e.data);
         // Allow if it shrinks/replaces a selection that frees room — approximate by
         // checking current count; if already at/over the char cap, block inserts.
-        if (maxChars()) {
+        if (maxChars() && t !== "insertParagraph" && t !== "insertLineBreak") {
             var cur = countChars();
             if (cur >= maxChars() || cur + addLen > maxChars()) {
                 // Permit replacing a selection (net change may be <= 0).
@@ -22923,11 +23094,11 @@ function RTE_Plugin_CharLimit() {
         if (!cd) return;
         var text = "";
         try { text = cd.getData("text/plain") || ""; } catch (er) { return; }
-        if (text.length > remaining) {
+        if (visibleLength(text) > remaining) {
             // Truncate the paste to what fits.
             e.preventDefault();
             e.stopImmediatePropagation();
-            var fit = text.slice(0, remaining);
+            var fit = fitVisible(text, remaining);
             try { if (typeof editor.insertHTML === "function") editor.insertHTML(escapeHtml(fit).replace(/\n/g, "<br>")); }
             catch (e2) {}
             flash();
@@ -22948,7 +23119,7 @@ function RTE_Plugin_CharLimit() {
                 probe.innerHTML = __RTE_TT(dt.getData("text/html") || "");
                 text = probe.textContent || "";
             }
-            add = text.length;
+            add = visibleLength(text);
         } catch (er) { return; }
         if (!add) return;
         if (countChars() + add > maxChars()) {
@@ -22962,7 +23133,7 @@ function RTE_Plugin_CharLimit() {
         try { var s = editor.getSelection(); return s && s.rangeCount > 0 && !s.isCollapsed; } catch (e) { return false; }
     }
     function selectionLength() {
-        try { var s = editor.getSelection(); return s && !s.isCollapsed ? (s.toString() || "").length : 0; } catch (e) { return 0; }
+        try { var s = editor.getSelection(); return s && !s.isCollapsed ? visibleLength(s.toString()) : 0; } catch (e) { return 0; }
     }
 
     function escapeHtml(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
@@ -29213,6 +29384,315 @@ function RTE_Plugin_DragHandle() {
 
 if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
 
+// 2026-11-01 Drawing: sketch with a pen, a marker or an eraser in a dialog and insert the result as
+// an image; double-click it later to keep drawing. Closes the gap with Tiptap's "Drawing" example.
+//
+// The image is a PNG, so it exports to Word, PDF and email like any other picture. The strokes ride
+// along in data-rte-drawing (canvas coordinates, one decimal), so a saved and reloaded drawing is
+// still editable. Pointer events: mouse, pen and touch draw the same way.
+//   toolbar item: insertdrawing      API: editor.openDrawingDialog([img])
+//   config.drawingWidth / drawingHeight: the canvas size in CSS pixels (640 x 360)
+//   config.drawingColors: the colour swatches
+// tools/plugins/drawing.mjs
+RTE_DefaultConfig.plugin_drawing = RTE_Plugin_Drawing;
+RTE_DefaultConfig.drawingWidth = RTE_DefaultConfig.drawingWidth || 640;
+RTE_DefaultConfig.drawingHeight = RTE_DefaultConfig.drawingHeight || 360;
+RTE_DefaultConfig.drawingColors = RTE_DefaultConfig.drawingColors || ["#1f2328", "#0969da", "#cf222e", "#1a7f37", "#bc4c00", "#8250df"];
+RTE_DefaultConfig.text_insertdrawing = RTE_DefaultConfig.text_insertdrawing || "Drawing";
+RTE_DefaultConfig.svgCode_insertdrawing = RTE_DefaultConfig.svgCode_insertdrawing || '<svg viewBox="-2 -2 36 36" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 25c3-6 6-9 9-6s-1 7 3 8 6-6 10-9"/><path d="M21 5l6 6-11 11-7 1 1-7z"/></svg>';
+
+function RTE_Plugin_Drawing() {
+    var obj = this;
+    var config, editor;
+
+    obj.PluginName = "Drawing";
+
+    // the words read config.text_ keys (language packs), English as the fallback
+    function pText(key, fallback) {
+        return (config && config["text_" + key]) || fallback;
+    }
+    function listText(key, fallback, i) {
+        var arr = String(pText(key, fallback)).split(",");
+        return (arr[i] || fallback.split(",")[i] || "").trim();
+    }
+
+    obj.InitConfig = function (argconfig) { config = argconfig; };
+
+    obj.InitEditor = function (argeditor) {
+        editor = argeditor;
+        editor.openDrawingDialog = function (img) { obj.OpenDialog(img || null); };
+        editor.attachEvent("exec_command_insertdrawing", function (state) {
+            state.returnValue = true;
+            obj.OpenDialog(null);
+        });
+        // double-click a drawing to keep drawing (bound through the editor so it survives a document swap)
+        var onDbl = function (e) {
+            var t = e.target;
+            if (t && t.nodeType === 1 && t.nodeName === "IMG" && t.classList.contains("rte-drawing")) {
+                e.preventDefault();
+                e.stopPropagation();
+                obj.OpenDialog(t);
+            }
+        };
+        if (typeof editor.bindEditableEvent === "function") editor.bindEditableEvent("dblclick", onDbl, true);
+        else { try { editor.getEditable().addEventListener("dblclick", onDbl, true); } catch (e) { /* ignore */ } }
+    };
+
+    function append(parent, tag, cssText, className) {
+        var el = parent.ownerDocument.createElement(tag);
+        if (cssText) el.style.cssText = cssText;
+        if (className) el.className = className;
+        parent.appendChild(el);
+        return el;
+    }
+    function escAttr(s) {
+        return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+    function readStrokes(img) {
+        try {
+            var d = JSON.parse(img.getAttribute("data-rte-drawing") || "");
+            if (d && d.s && d.s.length !== undefined) return d;
+        } catch (e) { /* not a drawing we can read: start empty */ }
+        return null;
+    }
+
+    // one stroke: { t: "pen" | "marker" | "eraser", c: colour, w: width, p: [[x, y], ...] }
+    function paintStroke(g, s) {
+        if (!s.p || !s.p.length) return;
+        g.save();
+        g.globalCompositeOperation = s.t === "eraser" ? "destination-out" : "source-over";
+        g.globalAlpha = s.t === "marker" ? 0.35 : 1;
+        g.strokeStyle = s.c;
+        g.fillStyle = s.c;
+        g.lineWidth = s.w;
+        g.lineCap = "round";
+        g.lineJoin = "round";
+        if (s.p.length === 1) {
+            g.beginPath();
+            g.arc(s.p[0][0], s.p[0][1], s.w / 2, 0, Math.PI * 2);
+            g.fill();
+        }
+        else {
+            g.beginPath();
+            g.moveTo(s.p[0][0], s.p[0][1]);
+            for (var i = 1; i < s.p.length - 1; i++) {
+                var mx = (s.p[i][0] + s.p[i + 1][0]) / 2, my = (s.p[i][1] + s.p[i + 1][1]) / 2;
+                g.quadraticCurveTo(s.p[i][0], s.p[i][1], mx, my);
+            }
+            var last = s.p[s.p.length - 1];
+            g.lineTo(last[0], last[1]);
+            g.stroke();
+        }
+        g.restore();
+    }
+    function paintAll(g, strokes, w, h) {
+        g.clearRect(0, 0, w, h);
+        for (var i = 0; i < strokes.length; i++) paintStroke(g, strokes[i]);
+    }
+
+    // the drawn area plus a margin, in canvas coordinates; null when nothing visible was drawn
+    function inkBounds(strokes, w, h) {
+        var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+        for (var i = 0; i < strokes.length; i++) {
+            var s = strokes[i];
+            if (s.t === "eraser") continue;
+            for (var j = 0; j < s.p.length; j++) {
+                var r = s.w / 2;
+                x0 = Math.min(x0, s.p[j][0] - r); y0 = Math.min(y0, s.p[j][1] - r);
+                x1 = Math.max(x1, s.p[j][0] + r); y1 = Math.max(y1, s.p[j][1] + r);
+            }
+        }
+        if (x0 === Infinity) return null;
+        var pad = 12;
+        x0 = Math.max(0, Math.floor(x0 - pad)); y0 = Math.max(0, Math.floor(y0 - pad));
+        x1 = Math.min(w, Math.ceil(x1 + pad)); y1 = Math.min(h, Math.ceil(y1 + pad));
+        return { x: x0, y: y0, w: Math.max(1, x1 - x0), h: Math.max(1, y1 - y0) };
+    }
+
+    function exportPng(doc, strokes, w, h) {
+        var b = inkBounds(strokes, w, h);
+        if (!b) return null;
+        var scale = 2; // crisp on high-density screens
+        var c = doc.createElement("canvas");
+        c.width = b.w * scale;
+        c.height = b.h * scale;
+        var g = c.getContext("2d");
+        g.setTransform(scale, 0, 0, scale, -b.x * scale, -b.y * scale);
+        for (var i = 0; i < strokes.length; i++) paintStroke(g, strokes[i]);
+        return { src: c.toDataURL("image/png"), w: b.w, h: b.h };
+    }
+
+    obj.OpenDialog = function (existing) {
+        var W = config.drawingWidth | 0 || 640, H = config.drawingHeight | 0 || 360;
+        var saved = existing ? readStrokes(existing) : null;
+        var strokes = saved ? saved.s.slice() : [];
+        var history = [];
+        var tool = "pen", color = (config.drawingColors && config.drawingColors[0]) || "#1f2328", size = 4;
+
+        var dlg = editor.createDialog(pText("drawingtitle", "Insert / edit drawing"), "rte-dialog-drawing");
+        var close = typeof dlg.close === "function" ? function () { dlg.close(); } : function () { editor.closeCurrentPopup(); };
+        var doc = dlg.ownerDocument;
+        var wrap = append(dlg, "div", "padding:12px 14px;width:min(" + (W + 30) + "px, calc(100vw - 48px));box-sizing:border-box;font:13px system-ui,-apple-system,'Segoe UI',sans-serif");
+
+        var bar = append(wrap, "div", "display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:8px");
+        bar.setAttribute("role", "toolbar");
+        bar.setAttribute("aria-label", pText("drawingtools", "Drawing tools"));
+        var btnCss = "min-width:32px;height:30px;padding:0 9px;border:1px solid #cbd5e1;border-radius:7px;background:#fff;color:#1f2328;cursor:pointer;font:12px system-ui,sans-serif";
+        function pressed(list, on) {
+            for (var i = 0; i < list.length; i++) {
+                var p = list[i] === on;
+                list[i].setAttribute("aria-pressed", p ? "true" : "false");
+                list[i].style.borderColor = p ? "#0969da" : "#cbd5e1";
+                list[i].style.boxShadow = p ? "0 0 0 2px rgba(9,105,218,.25)" : "none";
+            }
+        }
+        var toolBtns = [];
+        [["pen", pText("drawingpen", "Pen")], ["marker", pText("drawingmarker", "Marker")], ["eraser", pText("drawingeraser", "Eraser")]].forEach(function (t) {
+            var b = append(bar, "button", btnCss);
+            b.type = "button";
+            b.textContent = t[1];
+            b.setAttribute("data-rte-drawing-tool", t[0]);
+            b.onclick = function () { tool = t[0]; pressed(toolBtns, b); };
+            toolBtns.push(b);
+        });
+        pressed(toolBtns, toolBtns[0]);
+
+        append(bar, "span", "width:1px;height:22px;background:#e2e8f0;margin:0 2px");
+        var colorBtns = [];
+        (config.drawingColors || []).forEach(function (c, i) {
+            var b = append(bar, "button", "width:26px;height:26px;padding:0;border:2px solid #cbd5e1;border-radius:999px;cursor:pointer;background:" + c);
+            b.type = "button";
+            b.setAttribute("data-rte-drawing-color", c);
+            b.setAttribute("aria-label", listText("drawingcolors", "Black,Blue,Red,Green,Orange,Purple", i) || c);
+            b.title = b.getAttribute("aria-label");
+            b.onclick = function () { color = c; if (tool === "eraser") { tool = "pen"; pressed(toolBtns, toolBtns[0]); } pressed(colorBtns, b); };
+            colorBtns.push(b);
+        });
+        if (colorBtns.length) pressed(colorBtns, colorBtns[0]);
+
+        append(bar, "span", "width:1px;height:22px;background:#e2e8f0;margin:0 2px");
+        var sizeLabel = append(bar, "label", "display:inline-flex;align-items:center;gap:5px");
+        append(sizeLabel, "span").textContent = pText("drawingsize", "Thickness");
+        var sizeSel = append(sizeLabel, "select", "height:30px;border:1px solid #cbd5e1;border-radius:7px;background:#fff;font:12px system-ui,sans-serif");
+        [2, 4, 8, 14].forEach(function (v, i) {
+            var o = append(sizeSel, "option");
+            o.value = String(v);
+            o.textContent = listText("drawingsizes", "Thin,Medium,Thick,Very thick", i);
+        });
+        sizeSel.value = String(size);
+        sizeSel.onchange = function () { size = parseInt(sizeSel.value, 10) || 4; };
+
+        append(bar, "span", "flex:1");
+        var undoBtn = append(bar, "button", btnCss);
+        undoBtn.type = "button";
+        undoBtn.textContent = pText("drawingundo", "Undo stroke");
+        var clearBtn = append(bar, "button", btnCss);
+        clearBtn.type = "button";
+        clearBtn.textContent = pText("drawingclear", "Clear");
+
+        var canvas = append(wrap, "canvas", "display:block;width:100%;height:auto;aspect-ratio:" + W + " / " + H + ";background:#fff;border:1px solid #cbd5e1;border-radius:8px;touch-action:none;cursor:crosshair", "rte-drawing-canvas");
+        var dpr = Math.min(2, (doc.defaultView && doc.defaultView.devicePixelRatio) || 1);
+        canvas.width = W * dpr;
+        canvas.height = H * dpr;
+        canvas.setAttribute("role", "img");
+        canvas.setAttribute("aria-label", pText("drawingcanvas", "Drawing area: draw with a mouse, a pen or a finger"));
+        var g = canvas.getContext("2d");
+        g.setTransform(dpr, 0, 0, dpr, 0, 0);
+        function repaint() { g.setTransform(dpr, 0, 0, dpr, 0, 0); paintAll(g, strokes, W, H); undoBtn.disabled = !history.length; }
+        function remember() { history.push(strokes.slice()); }
+        undoBtn.onclick = function () { if (history.length) { strokes = history.pop(); repaint(); } };
+        clearBtn.onclick = function () { if (strokes.length) { remember(); strokes = []; repaint(); } };
+
+        var live = null;
+        function at(e) {
+            var r = canvas.getBoundingClientRect();
+            var x = (e.clientX - r.left) * (W / (r.width || W)), y = (e.clientY - r.top) * (H / (r.height || H));
+            return [Math.round(Math.max(0, Math.min(W, x)) * 10) / 10, Math.round(Math.max(0, Math.min(H, y)) * 10) / 10];
+        }
+        canvas.addEventListener("pointerdown", function (e) {
+            if (e.button !== undefined && e.button !== 0) return;
+            e.preventDefault();
+            try { canvas.setPointerCapture(e.pointerId); } catch (er) { /* ignore */ }
+            remember();
+            live = { t: tool, c: color, w: tool === "marker" ? size * 3 : (tool === "eraser" ? size * 3 : size), p: [at(e)] };
+            strokes.push(live);
+            repaint();
+        });
+        canvas.addEventListener("pointermove", function (e) {
+            if (!live) return;
+            var pt = at(e), lp = live.p[live.p.length - 1];
+            if (Math.abs(pt[0] - lp[0]) + Math.abs(pt[1] - lp[1]) < 1) return;
+            live.p.push(pt);
+            repaint();
+        });
+        function end() { live = null; }
+        canvas.addEventListener("pointerup", end);
+        canvas.addEventListener("pointercancel", end);
+        canvas.addEventListener("lostpointercapture", end);
+
+        var altLabel = append(wrap, "label", "display:flex;align-items:center;gap:8px;margin-top:10px");
+        append(altLabel, "span", "white-space:nowrap").textContent = pText("drawingalt", "Description (alt text)");
+        var alt = append(altLabel, "input", "flex:1;min-width:0;height:30px;padding:0 8px;border:1px solid #cbd5e1;border-radius:7px;font:13px system-ui,sans-serif", "rte-drawing-alt");
+        alt.type = "text";
+        alt.value = existing ? (existing.getAttribute("alt") || "") : "";
+        alt.placeholder = pText("drawingaltdefault", "Drawing");
+
+        var footer = append(wrap, "div", "display:flex;justify-content:flex-end;gap:8px;margin-top:12px");
+        var cancel = append(footer, "button", "padding:6px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;cursor:pointer");
+        cancel.type = "button";
+        cancel.textContent = pText("cancel", "Cancel");
+        cancel.onclick = close;
+        var ok = append(footer, "button", "padding:6px 14px;border:1px solid #0969da;border-radius:8px;background:#0969da;color:#fff;cursor:pointer", "rte-drawing-insert");
+        ok.type = "button";
+        ok.textContent = existing ? pText("update", "Update") : pText("insert", "Insert");
+
+        wrap.addEventListener("keydown", function (e) {
+            if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === "z" || e.key === "Z") && e.target.nodeName !== "INPUT") {
+                e.preventDefault();
+                e.stopPropagation();
+                undoBtn.onclick();
+            }
+        });
+
+        ok.onclick = function () {
+            var png = exportPng(doc, strokes, W, H);
+            var altText = alt.value.trim() || pText("drawingaltdefault", "Drawing");
+            if (!png) {
+                // nothing left to show: an existing drawing that was cleared is removed
+                close();
+                if (existing && existing.parentNode) {
+                    try { editor.commitBookmark(); } catch (e) { /* ignore */ }
+                    existing.parentNode.removeChild(existing);
+                    try { editor.recordUndo(); } catch (e) { /* ignore */ }
+                }
+                editor.focus();
+                return;
+            }
+            var data = JSON.stringify({ v: 1, w: W, h: H, s: strokes });
+            close();
+            if (existing && existing.parentNode) {
+                try { editor.commitBookmark(); } catch (e) { /* ignore */ }
+                existing.setAttribute("src", png.src);
+                existing.setAttribute("width", String(png.w));
+                existing.setAttribute("height", String(png.h));
+                existing.setAttribute("alt", altText);
+                existing.setAttribute("data-rte-drawing", data);
+                try { editor.recordUndo(); } catch (e) { /* ignore */ }
+                editor.focus();
+                return;
+            }
+            editor.focus();
+            editor.insertHTML('<img class="rte-drawing" src="' + png.src + '" width="' + png.w + '" height="' + png.h
+                + '" alt="' + escAttr(altText) + '" data-rte-drawing="' + escAttr(data) + '" />');
+        };
+
+        repaint();
+        setTimeout(function () { try { toolBtns[0].focus(); } catch (e) { /* ignore */ } }, 0);
+    };
+}
+
+if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
+
 // 2026-06-04 Email toolkit. Closes the CKEditor "email / inline-style export"
 // gap. Email clients (Outlook, Gmail) strip <style> blocks, external CSS, and
 // class attributes — so HTML email must carry style="" inline on every element.
@@ -33863,7 +34343,10 @@ function RTE_Plugin_InsertGallery() {
         // because both the header hint and the file input read it.
         // SVG is excluded on purpose: it can carry script, so it is not a safe
         // thing to store and serve back from our own origin.
-        var GALLERY_ACCEPT = [".jpg", ".jpeg", ".jfif", ".png", ".gif", ".webp", ".bmp", ".avif"];
+        // A server that has its own list (config.galleryAcceptedExtensions) is the authority.
+        var GALLERY_ACCEPT = Array.isArray(config.galleryAcceptedExtensions) && config.galleryAcceptedExtensions.length
+            ? config.galleryAcceptedExtensions
+            : [".jpg", ".jpeg", ".jfif", ".png", ".gif", ".webp", ".bmp", ".avif"];
 
         // The dialog frame already draws a title bar and close button, so this is
         // a one-line subtitle, not a second heading.
@@ -34999,7 +35482,7 @@ function RTE_Plugin_KeyboardA11y() {
     // Tab keeps its editing meaning (indent, next table cell) because that is
     // what writers expect and what every other editor does. The escape is a
     // separate, documented key: Escape leaves the editing area and puts focus
-    // on the toolbar, from which Tab continues through the page normally.
+    // on the toolbar, from which Tab continues to what follows the editor (see beginLeaving).
     //
     // Escape is only intercepted when nothing is open — a dialog or dropdown
     // must still get its own Escape first, or closing a colour picker would
@@ -35025,7 +35508,13 @@ function RTE_Plugin_KeyboardA11y() {
                 if (e.defaultPrevented) return;       // 2026-10-17 already handled (the link card closed itself)
                 e.preventDefault();
                 e.stopPropagation();
-                if (!focusFirstToolbarButton()) focusAfterEditor();
+                if (focusFirstToolbarButton()) beginLeaving(); else focusAfterEditor();
+            }, false);
+            // Typing or clicking in the editing area again ends the way out.
+            try { if (doc !== document) doc.defaultView.addEventListener("focus", function () { leaving = false; }, false); } catch (e2) { }
+            doc.addEventListener("focusin", function (e) {
+                var area = null; try { area = editor.getEditable(); } catch (e3) { }
+                if (area && (e.target === area || area.contains(e.target))) leaving = false;
             }, false);
 
             // Deliberately not re-asserting the body's aria-label here. An
@@ -35070,6 +35559,30 @@ function RTE_Plugin_KeyboardA11y() {
         if (label.indexOf(hint) >= 0) return;
         var name = label || config.a11yEditorLabel || config.text_editorname || "Rich text editor";
         ed.setAttribute("aria-label", name.replace(/\s*$/, "") + " " + hint);
+    }
+
+    // 2026-11-13 Escape reached the toolbar, but the next tab stop after the toolbar is the editing area, where Tab
+    // indents. A keyboard user could go back up the page and never forward: a Save button below the editor was out
+    // of reach. After Escape, Tab now walks the editor's remaining tab stops and then goes to whatever follows the
+    // editor, passing over the editing area. Arriving from above still enters the editing area as before.
+    var leaving = false;
+    function beginLeaving() {
+        leaving = true;
+        var root = shell();
+        if (!root || root.__rteLeaving) return;
+        root.__rteLeaving = true;
+        root.addEventListener("keydown", function (e) {
+            if (!leaving || e.key !== "Tab" || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
+            var stops = [].slice.call(root.querySelectorAll('a[href],button,input,select,textarea,[tabindex]')).filter(function (el) {
+                return el.tabIndex >= 0 && el.offsetParent !== null && el.tagName !== "IFRAME" && !el.isContentEditable && !el.disabled;
+            });
+            var next = stops[stops.indexOf(document.activeElement) + 1];
+            e.preventDefault();
+            if (stops.indexOf(document.activeElement) >= 0 && next) { next.focus(); return; }
+            leaving = false;
+            if (!focusAfterEditor() && document.activeElement && document.activeElement.blur) document.activeElement.blur();
+        }, true);
+        document.addEventListener("focusin", function (e) { if (!root.contains(e.target)) leaving = false; }, false);
     }
 
     function focusAfterEditor() {
@@ -39864,6 +40377,9 @@ function RTE_Plugin_PdfExport() {
         if (config.pdfExport === false) return;
 
         editor.getPdfBytes = function (options) { return buildPdf(options || {}); };
+        // 2026-10-23 the same bytes as a Promise, for hosts that await an export. getPdfBytes keeps its synchronous
+        // contract. tools/pdf/async-bytes.mjs
+        editor.getPdfBytesAsync = function (options) { return new Promise(function (resolve, reject) { try { resolve(buildPdf(options || {})); } catch (err) { reject(err); } }); };
         // 2026-10-26 The standard PDF fonts encode Western European Latin only (WinAnsi): every other character -
         // Chinese, Japanese, Korean, Cyrillic, Greek, Arabic... - was written as "?", silently. Until fonts can be
         // embedded: getPdfUnsupportedText() says which characters a vector export would lose, and exportToPdf() (the
@@ -48320,6 +48836,14 @@ function RTE_Plugin_TextDirection() {
 
     obj.InitEditor = function (argeditor) {
         editor = argeditor;
+
+        // The ltr and rtl buttons (the Office toolbar has them) drew a button with no command behind it.
+        ["ltr", "rtl"].forEach(function (dir) {
+            editor.attachEvent("exec_command_" + dir, function (state) {
+                state.returnValue = true;
+                obj.Apply(dir);
+            });
+        });
 
         editor.attachEvent("exec_command_textdirection", function (state) {
             state.returnValue = true;

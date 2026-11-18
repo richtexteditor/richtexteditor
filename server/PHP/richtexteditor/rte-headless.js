@@ -110,9 +110,14 @@
             self._scheduled = true;
             setTimeout(function () {
                 self._scheduled = false;
-                if (!self._destroyed) {
-                    self._emit("update", self.state());
-                }
+                if (self._destroyed) { return; }
+                // 2026-10-26 a write fires the coalesced "update", then the caret reset fires selectionchange after the window and
+                // the same snapshot went out twice. Skip a snapshot whose state AND content match the last one emitted. tools/headless/json-transform.mjs
+                var snap = self.state();
+                var key = JSON.stringify(snap) + "|" + (self.editor.getHTMLCode ? self.editor.getHTMLCode() : "");
+                if (key === self._lastUpdateKey) { return; }
+                self._lastUpdateKey = key;
+                self._emit("update", snap);
             }, 16);
         }
         this._emitUpdate = emitUpdate;
@@ -262,8 +267,35 @@
         if (this._emitUpdate) { this._emitUpdate(); }
         return this;
     };
+    // The model written by setJSON stays the authority until the editor's HTML changes. Without this, a property HTML
+    // cannot carry (written by transform) would be lost on the next getJSON, which re-derives the model from the HTML.
     HeadlessController.prototype.getJSON = function () {
-        return this.editor.getJSON ? this.editor.getJSON() : null;   // requires the structured-content bridge
+        if (!this.editor.getJSON) { return null; }   // requires rte-model.js
+        if (this._model && this.editor.getHTMLCode() === this._modelHTML) { return JSON.parse(JSON.stringify(this._model)); }
+        this._model = null;
+        return this.editor.getJSON();
+    };
+
+    // Writes a document model (from getJSON) back into the editor. Needs rte-model.js, like getJSON.
+    // 2026-10-26 B: edit the document as data. fn gets a copy of the document model and returns the new one; the
+    // result is written back with setJSON (one "update"). The host never touches the editing DOM. tools/headless/json-transform.mjs
+    HeadlessController.prototype.transform = function (fn) {
+        if (typeof fn !== "function") { throw new TypeError("rte-headless: transform(fn) needs a function."); }
+        var doc = this.getJSON();
+        if (!doc) { throw new Error("rte-headless: transform needs rte-model.js (load it after rte.js)."); }
+        var next = fn(JSON.parse(JSON.stringify(doc)));
+        if (!next || next.type !== "doc") { throw new Error("rte-headless: transform must return a document (type \"doc\")."); }
+        this.setJSON(next, { undoable: true });
+        return next;
+    };
+
+    HeadlessController.prototype.setJSON = function (doc, options) {
+        if (!this.editor.setJSON) { throw new Error("rte-headless: setJSON needs rte-model.js (load it after rte.js)."); }
+        this.editor.setJSON(doc, options);
+        this._model = JSON.parse(JSON.stringify(doc));
+        this._modelHTML = this.editor.getHTMLCode();
+        if (this._emitUpdate) { this._emitUpdate(); }
+        return this;
     };
     HeadlessController.prototype.getStatistics = function () {
         return this.editor.getStatistics ? this.editor.getStatistics() : null;
@@ -385,6 +417,8 @@
         }
 
         injectHeadlessCss();
+        // getJSON/setJSON come from rte-model.js; the bridge's extras are installed when the bridge is on the page.
+        if (typeof global.RTE_InstallStructuredContent === "function") { global.RTE_InstallStructuredContent(); }
         var editor = new global.RichTextEditor(el, cfg);
         if (editor.container && editor.container.classList) {
             editor.container.classList.add("rte-headless");

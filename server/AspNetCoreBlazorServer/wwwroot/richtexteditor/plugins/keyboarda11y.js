@@ -252,7 +252,7 @@ function RTE_Plugin_KeyboardA11y() {
     // Tab keeps its editing meaning (indent, next table cell) because that is
     // what writers expect and what every other editor does. The escape is a
     // separate, documented key: Escape leaves the editing area and puts focus
-    // on the toolbar, from which Tab continues through the page normally.
+    // on the toolbar, from which Tab continues to what follows the editor (see beginLeaving).
     //
     // Escape is only intercepted when nothing is open — a dialog or dropdown
     // must still get its own Escape first, or closing a colour picker would
@@ -278,7 +278,13 @@ function RTE_Plugin_KeyboardA11y() {
                 if (e.defaultPrevented) return;       // 2026-10-17 already handled (the link card closed itself)
                 e.preventDefault();
                 e.stopPropagation();
-                if (!focusFirstToolbarButton()) focusAfterEditor();
+                if (focusFirstToolbarButton()) beginLeaving(); else focusAfterEditor();
+            }, false);
+            // Typing or clicking in the editing area again ends the way out.
+            try { if (doc !== document) doc.defaultView.addEventListener("focus", function () { leaving = false; }, false); } catch (e2) { }
+            doc.addEventListener("focusin", function (e) {
+                var area = null; try { area = editor.getEditable(); } catch (e3) { }
+                if (area && (e.target === area || area.contains(e.target))) leaving = false;
             }, false);
 
             // Deliberately not re-asserting the body's aria-label here. An
@@ -323,6 +329,30 @@ function RTE_Plugin_KeyboardA11y() {
         if (label.indexOf(hint) >= 0) return;
         var name = label || config.a11yEditorLabel || config.text_editorname || "Rich text editor";
         ed.setAttribute("aria-label", name.replace(/\s*$/, "") + " " + hint);
+    }
+
+    // 2026-11-13 Escape reached the toolbar, but the next tab stop after the toolbar is the editing area, where Tab
+    // indents. A keyboard user could go back up the page and never forward: a Save button below the editor was out
+    // of reach. After Escape, Tab now walks the editor's remaining tab stops and then goes to whatever follows the
+    // editor, passing over the editing area. Arriving from above still enters the editing area as before.
+    var leaving = false;
+    function beginLeaving() {
+        leaving = true;
+        var root = shell();
+        if (!root || root.__rteLeaving) return;
+        root.__rteLeaving = true;
+        root.addEventListener("keydown", function (e) {
+            if (!leaving || e.key !== "Tab" || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
+            var stops = [].slice.call(root.querySelectorAll('a[href],button,input,select,textarea,[tabindex]')).filter(function (el) {
+                return el.tabIndex >= 0 && el.offsetParent !== null && el.tagName !== "IFRAME" && !el.isContentEditable && !el.disabled;
+            });
+            var next = stops[stops.indexOf(document.activeElement) + 1];
+            e.preventDefault();
+            if (stops.indexOf(document.activeElement) >= 0 && next) { next.focus(); return; }
+            leaving = false;
+            if (!focusAfterEditor() && document.activeElement && document.activeElement.blur) document.activeElement.blur();
+        }, true);
+        document.addEventListener("focusin", function (e) { if (!root.contains(e.target)) leaving = false; }, false);
     }
 
     function focusAfterEditor() {

@@ -63,6 +63,9 @@ function RTE_Plugin_PdfExport() {
         if (config.pdfExport === false) return;
 
         editor.getPdfBytes = function (options) { return buildPdf(options || {}); };
+        // 2026-10-23 the same bytes as a Promise, for hosts that await an export. getPdfBytes keeps its synchronous
+        // contract. tools/pdf/async-bytes.mjs
+        editor.getPdfBytesAsync = function (options) { return new Promise(function (resolve, reject) { try { resolve(buildPdf(options || {})); } catch (err) { reject(err); } }); };
         // 2026-10-26 The standard PDF fonts encode Western European Latin only (WinAnsi): every other character -
         // Chinese, Japanese, Korean, Cyrillic, Greek, Arabic... - was written as "?", silently. Until fonts can be
         // embedded: getPdfUnsupportedText() says which characters a vector export would lose, and exportToPdf() (the

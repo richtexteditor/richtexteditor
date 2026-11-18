@@ -63,6 +63,14 @@ function RTE_Plugin_TextDirection() {
     obj.InitEditor = function (argeditor) {
         editor = argeditor;
 
+        // The ltr and rtl buttons (the Office toolbar has them) drew a button with no command behind it.
+        ["ltr", "rtl"].forEach(function (dir) {
+            editor.attachEvent("exec_command_" + dir, function (state) {
+                state.returnValue = true;
+                obj.Apply(dir);
+            });
+        });
+
         editor.attachEvent("exec_command_textdirection", function (state) {
             state.returnValue = true;
             var v = state && state.value;

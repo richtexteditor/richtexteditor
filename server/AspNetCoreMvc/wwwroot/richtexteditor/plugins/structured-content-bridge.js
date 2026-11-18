@@ -1,6 +1,10 @@
-// Trusted Types: the same guarded helper rte.js defines, for when this file loads before (or without) rte.js.
-// tools/csp/trusted-types.mjs
-if (!window.RTE_TrustedTypes) window.RTE_TrustedTypes = (function () {
+// rte-model.js: the document model (node tree, parser, serializer, validators, metrics, outline, page setup,
+// Markdown). Loaded after rte.js and before rte-headless.js or structured-content-bridge.js. It installs getJSON and
+// setJSON on the editor itself, so a headless page needs no plugin bundle. 2026-10-27 moved out of the bridge. tools/headless/model-standalone.mjs
+
+// Trusted Types: the same guarded helper rte.js defines, for when this file loads before (or without) rte.js. No
+// window (Node, Worker): nothing to guard, the virtual parser is used. tools/csp/trusted-types.mjs
+if (typeof window !== "undefined" && !window.RTE_TrustedTypes) window.RTE_TrustedTypes = (function () {
 	var policy;
 	function get() {
 		if (policy !== undefined) return policy;
@@ -22,10 +26,7 @@ if (!window.RTE_TrustedTypes) window.RTE_TrustedTypes = (function () {
 		scriptURL: function (s) { var p = get(); return p ? p.createScriptURL(String(s)) : s; }
 	};
 })();
-function __RTE_TT(s) { return window.RTE_TrustedTypes.html(s); }
-
-var pendingLoadsByBasePath = Object.create(null);
-var failedLoadsByBasePath = Object.create(null);
+function __RTE_TT(s) { return typeof window !== "undefined" && window.RTE_TrustedTypes ? window.RTE_TrustedTypes.html(s) : s; }
 
 var INLINE_CONTAINER_TAGS = {
     a: true,
@@ -69,6 +70,36 @@ var HTML_ENTITY_MAP = {
     nbsp: " ",
     quot: '"'
 };
+// 2026-10-29 Named entities for the DOM-free parser (Node, Web Worker). With only the six above, &eacute; stayed
+// literal text there while the browser decoded it, so the same HTML gave two different documents. This is the HTML 4
+// set (Latin-1, symbols, Greek, punctuation), looked up case-sensitively as browsers do; lang/rang use their HTML5
+// code points. tools/headless/model-node.mjs
+var HTML_NAMED_ENTITIES = (function () {
+    var map = {};
+    var add = function (names, first) {
+        names.split(" ").forEach(function (name, index) { if (name) { map[name] = String.fromCharCode(first + index); } });
+    };
+    add("nbsp iexcl cent pound curren yen brvbar sect uml copy ordf laquo not shy reg macr deg plusmn sup2 sup3 acute micro para " +
+        "middot cedil sup1 ordm raquo frac14 frac12 frac34 iquest Agrave Aacute Acirc Atilde Auml Aring AElig Ccedil Egrave Eacute " +
+        "Ecirc Euml Igrave Iacute Icirc Iuml ETH Ntilde Ograve Oacute Ocirc Otilde Ouml times Oslash Ugrave Uacute Ucirc Uuml Yacute " +
+        "THORN szlig agrave aacute acirc atilde auml aring aelig ccedil egrave eacute ecirc euml igrave iacute icirc iuml eth ntilde " +
+        "ograve oacute ocirc otilde ouml divide oslash ugrave uacute ucirc uuml yacute thorn yuml", 160);
+    add("Alpha Beta Gamma Delta Epsilon Zeta Eta Theta Iota Kappa Lambda Mu Nu Xi Omicron Pi Rho  Sigma Tau Upsilon Phi Chi Psi Omega", 913);
+    add("alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigmaf sigma tau upsilon phi chi psi omega", 945);
+    var single = "quot 34 amp 38 apos 39 lt 60 gt 62 OElig 338 oelig 339 Scaron 352 scaron 353 Yuml 376 fnof 402 circ 710 tilde 732 " +
+        "thetasym 977 upsih 978 piv 982 ensp 8194 emsp 8195 thinsp 8201 zwnj 8204 zwj 8205 lrm 8206 rlm 8207 ndash 8211 mdash 8212 " +
+        "lsquo 8216 rsquo 8217 sbquo 8218 ldquo 8220 rdquo 8221 bdquo 8222 dagger 8224 Dagger 8225 bull 8226 hellip 8230 permil 8240 " +
+        "prime 8242 Prime 8243 lsaquo 8249 rsaquo 8250 oline 8254 frasl 8260 euro 8364 image 8465 weierp 8472 real 8476 trade 8482 " +
+        "alefsym 8501 larr 8592 uarr 8593 rarr 8594 darr 8595 harr 8596 crarr 8629 lArr 8656 uArr 8657 rArr 8658 dArr 8659 hArr 8660 " +
+        "forall 8704 part 8706 exist 8707 empty 8709 nabla 8711 isin 8712 notin 8713 ni 8715 prod 8719 sum 8721 minus 8722 " +
+        "lowast 8727 radic 8730 prop 8733 infin 8734 ang 8736 and 8743 or 8744 cap 8745 cup 8746 int 8747 there4 8756 sim 8764 " +
+        "cong 8773 asymp 8776 ne 8800 equiv 8801 le 8804 ge 8805 sub 8834 sup 8835 nsub 8836 sube 8838 supe 8839 oplus 8853 " +
+        "otimes 8855 perp 8869 sdot 8901 lceil 8968 rceil 8969 lfloor 8970 rfloor 8971 lang 10216 rang 10217 loz 9674 " +
+        "spades 9824 clubs 9827 hearts 9829 diams 9830";
+    var parts = single.split(" ");
+    for (var i = 0; i + 1 < parts.length; i += 2) { map[parts[i]] = String.fromCharCode(parseInt(parts[i + 1], 10)); }
+    return map;
+})();
 
 var HTML_VOID_TAGS = {
     area: true,
@@ -91,6 +122,7 @@ var BLOCK_NODE_TYPES = {
     blockquote: true,
     bulletList: true,
     codeBlock: true,
+    container: true,
     footnotes: true,
     heading: true,
     horizontalRule: true,
@@ -116,6 +148,7 @@ var INLINE_NODE_TYPES = {
 var MARK_TYPES = {
     bold: true,
     code: true,
+    inlineElement: true,
     italic: true,
     link: true,
     strike: true,
@@ -1270,6 +1303,10 @@ function decodeHtmlEntities(value) {
             }
         }
 
+        if (Object.prototype.hasOwnProperty.call(HTML_NAMED_ENTITIES, entity)) {
+            return HTML_NAMED_ENTITIES[entity];
+        }
+
         if (Object.prototype.hasOwnProperty.call(HTML_ENTITY_MAP, normalized)) {
             return HTML_ENTITY_MAP[normalized];
         }
@@ -1305,10 +1342,32 @@ function parseStyleText(value) {
             continue;
         }
 
-        style[key] = cssValue;
+        style[key] = /olor$/.test(key) ? normalizeCssColor(cssValue) : cssValue;
     }
 
     return style;
+}
+
+// 2026-10-29 A colour as the browser's CSSOM serialises it, so the DOM-free parser reads style="color:#c00" as the
+// browser does: hex and rgb()/rgba() become "rgb(204, 0, 0)" or "rgba(204, 0, 0, 0.5)", keywords are lower-cased.
+// Anything else (hsl(), var()) is kept as written. tools/headless/model-node.mjs
+function normalizeCssColor(value) {
+    var v = String(value).replace(/^s+|s+$/g, "");
+    var rgba = null;
+    var hex = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.exec(v);
+    if (hex) {
+        var h = hex[1];
+        if (h.length <= 4) { h = h.replace(/./g, function (c) { return c + c; }); }
+        rgba = [parseInt(h.substr(0, 2), 16), parseInt(h.substr(2, 2), 16), parseInt(h.substr(4, 2), 16), h.length === 8 ? parseInt(h.substr(6, 2), 16) / 255 : 1];
+    } else {
+        var fn = /^rgba?(s*(d+)s*,s*(d+)s*,s*(d+)s*(?:,s*([d.]+)s*)?)$/i.exec(v);
+        if (fn) { rgba = [+fn[1], +fn[2], +fn[3], fn[4] === undefined ? 1 : Math.min(1, +fn[4])]; }
+    }
+    if (!rgba) { return /^[a-z]+$/i.test(v) ? v.toLowerCase() : v; }
+    if (rgba[3] >= 1) { return "rgb(" + rgba[0] + ", " + rgba[1] + ", " + rgba[2] + ")"; }
+    var a = Math.round(rgba[3] * 100) / 100;
+    if (Math.round(a * 255) !== Math.round(rgba[3] * 255)) { a = Math.round(rgba[3] * 1000) / 1000; }
+    return "rgba(" + rgba[0] + ", " + rgba[1] + ", " + rgba[2] + ", " + a + ")";
 }
 
 function createVirtualTextNode(value) {
@@ -1373,7 +1432,7 @@ function finalizeVirtualNode(node) {
 
     if (node.nodeType === 3) {
         node.textContent = node.nodeValue || "";
-        node.outerHTML = __RTE_TT(escapeHtml(node.nodeValue || ""));
+        node.outerHTML = escapeSerializedText(node.nodeValue || "");
         return node;
     }
 
@@ -1386,7 +1445,7 @@ function finalizeVirtualNode(node) {
             continue;
         }
 
-        childHtml += child.nodeType === 3 ? escapeHtml(child.nodeValue || "") : child.outerHTML || "";
+        childHtml += child.nodeType === 3 ? escapeSerializedText(child.nodeValue || "") : child.outerHTML || "";
         textContent += child.textContent || "";
     }
 
@@ -1394,23 +1453,23 @@ function finalizeVirtualNode(node) {
 
     var tagName = getElementTagName(node);
     if (!tagName) {
-        node.outerHTML = __RTE_TT(childHtml);
+        node.outerHTML = childHtml;
         return node;
     }
 
     if (tagName === "body") {
-        node.outerHTML = __RTE_TT(childHtml);
+        node.outerHTML = childHtml;
         return node;
     }
 
     var attrs = node._attrs || {};
-    var attrString = buildAttributeString(attrs);
+    var attrString = buildSerializedAttributeString(attrs);
     if (HTML_VOID_TAGS[tagName]) {
-        node.outerHTML = __RTE_TT("<" + tagName + attrString + " />");
+        node.outerHTML = "<" + tagName + attrString + ">";
         return node;
     }
 
-    node.outerHTML = __RTE_TT("<" + tagName + attrString + ">" + childHtml + "</" + tagName + ">");
+    node.outerHTML = "<" + tagName + attrString + ">" + childHtml + "</" + tagName + ">";
     return node;
 }
 
@@ -1724,7 +1783,7 @@ function parseBlockNodes(nodeList) {
 
         var tagName = getElementTagName(node);
 
-        if (tagName === "br" || INLINE_CONTAINER_TAGS[tagName]) {
+        if (tagName === "br" || INLINE_CONTAINER_TAGS[tagName] || findCustomNodeDef(node, "inline")) {
             inlineBuffer = inlineBuffer.concat(parseInlineNode(node, []));
             continue;
         }
@@ -1752,6 +1811,10 @@ function parseBlockNodes(nodeList) {
 
 function parseBlockNode(node) {
     var tagName = getElementTagName(node);
+    var customBlock = findCustomNodeDef(node, "block");
+    if (customBlock) {
+        return parseCustomNode(customBlock, node, []);
+    }
     var blockAlign = getElementTextAlignment(node, true);
 
     if (hasElementAttributeValue(node, "data-rte-page-setup", "true")) {
@@ -1771,6 +1834,14 @@ function parseBlockNode(node) {
     }
 
     if (BLOCK_CONTAINER_TAGS[tagName]) {
+        var containerExtra = collectExtraAttributes(node, null, null);
+        if (containerExtra && hasBlockLevelChild(node)) {
+            return createNode("container", {
+                attrs: { tag: tagName, htmlAttributes: containerExtra },
+                content: parseBlockNodes(node.childNodes)
+            });
+        }
+
         var childBlocks = parseBlockNodes(node.childNodes);
         if (childBlocks.length) {
             return childBlocks;
@@ -1780,39 +1851,52 @@ function parseBlockNode(node) {
     }
 
     if (tagName === "p") {
+        var paragraphAttrs = withExtraAttributes(blockAlign ? { align: blockAlign } : {}, collectAlignedBlockExtras(node, true));
         return createNode("paragraph", {
-            attrs: blockAlign ? { align: blockAlign } : undefined,
+            attrs: paragraphAttrs,
             content: parseInlineChildren(node)
         });
     }
 
     if (/^h[1-6]$/.test(tagName)) {
+        var headingAttrs = createHeadingAttrs(parseInt(tagName.charAt(1), 10) || 1, blockAlign);
+        if (getElementAttribute(node, "id")) {
+            headingAttrs.id = getElementAttribute(node, "id");
+        }
+        withExtraAttributes(headingAttrs, collectAlignedBlockExtras(node, true, { id: true }));
         return createNode("heading", {
-            attrs: createHeadingAttrs(parseInt(tagName.charAt(1), 10) || 1, blockAlign),
+            attrs: headingAttrs,
             content: parseInlineChildren(node)
         });
     }
 
     if (tagName === "blockquote") {
         return createNode("blockquote", {
+            attrs: withExtraAttributes({}, collectExtraAttributes(node, null, null)),
             content: parseBlockNodes(node.childNodes)
         });
     }
 
     if (tagName === "pre") {
-        return createNode("codeBlock", {
-            text: node.textContent || ""
-        });
+        return parseCodeBlockNode(node);
     }
 
     if (tagName === "ul") {
         if (isTaskListElement(node)) {
+            var taskListAttrs = {};
+            var taskListExtra = collectExtraAttributes(node, { "data-rte-task-list": true }, null);
+            if (hasClassToken(node, "rte-task-list")) {
+                taskListAttrs.markup = "todolist";
+                taskListExtra = withoutClassToken(taskListExtra, "rte-task-list");
+            }
             return createNode("taskList", {
+                attrs: withExtraAttributes(taskListAttrs, taskListExtra),
                 content: parseTaskListItems(node)
             });
         }
 
         return createNode("bulletList", {
+            attrs: withExtraAttributes({}, collectExtraAttributes(node, null, null)),
             content: parseListItems(node)
         });
     }
@@ -1830,6 +1914,8 @@ function parseBlockNode(node) {
         if (orderedListType) {
             orderedListAttrs.orderedListType = orderedListType;
         }
+        var orderedListConsumedStyles = normalizeOrderedListType(getStyleDeclaration(node, "list-style-type")) ? { "list-style-type": true } : null;
+        withExtraAttributes(orderedListAttrs, collectExtraAttributes(node, { start: true, type: true }, orderedListConsumedStyles));
         return createNode("orderedList", {
             attrs: Object.keys(orderedListAttrs).length ? orderedListAttrs : undefined,
             content: parseListItems(node)
@@ -1838,12 +1924,15 @@ function parseBlockNode(node) {
 
     if (tagName === "li") {
         return createNode("listItem", {
+            attrs: withExtraAttributes({}, collectExtraAttributes(node, null, null)),
             content: parseBlockNodes(node.childNodes)
         });
     }
 
     if (tagName === "hr") {
-        return createNode("horizontalRule");
+        return createNode("horizontalRule", {
+            attrs: withExtraAttributes({}, collectExtraAttributes(node, null, null))
+        });
     }
 
     if (tagName === "img") {
@@ -1851,7 +1940,13 @@ function parseBlockNode(node) {
     }
 
     if (tagName === "table") {
+        var tableAttrs = withExtraAttributes({}, collectExtraAttributes(node, null, null));
+        var tableColumns = parseTableColumns(node);
+        if (tableColumns.length) {
+            tableAttrs.columns = tableColumns;
+        }
         return createNode("table", {
+            attrs: tableAttrs,
             content: parseTableRows(node)
         });
     }
@@ -1860,6 +1955,46 @@ function parseBlockNode(node) {
         html: node.outerHTML || "",
         text: normalizePlainText(node.textContent || "")
     });
+}
+
+// The language a code block declares (class="language-js" on its <code>, as Markdown fences and highlighters write it),
+// and whether it had a <code> at all; the <pre>'s own attributes are kept.
+function parseCodeBlockNode(element) {
+    var attrs = withExtraAttributes({}, collectExtraAttributes(element, null, null));
+    var code = getFirstElementChild(element, "code");
+    if (code) {
+        var languageMatch = /(?:^|\s)(?:language|lang)-([\w#+.-]+)/.exec(getElementAttribute(code, "class"));
+        if (languageMatch) {
+            attrs.language = languageMatch[1];
+        }
+    } else {
+        attrs.codeElement = false;
+    }
+    return createNode("codeBlock", {
+        attrs: attrs,
+        text: element.textContent || ""
+    });
+}
+
+// Each <col>'s attributes (its width), in order; a <col> outside a <colgroup> counts too.
+function parseTableColumns(tableElement) {
+    var columns = [];
+    function collect(node) {
+        for (var index = 0; index < node.childNodes.length; index++) {
+            var child = node.childNodes[index];
+            if (!child || child.nodeType !== 1) {
+                continue;
+            }
+            var tagName = getElementTagName(child);
+            if (tagName === "col") {
+                columns.push(getElementAttributeMap(child));
+            } else if (tagName === "colgroup") {
+                collect(child);
+            }
+        }
+    }
+    collect(tableElement);
+    return columns;
 }
 
 function parsePageBreakNode(element) {
@@ -2054,7 +2189,7 @@ function isTaskListElement(element) {
         return false;
     }
 
-    if (String(element.getAttribute("data-rte-task-list") || "").toLowerCase() === "true") {
+    if (String(element.getAttribute("data-rte-task-list") || "").toLowerCase() === "true" || hasClassToken(element, "rte-task-list")) {
         return true;
     }
 
@@ -2120,7 +2255,10 @@ function parseTaskListItem(listItemElement) {
 
     if (checkbox) {
         attrs.checked = checkbox.checked || String(checkbox.getAttribute("checked") || "").toLowerCase() === "checked";
+    } else if (getElementAttribute(listItemElement, "data-checked")) {
+        attrs.checked = getElementAttribute(listItemElement, "data-checked") === "true";
     }
+    withExtraAttributes(attrs, withoutClassToken(collectExtraAttributes(listItemElement, { "data-checked": true, "data-rte-task-item": true }, null), "rte-task-item"));
 
     for (var index = 0; index < listItemElement.childNodes.length; index++) {
         var child = listItemElement.childNodes[index];
@@ -2128,7 +2266,8 @@ function parseTaskListItem(listItemElement) {
             continue;
         }
 
-        if (child === checkbox) {
+        // The todolist plugin's drawn checkbox is chrome, not content.
+        if (child === checkbox || (child.nodeType === 1 && hasClassToken(child, "rte-task-checkbox"))) {
             continue;
         }
 
@@ -2167,7 +2306,7 @@ function parseTaskListItem(listItemElement) {
 function parseTableRows(tableElement) {
     var rows = [];
 
-    function collectRows(node) {
+    function collectRows(node, section) {
         for (var index = 0; index < node.childNodes.length; index++) {
             var child = node.childNodes[index];
             if (!child || child.nodeType !== 1) {
@@ -2176,17 +2315,22 @@ function parseTableRows(tableElement) {
 
             var tagName = getElementTagName(child);
             if (tagName === "tr") {
-                rows.push(parseTableRow(child));
+                var row = parseTableRow(child);
+                if (section !== "body") {
+                    row.attrs = row.attrs || {};
+                    row.attrs.section = section;
+                }
+                rows.push(row);
                 continue;
             }
 
             if (tagName === "thead" || tagName === "tbody" || tagName === "tfoot") {
-                collectRows(child);
+                collectRows(child, tagName === "thead" ? "head" : tagName === "tfoot" ? "foot" : "body");
             }
         }
     }
 
-    collectRows(tableElement);
+    collectRows(tableElement, "body");
     return rows;
 }
 
@@ -2206,6 +2350,7 @@ function parseTableRow(rowElement) {
     }
 
     return createNode("tableRow", {
+        attrs: withExtraAttributes({}, collectExtraAttributes(rowElement, null, null)),
         content: cells
     });
 }
@@ -2223,6 +2368,8 @@ function parseTableCell(cellElement) {
     if (align === "left" || align === "center" || align === "right") {
         attrs.align = align;
     }
+
+    withExtraAttributes(attrs, collectAlignedBlockExtras(cellElement, false, { colspan: true, rowspan: true }));
 
     if (colspan) {
         attrs.colspan = parseInt(colspan, 10) || 1;
@@ -2336,13 +2483,13 @@ function findDescendantsByTagName(element, tagName, results) {
 
 function parseImageNode(element) {
     return createNode("image", {
-        attrs: {
+        attrs: withExtraAttributes({
             src: element.getAttribute("src") || "",
             alt: element.getAttribute("alt") || "",
             title: element.getAttribute("title") || "",
             width: element.getAttribute("width") || "",
             height: element.getAttribute("height") || ""
-        }
+        }, collectExtraAttributes(element, { src: true, alt: true, title: true, width: true, height: true }, null))
     });
 }
 
@@ -2424,6 +2571,11 @@ function parseInlineNode(node, activeMarks) {
         return [createNode("hardBreak")];
     }
 
+    var customInline = findCustomNodeDef(node, "inline");
+    if (customInline) {
+        return [parseCustomNode(customInline, node, activeMarks)];
+    }
+
     if (getElementAttribute(node, "data-rte-merge-field")) {
         return [parseMergeFieldNode(node, activeMarks)];
     }
@@ -2436,8 +2588,30 @@ function parseInlineNode(node, activeMarks) {
         return [parseImageNode(node)];
     }
 
+    if (OPAQUE_INLINE_TAGS[tagName] || String(getElementAttribute(node, "contenteditable")).toLowerCase() === "false") {
+        return [createNode("htmlInline", {
+            html: node.outerHTML || "",
+            text: normalizePlainText(node.textContent || ""),
+            marks: activeMarks.length ? activeMarks.slice() : undefined
+        })];
+    }
+
     var marks = activeMarks.slice();
     var extractedMarks = extractElementMarks(node);
+    var inlineExtra = getInlineExtraAttributes(node, tagName);
+    var ownMark = null;
+    for (var ownIndex = 0; MARK_ELEMENT_TAGS[tagName] && ownIndex < extractedMarks.length; ownIndex++) {
+        if (extractedMarks[ownIndex].type === MARK_ELEMENT_TAGS[tagName]) {
+            ownMark = extractedMarks[ownIndex];
+            break;
+        }
+    }
+    if (inlineExtra && ownMark) {
+        ownMark.attrs = ownMark.attrs || {};
+        ownMark.attrs.htmlAttributes = inlineExtra;
+    } else if (inlineExtra || (!ownMark && tagName !== "span" && tagName !== "font")) {
+        extractedMarks.unshift({ type: "inlineElement", attrs: withExtraAttributes({ tag: tagName }, inlineExtra) });
+    }
     for (var index = 0; index < extractedMarks.length; index++) {
         marks = appendMark(marks, extractedMarks[index]);
     }
@@ -2642,13 +2816,51 @@ function buildStyleString(attrs) {
 }
 
 function serializeInlineNodes(nodes) {
+    return serializeInlineRun(nodes || [], 0);
+}
+
+// 2026-10-29 Each run of neighbours sharing a mark is wrapped once: node by node, <a>a <b>b</b></a> came back as three
+// links and a comment anchor around bold text as three anchors. tools/headless/json-roundtrip-fidelity.mjs
+function serializeInlineRun(nodes, depth) {
     var html = "";
-
-    for (var index = 0; index < (nodes || []).length; index++) {
-        html += serializeNode(nodes[index], true);
+    var index = 0;
+    while (index < nodes.length) {
+        var mark = getInlineRunMark(nodes[index], depth);
+        if (!mark) {
+            html += serializeNode(withoutMarks(nodes[index]), true);
+            index++;
+            continue;
+        }
+        var key = getMarkKey(mark);
+        var end = index + 1;
+        while (end < nodes.length) {
+            var next = getInlineRunMark(nodes[end], depth);
+            if (!next || getMarkKey(next) !== key) {
+                break;
+            }
+            end++;
+        }
+        html += applyMark(mark, serializeInlineRun(nodes.slice(index, end), depth + 1));
+        index = end;
     }
-
     return html;
+}
+
+function getInlineRunMark(node, depth) {
+    return node && isArray(node.marks) && node.marks.length > depth ? node.marks[depth] : null;
+}
+
+function withoutMarks(node) {
+    if (!node || !node.marks) {
+        return node;
+    }
+    var copy = {};
+    for (var key in node) {
+        if (Object.prototype.hasOwnProperty.call(node, key) && key !== "marks") {
+            copy[key] = node[key];
+        }
+    }
+    return copy;
 }
 
 function serializeBlockNodes(nodes) {
@@ -2687,47 +2899,36 @@ function serializeTableCellContent(nodes) {
 
 function applyMark(mark, html) {
     var attrs = mark.attrs || {};
+    var extra = isStructuredNodeObject(attrs.htmlAttributes) ? attrs.htmlAttributes : undefined;
+    var simpleTags = { bold: "strong", italic: "em", underline: "u", strike: "s", code: "code", subscript: "sub", superscript: "sup" };
 
-    if (mark.type === "bold") {
-        return "<strong>" + html + "</strong>";
-    }
-
-    if (mark.type === "italic") {
-        return "<em>" + html + "</em>";
-    }
-
-    if (mark.type === "underline") {
-        return "<u>" + html + "</u>";
-    }
-
-    if (mark.type === "strike") {
-        return "<s>" + html + "</s>";
-    }
-
-    if (mark.type === "code") {
-        return "<code>" + html + "</code>";
-    }
-
-    if (mark.type === "subscript") {
-        return "<sub>" + html + "</sub>";
-    }
-
-    if (mark.type === "superscript") {
-        return "<sup>" + html + "</sup>";
+    if (simpleTags[mark.type]) {
+        return "<" + simpleTags[mark.type] + buildExtraAttributeString(extra) + ">" + html + "</" + simpleTags[mark.type] + ">";
     }
 
     if (mark.type === "link") {
-        return "<a" + buildAttributeString({
+        return "<a" + buildAttributeStringWithExtras({
             href: attrs.href,
             rel: attrs.rel,
             target: attrs.target,
             title: attrs.title
-        }) + ">" + html + "</a>";
+        }, extra) + ">" + html + "</a>";
     }
 
     if (mark.type === "textStyle") {
         var style = buildStyleString(attrs);
-        return style ? '<span style="' + escapeAttribute(style) + '">' + html + "</span>" : html;
+        if (!style && !extra) {
+            return html;
+        }
+        return "<span" + buildAttributeStringWithExtras(style ? { style: style } : {}, extra) + ">" + html + "</span>";
+    }
+
+    if (mark.type === "inlineElement") {
+        var tag = String(attrs.tag || "").toLowerCase();
+        if (!/^[a-z][a-z0-9-]*$/.test(tag) || UNSAFE_INLINE_ELEMENT_TAGS[tag]) {
+            return html;
+        }
+        return "<" + tag + buildExtraAttributeString(extra) + ">" + html + "</" + tag + ">";
     }
 
     return html;
@@ -2740,6 +2941,10 @@ function serializeNode(node, inlineMode) {
 
     if (node.type === "doc") {
         return serializeBlockNodes(node.content || []);
+    }
+
+    if (CUSTOM_NODE_TYPES[node.type]) {
+        return serializeCustomNode(CUSTOM_NODE_TYPES[node.type], node);
     }
 
     if (node.type === "text") {
@@ -2773,14 +2978,19 @@ function serializeNode(node, inlineMode) {
     }
 
     if (node.type === "image") {
-        return "<img" + buildAttributeString(node.attrs || {}) + " />";
+        var imageAttrs = {};
+        for (var imageKey in node.attrs || {}) {
+            if (Object.prototype.hasOwnProperty.call(node.attrs, imageKey) && imageKey !== "htmlAttributes") {
+                imageAttrs[imageKey] = node.attrs[imageKey];
+            }
+        }
+        return "<img" + buildAttributeStringWithExtras(imageAttrs, getExtraAttributes(node)) + " />";
     }
 
     if (node.type === "paragraph") {
-        var paragraphAttrs = buildBlockAlignmentAttributes(node, true);
         return inlineMode
             ? serializeInlineNodes(node.content || [])
-            : "<p" + buildAttributeString(paragraphAttrs) + ">" + serializeInlineNodes(node.content || []) + "</p>";
+            : "<p" + buildAttributeStringWithExtras(buildAlignmentBase(node, true), getExtraAttributes(node)) + ">" + serializeInlineNodes(node.content || []) + "</p>";
     }
 
     if (node.type === "heading") {
@@ -2796,24 +3006,35 @@ function serializeNode(node, inlineMode) {
             level = 6;
         }
 
-        var headingHtmlAttrs = buildBlockAlignmentAttributes(node, true);
+        var headingHtmlAttrs = buildAlignmentBase(node, true);
         if (headingAttrs.id) {
             headingHtmlAttrs.id = headingAttrs.id;
         }
 
-        return "<h" + level + buildAttributeString(headingHtmlAttrs) + ">" + serializeInlineNodes(node.content || []) + "</h" + level + ">";
+        return "<h" + level + buildAttributeStringWithExtras(headingHtmlAttrs, getExtraAttributes(node)) + ">" + serializeInlineNodes(node.content || []) + "</h" + level + ">";
     }
 
     if (node.type === "blockquote") {
-        return "<blockquote>" + serializeBlockNodes(node.content || []) + "</blockquote>";
+        return "<blockquote" + buildExtraAttributeString(getExtraAttributes(node)) + ">" + serializeBlockNodes(node.content || []) + "</blockquote>";
     }
 
     if (node.type === "codeBlock") {
-        return "<pre><code>" + escapeHtml(node.text || "") + "</code></pre>";
+        var codeAttrs = node.attrs || {};
+        var codeLanguage = codeAttrs.language || codeAttrs.lang;
+        var codeInner = escapeHtml(node.text || "");
+        if (codeAttrs.codeElement !== false) {
+            codeInner = "<code" + (codeLanguage ? buildAttributeString({ "class": "language-" + codeLanguage }) : "") + ">" + codeInner + "</code>";
+        }
+        return "<pre" + buildExtraAttributeString(getExtraAttributes(node)) + ">" + codeInner + "</pre>";
     }
 
     if (node.type === "bulletList") {
-        return "<ul>" + serializeBlockNodes(node.content || []) + "</ul>";
+        return "<ul" + buildExtraAttributeString(getExtraAttributes(node)) + ">" + serializeBlockNodes(node.content || []) + "</ul>";
+    }
+
+    if (node.type === "container") {
+        var containerTag = node.attrs && BLOCK_CONTAINER_TAGS[node.attrs.tag] ? node.attrs.tag : "div";
+        return "<" + containerTag + buildExtraAttributeString(getExtraAttributes(node)) + ">" + serializeBlockNodes(node.content || []) + "</" + containerTag + ">";
     }
 
     if (node.type === "orderedList") {
@@ -2827,15 +3048,25 @@ function serializeNode(node, inlineMode) {
                 listAttrs.type = normalizedOrderedListType;
             }
         }
-        return "<ol" + buildAttributeString(listAttrs) + ">" + serializeBlockNodes(node.content || []) + "</ol>";
+        return "<ol" + buildAttributeStringWithExtras(listAttrs, getExtraAttributes(node)) + ">" + serializeBlockNodes(node.content || []) + "</ol>";
     }
 
     if (node.type === "listItem") {
-        return "<li>" + serializeListItemContent(node.content || []) + "</li>";
+        return "<li" + buildExtraAttributeString(getExtraAttributes(node)) + ">" + serializeListItemContent(node.content || []) + "</li>";
+    }
+
+    // The editor's own todolist markup (ul.rte-task-list > li[data-checked]) is written back as such.
+    if (node.type === "taskList" && node.attrs && node.attrs.markup === "todolist") {
+        var todoHtml = "";
+        for (var todoIndex = 0; todoIndex < (node.content || []).length; todoIndex++) {
+            var todoItem = node.content[todoIndex] || {};
+            todoHtml += "<li" + buildAttributeStringWithExtras({ "data-checked": todoItem.attrs && todoItem.attrs.checked ? "true" : "false" }, getExtraAttributes(todoItem)) + ">" + serializeListItemContent(todoItem.content || []) + "</li>";
+        }
+        return "<ul" + buildAttributeStringWithExtras({ "class": "rte-task-list" }, getExtraAttributes(node)) + ">" + todoHtml + "</ul>";
     }
 
     if (node.type === "taskList") {
-        return '<ul data-rte-task-list="true">' + serializeBlockNodes(node.content || []) + "</ul>";
+        return '<ul' + buildAttributeStringWithExtras({ "data-rte-task-list": "true" }, getExtraAttributes(node)) + '>' + serializeBlockNodes(node.content || []) + "</ul>";
     }
 
     if (node.type === "taskItem") {
@@ -2847,7 +3078,7 @@ function serializeNode(node, inlineMode) {
     }
 
     if (node.type === "horizontalRule") {
-        return "<hr />";
+        return "<hr" + buildExtraAttributeString(getExtraAttributes(node)) + " />";
     }
 
     if (node.type === "pageBreak") {
@@ -2886,11 +3117,11 @@ function serializeNode(node, inlineMode) {
     }
 
     if (node.type === "table") {
-        return "<table>" + serializeBlockNodes(node.content || []) + "</table>";
+        return serializeTableNode(node);
     }
 
     if (node.type === "tableRow") {
-        return "<tr>" + serializeBlockNodes(node.content || []) + "</tr>";
+        return "<tr" + buildExtraAttributeString(getExtraAttributes(node)) + ">" + serializeBlockNodes(node.content || []) + "</tr>";
     }
 
     if (node.type === "tableCell") {
@@ -2899,8 +3130,7 @@ function serializeNode(node, inlineMode) {
 
         if (node.attrs) {
             if (node.attrs.align) {
-                cellAttrs.align = node.attrs.align;
-                cellAttrs.style = "text-align: " + node.attrs.align;
+                cellAttrs = buildAlignmentBase(node, false);
             }
             if (node.attrs.colspan) {
                 cellAttrs.colspan = node.attrs.colspan;
@@ -2910,7 +3140,7 @@ function serializeNode(node, inlineMode) {
             }
         }
 
-        return "<" + cellTag + buildAttributeString(cellAttrs) + ">" + serializeTableCellContent(node.content || []) + "</" + cellTag + ">";
+        return "<" + cellTag + buildAttributeStringWithExtras(cellAttrs, getExtraAttributes(node)) + ">" + serializeTableCellContent(node.content || []) + "</" + cellTag + ">";
     }
 
     if (node.type === "htmlBlock" || node.type === "htmlInline") {
@@ -2930,6 +3160,44 @@ function serializeNode(node, inlineMode) {
     }
 
     return "";
+}
+
+// Header and footer rows go back into <thead> / <tfoot>, column widths into a <colgroup>.
+function serializeTableNode(node) {
+    var rows = node.content || [];
+    var columns = node.attrs && isArray(node.attrs.columns) ? node.attrs.columns : [];
+    var html = "<table" + buildExtraAttributeString(getExtraAttributes(node)) + ">";
+    if (columns.length) {
+        html += "<colgroup>";
+        for (var columnIndex = 0; columnIndex < columns.length; columnIndex++) {
+            html += "<col" + buildExtraAttributeString(isStructuredNodeObject(columns[columnIndex]) ? columns[columnIndex] : undefined) + " />";
+        }
+        html += "</colgroup>";
+    }
+    var hasSections = false;
+    for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+        if (rows[rowIndex] && rows[rowIndex].attrs && (rows[rowIndex].attrs.section === "head" || rows[rowIndex].attrs.section === "foot")) {
+            hasSections = true;
+        }
+    }
+    if (!hasSections) {
+        return html + serializeBlockNodes(rows) + "</table>";
+    }
+    var sections = { head: [], body: [], foot: [] };
+    for (var sectionIndex = 0; sectionIndex < rows.length; sectionIndex++) {
+        var section = rows[sectionIndex] && rows[sectionIndex].attrs && rows[sectionIndex].attrs.section;
+        sections[section === "head" || section === "foot" ? section : "body"].push(rows[sectionIndex]);
+    }
+    if (sections.head.length) {
+        html += "<thead>" + serializeBlockNodes(sections.head) + "</thead>";
+    }
+    if (sections.body.length) {
+        html += "<tbody>" + serializeBlockNodes(sections.body) + "</tbody>";
+    }
+    if (sections.foot.length) {
+        html += "<tfoot>" + serializeBlockNodes(sections.foot) + "</tfoot>";
+    }
+    return html + "</table>";
 }
 
 function serializeStructuredContent(value) {
@@ -3105,6 +3373,10 @@ function validateMark(mark, path, issues) {
 }
 
 function validateNodeChildren(node, path, mode, issues) {
+    // createNode leaves out an empty content array, so <p></p> has none; that is an empty node, not an error.
+    if (node.content === undefined) {
+        return;
+    }
     if (!isArray(node.content)) {
         issues.push(createValidationIssue(path + ".content", "Node content must be an array."));
         return;
@@ -3381,6 +3653,27 @@ function validateNode(node, path, mode, issues) {
         return;
     }
 
+    if (node.type === "container") {
+        if (!node.attrs || !BLOCK_CONTAINER_TAGS[node.attrs.tag]) {
+            issues.push(createValidationIssue(path + ".attrs.tag", "Container nodes require a block container tag (div, section, article, aside, header, footer or main)."));
+        }
+        validateNodeChildren(node, path, "block", issues);
+        return;
+    }
+
+    if (CUSTOM_NODE_TYPES[node.type]) {
+        var customDef = CUSTOM_NODE_TYPES[node.type];
+        if (node.attrs !== undefined && !isStructuredNodeObject(node.attrs)) {
+            issues.push(createValidationIssue(path + ".attrs", "Node attrs must be an object."));
+        }
+        if (customDef.content !== "none") {
+            validateNodeChildren(node, path, customDef.content, issues);
+        } else if (node.content) {
+            issues.push(createValidationIssue(path + ".content", "\"" + node.type + "\" nodes are atomic and cannot contain child content."));
+        }
+        return;
+    }
+
     if (node.type === "htmlBlock" || node.type === "htmlInline") {
         if (typeof node.html !== "string") {
             issues.push(createValidationIssue(path + ".html", "HTML nodes require an html string."));
@@ -3454,6 +3747,10 @@ function getNodeTextContent(node) {
 
     if (node.type === "mergeField") {
         return String((node.attrs && (node.attrs.label || node.attrs.name)) || "");
+    }
+
+    if (CUSTOM_NODE_TYPES[node.type] && typeof node.text === "string") {
+        return node.text;
     }
 
     if (node.type === "footnoteReference") {
@@ -4670,6 +4967,16 @@ function serializeMarkdownInlineNodes(nodes) {
             continue;
         }
 
+        if (CUSTOM_NODE_TYPES[node.type]) {
+            var customMarkdown = serializeCustomNodeMarkdown(node);
+            var customMarks = node.marks || [];
+            for (var customMarkIndex = 0; customMarkIndex < customMarks.length; customMarkIndex++) {
+                customMarkdown = wrapMarkdownMark(customMarkdown, customMarks[customMarkIndex]);
+            }
+            markdown += customMarkdown;
+            continue;
+        }
+
         if (node.type === "text") {
             var hasCodeMark = false;
             var marks = node.marks || [];
@@ -4911,6 +5218,11 @@ function serializeMarkdownBlocks(nodes) {
             continue;
         }
 
+        if (CUSTOM_NODE_TYPES[node.type]) {
+            parts.push(serializeCustomNodeMarkdown(node));
+            continue;
+        }
+
         if (node.type === "paragraph") {
             if (node.attrs && normalizeTextAlignment(node.attrs.align, true)) {
                 parts.push(serializeNode(node, false));
@@ -5046,17 +5358,549 @@ function renderHTML(value) {
     return serializeStructuredContent(value);
 }
 
-function installStructuredContentBridge() {
-    var RichTextEditor = ensureRichTextEditorConstructor();
+// 2026-10-29 A type declared with the editor's own API, editor.nodeTypes.register (plugins/nodetypes.js), becomes a
+// model node type the first time getJSON or setJSON runs after it: before, the model did not know it, so an atomic
+// chip came out as text, a block type as the paragraphs inside it, and setJSON wrote neither back. The tag comes from
+// a selector match ("span[data-ticket]") or the type's allowTags; a match function with no allowTags cannot name its
+// tag and stays HTML. With toJSON and fromJSON the node's attrs are toJSON(el) and it is written back with
+// fromJSON(attrs); without them it keeps the element's attributes. tools/headless/model-editor-node-types.mjs
+function syncEditorNodeTypes(editor) {
+    var registry = editor && editor.nodeTypes;
+    if (!registry || typeof registry.list !== "function" || typeof registry.get !== "function") {
+        return;
+    }
+    var listed = registry.list() || [];
+    for (var index = 0; index < listed.length; index++) {
+        var type = registry.get(listed[index].name);
+        if (!type || (CUSTOM_NODE_TYPES[type.name] && CUSTOM_NODE_TYPES[type.name].source === type)) {
+            continue;
+        }
+        var selector = typeof type.match === "string" ? type.match : null;
+        var tagMatch = selector ? /^\s*([a-z][a-z0-9-]*)/i.exec(selector) : null;
+        var tag = tagMatch ? tagMatch[1] : (type.allowTags && type.allowTags[0]);
+        if (!tag) {
+            continue;
+        }
+        var def = {
+            type: type.name,
+            tag: tag,
+            group: type.inline ? "inline" : "block",
+            content: type.atomic ? "none" : (type.inline ? "inline" : "block"),
+            match: selector ? createSelectorMatch(selector) : createFunctionMatch(type.match)
+        };
+        if (type.toJSON && type.fromJSON) {
+            def.parse = createEditorTypeParse(type);
+            def.toHTML = createEditorTypeRender(type);
+        }
+        try {
+            registerCustomNode(def);
+            CUSTOM_NODE_TYPES[type.name].source = type;
+        } catch (error) {
+            // A name the model cannot take (a built-in type, an invalid name) stays HTML.
+        }
+    }
+}
 
+function createSelectorMatch(selector) {
+    return function (element) {
+        try {
+            return typeof element.matches === "function" ? element.matches(selector) : true;
+        } catch (error) {
+            return false;
+        }
+    };
+}
+
+function createFunctionMatch(match) {
+    return function (element) {
+        return typeof match === "function" ? !!match(element) : false;
+    };
+}
+
+function createEditorTypeParse(type) {
+    return function (element) {
+        return type.toJSON(element);
+    };
+}
+
+function createEditorTypeRender(type) {
+    return function (node) {
+        var produced = type.fromJSON(node.attrs || {});
+        return typeof produced === "string" ? produced : (produced && produced.outerHTML) || "";
+    };
+}
+
+(function () {
+    if (typeof window === "undefined" || !window.RichTextEditor) { return; }
+    var RichTextEditor = window.RichTextEditor;
     RichTextEditor.prototype.getJSON = function () {
+        syncEditorNodeTypes(this);
         return createStructuredContent(this);
     };
-
-    RichTextEditor.prototype.setJSON = function (value) {
-        this.setHTMLCode(serializeStructuredContent(value));
+    // options is passed to setHTMLCode: { undoable: true } makes the write one undo step (the headless transform uses it).
+    RichTextEditor.prototype.setJSON = function (value, options) {
+        syncEditorNodeTypes(this);
+        this.setHTMLCode(serializeStructuredContent(value), options);
         return this;
     };
+})();
+// 2026-10-29 JSON round-trip fidelity. setJSON(getJSON()) kept 13 of 34 constructs the editor itself writes: what the
+// model did not represent was dropped, so comment anchors and tracked-change attributes were stripped, mentions,
+// chips and math became text, a video iframe vanished, and lang, dir, line height, indent, image float, table header
+// rows and column widths, the code language and the task-list state were lost. Now nothing is dropped: a block keeps
+// the attributes and style declarations the model does not read as attrs.htmlAttributes; an inline wrapper keeps its
+// tag and attributes on its mark (or on an inlineElement mark); an atomic or embedded inline (contenteditable="false",
+// iframe, video...) is kept whole as htmlInline; a div with attributes around blocks is a container node.
+// tools/headless/json-roundtrip-fidelity.mjs
+var OPAQUE_INLINE_TAGS = { audio: true, button: true, canvas: true, embed: true, iframe: true, input: true, map: true, math: true, meter: true, object: true, picture: true, progress: true, select: true, svg: true, textarea: true, video: true };
+var BLOCK_LEVEL_TAGS = { address: true, article: true, aside: true, blockquote: true, details: true, dd: true, div: true, dl: true, dt: true, fieldset: true, figcaption: true, figure: true, footer: true, form: true, h1: true, h2: true, h3: true, h4: true, h5: true, h6: true, header: true, hr: true, li: true, main: true, nav: true, ol: true, p: true, pre: true, section: true, summary: true, table: true, ul: true };
+// The element each mark is written as; its extra attributes ride on that mark.
+var MARK_ELEMENT_TAGS = { a: "link", b: "bold", code: "code", del: "strike", em: "italic", i: "italic", s: "strike", strike: "strike", strong: "bold", sub: "subscript", sup: "superscript", u: "underline", big: "textStyle", font: "textStyle", mark: "textStyle", small: "textStyle", span: "textStyle" };
+// Never written from an inlineElement mark: JSON from an untrusted source must not be able to create these.
+var UNSAFE_INLINE_ELEMENT_TAGS = { base: true, embed: true, frame: true, frameset: true, iframe: true, link: true, meta: true, noscript: true, object: true, plaintext: true, script: true, style: true, template: true, textarea: true, title: true, xmp: true };
+var URL_ATTRIBUTE_NAMES = { action: true, background: true, cite: true, formaction: true, href: true, poster: true, src: true, "xlink:href": true };
+
+// Style text as [property, value] pairs; a ; inside quotes or parentheses (url(data:...;base64,...)) does not split.
+function readStyleDeclarations(styleText) {
+    var declarations = [];
+    var text = String(styleText || "");
+    var current = "";
+    var depth = 0;
+    var quote = "";
+    for (var index = 0; index <= text.length; index++) {
+        var ch = index < text.length ? text.charAt(index) : ";";
+        if (quote) {
+            if (ch === quote) {
+                quote = "";
+            }
+            current += ch;
+            continue;
+        }
+        if (ch === "\"" || ch === "'") {
+            quote = ch;
+        } else if (ch === "(") {
+            depth++;
+        } else if (ch === ")" && depth > 0) {
+            depth--;
+        } else if (ch === ";" && depth === 0) {
+            var separator = current.indexOf(":");
+            if (separator > 0) {
+                var property = current.substring(0, separator).replace(/^\s+|\s+$/g, "").toLowerCase();
+                var value = current.substring(separator + 1).replace(/^\s+|\s+$/g, "");
+                if (property && value) {
+                    declarations.push([property, value]);
+                }
+            }
+            current = "";
+            continue;
+        }
+        current += ch;
+    }
+    return declarations;
+}
+
+function getStyleDeclaration(element, property) {
+    var declarations = readStyleDeclarations(getElementAttribute(element, "style"));
+    for (var index = declarations.length - 1; index >= 0; index--) {
+        if (declarations[index][0] === property) {
+            return declarations[index][1];
+        }
+    }
+    return "";
+}
+
+// The element's attributes the model does not read, with the style declarations it does not read.
+function collectExtraAttributes(element, consumedAttributes, consumedStyles) {
+    var all = getElementAttributeMap(element);
+    var extra = {};
+    var hasExtra = false;
+    for (var name in all) {
+        if (!Object.prototype.hasOwnProperty.call(all, name) || (consumedAttributes && consumedAttributes[name])) {
+            continue;
+        }
+        if (name === "style") {
+            var kept = [];
+            var declarations = readStyleDeclarations(all.style);
+            for (var index = 0; index < declarations.length; index++) {
+                if (!(consumedStyles && consumedStyles[declarations[index][0]])) {
+                    kept.push(declarations[index][0] + ": " + declarations[index][1]);
+                }
+            }
+            if (kept.length) {
+                extra.style = kept.join("; ");
+                hasExtra = true;
+            }
+            continue;
+        }
+        extra[name] = all[name];
+        hasExtra = true;
+    }
+    return hasExtra ? extra : undefined;
+}
+
+function withoutClassToken(extra, token) {
+    if (!extra || typeof extra["class"] !== "string") {
+        return extra;
+    }
+    var tokens = extra["class"].split(/\s+/).filter(function (value) { return value && value !== token; });
+    if (tokens.length) {
+        extra["class"] = tokens.join(" ");
+    } else {
+        delete extra["class"];
+    }
+    for (var key in extra) {
+        if (Object.prototype.hasOwnProperty.call(extra, key)) {
+            return extra;
+        }
+    }
+    return undefined;
+}
+
+function hasClassToken(element, token) {
+    return (" " + String(getElementAttribute(element, "class")).replace(/\s+/g, " ") + " ").indexOf(" " + token + " ") >= 0;
+}
+
+function hasBlockLevelChild(element) {
+    for (var index = 0; index < element.childNodes.length; index++) {
+        var child = element.childNodes[index];
+        if (child && child.nodeType === 1 && BLOCK_LEVEL_TAGS[getElementTagName(child)]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function getExtraAttributes(node) {
+    return node && node.attrs && isStructuredNodeObject(node.attrs.htmlAttributes) ? node.attrs.htmlAttributes : undefined;
+}
+
+function withExtraAttributes(attrs, extra) {
+    if (extra) {
+        attrs.htmlAttributes = extra;
+    }
+    return attrs;
+}
+
+// Attributes kept from the source, written after the model's own. An empty value is kept (open=""); event handlers
+// and unsafe URLs are never written, as buildAttributeString already refuses them for the model's attributes.
+function buildExtraAttributeString(extra) {
+    var result = "";
+    if (!extra) {
+        return result;
+    }
+    for (var key in extra) {
+        if (!Object.prototype.hasOwnProperty.call(extra, key)) {
+            continue;
+        }
+        var name = String(key).toLowerCase();
+        if (!/^[a-z_:][a-z0-9_:.-]*$/.test(name) || name.indexOf("on") === 0) {
+            continue;
+        }
+        var value = extra[key] === undefined || extra[key] === null ? "" : String(extra[key]);
+        if (URL_ATTRIBUTE_NAMES[name] && value && normalizeInlineMarkdownLinkHref(value) === null) {
+            continue;
+        }
+        result += " " + name + '="' + escapeAttribute(value) + '"';
+    }
+    return result;
+}
+
+// The model's attributes, then the kept ones; style and class are joined, otherwise the model's value wins.
+function buildAttributeStringWithExtras(base, extra) {
+    if (!extra) {
+        return buildAttributeString(base);
+    }
+    var own = {};
+    for (var key in base) {
+        if (Object.prototype.hasOwnProperty.call(base, key)) {
+            own[key] = base[key];
+        }
+    }
+    var rest = {};
+    for (var name in extra) {
+        if (!Object.prototype.hasOwnProperty.call(extra, name)) {
+            continue;
+        }
+        if ((name === "style" || name === "class") && own[name]) {
+            own[name] = own[name] + (name === "style" ? "; " : " ") + extra[name];
+            continue;
+        }
+        if (own[name] !== undefined && own[name] !== null && own[name] !== "") {
+            continue;
+        }
+        rest[name] = extra[name];
+    }
+    return buildAttributeString(own) + buildExtraAttributeString(rest);
+}
+
+// Alignment as the element had it: a source align attribute is kept in htmlAttributes and written as such,
+// otherwise text-align in style. Writing both added an align attribute to every aligned paragraph.
+function buildAlignmentBase(node, allowJustify) {
+    var align = node && node.attrs ? normalizeTextAlignment(node.attrs.align, allowJustify) : "";
+    var extra = getExtraAttributes(node);
+    if (!align || (extra && normalizeTextAlignment(extra.align, allowJustify) === align)) {
+        return {};
+    }
+    return { style: "text-align: " + align };
+}
+
+// The attributes of an aligned block the model does not read: text-align from style is the model's (attrs.align).
+function collectAlignedBlockExtras(element, allowJustify, consumedAttributes) {
+    var consumedStyles = {};
+    if (normalizeTextAlignment(getStyleDeclaration(element, "text-align"), allowJustify)) {
+        consumedStyles["text-align"] = true;
+    }
+    return collectExtraAttributes(element, consumedAttributes || null, consumedStyles);
+}
+
+// An inline element's attributes the marks do not carry (href and friends on a link; color, background, size and
+// family on a style span; the weight / style / decoration that became bold, italic, underline or strike).
+function getInlineExtraAttributes(element, tagName) {
+    var consumedAttributes = {};
+    var consumedStyles = { "background-color": true, "color": true, "font-family": true, "font-size": true };
+    if (tagName === "a") {
+        consumedAttributes.href = consumedAttributes.rel = consumedAttributes.target = consumedAttributes.title = true;
+    }
+    if (tagName === "font") {
+        consumedAttributes.color = consumedAttributes.face = consumedAttributes.size = true;
+    }
+    var style = element.style || {};
+    if (style.fontWeight && (/bold|[5-9]00/).test(style.fontWeight)) {
+        consumedStyles["font-weight"] = true;
+    }
+    if (style.fontStyle === "italic") {
+        consumedStyles["font-style"] = true;
+    }
+    var decoration = style.textDecorationLine || style.textDecoration || "";
+    if (decoration.indexOf("underline") >= 0 || decoration.indexOf("line-through") >= 0) {
+        consumedStyles["text-decoration"] = true;
+        consumedStyles["text-decoration-line"] = true;
+    }
+    return collectExtraAttributes(element, consumedAttributes, consumedStyles);
+}
+
+// The browser's HTML serialisation for the model's own elements (Node, Worker), so htmlBlock and htmlInline carry
+// the same string there as in a page: <img ...> without a slash, open="" kept, &nbsp; for a no-break space.
+function escapeSerializedText(value) {
+    return String(value || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\u00a0/g, "&nbsp;");
+}
+
+function buildSerializedAttributeString(attrs) {
+    var result = "";
+    for (var key in attrs) {
+        if (Object.prototype.hasOwnProperty.call(attrs, key)) {
+            result += " " + key + '="' + String(attrs[key] === undefined || attrs[key] === null ? "" : attrs[key]).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/\u00a0/g, "&nbsp;") + '"';
+        }
+    }
+    return result;
+}
+
+// 2026-10-29 Custom node types declared against the model (headless plan step 4). Without a declaration an unknown
+// element became an opaque htmlBlock and a custom inline became plain text, so a host could not give its own
+// structure a type (Lexical custom nodes, ProseMirror/Tiptap schema nodes). registerNode(def):
+//   type        the node's JSON type; a built-in type name is refused
+//   tag         the element's tag name
+//   group       "block" or "inline"
+//   content     "none" (atomic: the element's text is kept as node.text), "inline" or "block"
+//   match       (el) -> boolean, to tell this node from other elements with the same tag
+//   parse       (el) -> attrs; by default every attribute of the element
+//   attributes  (attrs) -> the element's attributes when it is written back; by default attrs itself
+//   toMarkdown  (node, innerMarkdown) -> Markdown; by default the inner Markdown (or the escaped text)
+//   toHTML      (node) -> the whole element's HTML, when attributes() is not enough
+// match and parse see a real element in a page and the model's own element in Node or a Worker, so they should use
+// getAttribute, tagName and textContent only. tools/headless/model-custom-nodes.mjs
+var CUSTOM_NODE_TYPES = CUSTOM_NODE_TYPES || {};
+var CUSTOM_NODE_LIST = CUSTOM_NODE_LIST || [];
+var RESERVED_NODE_TYPES = { doc: true, text: true, listItem: true, taskItem: true, tableRow: true, tableCell: true, footnoteItem: true };
+
+function registerCustomNode(def) {
+    if (!def || typeof def.type !== "string" || !/^[A-Za-z][\w-]*$/.test(def.type)) {
+        throw new Error("registerNode needs a type name (a letter, then letters, digits, - or _).");
+    }
+    if (!CUSTOM_NODE_TYPES[def.type] && (RESERVED_NODE_TYPES[def.type] || BLOCK_NODE_TYPES[def.type] || INLINE_NODE_TYPES[def.type] || MARK_TYPES[def.type])) {
+        throw new Error('registerNode: "' + def.type + '" is a built-in type.');
+    }
+    var tag = String(def.tag || "").toLowerCase();
+    if (!/^[a-z][a-z0-9-]*$/.test(tag)) {
+        throw new Error("registerNode needs the element's tag name.");
+    }
+    var entry = {
+        type: def.type,
+        tag: tag,
+        group: def.group === "inline" ? "inline" : "block",
+        content: def.content === "inline" || def.content === "block" ? def.content : "none",
+        match: typeof def.match === "function" ? def.match : null,
+        parse: typeof def.parse === "function" ? def.parse : null,
+        attributes: typeof def.attributes === "function" ? def.attributes : null,
+        toMarkdown: typeof def.toMarkdown === "function" ? def.toMarkdown : null,
+        toHTML: typeof def.toHTML === "function" ? def.toHTML : null
+    };
+    if (CUSTOM_NODE_TYPES[def.type]) {
+        CUSTOM_NODE_LIST.splice(CUSTOM_NODE_LIST.indexOf(CUSTOM_NODE_TYPES[def.type]), 1);
+        delete BLOCK_NODE_TYPES[def.type];
+        delete INLINE_NODE_TYPES[def.type];
+    }
+    CUSTOM_NODE_TYPES[def.type] = entry;
+    CUSTOM_NODE_LIST.push(entry);
+    (entry.group === "inline" ? INLINE_NODE_TYPES : BLOCK_NODE_TYPES)[def.type] = true;
+    return entry.type;
+}
+
+function findCustomNodeDef(element, group) {
+    if (!CUSTOM_NODE_LIST.length || !element || element.nodeType !== 1) {
+        return null;
+    }
+    var tagName = getElementTagName(element);
+    for (var index = 0; index < CUSTOM_NODE_LIST.length; index++) {
+        var def = CUSTOM_NODE_LIST[index];
+        if (def.tag !== tagName || (group && def.group !== group)) {
+            continue;
+        }
+        if (def.match) {
+            var matched = false;
+            try {
+                matched = !!def.match(element);
+            } catch (error) {
+                matched = false;
+            }
+            if (!matched) {
+                continue;
+            }
+        }
+        return def;
+    }
+    return null;
+}
+
+// Every attribute of a real element, or of the model's own element in Node (its _attrs map).
+function getElementAttributeMap(element) {
+    var map = {};
+    if (element && element._attrs) {
+        for (var key in element._attrs) {
+            if (Object.prototype.hasOwnProperty.call(element._attrs, key)) {
+                map[key] = String(element._attrs[key]);
+            }
+        }
+        return map;
+    }
+    var list = element && element.attributes;
+    for (var index = 0; list && index < list.length; index++) {
+        map[String(list[index].name).toLowerCase()] = String(list[index].value);
+    }
+    return map;
+}
+
+function parseCustomNode(def, element, activeMarks) {
+    var attrs = null;
+    if (def.parse) {
+        try {
+            attrs = def.parse(element);
+        } catch (error) {
+            attrs = null;
+        }
+    } else {
+        attrs = getElementAttributeMap(element);
+    }
+    var node = { type: def.type };
+    var copied = attrs && typeof attrs === "object" ? copyAttributes(attrs) : undefined;
+    if (copied) {
+        node.attrs = copied;
+    }
+    if (def.content === "block") {
+        node.content = parseBlockNodes(element.childNodes);
+    } else if (def.content === "inline") {
+        node.content = parseInlineChildren(element);
+    } else {
+        var text = normalizePlainText(element.textContent || "");
+        if (text) {
+            node.text = text;
+        }
+    }
+    if (def.group === "inline" && activeMarks && activeMarks.length) {
+        node.marks = activeMarks.slice();
+    }
+    return node;
+}
+
+function serializeCustomNode(def, node) {
+    if (def.toHTML) {
+        var custom = "";
+        try {
+            custom = String(def.toHTML(node) || "");
+        } catch (error) {
+            custom = "";
+        }
+        var customMarks = node.marks || [];
+        for (var customMarkIndex = customMarks.length - 1; customMarkIndex >= 0; customMarkIndex--) {
+            custom = applyMark(customMarks[customMarkIndex], custom);
+        }
+        return custom;
+    }
+    var attrs = node.attrs || {};
+    var htmlAttrs = attrs;
+    if (def.attributes) {
+        try {
+            htmlAttrs = def.attributes(attrs) || {};
+        } catch (error) {
+            htmlAttrs = {};
+        }
+    }
+    var inner = def.content === "block" ? serializeBlockNodes(node.content || [])
+        : def.content === "inline" ? serializeInlineNodes(node.content || [])
+        : escapeHtml(node.text || "");
+    var html = "<" + def.tag + buildAttributeString(htmlAttrs) + ">" + inner + "</" + def.tag + ">";
+    var marks = node.marks || [];
+    for (var markIndex = marks.length - 1; markIndex >= 0; markIndex--) {
+        html = applyMark(marks[markIndex], html);
+    }
+    return html;
+}
+
+function serializeCustomNodeMarkdown(node) {
+    var def = CUSTOM_NODE_TYPES[node.type];
+    var inner = def.content === "block" ? serializeMarkdownBlocks(node.content || [])
+        : def.content === "inline" ? serializeMarkdownInlineNodes(node.content || [])
+        : escapeMarkdownText(node.text || "");
+    if (def.toMarkdown) {
+        try {
+            var markdown = def.toMarkdown(node, inner);
+            if (markdown !== undefined && markdown !== null) {
+                return String(markdown);
+            }
+        } catch (error) {
+            return inner;
+        }
+    }
+    return inner;
+}
+
+// 2026-10-29 The model without an editor or a DOM: require("rte-model.js") in Node, importScripts in a Web Worker,
+// window.RTEModel on a page. With no document and no DOMParser, getDocumentBody parses with createVirtualDocumentBody;
+// tools/headless/model-node.mjs compares that parser with the browser's, fixture by fixture.
+var RTEModel = {
+    fromHTML: function (html) { return createStructuredContent(String(html == null ? "" : html)); },
+    toHTML: function (value) { return renderHTML(value); },
+    fromMarkdown: function (markdown) { return fromMarkdown(String(markdown == null ? "" : markdown)); },
+    toMarkdown: function (value) { return toMarkdown(value); },
+    validate: function (value) { return validateStructuredContent(value); },
+    statistics: function (value, options) { return getTextStatistics(value, options); },
+    outline: function (value) { return getDocumentOutline(value); },
+    registerNode: function (def) { return registerCustomNode(def); },
+    nodeTypes: function () { return CUSTOM_NODE_LIST.map(function (def) { return { type: def.type, tag: def.tag, group: def.group, content: def.content }; }); }
+};
+if (typeof module !== "undefined" && module.exports) {
+    module.exports = RTEModel;
+} else if (typeof self !== "undefined") {
+    self.RTEModel = RTEModel;
+}
+var pendingLoadsByBasePath = Object.create(null);
+var failedLoadsByBasePath = Object.create(null);
+
+function installStructuredContentBridge() {
+    if (typeof createStructuredContent !== "function") {
+        throw new Error("structured-content-bridge: load rte-model.js before the bridge.");
+    }
+    var RichTextEditor = ensureRichTextEditorConstructor();
 
     RichTextEditor.fromMarkdown = fromMarkdown;
     RichTextEditor.getDocumentPageSetup = getDocumentPageSetup;
@@ -5234,3 +6078,5 @@ window.RichTextEditorStructuredBridge = {
     toMarkdown: toMarkdown,
     validateStructuredContent: validateStructuredContent
 };
+// 2026-10-26 lets a headless host (rte-headless.js) install getJSON/setJSON on demand.
+if (typeof window !== "undefined") window.RTE_InstallStructuredContent = installStructuredContentBridge;

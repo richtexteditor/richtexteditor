@@ -248,7 +248,10 @@ function RTE_Plugin_InsertGallery() {
         // because both the header hint and the file input read it.
         // SVG is excluded on purpose: it can carry script, so it is not a safe
         // thing to store and serve back from our own origin.
-        var GALLERY_ACCEPT = [".jpg", ".jpeg", ".jfif", ".png", ".gif", ".webp", ".bmp", ".avif"];
+        // A server that has its own list (config.galleryAcceptedExtensions) is the authority.
+        var GALLERY_ACCEPT = Array.isArray(config.galleryAcceptedExtensions) && config.galleryAcceptedExtensions.length
+            ? config.galleryAcceptedExtensions
+            : [".jpg", ".jpeg", ".jfif", ".png", ".gif", ".webp", ".bmp", ".avif"];
 
         // The dialog frame already draws a title bar and close button, so this is
         // a one-line subtitle, not a second heading.

@@ -1,0 +1,187 @@
+var pendingLoadsByBasePath = Object.create(null);
+var failedLoadsByBasePath = Object.create(null);
+
+function installStructuredContentBridge() {
+    if (typeof createStructuredContent !== "function") {
+        throw new Error("structured-content-bridge: load rte-model.js before the bridge.");
+    }
+    var RichTextEditor = ensureRichTextEditorConstructor();
+
+    RichTextEditor.fromMarkdown = fromMarkdown;
+    RichTextEditor.getDocumentPageSetup = getDocumentPageSetup;
+    RichTextEditor.getDocumentMetrics = getDocumentMetrics;
+    RichTextEditor.getDocumentOutline = getDocumentOutline;
+    RichTextEditor.getFootnotes = getFootnotes;
+    RichTextEditor.getTableOfContents = getTableOfContents;
+    RichTextEditor.repairAccessibilityIssue = repairAccessibilityIssue;
+    RichTextEditor.renderHTML = renderHTML;
+    RichTextEditor.setDocumentPageSetup = setDocumentPageSetup;
+    RichTextEditor.syncTableOfContents = syncTableOfContents;
+    RichTextEditor.toMarkdown = toMarkdown;
+    RichTextEditor.auditAccessibility = auditAccessibility;
+    RichTextEditor.validateStructuredContent = validateStructuredContent;
+    RichTextEditor.prototype.getDocumentPageSetup = function () {
+        return getDocumentPageSetup(this.getJSON());
+    };
+    RichTextEditor.prototype.setDocumentPageSetup = function (pageSetup) {
+        this.setJSON(setDocumentPageSetup(this.getJSON(), pageSetup));
+        return this;
+    };
+    RichTextEditor.prototype.getDocumentMetrics = function () {
+        return getDocumentMetrics(this.getJSON());
+    };
+    RichTextEditor.prototype.getFootnotes = function () {
+        return getFootnotes(this.getJSON());
+    };
+    // Declared on RichTextEditorInstance but previously absent from the
+    // bridge — the only two instance methods with no implementation anywhere.
+    RichTextEditor.prototype.getTextStatistics = function () {
+        var selectionText = "";
+        try { selectionText = this.getSelectedText ? (this.getSelectedText() || "") : ""; } catch (e) { }
+        return getTextStatistics(this.getJSON(), { selectionText: selectionText });
+    };
+    RichTextEditor.prototype.getSelectionStatistics = function () {
+        var selectionText = "";
+        try { selectionText = this.getSelectedText ? (this.getSelectedText() || "") : ""; } catch (e) { }
+        return getTextStatistics(selectionText, { selectionText: selectionText });
+    };
+
+    return RichTextEditor;
+}
+
+function ensureStylesheet(href) {
+    return new Promise(function (resolve, reject) {
+        var existing = document.querySelector('link[data-rte-style="' + href + '"]');
+        if (existing && (existing.getAttribute("data-rte-loaded") === "true" || existing.sheet)) {
+            resolve();
+            return;
+        }
+        var link = existing || document.createElement("link");
+        link.addEventListener("load", function () {
+            link.setAttribute("data-rte-loaded", "true");
+            resolve();
+        }, { once: true });
+        link.addEventListener("error", function () {
+            if (link.parentNode) link.parentNode.removeChild(link);
+            reject(new Error("Failed to load " + href));
+        }, { once: true });
+        if (!existing) {
+            link.rel = "stylesheet";
+            link.href = href;
+            link.setAttribute("data-rte-style", href);
+            document.head.appendChild(link);
+        }
+    });
+}
+
+function loadScript(src) {
+    return new Promise(function (resolve, reject) {
+        var existing = document.querySelector('script[data-rte-script="' + src + '"]');
+        if (existing) {
+            if (existing.getAttribute("data-rte-loaded") === "true") {
+                resolve(existing);
+                return;
+            }
+
+            existing.addEventListener("load", function () {
+                resolve(existing);
+            }, { once: true });
+            existing.addEventListener("error", function () {
+                reject(new Error("Failed to load " + src));
+            }, { once: true });
+            return;
+        }
+
+        var script = document.createElement("script");
+        script.src = window.RTE_TrustedTypes.scriptURL(src);
+        script.async = false;
+        script.setAttribute("data-rte-script", src);
+        script.onload = function () {
+            script.setAttribute("data-rte-loaded", "true");
+            resolve(script);
+        };
+        script.onerror = function () {
+            if (script.parentNode) script.parentNode.removeChild(script);
+            reject(new Error("Failed to load " + src));
+        };
+
+        document.head.appendChild(script);
+    });
+}
+
+function trimTrailingSlash(value) {
+    return value ? value.replace(/\/+$/, "") : "";
+}
+
+function loadRichTextEditorAssets(options) {
+    ensureBrowserEnvironment();
+
+    var basePath = trimTrailingSlash(options && options.basePath ? options.basePath : "/richtexteditor");
+
+    if (pendingLoadsByBasePath[basePath]) {
+        return pendingLoadsByBasePath[basePath];
+    }
+
+    if (window.RichTextEditor && !failedLoadsByBasePath[basePath]) {
+        return Promise.resolve(installStructuredContentBridge());
+    }
+
+    if (!pendingLoadsByBasePath[basePath]) {
+        var themeReady = ensureStylesheet(basePath + "/rte_theme_default.css");
+        var scriptsReady = loadScript(basePath + "/rte.js")
+            .then(function () {
+                if (window.RTE_DefaultConfig) window.RTE_DefaultConfig.url_base = basePath;
+                return loadScript(basePath + "/plugins/all_plugins.js");
+            });
+        pendingLoadsByBasePath[basePath] = Promise.all([themeReady, scriptsReady])
+            .then(function () {
+                delete failedLoadsByBasePath[basePath];
+                return installStructuredContentBridge();
+            })
+            .catch(function (error) {
+                delete pendingLoadsByBasePath[basePath];
+                failedLoadsByBasePath[basePath] = true;
+                throw error;
+            });
+    }
+
+    return pendingLoadsByBasePath[basePath];
+}
+
+function createEditor(element, config) {
+    installStructuredContentBridge();
+    return new window.RichTextEditor(element, config || {});
+}
+
+function getEditorValue(editor, format) {
+    return format === "json" ? editor.getJSON() : editor.getHTMLCode();
+}
+
+function setEditorValue(editor, value, format) {
+    if (format === "json") {
+        editor.setJSON(value);
+        return;
+    }
+
+    editor.setHTMLCode(serializeStructuredContent(value));
+}
+
+window.RichTextEditorStructuredBridge = {
+    createEditor: createEditor,
+    createStructuredDocument: createStructuredDocument,
+    createStructuredContent: createStructuredContent,
+    ensureRichTextEditorConstructor: ensureRichTextEditorConstructor,
+    fromMarkdown: fromMarkdown,
+    getEditorValue: getEditorValue,
+    installStructuredContentBridge: installStructuredContentBridge,
+    loadRichTextEditorAssets: loadRichTextEditorAssets,
+    normalizeStructuredContent: normalizeStructuredContent,
+    parseStructuredContentHtml: parseStructuredContentHtml,
+    renderHTML: renderHTML,
+    serializeStructuredContent: serializeStructuredContent,
+    setEditorValue: setEditorValue,
+    toMarkdown: toMarkdown,
+    validateStructuredContent: validateStructuredContent
+};
+// 2026-10-26 lets a headless host (rte-headless.js) install getJSON/setJSON on demand.
+if (typeof window !== "undefined") window.RTE_InstallStructuredContent = installStructuredContentBridge;

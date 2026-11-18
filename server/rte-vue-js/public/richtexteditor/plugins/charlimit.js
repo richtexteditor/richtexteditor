@@ -6,7 +6,8 @@ if (!window.RTE_DefaultConfig) window.RTE_DefaultConfig = {};
 // live "remaining" counter that turns red near/over the limit. Library-free.
 //
 // API:
-//   editor.getCharCount()      -> number (characters, no markup)
+//   editor.getCharCount()      -> number (characters as the reader sees them: spaces count, line breaks do not, an
+//                                 emoji counts once; the same number as getStatistics().characters)
 //   editor.getWordCount()      -> number
 //   editor.getRemainingChars() -> number | null   (null when no maxLength set)
 //   editor.isOverLimit()       -> boolean
@@ -46,12 +47,12 @@ function RTE_Plugin_CharLimit() {
                 if (!maxChars()) return origInsertHTML.apply(this, arguments);
                 var probe = document.createElement("div");
                 probe.innerHTML = __RTE_TT(String(html == null ? "" : html));
-                var add = (probe.textContent || "").length;
+                var add = visibleLength(probe.textContent);
                 var remaining = maxChars() - countChars() + selectionLength();
                 if (add <= remaining) return origInsertHTML.apply(this, arguments);
                 flash();
                 if (remaining <= 0) return false;
-                return origInsertHTML.call(this, escapeHtml((probe.textContent || "").slice(0, remaining)));
+                return origInsertHTML.call(this, escapeHtml(fitVisible(probe.textContent, remaining)));
             };
         }
 
@@ -96,7 +97,26 @@ function RTE_Plugin_CharLimit() {
             return ed ? (ed.innerText || ed.textContent || "") : "";
         } catch (e) { return ""; }
     }
-    function countChars() { return plainText().replace(/\r\n/g, "\n").length; }
+    // 2026-11-02 The same rule as the core's getStatistics. This counted innerText, whose newlines differ per engine: on
+    // <p>a</p><p><br></p><p>b</p> the status bar said 2 and this said 7 (6 in WebKit), so empty lines used up the limit.
+    // tools/charlimit/char-count-line-breaks.mjs
+    function visibleLength(text) {
+        var visible = String(text == null ? "" : text).replace(/[\r\n]+/g, "");
+        var astral = visible.match(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g);
+        return visible.length - (astral ? astral.length : 0);
+    }
+    // The start of text holding at most n visible characters: line breaks come along free, an emoji is never split.
+    function fitVisible(text, n) {
+        var out = "", used = 0, parts = String(text == null ? "" : text).match(/[\uD800-\uDBFF][\uDC00-\uDFFF]|[\s\S]/g) || [];
+        for (var i = 0; i < parts.length; i++) {
+            var free = parts[i] === "\n" || parts[i] === "\r";
+            if (!free && used >= n) break;
+            out += parts[i];
+            if (!free) used++;
+        }
+        return out;
+    }
+    function countChars() { return visibleLength(plainText()); }
     // Same rules as the core status bar: each CJK character is a word (those scripts have no
     // spaces, so "你好世界" was 1), and a token of punctuation alone ("—", "!") is not a word.
     function countWords() {
@@ -116,10 +136,11 @@ function RTE_Plugin_CharLimit() {
         var isInsert = t === "insertText" || t === "insertReplacementText" ||
             t === "insertCompositionText" || t === "insertParagraph" || t === "insertLineBreak";
         if (!isInsert) return; // deletes / formatting always allowed
-        var addLen = t === "insertParagraph" || t === "insertLineBreak" ? 1 : ((e.data || "").length || 0);
+        // A line break costs nothing, so Enter still works at the limit.
+        var addLen = visibleLength(e.data);
         // Allow if it shrinks/replaces a selection that frees room — approximate by
         // checking current count; if already at/over the char cap, block inserts.
-        if (maxChars()) {
+        if (maxChars() && t !== "insertParagraph" && t !== "insertLineBreak") {
             var cur = countChars();
             if (cur >= maxChars() || cur + addLen > maxChars()) {
                 // Permit replacing a selection (net change may be <= 0).
@@ -142,11 +163,11 @@ function RTE_Plugin_CharLimit() {
         if (!cd) return;
         var text = "";
         try { text = cd.getData("text/plain") || ""; } catch (er) { return; }
-        if (text.length > remaining) {
+        if (visibleLength(text) > remaining) {
             // Truncate the paste to what fits.
             e.preventDefault();
             e.stopImmediatePropagation();
-            var fit = text.slice(0, remaining);
+            var fit = fitVisible(text, remaining);
             try { if (typeof editor.insertHTML === "function") editor.insertHTML(escapeHtml(fit).replace(/\n/g, "<br>")); }
             catch (e2) {}
             flash();
@@ -167,7 +188,7 @@ function RTE_Plugin_CharLimit() {
                 probe.innerHTML = __RTE_TT(dt.getData("text/html") || "");
                 text = probe.textContent || "";
             }
-            add = text.length;
+            add = visibleLength(text);
         } catch (er) { return; }
         if (!add) return;
         if (countChars() + add > maxChars()) {
@@ -181,7 +202,7 @@ function RTE_Plugin_CharLimit() {
         try { var s = editor.getSelection(); return s && s.rangeCount > 0 && !s.isCollapsed; } catch (e) { return false; }
     }
     function selectionLength() {
-        try { var s = editor.getSelection(); return s && !s.isCollapsed ? (s.toString() || "").length : 0; } catch (e) { return 0; }
+        try { var s = editor.getSelection(); return s && !s.isCollapsed ? visibleLength(s.toString()) : 0; } catch (e) { return 0; }
     }
 
     function escapeHtml(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
