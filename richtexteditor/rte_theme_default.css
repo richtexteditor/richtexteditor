@@ -439,6 +439,12 @@ rte-resizecorner {
     cursor: nw-resize;
 }
 
+/* 2026-11-18 This theme also has "rte-bottom > * { min-width: 0 }". That rule left the corner 0 pixels wide, and nobody could grab it. tools/ui/resize-handle.mjs */
+rte-bottom > rte-resizecorner {
+    flex: none;
+    min-width: 16px;
+}
+
 .rte-fullpage rte-resizecorner {
     display: none;
 }

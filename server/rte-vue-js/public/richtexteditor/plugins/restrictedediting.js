@@ -370,6 +370,14 @@ function RTE_Plugin_RestrictedEditing() {
         var idx = current ? regions.indexOf(current) : -1;
         var next = regions[(idx + direction + regions.length) % regions.length];
         if (!next) return null;
+        // 2026-11-18 Called from a button outside the editor, the caret moved but the keyboard stayed on the button, so
+        // nothing typed reached the region. Focus goes to the editable block that holds it. tools/restricted/next-region-typing.mjs
+        var holder = next.parentNode;
+        while (holder && holder !== body && holder.getAttribute("contenteditable") !== "true") holder = holder.parentNode;
+        try {
+            body.ownerDocument.defaultView.focus();
+            (holder || body).focus({ preventScroll: true });
+        } catch (e) { /* the caret still moves */ }
         var range = body.ownerDocument.createRange();
         range.selectNodeContents(next);
         range.collapse(false);
