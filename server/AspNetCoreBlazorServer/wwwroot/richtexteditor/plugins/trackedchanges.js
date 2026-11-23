@@ -922,7 +922,7 @@ function RTE_Plugin_TrackedChanges() {
                 ledger.add({
                     id: id, changeType: blockFmt ? "format" : span.getAttribute("data-tc-block") === "delete" ? "delete" : "insert", author: spanAuthor(span), text: span.textContent, isBlock: true,
                     status: "pending", sourceLabel: blockFmt ? "Suggested formatting" : span.getAttribute("data-tc-block") === "delete" ? "Suggested delete" : "Suggested insert",
-                    createdAt: Date.parse(span.getAttribute("data-tc-at") || "") || Date.now()
+                    createdAt: Date.parse(span.getAttribute("data-tc-at") || "") || Date.now(), fromMarkup: true
                 });
                 continue;
             }
@@ -935,7 +935,10 @@ function RTE_Plugin_TrackedChanges() {
                 originalHtml: isInsert ? "" : span.innerHTML,
                 status: "pending",
                 sourceLabel: isInsert ? "Suggested insert" : "Suggested delete",
-                createdAt: Date.parse(span.getAttribute("data-tc-at") || "") || Date.now()
+                createdAt: Date.parse(span.getAttribute("data-tc-at") || "") || Date.now(),
+                // 2026-11-16 rebuilt from the marks: the shared ledger's copy (author name,
+                // decisions) wins a merge over this one. tools/review/review-ledger-roundtrip.mjs
+                fromMarkup: true
             });
         }
         // and the other way: a pending suggestion of ours whose mark has left the document (undone,
@@ -1414,8 +1417,11 @@ function RTE_Plugin_TrackedChanges() {
         var range = sel.getRangeAt(0);
         if (!range.collapsed) {
             // the text it replaces is a suggested deletion, not a silent removal
-            if (!wrapRangeAsDelete(range)) { range.collapse(false); placeRange(range); }
+            // 2026-11-19 through trackSelectionDelete, which knows blocks: a selection from a table cell into a paragraph was
+            // wrapped whole in one inline span. tools/review/tracked-paste-across-blocks.mjs
+            if (!trackSelectionDelete(range.cloneRange(), true)) { range.collapse(false); placeRange(range); }
             range = sel.getRangeAt(0);
+            if (!range.collapsed) { range = range.cloneRange(); range.collapse(false); placeRange(range); range = sel.getRangeAt(0); }
         }
         // the block the core splits for a block paste, and what followed it
         var host = null;

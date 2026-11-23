@@ -594,6 +594,7 @@ RTE_DefaultConfig.text_insertbookmarktitle = "插入书签";	//"Insert bookmark"
 RTE_DefaultConfig.text_insertbookmarklabel = "链接网址";	//"Link URL"
 RTE_DefaultConfig.text_spellchecktitle = "拼写";	//"Spelling"
 RTE_DefaultConfig.text_spellchecknative = "浏览器拼写检查已开启 — 输入时会为拼写错误加下划线。";	//"Browser spell-check is on — misspellings are underlined as you type."
+RTE_DefaultConfig.text_spellchecknativeoff = "浏览器拼写检查已关闭。";
 RTE_DefaultConfig.text_spellcheckclean = "未发现拼写问题。";	//"No spelling issues found."
 RTE_DefaultConfig.text_insertdatechip = "日期标签";	//"Date Chip"
 RTE_DefaultConfig.text_insertchip = "智能标签";	//"Smart Chip"

@@ -509,6 +509,7 @@ RTE_DefaultConfig.text_insertbookmarktitle = "Lesezeichen einfügen";	//"Insert 
 RTE_DefaultConfig.text_insertbookmarklabel = "Link-URL";	//"Link URL"
 RTE_DefaultConfig.text_spellchecktitle = "Rechtschreibung";	//"Spelling"
 RTE_DefaultConfig.text_spellchecknative = "Die Rechtschreibprüfung des Browsers ist aktiv – Fehler werden beim Tippen unterstrichen.";	//"Browser spell-check is on — misspellings are underlined as you type."
+RTE_DefaultConfig.text_spellchecknativeoff = "Die Rechtschreibprüfung des Browsers ist aus.";
 RTE_DefaultConfig.text_spellcheckclean = "Keine Rechtschreibfehler gefunden.";	//"No spelling issues found."
 RTE_DefaultConfig.text_insertdatechip = "Datums-Chip";	//"Date Chip"
 RTE_DefaultConfig.text_insertchip = "Smart Chip";	//"Smart Chip"

@@ -904,6 +904,7 @@ RTE_DefaultConfig.text_insertbookmarklabel = "Link URL";
 RTE_DefaultConfig.text_spellcheck = "Spell Check";
 RTE_DefaultConfig.text_spellchecktitle = "Spelling";
 RTE_DefaultConfig.text_spellchecknative = "Browser spell-check is on \u2014 misspellings are underlined as you type.";
+RTE_DefaultConfig.text_spellchecknativeoff = "Browser spell-check is off.";
 RTE_DefaultConfig.text_spellcheckclean = "No spelling issues found.";
 RTE_DefaultConfig.text_insertdatechip = "Date Chip";
 RTE_DefaultConfig.text_insertchip = "Smart Chip";

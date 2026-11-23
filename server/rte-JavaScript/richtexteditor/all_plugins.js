@@ -1989,7 +1989,14 @@ function RTE_Plugin_AIToolkit() {
                 toggleReviewPanel(options);
             },
             saveSuggestionLedger: function () {
-                return persistSuggestionStore();
+                // an explicit save does not wait for a pause in typing: read, merge and send now
+                var saved = persistSuggestionStore();
+                if (editor.__aiSuggestionLedgerFlushTimer) {
+                    window.clearTimeout(editor.__aiSuggestionLedgerFlushTimer);
+                    editor.__aiSuggestionLedgerFlushTimer = null;
+                    loadRemoteSuggestionLedger(true);
+                }
+                return saved;
             },
             loadSuggestionLedger: function () {
                 return restoreSuggestionStore();
@@ -2035,6 +2042,7 @@ function RTE_Plugin_AIToolkit() {
             add: function (entry) {
                 var normalized = normalizeLedgerEntry(entry);
                 if (!normalized) return null;
+                forgetLedgerRemoval(normalized.id);
                 var store = getSuggestionStore();
                 for (var i = 0; i < store.length; i++) {
                     if (store[i].id === normalized.id) { store[i] = normalized; break; }
@@ -2053,6 +2061,11 @@ function RTE_Plugin_AIToolkit() {
                     for (var k in patch) if (Object.prototype.hasOwnProperty.call(patch, k)) {
                         store[i][k] = patch[k];
                     }
+                    // 2026-11-16 a reply, a reaction or a decision is a newer version of the entry:
+                    // stamp it, so merging with the shared ledger keeps it over an older copy.
+                    if (!patch || !patch.updatedAt) store[i].updatedAt = new Date().getTime();
+                    // an entry someone changed is no longer just a copy rebuilt from markup
+                    if (store[i].fromMarkup) delete store[i].fromMarkup;
                     persistSuggestionStore();
                     if (editor.__aiReviewPanel && editor.__aiReviewPanel.isConnected) {
                         renderReviewPanel(false);
@@ -2066,6 +2079,7 @@ function RTE_Plugin_AIToolkit() {
                 for (var i = 0; i < store.length; i++) {
                     if (store[i].id === id) {
                         store.splice(i, 1);
+                        noteLedgerRemoval(id);
                         persistSuggestionStore();
                         if (editor.__aiReviewPanel && editor.__aiReviewPanel.isConnected) {
                             renderReviewPanel(false);
@@ -2228,6 +2242,23 @@ function RTE_Plugin_AIToolkit() {
             }
         }
 
+        // A / R on an inline preview: the focus goes straight on to the next preview's button. Accept and
+        // reject end with editor.focus(), and the core re-arms the editing focus once more 80 ms later -
+        // which took the focus off that button and put the caret in the text, so the next shortcut key
+        // (U, J, K, A, R) was typed into the document. With a next preview to go to, that call is skipped.
+        function decideFromInlinePreviewKey(decide, suggestionId, nextSuggestionId) {
+            var keepBefore = editor.__aiDecisionKeepsDrawerFocus;
+            if (nextSuggestionId) {
+                editor.__aiDecisionKeepsDrawerFocus = true;
+            }
+            try {
+                return decide(suggestionId);
+            }
+            finally {
+                editor.__aiDecisionKeepsDrawerFocus = keepBefore;
+            }
+        }
+
         function handleInlinePreviewKeydown(e) {
             if (e.__rteAiInlinePreviewKeydownHandled) {
                 return;
@@ -2288,7 +2319,7 @@ function RTE_Plugin_AIToolkit() {
             else if (key === "a") {
                 e.preventDefault();
                 var nextSuggestionId = getNextInlineReviewSuggestionId(suggestionId);
-                if (acceptInlineSuggestion(suggestionId)) {
+                if (decideFromInlinePreviewKey(acceptInlineSuggestion, suggestionId, nextSuggestionId)) {
                     if (nextSuggestionId) {
                         locateSuggestion(nextSuggestionId, { focusInlineAction: preferredInlineAction });
                     }
@@ -2300,7 +2331,7 @@ function RTE_Plugin_AIToolkit() {
             else if (key === "r") {
                 e.preventDefault();
                 var followingSuggestionId = getNextInlineReviewSuggestionId(suggestionId);
-                if (rejectInlineSuggestion(suggestionId)) {
+                if (decideFromInlinePreviewKey(rejectInlineSuggestion, suggestionId, followingSuggestionId)) {
                     if (followingSuggestionId) {
                         locateSuggestion(followingSuggestionId, { focusInlineAction: preferredInlineAction });
                     }
@@ -4712,6 +4743,19 @@ function RTE_Plugin_AIToolkit() {
         if (items.length > 30) {
             items.length = 30;
         }
+        noteReviewLogSeen([entry]);
+    }
+
+    // 2026-11-21 every log entry this page has had, by id. The list above is cut to 30 on each own
+    // action while a server returns more (the demo endpoint: 60), so after any decision the next
+    // sync found ~30 old entries "not in the previous list", counted them as new activity by
+    // someone else, showed remote-update marks for them and re-rendered the review panel - on
+    // every sync, taking keyboard focus with it.
+    function noteReviewLogSeen(entries) {
+        if (!editor.__aiReviewLogSeenIds) editor.__aiReviewLogSeenIds = {};
+        for (var i = 0; i < (entries || []).length; i++) {
+            if (entries[i] && entries[i].id) editor.__aiReviewLogSeenIds[entries[i].id] = true;
+        }
     }
 
     function sendReviewLogRequest(method, url, body, callback) {
@@ -4827,6 +4871,8 @@ function RTE_Plugin_AIToolkit() {
             status: suggestion.status || "pending",
             createdAt: suggestion.createdAt || new Date().getTime(),
             decidedAt: suggestion.decidedAt || 0,
+            updatedAt: suggestion.updatedAt || 0,
+            decidedBy: cleanLedgerUser(suggestion.decidedBy),
             sourceLabel: suggestion.sourceLabel || "",
             scope: suggestion.snapshot && suggestion.snapshot.hasSelection ? "selection" : "document",
             text: suggestion.text || "",
@@ -4867,6 +4913,26 @@ function RTE_Plugin_AIToolkit() {
             var m = list[i];
             if (m && m.id != null && m.name) out.push({ id: String(m.id), name: String(m.name) });
         }
+        return out;
+    }
+    // 2026-11-16 who decided a human suggestion ({ id, name, color }), kept through the shared ledger.
+    function cleanLedgerUser(user) {
+        if (!user || typeof user !== "object" || user.id == null) return null;
+        return { id: String(user.id), name: String(user.name || user.id), color: user.color ? String(user.color) : "" };
+    }
+    // 2026-11-16 two copies of one comment can each carry a reply the other lacks (two reviewers answered
+    // between syncs): keep both, by reply id, oldest first.
+    function mergeLedgerReplies(a, b) {
+        var seen = {}, out = [], all = (Array.isArray(a) ? a : []).concat(Array.isArray(b) ? b : []);
+        for (var i = 0; i < all.length; i++) {
+            var r = all[i];
+            if (!r) continue;
+            var key = r.id || (r.createdAt + "|" + r.text);
+            if (seen[key]) continue;
+            seen[key] = true;
+            out.push(r);
+        }
+        out.sort(function (x, y) { return (x.createdAt || 0) - (y.createdAt || 0); });
         return out;
     }
     // 2026-10-15 comment reactions: [{ emoji, users: [id] }], kept with the comment like mentions.
@@ -4915,6 +4981,9 @@ function RTE_Plugin_AIToolkit() {
             status: raw.status || "pending",
             createdAt: raw.createdAt || new Date().getTime(),
             decidedAt: raw.decidedAt || 0,
+            updatedAt: raw.updatedAt || 0,
+            decidedBy: raw.decidedBy || null,
+            fromMarkup: !!raw.fromMarkup,
             sourceLabel: raw.sourceLabel || "",
             snapshot: raw.snapshot || { hasSelection: raw.scope === "selection" },
             text: raw.text || "",
@@ -4923,6 +4992,17 @@ function RTE_Plugin_AIToolkit() {
             blockPath: raw.blockPath || "",
             replies: Array.isArray(raw.replies) ? raw.replies : []
         };
+    }
+
+    // 2026-11-16 statuses a persisted entry keeps. An AI preview that was pending when it was saved
+    // is "stale" on load (its inline preview is not in the reopened document). A human suggestion or
+    // a comment is still pending: its mark IS in the saved HTML. Until this, every human entry
+    // reloaded from a ledger came back stale - B's review list was empty and Accept all did nothing.
+    function persistedSuggestionStatus(changeType, status) {
+        if (changeType === "ai-preview") {
+            return status === "accepted" || status === "rejected" || status === "stale" ? status : "stale";
+        }
+        return status === "pending" || status === "accepted" || status === "rejected" || status === "resolved" || status === "stale" ? status : "pending";
     }
 
     function normalizePersistedSuggestion(raw) {
@@ -4954,9 +5034,11 @@ function RTE_Plugin_AIToolkit() {
             suggestionType: getSuggestionTypeValue(raw.suggestionType || ""),
             language: raw.language || "",
             isBlock: !!raw.isBlock,
-            status: raw.status === "accepted" || raw.status === "rejected" || raw.status === "stale" ? raw.status : "stale",
+            status: persistedSuggestionStatus(changeType, raw.status),
             createdAt: raw.createdAt || new Date().getTime(),
             decidedAt: raw.decidedAt || 0,
+            updatedAt: raw.updatedAt || 0,
+            decidedBy: cleanLedgerUser(raw.decidedBy),
             sourceLabel: raw.sourceLabel || (raw.scope === "selection" ? "Selection suggestion" : "Document suggestion"),
             snapshot: {
                 hasSelection: raw.scope === "selection"
@@ -4978,8 +5060,47 @@ function RTE_Plugin_AIToolkit() {
             version: "2026-04-18",
             documentKey: getSuggestionLedgerDocumentKey(),
             savedAt: new Date().getTime(),
-            suggestions: getSuggestionStore().map(serializeSuggestion)
+            suggestions: getSuggestionStore().map(serializeSuggestion),
+            removed: getLedgerRemovalList()
         };
+    }
+
+    // 2026-11-16 deletions. Merging with the shared copy brought back every entry this reviewer had
+    // deleted (a comment, a suggestion taken back), because the other copy still had it. A removal
+    // is kept as { id, at } - in this session, and in the ledger payload ("removed") for a store that
+    // keeps the whole payload - and an entry no newer than its removal is dropped from a merge.
+    function getLedgerRemovals() {
+        if (!editor.__aiLedgerRemovals) editor.__aiLedgerRemovals = {};
+        return editor.__aiLedgerRemovals;
+    }
+    function noteLedgerRemoval(id, at) {
+        if (!id) return;
+        var removals = getLedgerRemovals();
+        at = at || new Date().getTime();
+        if (!removals[id] || removals[id] < at) removals[id] = at;
+    }
+    function forgetLedgerRemoval(id) {
+        if (id && editor.__aiLedgerRemovals) delete editor.__aiLedgerRemovals[id];
+    }
+    function readLedgerRemovals(list) {
+        if (!Array.isArray(list)) return;
+        for (var i = 0; i < list.length; i++) {
+            if (list[i] && list[i].id) noteLedgerRemoval(String(list[i].id), list[i].at || 0);
+        }
+    }
+    function getLedgerRemovalList() {
+        var removals = getLedgerRemovals(), out = [];
+        for (var id in removals) if (Object.prototype.hasOwnProperty.call(removals, id)) out.push({ id: id, at: removals[id] });
+        out.sort(function (a, b) { return b.at - a.at; });
+        return out.slice(0, 500);
+    }
+    function dropRemovedSuggestions(list) {
+        var removals = editor.__aiLedgerRemovals;
+        if (!removals) return list;
+        return list.filter(function (s) {
+            var at = s && removals[s.id];
+            return !at || getSuggestionVersionStamp(s) > at;
+        });
     }
 
     function getSuggestionStatusRank(status) {
@@ -4987,6 +5108,7 @@ function RTE_Plugin_AIToolkit() {
             case "pending":
                 return 4;
             case "accepted":
+            case "resolved":
                 return 3;
             case "rejected":
                 return 2;
@@ -4998,33 +5120,31 @@ function RTE_Plugin_AIToolkit() {
     }
 
     function getSuggestionVersionStamp(suggestion) {
-        return Math.max(suggestion && suggestion.decidedAt || 0, suggestion && suggestion.createdAt || 0);
+        return Math.max(suggestion && suggestion.decidedAt || 0, suggestion && suggestion.createdAt || 0, suggestion && suggestion.updatedAt || 0);
     }
 
+    // 2026-11-16 a copy keeps EVERY field. It used to keep only the AI-preview fields, so merging a
+    // human suggestion or a comment with the shared ledger dropped its changeType (the entry came
+    // back as an "ai-preview"), its author, its text and its replies - and that copy was POSTed back.
     function cloneSuggestionRecord(suggestion) {
         if (!suggestion) {
             return null;
         }
-        return {
-            id: suggestion.id,
-            originalHtml: suggestion.originalHtml || "",
-            originalText: suggestion.originalText || "",
-            resultText: suggestion.resultText || "",
-            resultHtml: suggestion.resultHtml || "",
-            reason: suggestion.reason || "",
-            suggestionType: suggestion.suggestionType || "",
-            language: suggestion.language || "",
-            isBlock: !!suggestion.isBlock,
-            status: suggestion.status || "stale",
-            createdAt: suggestion.createdAt || 0,
-            decidedAt: suggestion.decidedAt || 0,
-            sourceLabel: suggestion.sourceLabel || "",
-            mentions: cleanLedgerMentions(suggestion.mentions),
-            reactions: cleanLedgerReactions(suggestion.reactions),
-            snapshot: {
-                hasSelection: !!(suggestion.snapshot && suggestion.snapshot.hasSelection)
-            }
-        };
+        var copy = {};
+        for (var k in suggestion) {
+            if (Object.prototype.hasOwnProperty.call(suggestion, k)) copy[k] = suggestion[k];
+        }
+        copy.status = suggestion.status || "stale";
+        copy.createdAt = suggestion.createdAt || 0;
+        copy.decidedAt = suggestion.decidedAt || 0;
+        copy.mentions = cleanLedgerMentions(suggestion.mentions);
+        copy.reactions = cleanLedgerReactions(suggestion.reactions);
+        copy.replies = Array.isArray(suggestion.replies) ? suggestion.replies.slice() : [];
+        if (suggestion.author && typeof suggestion.author === "object") {
+            copy.author = { id: suggestion.author.id, name: suggestion.author.name, color: suggestion.author.color };
+        }
+        copy.snapshot = { hasSelection: !!(suggestion.snapshot && suggestion.snapshot.hasSelection) };
+        return copy;
     }
 
     function choosePreferredSuggestion(current, candidate) {
@@ -5034,20 +5154,74 @@ function RTE_Plugin_AIToolkit() {
         if (!candidate) {
             return current;
         }
+        var preferred = pickPreferredSuggestion(current, candidate);
+        var other = preferred === current ? candidate : current;
+        if (preferred === candidate) {
+            preferred = cloneSuggestionRecord(candidate);
+        }
+        // replies from either copy survive (two reviewers can answer between syncs)
+        if ((preferred.replies && preferred.replies.length) || (other.replies && other.replies.length)) {
+            preferred.replies = mergeLedgerReplies(preferred.replies, other.replies);
+        }
+        return preferred;
+    }
+
+    function pickPreferredSuggestion(current, candidate) {
+        // an entry track changes rebuilt from the document's marks (this reviewer never had the
+        // ledger copy) carries less than the ledger's own copy: the author's name, decisions.
+        if (current.fromMarkup && !candidate.fromMarkup) {
+            return candidate;
+        }
+        if (candidate.fromMarkup && !current.fromMarkup) {
+            return current;
+        }
 
         var currentStamp = getSuggestionVersionStamp(current);
         var candidateStamp = getSuggestionVersionStamp(candidate);
         if (candidateStamp > currentStamp) {
-            return cloneSuggestionRecord(candidate);
+            return candidate;
         }
         if (candidateStamp < currentStamp) {
             return current;
         }
 
         if (getSuggestionStatusRank(candidate.status) > getSuggestionStatusRank(current.status)) {
-            return cloneSuggestionRecord(candidate);
+            return candidate;
         }
         return current;
+    }
+
+    // 2026-11-20 the merge works on copies; the store keeps its own objects. The review UI holds on
+    // to the entry it is showing (the active suggestion, the inline preview state), and the merge now
+    // runs after every change: swapping each entry for a copy left the UI editing an object that was
+    // no longer in the store. An entry the merge changed is updated in place.
+    function keepSuggestionIdentity(localSuggestions, merged) {
+        var byId = {}, i, k;
+        for (i = 0; i < localSuggestions.length; i++) {
+            if (localSuggestions[i] && localSuggestions[i].id) byId[localSuggestions[i].id] = localSuggestions[i];
+        }
+        for (i = 0; i < merged.length; i++) {
+            var mine = byId[merged[i].id];
+            if (!mine) continue;
+            var next = merged[i];
+            for (k in mine) {
+                if (Object.prototype.hasOwnProperty.call(mine, k) && !Object.prototype.hasOwnProperty.call(next, k)) delete mine[k];
+            }
+            for (k in next) {
+                if (!Object.prototype.hasOwnProperty.call(next, k)) continue;
+                // the working snapshot (selection, ranges) is richer than the copy's summary of it
+                if (k === "snapshot" && mine.snapshot) continue;
+                mine[k] = next[k];
+            }
+            merged[i] = mine;
+        }
+        return merged;
+    }
+
+    function ledgerFingerprint(list) {
+        var parts = [];
+        for (var i = 0; i < list.length; i++) parts.push(JSON.stringify(serializeSuggestion(list[i])));
+        return parts.join("|");
     }
 
     function mergeSuggestionStores(localSuggestions, remoteSuggestions) {
@@ -5079,9 +5253,15 @@ function RTE_Plugin_AIToolkit() {
             }
         }
 
-        merged.sort(function (left, right) {
-            return getSuggestionVersionStamp(right) - getSuggestionVersionStamp(left);
-        });
+        // 2026-11-20 newest first only for a store that starts empty (a fresh load, as before). A
+        // store the reviewer is working in keeps its order, with entries new from the shared copy
+        // after it: the merge now runs after every change, and re-sorting there reordered the
+        // review queue under the reviewer (the next item to decide changed between two decisions).
+        if (!localSuggestions.length) {
+            merged.sort(function (left, right) {
+                return getSuggestionVersionStamp(right) - getSuggestionVersionStamp(left);
+            });
+        }
         return merged;
     }
 
@@ -5267,8 +5447,9 @@ function RTE_Plugin_AIToolkit() {
                 seen[previousEntries[i].id] = true;
             }
         }
+        var everSeen = editor.__aiReviewLogSeenIds || {};
         for (i = 0; i < nextEntries.length; i++) {
-            if (nextEntries[i] && nextEntries[i].id && !seen[nextEntries[i].id]) {
+            if (nextEntries[i] && nextEntries[i].id && !seen[nextEntries[i].id] && !everSeen[nextEntries[i].id]) {
                 fresh.push(nextEntries[i]);
             }
         }
@@ -5348,6 +5529,13 @@ function RTE_Plugin_AIToolkit() {
         return updated;
     }
 
+    function reviewSyncViewPrint() {
+        var log = getReviewLogEntries(), ids = [];
+        for (var i = 0; i < log.length; i++) ids.push(log[i] && log[i].id);
+        var state = getReviewState();
+        return JSON.stringify([ledgerFingerprint(getSuggestionStore()), ids.join(","), state.unseenRemoteActivityCount || 0]);
+    }
+
     function refreshRemoteReviewState(force, callback) {
         if (!hasRemoteReviewSync()) {
             if (typeof callback === "function") {
@@ -5380,6 +5568,10 @@ function RTE_Plugin_AIToolkit() {
         var hadFailure = false;
         var previousReviewEntries = getReviewLogEntries().slice();
         var hadReviewLogBaseline = !!editor.__aiReviewLogLoaded;
+        // 2026-11-20 what the reviewer sees before the sync, to tell afterwards whether it brought
+        // anything. The panel was re-rendered after EVERY sync (every 15 s, and on each window
+        // focus), and a re-render drops keyboard focus from the button the reviewer is on.
+        var reviewViewBefore = reviewSyncViewPrint();
 
         function finish() {
             remaining--;
@@ -5394,7 +5586,7 @@ function RTE_Plugin_AIToolkit() {
             else {
                 setReviewSyncState("error", "Shared AI review sync failed. Showing the last known state.");
             }
-            if (editor.__aiReviewPanel && editor.__aiReviewPanel.isConnected) {
+            if (editor.__aiReviewPanel && editor.__aiReviewPanel.isConnected && reviewSyncViewPrint() !== reviewViewBefore) {
                 renderReviewPanel(false);
             }
             var callbacks = editor.__aiReviewSyncCallbacks ? editor.__aiReviewSyncCallbacks.slice() : [];
@@ -5429,6 +5621,10 @@ function RTE_Plugin_AIToolkit() {
                 else if (hadReviewLogBaseline) {
                     registerRemoteReviewActivity(collectRemoteReviewLogEntries(previousReviewEntries, items || []));
                 }
+                if (ok) {
+                    noteReviewLogSeen(previousReviewEntries);
+                    noteReviewLogSeen(items);
+                }
                 finish();
             });
         }
@@ -5455,15 +5651,22 @@ function RTE_Plugin_AIToolkit() {
 
         sendReviewLogRequest("GET", url + "?key=" + encodeURIComponent(documentKey), null, function (xhr) {
             var remoteSuggestions = [];
+            var remoteRaw = [];
             var ok = !!(xhr && xhr.status >= 200 && xhr.status < 300);
-            if (ok) {
+            // 2026-11-16 a store that has never seen this document may answer 404: an empty ledger,
+            // not a failure (writes are held back until a load succeeds, see persistSuggestionStore)
+            var empty = !!(xhr && xhr.status === 404);
+            if (empty) ok = true;
+            if (ok && !empty) {
                 try {
                     var payload = JSON.parse(xhr.responseText || "{}");
+                    readLedgerRemovals(payload && payload.removed);
                     var list = payload && payload.suggestions ? payload.suggestions : [];
                     for (var i = 0; i < list.length; i++) {
                         var normalized = normalizePersistedSuggestion(list[i]);
                         if (normalized) {
                             remoteSuggestions.push(normalized);
+                            remoteRaw.push(list[i]);
                         }
                     }
                 }
@@ -5471,10 +5674,35 @@ function RTE_Plugin_AIToolkit() {
                 }
             }
 
-            var merged = mergeSuggestionStores(getSuggestionStore(), remoteSuggestions);
-            editor.__aiSuggestions = merged;
+            var merged = dropRemovedSuggestions(mergeSuggestionStores(getSuggestionStore(), remoteSuggestions));
+            // The store is touched only when the shared copy brought something: a reviewer working
+            // alone (and every sync with nothing new) keeps the very same array and objects.
+            var localStore = getSuggestionStore();
+            if (ledgerFingerprint(merged) !== ledgerFingerprint(localStore)) {
+                merged = keepSuggestionIdentity(localStore, merged);
+                localStore.length = 0;
+                for (var mi = 0; mi < merged.length; mi++) localStore.push(merged[mi]);
+            }
+            merged = localStore;
             editor.__aiSuggestionLedgerLoaded = ok;
-            persistSuggestionStore({ skipRemote: true });
+            // 2026-11-16 changes made before the shared copy arrived (or since the last send) were
+            // held back (see persistSuggestionStore); now that they are merged with it, send the merge.
+            // ...and send it too when the shared copy lacks something this one has: two reviewers who
+            // read before either one sent both POST, and the second overwrites the first. Whoever
+            // reads next puts their part back, so the copies converge instead of one being lost.
+            // Compared with what the server RETURNED (a pending AI preview is read back as stale on
+            // purpose, which is not a difference to send). And the same store is never re-sent
+            // against the same server answer twice: a server that does not keep everything it is
+            // sent (an older endpoint drops fields) would otherwise be re-sent to forever.
+            var sendMerged = ok && editor.__aiSuggestionLedgerDirty;
+            if (ok && !sendMerged && !empty && ledgerHasLocalNews(merged, remoteRaw)) {
+                var resendKey = ledgerFingerprint(merged) + "#" + JSON.stringify(remoteRaw);
+                if (editor.__aiSuggestionLedgerResendKey !== resendKey) {
+                    editor.__aiSuggestionLedgerResendKey = resendKey;
+                    sendMerged = true;
+                }
+            }
+            persistSuggestionStore(sendMerged ? { sendNow: true, adopted: true } : { skipRemote: true, adopted: true });
             if (typeof callback === "function") {
                 callback(merged.slice(), ok);
             }
@@ -5519,11 +5747,37 @@ function RTE_Plugin_AIToolkit() {
             window.addEventListener("focus", function () {
                 refreshRemoteReviewState(true);
             });
+            window.addEventListener("pagehide", flushSuggestionLedgerOnExit);
         }
+    }
+
+    // 2026-11-20 every changed entry gets a new updatedAt here, the one place every change passes
+    // through. The AI review code edits entries in place (accept, reject, undo, stale...) and an
+    // undo CLEARS decidedAt, so the shared copy's older decision looked newer and the merge
+    // re-applied a decision the reviewer had just undone. An entry adopted from the shared copy
+    // (options.adopted) is recorded without a new stamp: it is not this reviewer's change.
+    function stampChangedSuggestions(adopted) {
+        var store = getSuggestionStore();
+        var known = editor.__aiLedgerFingerprints || {};
+        var next = {};
+        var now = new Date().getTime();
+        for (var i = 0; i < store.length; i++) {
+            var entry = store[i];
+            if (!entry || !entry.id) continue;
+            var plain = serializeSuggestion(entry);
+            plain.updatedAt = 0;
+            var print = JSON.stringify(plain);
+            if (!adopted && Object.prototype.hasOwnProperty.call(known, entry.id) && known[entry.id] !== print) {
+                entry.updatedAt = now;
+            }
+            next[entry.id] = print;
+        }
+        editor.__aiLedgerFingerprints = next;
     }
 
     function persistSuggestionStore(options) {
         options = options || {};
+        stampChangedSuggestions(!!options.adopted);
         var payloadData = buildSuggestionLedgerPayload();
         var payload = JSON.stringify(payloadData);
 
@@ -5540,14 +5794,100 @@ function RTE_Plugin_AIToolkit() {
             catch (ignore) {
             }
         }
-        if (!options.skipRemote) {
+        // 2026-11-16 the POST replaces the shared ledger with this store. Until the shared copy has
+        // been read once, this store is only what this browser knows (entries track changes rebuilt
+        // from the document's marks), so sending it erased everyone else's entries - a second
+        // reviewer opening the document deleted the first one's comment thread. Hold it back; the
+        // first successful load merges and sends it. tools/review/review-ledger-roundtrip.mjs
+        // Later writes are read-merge-write too: the POST still replaces the shared copy, so it
+        // sends this store merged with what is there NOW, not with what was there at load. Two
+        // reviewers commenting at the same time each kept only their own thread before.
+        if (options.skipRemote || !config.aiToolkitSuggestionLedgerUrl || !payloadData.documentKey) {
+            return payload;
+        }
+        if (options.sendNow) {
+            editor.__aiSuggestionLedgerDirty = false;
             sendSuggestionLedgerPayload(payloadData, function (xhr) {
                 if (!xhr || xhr.status < 200 || xhr.status >= 300) {
+                    editor.__aiSuggestionLedgerDirty = true;
                     console.warn("AI suggestion ledger request failed");
+                    return;
                 }
+                scheduleSuggestionLedgerCheck();
             });
+            return payload;
         }
+        editor.__aiSuggestionLedgerDirty = true;
+        scheduleSuggestionLedgerFlush();
         return payload;
+    }
+
+    // One flush for a burst of changes (typing a suggestion updated the ledger once per key and
+    // POSTed the whole ledger each time): wait for a pause, read the shared copy, merge, send.
+    // Nothing is sent before a load has succeeded; when none has (first load still out, or failed,
+    // or the store was just cleared) the flush is that load, so a change never waits for the
+    // periodic sync.
+    function scheduleSuggestionLedgerFlush() {
+        if (editor.__aiSuggestionLedgerFlushTimer) {
+            window.clearTimeout(editor.__aiSuggestionLedgerFlushTimer);
+        }
+        editor.__aiSuggestionLedgerFlushTimer = window.setTimeout(function () {
+            editor.__aiSuggestionLedgerFlushTimer = null;
+            if (editor.__aiSuggestionLedgerDirty) {
+                loadRemoteSuggestionLedger(true);
+            }
+        }, 300);
+    }
+
+    // After a send, read once more a moment later (with jitter, so two reviewers do not re-read in
+    // step): if another reviewer's POST overwrote ours in between, that read sends the merge again.
+    function scheduleSuggestionLedgerCheck() {
+        if (editor.__aiSuggestionLedgerCheckTimer || !window.setTimeout) {
+            return;
+        }
+        editor.__aiSuggestionLedgerCheckTimer = window.setTimeout(function () {
+            editor.__aiSuggestionLedgerCheckTimer = null;
+            loadRemoteSuggestionLedger(true);
+        }, 800 + Math.floor(Math.random() * 700));
+    }
+
+    // Does this merged store hold anything the shared copy lacks: an entry it does not have, a newer
+    // version of one, a reply it is missing, or an entry this reviewer removed?
+    function ledgerHasLocalNews(merged, remote) {
+        var byId = {}, i;
+        for (i = 0; i < remote.length; i++) byId[remote[i].id] = remote[i];
+        if (merged.length !== remote.length) return true;
+        for (i = 0; i < merged.length; i++) {
+            var mine = merged[i], theirs = byId[mine.id];
+            if (!theirs) return true;
+            if (getSuggestionVersionStamp(mine) > getSuggestionVersionStamp(theirs)) return true;
+            if ((mine.replies || []).length !== (theirs.replies || []).length) return true;
+            if (mine.status !== (theirs.status || "pending")) return true;
+        }
+        return false;
+    }
+
+    // The page is closing with a change not yet sent: send this store as it is (there is no time to
+    // read first). keepalive lets the request outlive the page.
+    function flushSuggestionLedgerOnExit() {
+        if (!editor.__aiSuggestionLedgerDirty || !editor.__aiSuggestionLedgerLoaded) {
+            return;
+        }
+        var url = config.aiToolkitSuggestionLedgerUrl || "";
+        var payloadData = buildSuggestionLedgerPayload();
+        if (!url || !payloadData.documentKey) {
+            return;
+        }
+        editor.__aiSuggestionLedgerDirty = false;
+        try {
+            if (window.fetch) {
+                window.fetch(url, { method: "POST", keepalive: true, credentials: "same-origin", headers: { "Content-Type": "application/json; charset=utf-8", "X-Requested-With": "XMLHttpRequest" }, body: JSON.stringify(payloadData) });
+                return;
+            }
+        }
+        catch (ignore) {
+        }
+        sendSuggestionLedgerPayload(payloadData);
     }
 
     function restoreSuggestionStore() {
@@ -5561,6 +5901,7 @@ function RTE_Plugin_AIToolkit() {
 
         try {
             var parsed = JSON.parse(payload);
+            readLedgerRemovals(parsed && parsed.removed);
             var list = parsed && parsed.suggestions ? parsed.suggestions : [];
             var restored = [];
             for (var i = 0; i < list.length; i++) {
@@ -5570,6 +5911,7 @@ function RTE_Plugin_AIToolkit() {
                 }
             }
             editor.__aiSuggestions = restored;
+            editor.__aiLedgerFingerprints = null;
             pruneReviewDecisionHistory();
             setActiveSuggestionId(null);
             return restored.slice();
@@ -5583,6 +5925,15 @@ function RTE_Plugin_AIToolkit() {
     }
 
     function clearSuggestionStore() {
+        // 2026-11-20 a clear is a removal of every entry: without the markers, a read-merge-write
+        // already on its way (or another reviewer's copy) brought the cleared entries back.
+        var cleared = getSuggestionStore();
+        for (var ci = 0; ci < cleared.length; ci++) noteLedgerRemoval(cleared[ci].id);
+        if (editor.__aiSuggestionLedgerFlushTimer) {
+            window.clearTimeout(editor.__aiSuggestionLedgerFlushTimer);
+            editor.__aiSuggestionLedgerFlushTimer = null;
+        }
+        editor.__aiSuggestionLedgerDirty = false;
         editor.__aiSuggestions = [];
         clearLastReviewDecision();
         setActiveSuggestionId(null);
@@ -5603,7 +5954,8 @@ function RTE_Plugin_AIToolkit() {
             version: "2026-04-18",
             documentKey: getSuggestionLedgerDocumentKey(),
             savedAt: new Date().getTime(),
-            suggestions: []
+            suggestions: [],
+            removed: getLedgerRemovalList()
         }, function () { });
         if (editor.__aiReviewPanel && editor.__aiReviewPanel.isConnected) {
             renderReviewPanel(false);
@@ -7439,6 +7791,10 @@ function RTE_Plugin_AIToolkit() {
         var activeStillPending = false;
         var changed = false;
         for (var i = 0; i < suggestions.length; i++) {
+            // 2026-11-16 only an AI preview has an inline wrapper. A human suggestion or a comment has
+            // none, so every one of them went stale here - a merge from the shared ledger staled a
+            // second reviewer's comment threads. tools/review/review-ledger-roundtrip.mjs
+            if (suggestions[i].changeType && suggestions[i].changeType !== "ai-preview") continue;
             if (suggestions[i].status === "pending" && !getSuggestionWrapper(suggestions[i].id)) {
                 suggestions[i].status = "stale";
                 suggestions[i].decidedAt = suggestions[i].decidedAt || new Date().getTime();
@@ -7911,9 +8267,7 @@ function RTE_Plugin_AIToolkit() {
                 var bGroupName = b.getAttribute("data-rte-ai-inline-action-group") || "";
                 return getInlinePreviewActionGroupDisplayOrder(aGroupName, focusGroupName) - getInlinePreviewActionGroupDisplayOrder(bGroupName, focusGroupName);
             });
-            for (var orderedIndex = 0; orderedIndex < orderedGroups.length; orderedIndex++) {
-                actionsNode.appendChild(orderedGroups[orderedIndex]);
-            }
+            reorderChildrenKeepingFocus(actionsNode, orderedGroups);
         }
         return true;
     }
@@ -7986,9 +8340,7 @@ function RTE_Plugin_AIToolkit() {
                 var bActionName = b.getAttribute("data-rte-ai-action") || "";
                 return getInlinePreviewActionButtonDisplayOrder(groupName, aActionName, targetActionName) - getInlinePreviewActionButtonDisplayOrder(groupName, bActionName, targetActionName);
             });
-            for (var orderedButtonIndex = 0; orderedButtonIndex < groupButtons.length; orderedButtonIndex++) {
-                groupBodyNode.appendChild(groupButtons[orderedButtonIndex]);
-            }
+            reorderChildrenKeepingFocus(groupBodyNode, groupButtons);
         }
         return true;
     }
@@ -9138,7 +9490,9 @@ function RTE_Plugin_AIToolkit() {
         if (editor.__aiReviewPanel && editor.__aiReviewPanel.isConnected) {
             renderReviewPanel(false);
         }
-        editor.focus();
+        if (!editor.__aiDecisionKeepsDrawerFocus) {
+            editor.focus();
+        }
         return true;
     }
 
@@ -9176,7 +9530,9 @@ function RTE_Plugin_AIToolkit() {
         if (editor.__aiReviewPanel && editor.__aiReviewPanel.isConnected) {
             renderReviewPanel(false);
         }
-        editor.focus();
+        if (!editor.__aiDecisionKeepsDrawerFocus) {
+            editor.focus();
+        }
         return true;
     }
 
@@ -15517,11 +15873,27 @@ function RTE_Plugin_AIToolkit() {
             return false;
         }
         var handled = false;
-        if (action === "accept") {
-            handled = acceptInlineSuggestion(suggestionId);
+        // 2026-11-21 a decision made from the drawer keeps the focus in the drawer. The accept /
+        // reject below ended by focusing the editor, so a keyboard reviewer was dropped into the
+        // editing area after every decision (and in Firefox a button of this page cannot take the
+        // focus back from the editing iframe without window.focus()). A decision made from the
+        // editing area is left where it is.
+        var decidedPanel = editor.__aiReviewPanel && editor.__aiReviewPanel.isConnected ? editor.__aiReviewPanel : null;
+        // Only the legacy layout, which names the action to focus next; the default layout is as it was.
+        var decidedFromDrawer = !!(config.aiToolkitReviewLegacyLayout === true && decidedPanel && document.activeElement && decidedPanel.contains(document.activeElement));
+        // the accept / reject ends with editor.focus(); from the drawer that is skipped, and the
+        // render below puts the focus on the next item's action
+        editor.__aiDecisionKeepsDrawerFocus = decidedFromDrawer;
+        try {
+            if (action === "accept") {
+                handled = acceptInlineSuggestion(suggestionId);
+            }
+            else if (action === "reject") {
+                handled = rejectInlineSuggestion(suggestionId);
+            }
         }
-        else if (action === "reject") {
-            handled = rejectInlineSuggestion(suggestionId);
+        finally {
+            editor.__aiDecisionKeepsDrawerFocus = false;
         }
         if (handled) {
             renderReviewPanel(true, {
@@ -15597,7 +15969,7 @@ function RTE_Plugin_AIToolkit() {
         var suggestion = findSuggestionById(suggestionId);
         var wrapper = suggestion ? getSuggestionWrapper(suggestion.id) : null;
         if (!suggestion || !wrapper) {
-            if (suggestion && suggestion.status === "pending") {
+            if (suggestion && suggestion.status === "pending" && (!suggestion.changeType || suggestion.changeType === "ai-preview")) {
                 suggestion.status = "stale";
                 suggestion.decidedAt = suggestion.decidedAt || new Date().getTime();
             }
@@ -15632,10 +16004,29 @@ function RTE_Plugin_AIToolkit() {
                 wrapper.classList.remove("is-focused");
             }
         }, 1400);
-        editor.focus();
+        // The focus goes onto the preview (a button of it, or its wrapper), so the editing window only
+        // has to be the focused window. editor.focus() does more: the core re-arms the editing focus
+        // 80 ms later, which took the focus off the preview again and put the caret in the text - the
+        // next shortcut key was then typed into the document. editor.focus() stays as the fallback
+        // where the preview cannot take the focus (Firefox: nothing inside the editing area can).
+        var locateDoc = editor.getDocument ? editor.getDocument() : null;
+        try {
+            if (locateDoc && locateDoc.defaultView) {
+                locateDoc.defaultView.focus();
+            }
+        }
+        catch (focusError) { /* the fallback below covers it */ }
         var restoredInlineAction = !!(options.focusInlineAction && focusInlineSuggestionAction(suggestion.id, options.focusInlineAction));
         if (!restoredInlineAction) {
             focusInlineSuggestionWrapper(wrapper);
+        }
+        var locateFocused = locateDoc ? locateDoc.activeElement : null;
+        if (!locateFocused || !(locateFocused === wrapper || wrapper.contains(locateFocused))) {
+            editor.focus();
+            restoredInlineAction = !!(options.focusInlineAction && focusInlineSuggestionAction(suggestion.id, options.focusInlineAction));
+            if (!restoredInlineAction) {
+                focusInlineSuggestionWrapper(wrapper);
+            }
         }
         if (editor.__aiReviewPanel && editor.__aiReviewPanel.isConnected) {
             renderReviewPanel(false);
@@ -16178,6 +16569,52 @@ function RTE_Plugin_AIToolkit() {
         return joinSentences(parts);
     }
 
+    // 2026-11-21 moving an element drops keyboard focus from anything inside it, and the review
+    // drawer re-orders its action groups and buttons from the focus handler of those very buttons:
+    // focusing Redo re-appended its own group and the focus went to the page. The children are left
+    // alone when they are already in order; when they do move, the control that had the focus gets
+    // it back.
+    function reorderChildrenKeepingFocus(parent, ordered) {
+        if (!parent || !ordered || !ordered.length) {
+            return false;
+        }
+        var present = [];
+        for (var i = 0; i < parent.children.length; i++) {
+            if (ordered.indexOf(parent.children[i]) >= 0) present.push(parent.children[i]);
+        }
+        var inOrder = present.length === ordered.length && parent.children[parent.children.length - 1] === ordered[ordered.length - 1];
+        for (var j = 0; inOrder && j < ordered.length; j++) {
+            if (present[j] !== ordered[j]) inOrder = false;
+        }
+        // "in order" also means they sit together at the end, where appending would put them
+        for (var t = 0; inOrder && t < ordered.length; t++) {
+            if (parent.children[parent.children.length - ordered.length + t] !== ordered[t]) inOrder = false;
+        }
+        if (inOrder) {
+            return false;
+        }
+        var doc = parent.ownerDocument || document;
+        var focused = doc.activeElement && parent.contains(doc.activeElement) ? doc.activeElement : null;
+        for (var k = 0; k < ordered.length; k++) {
+            parent.appendChild(ordered[k]);
+        }
+        if (focused && doc.activeElement !== focused && focused.isConnected && focused.focus) {
+            focused.focus();
+            // Firefox ignores a focus() made while the focus event of that same element is still
+            // being dispatched (this runs from that handler): ask again once it is over.
+            if (doc.activeElement !== focused && window.setTimeout) {
+                window.setTimeout(function () {
+                    var active = doc.activeElement;
+                    var elsewhere = active && active !== doc.body && active !== focused && parent.contains(active);
+                    if (!elsewhere && active !== focused && focused.isConnected) {
+                        focused.focus();
+                    }
+                }, 0);
+            }
+        }
+        return true;
+    }
+
     function syncActiveReviewActionSummary(preferredAction) {
         var panel = editor.__aiReviewPanel && editor.__aiReviewPanel.isConnected ? editor.__aiReviewPanel : null;
         if (!panel || !panel.querySelector) {
@@ -16352,9 +16789,7 @@ function RTE_Plugin_AIToolkit() {
                 || (b.classList.contains("is-decision") ? "decision" : (b.classList.contains("is-recovery") ? "recovery" : (b.classList.contains("is-locate") ? "locate" : "")));
             return getReviewActionGroupDisplayOrder(aGroupName, currentGroupName) - getReviewActionGroupDisplayOrder(bGroupName, currentGroupName);
         });
-        for (var orderedGroupIndex = 0; orderedGroupIndex < orderedGroups.length; orderedGroupIndex++) {
-            actionsNode.appendChild(orderedGroups[orderedGroupIndex]);
-        }
+        reorderChildrenKeepingFocus(actionsNode, orderedGroups);
         return true;
     }
 
@@ -16431,9 +16866,7 @@ function RTE_Plugin_AIToolkit() {
                 var bActionName = b.getAttribute("data-rte-ai-review-action") || "";
                 return getReviewActionButtonDisplayOrder(groupName, aActionName, targetActionName) - getReviewActionButtonDisplayOrder(groupName, bActionName, targetActionName);
             });
-            for (var orderedIndex = 0; orderedIndex < groupButtons.length; orderedIndex++) {
-                groupNode.appendChild(groupButtons[orderedIndex]);
-            }
+            reorderChildrenKeepingFocus(groupNode, groupButtons);
         }
         return true;
     }
@@ -18765,6 +19198,20 @@ function RTE_Plugin_AIToolkit() {
             }
         }
 
+        // A control of the drawer itself (Show resolved, Sync now, Close ...) had the focus and this
+        // render was not asked to move it - e.g. the re-render after a shared-review sync answer. The
+        // key was remembered above but only put back on the paths that restore the focus anyway, so
+        // here the rebuilt drawer left the focus on the page: J / K / Enter went nowhere. Put it back
+        // at once (no timer: the next key may already be on its way).
+        if (!shouldRestoreReviewFocus && preserveReviewControlFocusKey && panel && panel.querySelector) {
+            var keptControl = panel.querySelector('[data-rte-ai-review-focus-key="' + preserveReviewControlFocusKey + '"]');
+            if (keptControl && !keptControl.disabled && keptControl.focus) {
+                keptControl.focus();
+            }
+            else if (panel.focus) {
+                panel.focus();
+            }
+        }
         if (shouldRestoreReviewFocus) {
             setTimeout(function () {
                 var restoredControl = null;
@@ -46710,12 +47157,17 @@ function RTE_Plugin_SpellCheck() {
     obj.RunSpellCheck = function () {
         // No resolver → native browser spell-check only.
         if (!config.spellCheckResolver || typeof config.spellCheckResolver !== "function") {
+            // 2026-11-18 The button could only turn checking on, so it stayed pressed for good. It toggles now.
+            // tools/spellcheck/native-toggle.mjs
+            var turnOn = true;
             try {
                 var editable = editor.getEditable();
-                editable.setAttribute("spellcheck", "true");
+                turnOn = editable.getAttribute("spellcheck") !== "true";
+                editable.setAttribute("spellcheck", turnOn ? "true" : "false");
                 editable.focus();
             } catch (e) { }
-            notify((editor.getLangText && editor.getLangText("spellchecknative")) || "Browser spell-check is on \u2014 misspellings are underlined as you type.");
+            if (turnOn) notify((editor.getLangText && editor.getLangText("spellchecknative")) || "Browser spell-check is on \u2014 misspellings are underlined as you type.");
+            else notify(pText("spellchecknativeoff", "Browser spell-check is off."));
             return;
         }
 
@@ -50916,7 +51368,7 @@ function RTE_Plugin_TrackedChanges() {
                 ledger.add({
                     id: id, changeType: blockFmt ? "format" : span.getAttribute("data-tc-block") === "delete" ? "delete" : "insert", author: spanAuthor(span), text: span.textContent, isBlock: true,
                     status: "pending", sourceLabel: blockFmt ? "Suggested formatting" : span.getAttribute("data-tc-block") === "delete" ? "Suggested delete" : "Suggested insert",
-                    createdAt: Date.parse(span.getAttribute("data-tc-at") || "") || Date.now()
+                    createdAt: Date.parse(span.getAttribute("data-tc-at") || "") || Date.now(), fromMarkup: true
                 });
                 continue;
             }
@@ -50929,7 +51381,10 @@ function RTE_Plugin_TrackedChanges() {
                 originalHtml: isInsert ? "" : span.innerHTML,
                 status: "pending",
                 sourceLabel: isInsert ? "Suggested insert" : "Suggested delete",
-                createdAt: Date.parse(span.getAttribute("data-tc-at") || "") || Date.now()
+                createdAt: Date.parse(span.getAttribute("data-tc-at") || "") || Date.now(),
+                // 2026-11-16 rebuilt from the marks: the shared ledger's copy (author name,
+                // decisions) wins a merge over this one. tools/review/review-ledger-roundtrip.mjs
+                fromMarkup: true
             });
         }
         // and the other way: a pending suggestion of ours whose mark has left the document (undone,
@@ -51408,8 +51863,11 @@ function RTE_Plugin_TrackedChanges() {
         var range = sel.getRangeAt(0);
         if (!range.collapsed) {
             // the text it replaces is a suggested deletion, not a silent removal
-            if (!wrapRangeAsDelete(range)) { range.collapse(false); placeRange(range); }
+            // 2026-11-19 through trackSelectionDelete, which knows blocks: a selection from a table cell into a paragraph was
+            // wrapped whole in one inline span. tools/review/tracked-paste-across-blocks.mjs
+            if (!trackSelectionDelete(range.cloneRange(), true)) { range.collapse(false); placeRange(range); }
             range = sel.getRangeAt(0);
+            if (!range.collapsed) { range = range.cloneRange(); range.collapse(false); placeRange(range); range = sel.getRangeAt(0); }
         }
         // the block the core splits for a block paste, and what followed it
         var host = null;

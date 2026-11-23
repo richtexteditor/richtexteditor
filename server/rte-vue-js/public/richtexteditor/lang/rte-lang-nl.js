@@ -413,6 +413,7 @@ RTE_DefaultConfig.text_insertbookmarktitle = "Bladwijzer invoegen";	//"Insert bo
 RTE_DefaultConfig.text_insertbookmarklabel = "Koppelings-URL";	//"Link URL"
 RTE_DefaultConfig.text_spellchecktitle = "Spelling";	//"Spelling"
 RTE_DefaultConfig.text_spellchecknative = "De spellingcontrole van de browser staat aan – fouten worden onderstreept terwijl je typt.";	//"Browser spell-check is on — misspellings are underlined as you type."
+RTE_DefaultConfig.text_spellchecknativeoff = "De spellingcontrole van de browser staat uit.";
 RTE_DefaultConfig.text_spellcheckclean = "Geen spelfouten gevonden.";	//"No spelling issues found."
 RTE_DefaultConfig.text_insertdatechip = "Datumchip";	//"Date Chip"
 RTE_DefaultConfig.text_insertchip = "Slimme chip";	//"Smart Chip"

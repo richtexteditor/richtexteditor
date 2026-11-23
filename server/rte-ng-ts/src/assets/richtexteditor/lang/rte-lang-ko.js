@@ -413,6 +413,7 @@ RTE_DefaultConfig.text_insertbookmarktitle = "책갈피 삽입";	//"Insert bookm
 RTE_DefaultConfig.text_insertbookmarklabel = "링크 URL";	//"Link URL"
 RTE_DefaultConfig.text_spellchecktitle = "맞춤법";	//"Spelling"
 RTE_DefaultConfig.text_spellchecknative = "브라우저 맞춤법 검사가 켜져 있습니다 — 입력하는 동안 오타에 밑줄이 표시됩니다.";	//"Browser spell-check is on — misspellings are underlined as you type."
+RTE_DefaultConfig.text_spellchecknativeoff = "브라우저 맞춤법 검사가 꺼져 있습니다.";
 RTE_DefaultConfig.text_spellcheckclean = "맞춤법 문제가 없습니다.";	//"No spelling issues found."
 RTE_DefaultConfig.text_insertdatechip = "날짜 칩";	//"Date Chip"
 RTE_DefaultConfig.text_insertchip = "스마트 칩";	//"Smart Chip"

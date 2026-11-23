@@ -104,12 +104,17 @@ function RTE_Plugin_SpellCheck() {
     obj.RunSpellCheck = function () {
         // No resolver → native browser spell-check only.
         if (!config.spellCheckResolver || typeof config.spellCheckResolver !== "function") {
+            // 2026-11-18 The button could only turn checking on, so it stayed pressed for good. It toggles now.
+            // tools/spellcheck/native-toggle.mjs
+            var turnOn = true;
             try {
                 var editable = editor.getEditable();
-                editable.setAttribute("spellcheck", "true");
+                turnOn = editable.getAttribute("spellcheck") !== "true";
+                editable.setAttribute("spellcheck", turnOn ? "true" : "false");
                 editable.focus();
             } catch (e) { }
-            notify((editor.getLangText && editor.getLangText("spellchecknative")) || "Browser spell-check is on \u2014 misspellings are underlined as you type.");
+            if (turnOn) notify((editor.getLangText && editor.getLangText("spellchecknative")) || "Browser spell-check is on \u2014 misspellings are underlined as you type.");
+            else notify(pText("spellchecknativeoff", "Browser spell-check is off."));
             return;
         }
 

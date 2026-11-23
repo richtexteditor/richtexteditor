@@ -594,6 +594,7 @@ RTE_DefaultConfig.text_insertbookmarktitle = "插入書籤";	//"Insert bookmark"
 RTE_DefaultConfig.text_insertbookmarklabel = "連結網址";	//"Link URL"
 RTE_DefaultConfig.text_spellchecktitle = "拼字";	//"Spelling"
 RTE_DefaultConfig.text_spellchecknative = "瀏覽器拼字檢查已開啟 — 輸入時會為拼字錯誤加上底線。";	//"Browser spell-check is on — misspellings are underlined as you type."
+RTE_DefaultConfig.text_spellchecknativeoff = "瀏覽器拼字檢查已關閉。";
 RTE_DefaultConfig.text_spellcheckclean = "找不到拼字問題。";	//"No spelling issues found."
 RTE_DefaultConfig.text_insertdatechip = "日期標籤";	//"Date Chip"
 RTE_DefaultConfig.text_insertchip = "智慧標籤";	//"Smart Chip"

@@ -413,6 +413,7 @@ RTE_DefaultConfig.text_insertbookmarktitle = "Inserir marcador";	//"Insert bookm
 RTE_DefaultConfig.text_insertbookmarklabel = "URL do link";	//"Link URL"
 RTE_DefaultConfig.text_spellchecktitle = "Ortografia";	//"Spelling"
 RTE_DefaultConfig.text_spellchecknative = "A verificação ortográfica do navegador está ativada — erros são sublinhados enquanto você digita.";	//"Browser spell-check is on — misspellings are underlined as you type."
+RTE_DefaultConfig.text_spellchecknativeoff = "A verificação ortográfica do navegador está desativada.";
 RTE_DefaultConfig.text_spellcheckclean = "Nenhum problema de ortografia encontrado.";	//"No spelling issues found."
 RTE_DefaultConfig.text_insertdatechip = "Chip de data";	//"Date Chip"
 RTE_DefaultConfig.text_insertchip = "Chip inteligente";	//"Smart Chip"

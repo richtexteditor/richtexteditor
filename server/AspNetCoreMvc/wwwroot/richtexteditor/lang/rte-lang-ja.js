@@ -413,6 +413,7 @@ RTE_DefaultConfig.text_insertbookmarktitle = "ブックマークの挿入";	//"I
 RTE_DefaultConfig.text_insertbookmarklabel = "リンク URL";	//"Link URL"
 RTE_DefaultConfig.text_spellchecktitle = "スペル";	//"Spelling"
 RTE_DefaultConfig.text_spellchecknative = "ブラウザーのスペルチェックが有効です — 入力中にスペルミスに下線が引かれます。";	//"Browser spell-check is on — misspellings are underlined as you type."
+RTE_DefaultConfig.text_spellchecknativeoff = "ブラウザのスペルチェックはオフです。";
 RTE_DefaultConfig.text_spellcheckclean = "スペルの問題は見つかりませんでした。";	//"No spelling issues found."
 RTE_DefaultConfig.text_insertdatechip = "日付チップ";	//"Date Chip"
 RTE_DefaultConfig.text_insertchip = "スマートチップ";	//"Smart Chip"

@@ -413,6 +413,7 @@ RTE_DefaultConfig.text_insertbookmarktitle = "Вставить закладку"
 RTE_DefaultConfig.text_insertbookmarklabel = "URL ссылки";	//"Link URL"
 RTE_DefaultConfig.text_spellchecktitle = "Орфография";	//"Spelling"
 RTE_DefaultConfig.text_spellchecknative = "Проверка орфографии браузера включена — ошибки подчёркиваются при вводе.";	//"Browser spell-check is on — misspellings are underlined as you type."
+RTE_DefaultConfig.text_spellchecknativeoff = "Проверка орфографии браузера выключена.";
 RTE_DefaultConfig.text_spellcheckclean = "Орфографических ошибок не найдено.";	//"No spelling issues found."
 RTE_DefaultConfig.text_insertdatechip = "Чип даты";	//"Date Chip"
 RTE_DefaultConfig.text_insertchip = "Умный чип";	//"Smart Chip"
