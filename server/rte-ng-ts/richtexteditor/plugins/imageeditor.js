@@ -218,7 +218,9 @@ function RTE_Plugin_ImageEditor() {
 
 		var iframe = __Append(dialoginner, "iframe", "align-self:center;flex:99;width:100%;height:100%;border:0px;", "rte-editable");
 		iframe.contentDocument.open("text/html");
-		iframe.contentDocument.write(__RTE_TT("<html><head><base href='" + editor.htmlEncode(location.href) + "'/>"
+		// document.baseURI, not location.href: on a page with <base href> the relative url_base resolves
+		// against the base, so location.href pointed every tui script and stylesheet at the wrong folder.
+		iframe.contentDocument.write(__RTE_TT("<html><head><base href='" + editor.htmlEncode(document.baseURI || location.href) + "'/>"
 			+ "<link id='url-css-preview' rel='stylesheet' href='" + editor.htmlEncode(scriptbase + "tui-color-picker.min.css") + "'/>"
 			+ "<link id='url-css-preview' rel='stylesheet' href='" + editor.htmlEncode(scriptbase + "tui-image-editor.min.css") + "'/>"
 			+ "<script src='" + editor.htmlEncode(scriptbase + "fabric.min.js") + "'></script>"

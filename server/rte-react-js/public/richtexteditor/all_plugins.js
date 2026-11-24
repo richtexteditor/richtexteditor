@@ -32866,7 +32866,9 @@ function RTE_Plugin_Html2PDF() {
 
 		iframe = __Append(div1, "iframe", "align-self:center;flex:99;width:100%;height:0px;border:0px;", "rte-editable");
 		iframe.contentDocument.open("text/html");
-		iframe.contentDocument.write(__RTE_TT("<html><head><link id='url-css-preview' rel='stylesheet' href='" + editor.htmlEncode(config.previewCssUrl) + "'/>"
+		// Absolute, like the script below: a relative href written into this frame ignores the page's
+		// <base href> (every download demo has one), so the preview CSS 404'd and the PDF lost its styles.
+		iframe.contentDocument.write(__RTE_TT("<html><head><link id='url-css-preview' rel='stylesheet' href='" + editor.htmlEncode(absoluteUrl(config.previewCssUrl)) + "'/>"
 			+ "<script src='" + editor.htmlEncode(resolveScriptUrl()) + "'></script></head><body style='padding:10px;margin:0px'>"
 			+ editor.getHTMLCode() + "</body>"
 			+ "<script>window.onload=function(){setTimeout(function(){parent.html2pdf_callback(window)},100)}</script></html>"))
@@ -33099,7 +33101,9 @@ function RTE_Plugin_ImageEditor() {
 
 		var iframe = __Append(dialoginner, "iframe", "align-self:center;flex:99;width:100%;height:100%;border:0px;", "rte-editable");
 		iframe.contentDocument.open("text/html");
-		iframe.contentDocument.write(__RTE_TT("<html><head><base href='" + editor.htmlEncode(location.href) + "'/>"
+		// document.baseURI, not location.href: on a page with <base href> the relative url_base resolves
+		// against the base, so location.href pointed every tui script and stylesheet at the wrong folder.
+		iframe.contentDocument.write(__RTE_TT("<html><head><base href='" + editor.htmlEncode(document.baseURI || location.href) + "'/>"
 			+ "<link id='url-css-preview' rel='stylesheet' href='" + editor.htmlEncode(scriptbase + "tui-color-picker.min.css") + "'/>"
 			+ "<link id='url-css-preview' rel='stylesheet' href='" + editor.htmlEncode(scriptbase + "tui-image-editor.min.css") + "'/>"
 			+ "<script src='" + editor.htmlEncode(scriptbase + "fabric.min.js") + "'></script>"
